@@ -36,10 +36,13 @@
     (error 'nyi "Exports are not yet implemented"))
   empty)
 
-(define (parse-definitions definitions)
-  (unless (empty? definitions)
-    (error 'nyi "Definitions are not yet implemented"))
-  empty)
+(define (parse-definitions defs)
+  (define (parse-definition sexp)
+    (match sexp
+      [`(define (,name . ,(list (? symbol? args) ...)) ,body)
+        (values name (definition& args (parse-expression body)))]))
+  (for/hash ([def (in-list defs)])
+    (parse-definition def)))
 
 
 (define (parse-expression sexp)
@@ -62,4 +65,12 @@
     '(module empty
        (import)
        (export)))
-  (define empty-module (parse-module empty-module-src)))
+  (define empty-module (parse-module empty-module-src))
+
+  (define exit-code-module-src
+    '(module hello-world
+       (import)
+       (export)
+       (define (main)
+         1)))
+  (define exit-code-module (parse-module exit-code-module-src)))
