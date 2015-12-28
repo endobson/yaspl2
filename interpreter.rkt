@@ -68,8 +68,7 @@
 (struct string-val value (v))
 
 (struct halt-k ())
-(struct apply-k (args env cont))
-(struct apply2-k (fun vals args env cont))
+(struct apply-k (vals args env cont))
 
 (struct full-name (module-name main-name) #:transparent)
 
@@ -102,9 +101,10 @@
 
   (byte-val-v
     (run-machine
-      (cont-machine-state main-fun (apply-k empty env (halt-k))))))
+      (apply-machine-state (list main-fun) empty env (halt-k)))))
 
 (struct eval-machine-state (expr env cont))
+(struct apply-machine-state (vals exprs env cont))
 (struct cont-machine-state (val cont))
 (struct error-machine-state (info))
 
@@ -127,25 +127,20 @@
      (match expr
        [(byte& v)
         (run-machine (cont-machine-state (byte-val v) cont))])]
+    [(apply-machine-state vals exprs env cont)
+     (run-machine
+       (if (empty? exprs)
+           (let ([vals (reverse vals)])
+             (call-function (first vals) (rest vals) cont))
+           (eval-machine-state
+             (first exprs)
+             env
+             (apply-k vals (rest exprs) env cont))))]
     [(cont-machine-state val cont)
      (match cont
        [(halt-k) val]
-       [(apply-k args env cont)
-        (run-machine
-          (if (empty? args)
-              (call-function val empty cont)
-              (eval-machine-state
-                (first args)
-                env
-                (apply2-k val empty (rest args) env cont))))]
-       [(apply2-k fun vals args env cont)
-        (run-machine
-          (if (empty? args)
-              (call-function fun (reverse (cons val vals)) cont)
-              (eval-machine-state
-                (first args)
-                env
-                (apply2-k fun (cons val vals) (rest args) env cont))))])]))
+       [(apply-k vals args env cont)
+        (run-machine (apply-machine-state (cons val vals) args env cont))])]))
 
 
 
