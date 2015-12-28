@@ -74,18 +74,21 @@
 
 ;; Ties the not of recursive global functions
 (define (make-global-env modules)
-  (define env (make-hash))
-  (for* ([module modules]
-         [export (in-list (module&-exports module))])
-    (define name (export&-name export))
-    (define def (hash-ref (module&-definitions module) name))
-    (define val
-      (match def
-        [(definition& args body)
-         (function-val args env body)]))
+  (define global-env (make-hash))
+  (for ([module modules])
+    (define local-env (make-hash))
 
-    (hash-set! env (full-name (module&-name module) name) val))
-  env)
+    (for ([(name def) (in-hash (module&-definitions module))])
+      (define val
+        (match def
+          [(definition& args body)
+           (function-val args local-env body)]))
+      (hash-set! local-env name val))
+    (for ([export (in-list (module&-exports module))])
+      (define name (export&-name export))
+      (hash-set! global-env (full-name (module&-name module) name)
+                 (hash-ref local-env name))))
+  global-env)
 
 
 (define (run-program modules module-name main-name)
@@ -101,7 +104,7 @@
 
   (byte-val-v
     (run-machine
-      (apply-machine-state (list main-fun) empty env (halt-k)))))
+      (call-function main-fun empty (halt-k)))))
 
 (struct eval-machine-state (expr env cont))
 (struct apply-machine-state (vals exprs env cont))
@@ -126,7 +129,11 @@
     [(eval-machine-state expr env cont)
      (match expr
        [(byte& v)
-        (run-machine (cont-machine-state (byte-val v) cont))])]
+        (run-machine (cont-machine-state (byte-val v) cont))]
+       [(variable& v)
+        (run-machine (cont-machine-state (hash-ref env v) cont))]
+       [(app& op vs)
+        (run-machine (apply-machine-state empty (cons op vs) env cont))])]
     [(apply-machine-state vals exprs env cont)
      (run-machine
        (if (empty? exprs)
@@ -168,4 +175,16 @@
        (define (main)
          1)))
 
-  (yaspl-test 'exit-code 'main 1))
+  (add-module!
+    '(module exit-code2
+       (import)
+       (export main helper)
+       (define (main)
+         (helper))
+       (define (helper)
+         2)))
+
+
+  (yaspl-test 'exit-code 'main 1)
+  (yaspl-test 'exit-code2 'main 2)
+  )
