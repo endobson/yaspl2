@@ -117,9 +117,13 @@
   (match fun
     [(function-val arg-names env body)
      (define new-env
-       (for/fold ([env env]) ([v (in-list args)] [name (in-list arg-names)])
+       (for/fold ([env (hash-copy/immutable env)])
+                 ([v (in-list args)] [name (in-list arg-names)])
          (hash-set env name v)))
      (eval-machine-state body new-env cont)]))
+
+(define (hash-copy/immutable env)
+  (make-immutable-hash (hash->list env)))
 
 
 (define (run-machine machine)
@@ -184,7 +188,17 @@
        (define (helper)
          2)))
 
+  (add-module!
+    '(module exit-code3
+       (import)
+       (export main helper)
+       (define (main)
+         (helper 3))
+       (define (helper x)
+         x)))
+
 
   (yaspl-test 'exit-code 'main 1)
   (yaspl-test 'exit-code2 'main 2)
+  (yaspl-test 'exit-code3 'main 3)
   )
