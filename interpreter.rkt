@@ -6,6 +6,7 @@
 
 (struct module& (name imports exports definitions))
 
+(struct export& (name))
 (struct definition& (args body))
 
 (struct expression& ())
@@ -32,9 +33,9 @@
   empty)
 
 (define (parse-exports exports)
-  (unless (empty? exports)
-    (error 'nyi "Exports are not yet implemented"))
-  empty)
+  (match exports
+   [(list (? symbol? exports) ...)
+    (map export& exports)]))
 
 (define (parse-definitions defs)
   (define (parse-definition sexp)
@@ -59,18 +60,117 @@
      (app& (parse op) (map parse args))]))
 
 
+;;;;
+
+(struct value ())
+(struct function-val value (args env body))
+(struct byte-val value (v))
+(struct string-val value (v))
+
+(struct halt-k ())
+(struct apply-k (args env cont))
+(struct apply2-k (fun vals args env cont))
+
+(struct full-name (module-name main-name) #:transparent)
+
+;; Ties the not of recursive global functions
+(define (make-global-env modules)
+  (define env (make-hash))
+  (for* ([module modules]
+         [export (in-list (module&-exports module))])
+    (define name (export&-name export))
+    (define def (hash-ref (module&-definitions module) name))
+    (define val
+      (match def
+        [(definition& args body)
+         (function-val args env body)]))
+
+    (hash-set! env (full-name (module&-name module) name) val))
+  env)
+
+
+(define (run-program modules module-name main-name)
+  (define env (make-global-env modules))
+  (define full-main-name (full-name module-name main-name))
+  (define main-fun (hash-ref env full-main-name #f))
+  (unless main-fun
+    (error 'run-program "Main function is not exported: ~s in ~s" full-main-name))
+  (unless (function-val? main-fun)
+    (error 'run-program "Main function is not a function value: ~s" main-fun))
+  (unless (zero? (length (function-val-args main-fun)))
+    (error 'run-program "Main function does not have correct arity: ~s" main-fun))
+
+  (byte-val-v
+    (run-machine
+      (cont-machine-state main-fun (apply-k empty env (halt-k))))))
+
+(struct eval-machine-state (expr env cont))
+(struct cont-machine-state (val cont))
+(struct error-machine-state (info))
+
+
+
+(define (call-function fun args cont)
+  (match fun
+    [(function-val arg-names env body)
+     (define new-env
+       (for/fold ([env env]) ([v (in-list args)] [name (in-list arg-names)])
+         (hash-set env name v)))
+     (eval-machine-state body new-env cont)]))
+
+
+(define (run-machine machine)
+  (match machine
+    [(error-machine-state info)
+     (error 'run-machine "Error running the machine: %s" info)]
+    [(eval-machine-state expr env cont)
+     (match expr
+       [(byte& v)
+        (run-machine (cont-machine-state (byte-val v) cont))])]
+    [(cont-machine-state val cont)
+     (match cont
+       [(halt-k) val]
+       [(apply-k args env cont)
+        (run-machine
+          (if (empty? args)
+              (call-function val empty cont)
+              (eval-machine-state
+                (first args)
+                env
+                (apply2-k val empty (rest args) env cont))))]
+       [(apply2-k fun vals args env cont)
+        (run-machine
+          (if (empty? args)
+              (call-function fun (reverse (cons val vals)) cont)
+              (eval-machine-state
+                (first args)
+                env
+                (apply2-k fun (cons val vals) (rest args) env cont))))])]))
+
+
 
 (module+ test
-  (define empty-module-src
+  (require racket/set)
+  (require rackunit)
+
+  (define modules (mutable-set))
+  (define (add-module! module)
+    (set-add! modules (parse-module module)))
+
+  (define (yaspl-test module-name main-name exit-code)
+    (check-equal? (run-program modules module-name main-name) exit-code))
+
+
+  (add-module!
     '(module empty
        (import)
        (export)))
-  (define empty-module (parse-module empty-module-src))
 
-  (define exit-code-module-src
-    '(module hello-world
+  (add-module!
+    '(module exit-code
        (import)
-       (export)
+       (export main)
        (define (main)
          1)))
-  (define exit-code-module (parse-module exit-code-module-src)))
+
+  (yaspl-test 'exit-code 'main 1))
