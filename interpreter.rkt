@@ -16,9 +16,8 @@
 (struct string& expression& (v))
 (struct variable& expression& (v))
 (struct if& expression& (cond true false))
-(struct begin& expression& (exprs last-expr))
+(struct begin& expression& (first-expr exprs))
 (struct app& expression& (op args))
-
 
 
 (define (parse-module sexp)
@@ -61,8 +60,8 @@
     [(? symbol? sym) (variable& sym)]
     [`(if ,cond ,true ,false)
      (if& (parse cond) (parse true) (parse false))]
-    [(list 'begin exprs ... last-expr)
-     (begin& (map parse exprs) (parse last-expr))]
+    [(list 'begin first-expr exprs ...)
+     (begin& (parse first-expr) (map parse exprs))]
     [(list op args ...)
      (app& (parse op) (map parse args))]))
 
@@ -71,6 +70,7 @@
 
 (struct value ())
 (struct function-val value (args env body))
+(struct void-val value ())
 (struct byte-val value (v))
 (struct boolean-val value (v))
 (struct string-val value (v))
@@ -81,6 +81,7 @@
 (struct halt-k ())
 (struct apply-k (vals args env cont))
 (struct if-k (true false env cont))
+(struct ignore-k (expr env cont))
 
 (struct full-name (module-name main-name) #:transparent)
 
@@ -90,7 +91,7 @@
 ;; Ties the not of recursive global functions
 (define (make-global-env modules)
   (define (make-primitive-environment)
-    (define prims '(+))
+    (define prims '(+ write-byte))
     (hash-copy
       (for/hash ([prim (in-list prims)])
         (values (full-name 'prim prim) (prim-function-val prim)))))
@@ -161,7 +162,12 @@
        [(+)
         (match args
           [(list (byte-val x) (byte-val y))
-           (cont-machine-state (byte-val (+ x y)) cont)])])]))
+           (cont-machine-state (byte-val (+ x y)) cont)])]
+       [(write-byte)
+        (match args
+          [(list (byte-val x) (prim-port-val p))
+           (write-byte x p)
+           (cont-machine-state (void-val) cont)])])]))
 
 (define (hash-copy/immutable env)
   (make-immutable-hash (hash->list env)))
@@ -182,7 +188,12 @@
        [(app& op vs)
         (run-machine (apply-machine-state empty (cons op vs) env cont))]
        [(if& cond true false)
-        (run-machine (eval-machine-state cond env (if-k true false env cont)))])]
+        (run-machine (eval-machine-state cond env (if-k true false env cont)))]
+       [(begin& first-expr exprs)
+        (run-machine
+          (eval-machine-state first-expr env
+            (for/fold ([cont cont]) ([expr (in-list (reverse exprs))])
+              (ignore-k expr env cont))))])]
     [(apply-machine-state vals exprs env cont)
      (run-machine
        (if (empty? exprs)
@@ -195,6 +206,8 @@
     [(cont-machine-state val cont)
      (match cont
        [(halt-k) val]
+       [(ignore-k expr env cont)
+        (run-machine (eval-machine-state expr env cont))]
        [(apply-k vals args env cont)
         (run-machine (apply-machine-state (cons val vals) args env cont))]
        [(if-k true false env cont)
@@ -266,9 +279,25 @@
        (define (main stdout stderr)
          (+ 2 3))))
 
+
+  (add-module!
+    '(module stdout1
+       (import (prim write-byte))
+       (export main)
+       (define (main stdout stderr)
+         (begin
+           (write-byte 65 stdout)
+           (write-byte 97 stdout)
+           0))))
+
+
   (yaspl-test 'exit-code 'main #:exit-code 1)
   (yaspl-test 'exit-code2 'main #:exit-code 2)
   (yaspl-test 'exit-code3 'main #:exit-code 3)
   (yaspl-test 'exit-code4 'main #:exit-code 4)
   (yaspl-test 'exit-code5 'main #:exit-code 5)
+
+  (yaspl-test 'stdout1 'main #:stdout #"Aa")
+
+
   )
