@@ -71,10 +71,12 @@
 
 (struct value ())
 (struct function-val value (args env body))
-(struct prim-function-val value (name))
 (struct byte-val value (v))
 (struct boolean-val value (v))
 (struct string-val value (v))
+
+(struct prim-port-val value (port))
+(struct prim-function-val value (name))
 
 (struct halt-k ())
 (struct apply-k (vals args env cont))
@@ -115,6 +117,7 @@
                  (hash-ref local-env name))))
   global-env)
 
+(struct program-result (exit-code stdout stderr))
 
 (define (run-program modules module-name main-name)
   (define env (make-global-env modules))
@@ -124,12 +127,19 @@
     (error 'run-program "Main function is not exported: ~s in ~s" full-main-name))
   (unless (function-val? main-fun)
     (error 'run-program "Main function is not a function value: ~s" main-fun))
-  (unless (zero? (length (function-val-args main-fun)))
+  (unless (equal? (length (function-val-args main-fun)) 2)
     (error 'run-program "Main function does not have correct arity: ~s" main-fun))
 
-  (byte-val-v
-    (run-machine
-      (call-function main-fun empty (halt-k)))))
+  (define stdout (open-output-bytes 'stdout))
+  (define stderr (open-output-bytes 'stderr))
+  (define args (list (prim-port-val stdout) (prim-port-val stderr)))
+
+  (program-result
+    (byte-val-v
+      (run-machine
+        (call-function main-fun args (halt-k))))
+    (get-output-bytes stdout)
+    (get-output-bytes stderr)))
 
 (struct eval-machine-state (expr env cont))
 (struct apply-machine-state (vals exprs env cont))
@@ -201,8 +211,15 @@
   (define (add-module! module)
     (set-add! modules (parse-module module)))
 
-  (define (yaspl-test module-name main-name exit-code)
-    (check-equal? (run-program modules module-name main-name) exit-code))
+  (define (yaspl-test module-name main-name 
+                      #:exit-code [exit-code 0]
+                      #:stdout [stdout #""]
+                      #:stderr [stderr #""])
+    (test-case (format "~a/~a" module-name main-name)
+      (define result (run-program modules module-name main-name))
+      (check-equal? (program-result-exit-code result) exit-code)
+      (check-equal? (program-result-stdout result) stdout)
+      (check-equal? (program-result-stderr result) stderr)))
 
 
   (add-module!
@@ -214,14 +231,14 @@
     '(module exit-code
        (import)
        (export main)
-       (define (main)
+       (define (main stdout stderr)
          1)))
 
   (add-module!
     '(module exit-code2
        (import)
        (export main helper)
-       (define (main)
+       (define (main stdout stderr)
          (helper))
        (define (helper)
          2)))
@@ -230,7 +247,7 @@
     '(module exit-code3
        (import)
        (export main helper)
-       (define (main)
+       (define (main stdout stderr)
          (helper 3))
        (define (helper x)
          x)))
@@ -239,21 +256,19 @@
     '(module exit-code4
        (import)
        (export main)
-       (define (main)
+       (define (main stdout stderr)
          (if #t 4 5))))
 
   (add-module!
     '(module exit-code5
        (import (prim +))
        (export main)
-       (define (main)
+       (define (main stdout stderr)
          (+ 2 3))))
 
-
-
-  (yaspl-test 'exit-code 'main 1)
-  (yaspl-test 'exit-code2 'main 2)
-  (yaspl-test 'exit-code3 'main 3)
-  (yaspl-test 'exit-code4 'main 4)
-  (yaspl-test 'exit-code5 'main 5)
+  (yaspl-test 'exit-code 'main #:exit-code 1)
+  (yaspl-test 'exit-code2 'main #:exit-code 2)
+  (yaspl-test 'exit-code3 'main #:exit-code 3)
+  (yaspl-test 'exit-code4 'main #:exit-code 4)
+  (yaspl-test 'exit-code5 'main #:exit-code 5)
   )
