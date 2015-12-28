@@ -7,6 +7,7 @@
 (struct module& (name imports exports definitions))
 
 (struct export& (name))
+(struct import& (module-name name))
 (struct definition& (args body))
 
 (struct expression& ())
@@ -29,9 +30,13 @@
      (module& name imports exports definitions)]))
 
 (define (parse-imports imports)
-  (unless (empty? imports)
-    (error 'nyi "Imports are not yet implemented"))
-  empty)
+  (match imports
+    [(list (list (? symbol? module-names) (? symbol? function-namess) ...) ...)
+     (for/list ([module-name (in-list module-names)]
+                [function-names (in-list function-namess)]
+                #:when #t
+                [function-name (in-list function-names)])
+       (import& module-name function-name))]))
 
 (define (parse-exports exports)
   (match exports
@@ -66,6 +71,7 @@
 
 (struct value ())
 (struct function-val value (args env body))
+(struct prim-function-val value (name))
 (struct byte-val value (v))
 (struct boolean-val value (v))
 (struct string-val value (v))
@@ -76,11 +82,26 @@
 
 (struct full-name (module-name main-name) #:transparent)
 
+
+
+
 ;; Ties the not of recursive global functions
 (define (make-global-env modules)
-  (define global-env (make-hash))
+  (define (make-primitive-environment)
+    (define prims '(+))
+    (hash-copy
+      (for/hash ([prim (in-list prims)])
+        (values (full-name 'prim prim) (prim-function-val prim)))))
+
+
+  (define global-env (make-primitive-environment))
   (for ([module modules])
     (define local-env (make-hash))
+
+    (for ([import (in-list (module&-imports module))])
+      (hash-set! local-env (import&-name import)
+                 (hash-ref global-env
+                           (full-name (import&-module-name import) (import&-name import)))))
 
     (for ([(name def) (in-hash (module&-definitions module))])
       (define val
@@ -124,7 +145,13 @@
        (for/fold ([env (hash-copy/immutable env)])
                  ([v (in-list args)] [name (in-list arg-names)])
          (hash-set env name v)))
-     (eval-machine-state body new-env cont)]))
+     (eval-machine-state body new-env cont)]
+    [(prim-function-val name)
+     (case name
+       [(+)
+        (match args
+          [(list (byte-val x) (byte-val y))
+           (cont-machine-state (byte-val (+ x y)) cont)])])]))
 
 (define (hash-copy/immutable env)
   (make-immutable-hash (hash->list env)))
@@ -215,10 +242,18 @@
        (define (main)
          (if #t 4 5))))
 
+  (add-module!
+    '(module exit-code5
+       (import (prim +))
+       (export main)
+       (define (main)
+         (+ 2 3))))
+
 
 
   (yaspl-test 'exit-code 'main 1)
   (yaspl-test 'exit-code2 'main 2)
   (yaspl-test 'exit-code3 'main 3)
   (yaspl-test 'exit-code4 'main 4)
+  (yaspl-test 'exit-code5 'main 5)
   )
