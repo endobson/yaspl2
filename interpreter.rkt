@@ -11,6 +11,7 @@
 
 (struct expression& ())
 (struct byte& expression& (v))
+(struct boolean& expression& (v))
 (struct string& expression& (v))
 (struct variable& expression& (v))
 (struct if& expression& (cond true false))
@@ -51,6 +52,7 @@
   (match sexp
     [(? byte? num) (byte& num)]
     [(? string? str) (string& str)]
+    [(? boolean? bool) (boolean& bool)]
     [(? symbol? sym) (variable& sym)]
     [`(if ,cond ,true ,false)
      (if& (parse cond) (parse true) (parse false))]
@@ -65,10 +67,12 @@
 (struct value ())
 (struct function-val value (args env body))
 (struct byte-val value (v))
+(struct boolean-val value (v))
 (struct string-val value (v))
 
 (struct halt-k ())
 (struct apply-k (vals args env cont))
+(struct if-k (true false env cont))
 
 (struct full-name (module-name main-name) #:transparent)
 
@@ -134,10 +138,14 @@
      (match expr
        [(byte& v)
         (run-machine (cont-machine-state (byte-val v) cont))]
+       [(boolean& v)
+        (run-machine (cont-machine-state (boolean-val v) cont))]
        [(variable& v)
         (run-machine (cont-machine-state (hash-ref env v) cont))]
        [(app& op vs)
-        (run-machine (apply-machine-state empty (cons op vs) env cont))])]
+        (run-machine (apply-machine-state empty (cons op vs) env cont))]
+       [(if& cond true false)
+        (run-machine (eval-machine-state cond env (if-k true false env cont)))])]
     [(apply-machine-state vals exprs env cont)
      (run-machine
        (if (empty? exprs)
@@ -151,7 +159,10 @@
      (match cont
        [(halt-k) val]
        [(apply-k vals args env cont)
-        (run-machine (apply-machine-state (cons val vals) args env cont))])]))
+        (run-machine (apply-machine-state (cons val vals) args env cont))]
+       [(if-k true false env cont)
+        (define expr (if (boolean-val-v val) true false))
+        (run-machine (eval-machine-state expr env cont))])]))
 
 
 
@@ -197,8 +208,17 @@
        (define (helper x)
          x)))
 
+  (add-module!
+    '(module exit-code4
+       (import)
+       (export main)
+       (define (main)
+         (if #t 4 5))))
+
+
 
   (yaspl-test 'exit-code 'main 1)
   (yaspl-test 'exit-code2 'main 2)
   (yaspl-test 'exit-code3 'main 3)
+  (yaspl-test 'exit-code4 'main 4)
   )
