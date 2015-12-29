@@ -2,6 +2,7 @@
 
 (require
   racket/list
+  racket/set
   racket/match)
 
 (struct module& (name imports exports definitions))
@@ -86,9 +87,53 @@
 (struct full-name (module-name main-name) #:transparent)
 
 
+(define (topo-sort modules)
+  (define module-hash
+    (for/hash ([module (in-list modules)])
+      (values (module&-name module) module)))
+
+  (define edges
+    (hash-copy
+      (for/hash ([module (in-list modules)])
+        (define imports (list->mutable-set (map import&-module-name (module&-imports module))))
+        ;; Remove primitive module until we support module signatures
+        (set-remove! imports 'prim)
+        (values (module&-name module) imports))))
+
+  (define reverse-edges (make-hash))
+  (for* ([(src dests) (in-hash edges)]
+         [dest (in-set dests)])
+    (set-add! (hash-ref! reverse-edges dest (λ () (mutable-set))) src))
+
+  (define empty-nodes (mutable-set))
+  (for ([(src dests) (in-hash edges)]
+        #:when (set-empty? dests))
+    (set-add! empty-nodes src))
+  (for ([mod (in-set empty-nodes)])
+    (hash-remove! edges empty-nodes))
+  (define order empty)
+
+  (let loop ()
+    (unless (set-empty? empty-nodes)
+      (define mod (set-first empty-nodes))
+      (set-remove! empty-nodes mod)
+      (for ([mod2 (in-set (hash-ref reverse-edges mod (set)))])
+        (define links (hash-ref edges mod2))
+        (set-remove! links mod)
+        (when (set-empty? links)
+          (set-add! empty-nodes mod2)
+          (hash-remove! edges mod2)))
+      (set! order (cons mod order))
+      (loop)))
+  (unless (= (length order) (length modules))
+    (error 'topo-sort "Something went wrong"))
+  (map (λ (name) (hash-ref module-hash name)) (reverse order)))
 
 
-;; Ties the not of recursive global functions
+
+
+
+;; Ties the knot of recursive global functions
 (define (make-global-env modules)
   (define (make-primitive-environment)
     (define prims '(+ write-byte))
@@ -98,7 +143,9 @@
 
 
   (define global-env (make-primitive-environment))
-  (for ([module modules])
+
+
+  (for ([module (topo-sort (set->list modules))])
     (define local-env (make-hash))
 
     (for ([import (in-list (module&-imports module))])
@@ -281,6 +328,21 @@
 
 
   (add-module!
+    '(module exit-code6
+       (import (exit-code6-helper times2))
+       (export main)
+       (define (main stdout stderr)
+         (times2 3))))
+
+  (add-module!
+    '(module exit-code6-helper
+       (import (prim +))
+       (export times2)
+       (define (times2 x)
+         (+ x x))))
+
+
+  (add-module!
     '(module stdout1
        (import (prim write-byte))
        (export main)
@@ -296,6 +358,7 @@
   (yaspl-test 'exit-code3 'main #:exit-code 3)
   (yaspl-test 'exit-code4 'main #:exit-code 4)
   (yaspl-test 'exit-code5 'main #:exit-code 5)
+  (yaspl-test 'exit-code6 'main #:exit-code 6)
 
   (yaspl-test 'stdout1 'main #:stdout #"Aa")
 
