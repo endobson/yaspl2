@@ -19,6 +19,7 @@
 (struct if& expression& (cond true false))
 (struct begin& expression& (first-expr exprs))
 (struct app& expression& (op args))
+(struct let& expression& (name expr body))
 
 
 (define (parse-module sexp)
@@ -63,6 +64,8 @@
      (if& (parse cond) (parse true) (parse false))]
     [(list 'begin first-expr exprs ...)
      (begin& (parse first-expr) (map parse exprs))]
+    [`(let ([,(? symbol? name) ,expr]) ,body)
+     (let& name (parse expr) (parse body))]
     [(list op args ...)
      (app& (parse op) (map parse args))]))
 
@@ -83,6 +86,7 @@
 (struct apply-k (vals args env cont))
 (struct if-k (true false env cont))
 (struct ignore-k (expr env cont))
+(struct bind-k (name expr env cont))
 
 (struct full-name (module-name main-name) #:transparent)
 
@@ -254,7 +258,11 @@
         (run-machine
           (eval-machine-state first-expr env
             (for/fold ([cont cont]) ([expr (in-list (reverse exprs))])
-              (ignore-k expr env cont))))])]
+              (ignore-k expr env cont))))]
+       [(let& name expr body)
+        (run-machine
+          (eval-machine-state expr env
+            (bind-k name body env cont)))])]
     [(apply-machine-state vals exprs env cont)
      (run-machine
        (if (empty? exprs)
@@ -273,7 +281,9 @@
         (run-machine (apply-machine-state (cons val vals) args env cont))]
        [(if-k true false env cont)
         (define expr (if (boolean-val-v val) true false))
-        (run-machine (eval-machine-state expr env cont))])]))
+        (run-machine (eval-machine-state expr env cont))]
+       [(bind-k name body env cont)
+        (run-machine (eval-machine-state body (hash-set env name val) cont))])]))
 
 
 
@@ -371,13 +381,12 @@
     '(module stdin1
        (import (prim make-bytes read-bytes bytes-ref))
        (export main)
-       (define (helper in bytes)
-         (begin
-           (read-bytes bytes in 0 5)
-           (bytes-ref bytes 0)))
-
        (define (main stdin stdout stderr)
-         (helper stdin (make-bytes 5)))))
+         (let ([bytes (make-bytes 5)])
+           (begin
+             (read-bytes bytes stdin 0 5)
+             (bytes-ref bytes 0))))))
+
 
 
   (yaspl-test 'exit-code 'main #:exit-code 1)
