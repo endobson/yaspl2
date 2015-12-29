@@ -74,7 +74,7 @@
 (struct void-val value ())
 (struct byte-val value (v))
 (struct boolean-val value (v))
-(struct string-val value (v))
+(struct bytes-val value (v))
 
 (struct prim-port-val value (port))
 (struct prim-function-val value (name))
@@ -136,7 +136,7 @@
 ;; Ties the knot of recursive global functions
 (define (make-global-env modules)
   (define (make-primitive-environment)
-    (define prims '(+ write-byte))
+    (define prims '(+ write-byte make-bytes read-bytes bytes-ref))
     (hash-copy
       (for/hash ([prim (in-list prims)])
         (values (full-name 'prim prim) (prim-function-val prim)))))
@@ -167,7 +167,7 @@
 
 (struct program-result (exit-code stdout stderr))
 
-(define (run-program modules module-name main-name)
+(define (run-program modules module-name main-name #:stdin stdin-bytes)
   (define env (make-global-env modules))
   (define full-main-name (full-name module-name main-name))
   (define main-fun (hash-ref env full-main-name #f))
@@ -175,12 +175,13 @@
     (error 'run-program "Main function is not exported: ~s in ~s" full-main-name))
   (unless (function-val? main-fun)
     (error 'run-program "Main function is not a function value: ~s" main-fun))
-  (unless (equal? (length (function-val-args main-fun)) 2)
+  (unless (equal? (length (function-val-args main-fun)) 3)
     (error 'run-program "Main function does not have correct arity: ~s" main-fun))
 
   (define stdout (open-output-bytes 'stdout))
   (define stderr (open-output-bytes 'stderr))
-  (define args (list (prim-port-val stdout) (prim-port-val stderr)))
+  (define stdin (open-input-bytes stdin-bytes 'stderr))
+  (define args (list (prim-port-val stdin) (prim-port-val stdout) (prim-port-val stderr)))
 
   (program-result
     (byte-val-v
@@ -214,7 +215,20 @@
         (match args
           [(list (byte-val x) (prim-port-val p))
            (write-byte x p)
-           (cont-machine-state (void-val) cont)])])]))
+           (cont-machine-state (void-val) cont)])]
+       [(make-bytes)
+        (match args
+          [(list (byte-val size))
+           (cont-machine-state (bytes-val (make-bytes size)) cont)])]
+       [(read-bytes)
+        (match args
+          [(list (bytes-val b) (prim-port-val p) (byte-val offset) (byte-val amount))
+           (define amount-read (read-bytes! b p offset amount))
+           (cont-machine-state (byte-val amount-read) cont)])]
+       [(bytes-ref)
+        (match args
+          [(list (bytes-val b) (byte-val index))
+           (cont-machine-state (byte-val (bytes-ref b index)) cont)])])]))
 
 (define (hash-copy/immutable env)
   (make-immutable-hash (hash->list env)))
@@ -273,10 +287,11 @@
 
   (define (yaspl-test module-name main-name 
                       #:exit-code [exit-code 0]
+                      #:stdin [stdin #""]
                       #:stdout [stdout #""]
                       #:stderr [stderr #""])
     (test-case (format "~a/~a" module-name main-name)
-      (define result (run-program modules module-name main-name))
+      (define result (run-program modules module-name main-name #:stdin stdin))
       (check-equal? (program-result-exit-code result) exit-code)
       (check-equal? (program-result-stdout result) stdout)
       (check-equal? (program-result-stderr result) stderr)))
@@ -291,14 +306,14 @@
     '(module exit-code
        (import)
        (export main)
-       (define (main stdout stderr)
+       (define (main stdin stdout stderr)
          1)))
 
   (add-module!
     '(module exit-code2
        (import)
        (export main helper)
-       (define (main stdout stderr)
+       (define (main stdin stdout stderr)
          (helper))
        (define (helper)
          2)))
@@ -307,7 +322,7 @@
     '(module exit-code3
        (import)
        (export main helper)
-       (define (main stdout stderr)
+       (define (main stdin stdout stderr)
          (helper 3))
        (define (helper x)
          x)))
@@ -316,14 +331,14 @@
     '(module exit-code4
        (import)
        (export main)
-       (define (main stdout stderr)
+       (define (main stdin stdout stderr)
          (if #t 4 5))))
 
   (add-module!
     '(module exit-code5
        (import (prim +))
        (export main)
-       (define (main stdout stderr)
+       (define (main stdin stdout stderr)
          (+ 2 3))))
 
 
@@ -331,7 +346,7 @@
     '(module exit-code6
        (import (exit-code6-helper times2))
        (export main)
-       (define (main stdout stderr)
+       (define (main stdin stdout stderr)
          (times2 3))))
 
   (add-module!
@@ -346,11 +361,23 @@
     '(module stdout1
        (import (prim write-byte))
        (export main)
-       (define (main stdout stderr)
+       (define (main stdin stdout stderr)
          (begin
            (write-byte 65 stdout)
            (write-byte 97 stdout)
            0))))
+
+  (add-module!
+    '(module stdin1
+       (import (prim make-bytes read-bytes bytes-ref))
+       (export main)
+       (define (helper in bytes)
+         (begin
+           (read-bytes bytes in 0 5)
+           (bytes-ref bytes 0)))
+
+       (define (main stdin stdout stderr)
+         (helper stdin (make-bytes 5)))))
 
 
   (yaspl-test 'exit-code 'main #:exit-code 1)
@@ -362,5 +389,6 @@
 
   (yaspl-test 'stdout1 'main #:stdout #"Aa")
 
+  (yaspl-test 'stdin1 'main #:stdin #"A" #:exit-code 65)
 
   )
