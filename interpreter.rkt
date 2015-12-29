@@ -140,7 +140,7 @@
 ;; Ties the knot of recursive global functions
 (define (make-global-env modules)
   (define (make-primitive-environment)
-    (define prims '(+ write-byte make-bytes read-bytes bytes-ref))
+    (define prims '(+ - = void write-byte make-bytes read-bytes bytes-ref))
     (hash-copy
       (for/hash ([prim (in-list prims)])
         (values (full-name 'prim prim) (prim-function-val prim)))))
@@ -215,6 +215,18 @@
         (match args
           [(list (byte-val x) (byte-val y))
            (cont-machine-state (byte-val (+ x y)) cont)])]
+       [(-)
+        (match args
+          [(list (byte-val x) (byte-val y))
+           (cont-machine-state (byte-val (- x y)) cont)])]
+       [(=)
+        (match args
+          [(list (byte-val x) (byte-val y))
+           (cont-machine-state (boolean-val (= x y)) cont)])]
+       [(void)
+        (match args
+          [(list)
+           (cont-machine-state (void-val) cont)])]
        [(write-byte)
         (match args
           [(list (byte-val x) (prim-port-val p))
@@ -228,7 +240,7 @@
         (match args
           [(list (bytes-val b) (prim-port-val p) (byte-val offset) (byte-val amount))
            (define amount-read (read-bytes! b p offset amount))
-           (cont-machine-state (byte-val amount-read) cont)])]
+           (cont-machine-state (byte-val (if (eof-object? amount-read) 0 amount-read)) cont)])]
        [(bytes-ref)
         (match args
           [(list (bytes-val b) (byte-val index))
@@ -388,6 +400,31 @@
              (bytes-ref bytes 0))))))
 
 
+  (add-module!
+    '(module echo
+       (import (prim make-bytes write-byte read-bytes bytes-ref + - = void))
+       (export main)
+       (define (write-bytes bytes out offset amount)
+         (if (= amount 0)
+             (void)
+             (begin
+               (write-byte (bytes-ref bytes offset) out)
+               (write-bytes bytes out (+ offset 1) (- amount 1)))))
+
+       (define (loop in out size)
+         (let ([bytes (make-bytes size)])
+           (let ([amount-read (read-bytes bytes in 0 size)])
+             (if (= amount-read 0)
+                 (void)
+                 (begin
+                   (write-bytes bytes out 0 amount-read)
+                   (loop in out (+ size size)))))))
+
+       (define (main stdin stdout stderr)
+         (begin
+           (loop stdin stdout 1)
+           0))))
+
 
   (yaspl-test 'exit-code 'main #:exit-code 1)
   (yaspl-test 'exit-code2 'main #:exit-code 2)
@@ -399,5 +436,6 @@
   (yaspl-test 'stdout1 'main #:stdout #"Aa")
 
   (yaspl-test 'stdin1 'main #:stdin #"A" #:exit-code 65)
+  (yaspl-test 'echo 'main #:stdin #"Hello world" #:stdout #"Hello world")
 
   )
