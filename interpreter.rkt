@@ -5,7 +5,7 @@
   racket/set
   racket/match)
 
-(struct module& (name imports exports definitions))
+(struct module& (name imports exports types definitions))
 
 (struct export& (name))
 (struct import& (module-name name))
@@ -20,15 +20,21 @@
 (struct begin& expression& (first-expr exprs))
 (struct app& expression& (op args))
 (struct let& expression& (name expr body))
+(struct case& expression& (expr clauses))
+(struct case-clause& (variant-name expr))
 
+(struct define-type& (type-name variants))
+(struct variant& (name fields))
+(struct variant-field& (name type))
 
 (define (parse-module sexp)
   (match sexp
     [`(module ,(? symbol? name)
         (import . ,(app parse-imports imports))
         (export . ,(app parse-exports exports))
+        (types . ,(app parse-types types))
         . ,(app parse-definitions definitions))
-     (module& name imports exports definitions)]))
+     (module& name imports exports types definitions)]))
 
 (define (parse-imports imports)
   (match imports
@@ -43,6 +49,19 @@
   (match exports
    [(list (? symbol? exports) ...)
     (map export& exports)]))
+
+(define (parse-types types)
+  (define (parse-variant variant)
+    (match variant
+      [(list variant-name [list field-name field-type] ...)
+       (variant& variant-name (map variant-field& field-name field-type))]))
+  (define (parse-type type)
+    (match type
+      [`(define-type ,(? symbol? type-name)
+          . ,(list (app parse-variant variants) ...))
+       (define-type& type-name variants)]))
+  (map parse-type types))
+
 
 (define (parse-definitions defs)
   (define (parse-definition sexp)
@@ -66,6 +85,8 @@
      (begin& (parse first-expr) (map parse exprs))]
     [`(let ([,(? symbol? name) ,expr]) ,body)
      (let& name (parse expr) (parse body))]
+    [`(case ,expr . ,(list (list variant-names bodies) ...))
+     (case& (parse expr) (map case-clause& variant-names (map parse bodies)))]
     [(list op args ...)
      (app& (parse op) (map parse args))]))
 
@@ -82,11 +103,16 @@
 (struct prim-port-val value (port))
 (struct prim-function-val value (name))
 
+(struct variant-val (variant-name fields))
+(struct variant-constructor-val (variant-name fields))
+(struct field-accessor-val value (variant-name field-name))
+
 (struct halt-k ())
 (struct apply-k (vals args env cont))
 (struct if-k (true false env cont))
 (struct ignore-k (expr env cont))
 (struct bind-k (name expr env cont))
+(struct case-k (clauses env cont))
 
 (struct full-name (module-name main-name) #:transparent)
 
@@ -157,6 +183,20 @@
                  (hash-ref global-env
                            (full-name (import&-module-name import) (import&-name import)))))
 
+    (for ([type (in-list (module&-types module))])
+      (for ([variant (in-list (define-type&-variants type))])
+        (define variant-name (variant&-name variant))
+        (hash-set! local-env variant-name
+          (variant-constructor-val
+            variant-name
+            (map variant-field&-name (variant&-fields variant))))
+
+        (for ([field (variant&-fields variant)])
+          (define field-name (variant-field&-name field))
+          (hash-set! local-env
+            (string->symbol (format "~a-~a" variant-name field-name))
+            (field-accessor-val variant-name field-name)))))
+
     (for ([(name def) (in-hash (module&-definitions module))])
       (define val
         (match def
@@ -176,7 +216,7 @@
   (define full-main-name (full-name module-name main-name))
   (define main-fun (hash-ref env full-main-name #f))
   (unless main-fun
-    (error 'run-program "Main function is not exported: ~s in ~s" full-main-name))
+    (error 'run-program "Main function is not exported: ~s in ~s" full-main-name module-name))
   (unless (function-val? main-fun)
     (error 'run-program "Main function is not a function value: ~s" main-fun))
   (unless (equal? (length (function-val-args main-fun)) 3)
@@ -209,6 +249,14 @@
                  ([v (in-list args)] [name (in-list arg-names)])
          (hash-set env name v)))
      (eval-machine-state body new-env cont)]
+    [(variant-constructor-val variant-name fields)
+     (unless (= (length args) (length fields))
+       (error 'variant-constructor "Wrong number of arguments"))
+     (cont-machine-state (variant-val variant-name (make-hash (map cons fields args))) cont)]
+    [(field-accessor-val variant-name field-name)
+     (match args
+       [(list (variant-val (== variant-name equal?) fields))
+        (cont-machine-state (hash-ref fields field-name) cont)])]
     [(prim-function-val name)
      (case name
        [(+)
@@ -271,6 +319,9 @@
           (eval-machine-state first-expr env
             (for/fold ([cont cont]) ([expr (in-list (reverse exprs))])
               (ignore-k expr env cont))))]
+       [(case& expr clauses)
+        (run-machine
+          (eval-machine-state expr env (case-k clauses env cont)))]
        [(let& name expr body)
         (run-machine
           (eval-machine-state expr env
@@ -294,6 +345,14 @@
        [(if-k true false env cont)
         (define expr (if (boolean-val-v val) true false))
         (run-machine (eval-machine-state expr env cont))]
+       [(case-k clauses env cont)
+        (match val
+          [(variant-val variant-name _)
+           (define expr
+             (for/first ([clause (in-list clauses)]
+                         #:when (equal? (case-clause&-variant-name clause) variant-name))
+               (case-clause&-expr clause)))
+           (run-machine (eval-machine-state expr env cont))])]
        [(bind-k name body env cont)
         (run-machine (eval-machine-state body (hash-set env name val) cont))])]))
 
@@ -322,12 +381,14 @@
   (add-module!
     '(module empty
        (import)
-       (export)))
+       (export)
+       (types)))
 
   (add-module!
     '(module exit-code
        (import)
        (export main)
+       (types)
        (define (main stdin stdout stderr)
          1)))
 
@@ -335,6 +396,7 @@
     '(module exit-code2
        (import)
        (export main helper)
+       (types)
        (define (main stdin stdout stderr)
          (helper))
        (define (helper)
@@ -344,6 +406,7 @@
     '(module exit-code3
        (import)
        (export main helper)
+       (types)
        (define (main stdin stdout stderr)
          (helper 3))
        (define (helper x)
@@ -353,6 +416,7 @@
     '(module exit-code4
        (import)
        (export main)
+       (types)
        (define (main stdin stdout stderr)
          (if #t 4 5))))
 
@@ -360,6 +424,7 @@
     '(module exit-code5
        (import (prim +))
        (export main)
+       (types)
        (define (main stdin stdout stderr)
          (+ 2 3))))
 
@@ -368,6 +433,7 @@
     '(module exit-code6
        (import (exit-code6-helper times2))
        (export main)
+       (types)
        (define (main stdin stdout stderr)
          (times2 3))))
 
@@ -375,6 +441,7 @@
     '(module exit-code6-helper
        (import (prim +))
        (export times2)
+       (types)
        (define (times2 x)
          (+ x x))))
 
@@ -383,6 +450,7 @@
     '(module stdout1
        (import (prim write-byte))
        (export main)
+       (types)
        (define (main stdin stdout stderr)
          (begin
            (write-byte 65 stdout)
@@ -393,23 +461,35 @@
     '(module stdin1
        (import (prim make-bytes read-bytes bytes-ref))
        (export main)
+       (types)
+
        (define (main stdin stdout stderr)
          (let ([bytes (make-bytes 5)])
            (begin
              (read-bytes bytes stdin 0 5)
              (bytes-ref bytes 0))))))
 
-
   (add-module!
-    '(module echo
-       (import (prim make-bytes write-byte read-bytes bytes-ref + - = void))
-       (export main)
+    '(module bytes-output
+       (import (prim write-byte = bytes-ref + - void))
+       (export write-bytes)
+       (types)
+
        (define (write-bytes bytes out offset amount)
          (if (= amount 0)
              (void)
              (begin
                (write-byte (bytes-ref bytes offset) out)
-               (write-bytes bytes out (+ offset 1) (- amount 1)))))
+               (write-bytes bytes out (+ offset 1) (- amount 1)))))))
+
+
+
+  (add-module!
+    '(module echo
+       (import (prim make-bytes write-byte read-bytes bytes-ref + - = void)
+               (bytes-output write-bytes))
+       (export main)
+       (types)
 
        (define (loop in out size)
          (let ([bytes (make-bytes size)])
@@ -420,10 +500,31 @@
                    (write-bytes bytes out 0 amount-read)
                    (loop in out (+ size size)))))))
 
+
        (define (main stdin stdout stderr)
          (begin
            (loop stdin stdout 1)
            0))))
+
+  (add-module!
+    '(module sum-tree
+        (import (prim +))
+        (export main)
+        (types
+          (define-type Tree
+            (node [v Byte] [left Tree] [right Tree])
+            (leaf)))
+
+        (define (sum-tree t)
+          (case t
+            [node (+ (node-v t) (+ (sum-tree (node-left t)) (sum-tree (node-right t))))]
+            [leaf 0]))
+
+        (define (main stdin stdout stderr)
+          (sum-tree (node 4
+                          (node 3 (node 1 (leaf) (node 2 (leaf) (leaf))) (leaf))
+                          (node 5 (leaf) (leaf)))))))
+
 
 
   (yaspl-test 'exit-code 'main #:exit-code 1)
@@ -437,5 +538,6 @@
 
   (yaspl-test 'stdin1 'main #:stdin #"A" #:exit-code 65)
   (yaspl-test 'echo 'main #:stdin #"Hello world" #:stdout #"Hello world")
+  (yaspl-test 'sum-tree 'main #:exit-code 15)
 
   )
