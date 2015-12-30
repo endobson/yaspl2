@@ -166,7 +166,7 @@
 ;; Ties the knot of recursive global functions
 (define (make-global-env modules)
   (define (make-primitive-environment)
-    (define prims '(+ - = or void write-byte make-bytes read-bytes bytes-ref bytes-length))
+    (define prims '(+ - * = or void write-byte make-bytes read-bytes bytes-ref bytes-length bytes-set!))
     (hash-copy
       (for/hash ([prim (in-list prims)])
         (values (full-name 'prim prim) (prim-function-val prim)))))
@@ -272,6 +272,10 @@
         (match args
           [(list (byte-val x) (byte-val y))
            (cont-machine-state (byte-val (- x y)) cont)])]
+       [(*)
+        (match args
+          [(list (byte-val x) (byte-val y))
+           (cont-machine-state (byte-val (* x y)) cont)])]
        [(=)
         (match args
           [(list (byte-val x) (byte-val y))
@@ -291,13 +295,18 @@
            (cont-machine-state (bytes-val (make-bytes size)) cont)])]
        [(read-bytes)
         (match args
-          [(list (bytes-val b) (prim-port-val p) (byte-val offset) (byte-val amount))
-           (define amount-read (read-bytes! b p offset amount))
+          [(list (bytes-val b) (prim-port-val p) (byte-val start-pos) (byte-val end-pos))
+           (define amount-read (read-bytes! b p start-pos end-pos))
            (cont-machine-state (byte-val (if (eof-object? amount-read) 0 amount-read)) cont)])]
        [(bytes-ref)
         (match args
           [(list (bytes-val b) (byte-val index))
            (cont-machine-state (byte-val (bytes-ref b index)) cont)])]
+       [(bytes-set!)
+        (match args
+          [(list (bytes-val b) (byte-val index) (byte-val v))
+           (bytes-set! b index v)
+           (cont-machine-state (void) cont)])]
        [(bytes-length)
         (match args
           [(list (bytes-val b))
@@ -494,8 +503,31 @@
 
 
   (add-module!
-    '(module echo
+    '(module echo1
        (import (prim make-bytes write-byte read-bytes bytes-ref + - = void)
+               (bytes-output write-bytes))
+       (export main)
+       (types)
+
+       (define (loop in out size)
+         (let ([bytes (make-bytes size)])
+           (let ([amount-read (read-bytes bytes in 0 size)])
+             (if (= amount-read 0)
+                 (void)
+                 (begin
+                   (write-bytes bytes out 0 amount-read)
+                   (loop in out (if (= amount-read size) (+ size size) size)))))))
+
+
+       (define (main stdin stdout stderr)
+         (begin
+           (loop stdin stdout 1)
+           0))))
+
+  (add-module!
+    '(module echo2
+       (import (prim bytes-length)
+               (io read-all-bytes)
                (bytes-output write-bytes))
        (export main)
        (types)
@@ -512,8 +544,10 @@
 
        (define (main stdin stdout stderr)
          (begin
-           (loop stdin stdout 1)
+           (let ([bytes (read-all-bytes stdin)])
+             (write-bytes bytes stdout 0 (bytes-length bytes)))
            0))))
+
 
   (add-module!
     '(module sum-tree
@@ -533,6 +567,49 @@
           (sum-tree (node 4
                           (node 3 (node 1 (leaf) (node 2 (leaf) (leaf))) (leaf))
                           (node 5 (leaf) (leaf)))))))
+
+  (add-module!
+    '(module bytes
+        (import (prim + - = bytes-set! bytes-ref void))
+        (export bytes-copy)
+        (types)
+
+        (define (bytes-copy src s-off s-len dest d-off)
+          (if (= s-len 0)
+              (void)
+              (begin
+                (bytes-set! dest d-off (bytes-ref src s-off))
+                (bytes-copy src (+ s-off 1) (- s-len 1) dest (+ d-off 1)))))))
+
+
+  (add-module!
+    '(module io
+        (import (prim make-bytes read-bytes + * - bytes-length =)
+                (bytes bytes-copy))
+        (export read-all-bytes)
+        (types)
+
+        (define (read-all-bytes in)
+          (read-all-bytes-loop in (make-bytes 1) 0))
+
+        (define (read-all-bytes-loop in buf cur-size)
+          (let ([amount-read (read-bytes buf in cur-size (bytes-length buf))])
+            (if (= amount-read 0)
+                (let ([trim-bytes (make-bytes cur-size)])
+                   (begin
+                     (bytes-copy buf 0 cur-size trim-bytes 0)
+                     trim-bytes))
+                (let ([new-size (+ amount-read cur-size)])
+                  (if (= new-size (bytes-length buf))
+                      (let ([new-buf (make-bytes (* 2 (bytes-length buf)))])
+                        (begin
+                          (bytes-copy buf 0 new-size new-buf 0)
+                          (read-all-bytes-loop in new-buf new-size)))
+                      (read-all-bytes-loop in buf new-size))))))))
+
+
+
+
 
 
 
@@ -616,7 +693,8 @@
   (yaspl-test 'stdout1 'main #:stdout #"Aa")
 
   (yaspl-test 'stdin1 'main #:stdin #"A" #:exit-code 65)
-  (yaspl-test 'echo 'main #:stdin #"Hello world" #:stdout #"Hello world")
+  (yaspl-test 'echo1 'main #:stdin #"Hello world" #:stdout #"Hello world")
+  (yaspl-test 'echo2 'main #:stdin #"Hello world" #:stdout #"Hello world")
   (yaspl-test 'sum-tree 'main #:exit-code 15)
 
 
