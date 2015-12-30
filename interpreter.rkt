@@ -615,7 +615,8 @@
 
   (add-module!
     '(module lexer
-        (import (prim + = make-bytes read-bytes bytes-length bytes-ref or))
+        (import (prim + = make-bytes read-bytes bytes-length bytes-ref or)
+                (io read-all-bytes))
         (export main make-lexer run-lexer lex-result-v lex-result-next )
         (types
           (define-type Lexer
@@ -673,11 +674,7 @@
               [bad-input 1])))
 
         (define (main stdin stdout stderr)
-          (let ([bytes (make-bytes 4)])
-            (let ([amount-read (read-bytes bytes stdin 0 4)])
-              (if (= amount-read 4)
-                  (loop (make-lexer bytes))
-                  2))))))
+          (loop (make-lexer (read-all-bytes stdin))))))
 
 
 
@@ -699,8 +696,8 @@
 
 
   (yaspl-test 'lexer 'main #:stdin #"((((" #:exit-code 0)
-  (yaspl-test 'lexer 'main #:stdin #"()()" #:exit-code 0)
-  (yaspl-test 'lexer 'main #:stdin #"(()" #:exit-code 2)
+  (yaspl-test 'lexer 'main #:stdin #"()()()" #:exit-code 0)
+  (yaspl-test 'lexer 'main #:stdin #"(()" #:exit-code 0)
   (yaspl-test 'lexer 'main #:stdin #"aaaa" #:exit-code 1)
 
   )
