@@ -251,7 +251,8 @@
      (eval-machine-state body new-env cont)]
     [(variant-constructor-val variant-name fields)
      (unless (= (length args) (length fields))
-       (error 'variant-constructor "Wrong number of arguments"))
+       (error 'variant-constructor "Wrong number of arguments for ~a: Expected ~a, got ~a"
+              variant-name (length fields) (length args)))
      (cont-machine-state (variant-val variant-name (make-hash (map cons fields args))) cont)]
     [(field-accessor-val variant-name field-name)
      (match args
@@ -370,6 +371,9 @@
              (for/first ([clause (in-list clauses)]
                          #:when (equal? (case-clause&-variant-name clause) variant-name))
                (case-clause&-expr clause)))
+           (unless expr
+             (error 'case "No match for ~a in ~a"
+                    variant-name (map case-clause&-variant-name clauses)))
            (run-machine (eval-machine-state expr env cont))])]
        [(bind-k name body env cont)
         (run-machine (eval-machine-state body (hash-set env name val) cont))])]))
@@ -607,8 +611,85 @@
                           (read-all-bytes-loop in new-buf new-size)))
                       (read-all-bytes-loop in buf new-size))))))))
 
+  (add-module!
+    '(module list
+        (import)
+        (export cons empty cons-head cons-tail reverse)
+        (types
+          (define-type List
+            (cons [head ANY] [tail List])
+            (empty)))
+
+        (define (reverse list)
+          (reverse-helper list empty))
+        (define (reverse-helper l1 l2)
+          (case l1
+            [empty l2]
+            [cons (reverse-helper (cons-tail l1) (cons (cons-head l1) l2))]))))
 
 
+  (add-module!
+    '(module sexp-parser
+       (import (lexer make-lexer run-lexer lex-result-v lex-result-next)
+               (io read-all-bytes)
+               (list cons empty reverse))
+       (export main)
+       (types
+         (define-type Sexp
+            (node [list List]))
+
+         (define-type SexpResultInternal
+            (sexp-result-internal [v Sexp] [lexer Lexer])
+            (sexp-result-internal-error))
+
+         (define-type SexpResult
+            (sexp-result [v Sexp])
+            (sexp-result-error)))
+
+
+
+       (define (parse-sexp bytes)
+         (let ([lexer (make-lexer bytes)])
+           (let ([val (loop lexer)])
+             (case val
+               (sexp-result-internal
+                 (let ([finished (run-lexer (sexp-result-internal-lexer val))])
+                   (case finished
+                     (lex-result (sexp-result-error))
+                     (bad-input (sexp-result-error))
+                     (end-of-input (sexp-result (sexp-result-internal-v val))))))
+               (sexp-result-internal-error (sexp-result-error))))))
+
+       (define (loop lexer)
+         (let ([val (run-lexer lexer)])
+           (case val
+             (end-of-input (sexp-result-internal-error))
+             (bad-input (sexp-result-internal-error))
+             (lex-result
+               (case (lex-result-v val)
+                 (left-paren (node-loop (empty) (lex-result-next val)))
+                 (right-paren (sexp-result-internal-error)))))))
+
+       (define (node-loop vals lexer)
+         (let ([val (run-lexer lexer)])
+           (case val
+             (end-of-input (sexp-result-internal-error))
+             (bad-input (sexp-result-internal-error))
+             (lex-result
+               (case (lex-result-v val)
+                 [left-paren
+                   (let ([inner (node-loop (empty) (lex-result-next val))])
+                     (case inner
+                       [sexp-result-internal (node-loop (cons (sexp-result-internal-v inner) vals)
+                                                        (sexp-result-internal-lexer inner))]
+                       [sexp-result-internal-error inner]))]
+                 [right-paren (sexp-result-internal (node (reverse vals)) (lex-result-next val))])))))
+
+       (define (main stdin stderr stdout)
+         (let ([result (parse-sexp (read-all-bytes stdin))])
+           (case result
+             [sexp-result 0]
+             [sexp-result-error 1])))))
 
 
 
@@ -699,5 +780,15 @@
   (yaspl-test 'lexer 'main #:stdin #"()()()" #:exit-code 0)
   (yaspl-test 'lexer 'main #:stdin #"(()" #:exit-code 0)
   (yaspl-test 'lexer 'main #:stdin #"aaaa" #:exit-code 1)
+
+
+  (yaspl-test 'sexp-parser 'main #:stdin #"" #:exit-code 1)
+  (yaspl-test 'sexp-parser 'main #:stdin #"(" #:exit-code 1)
+  (yaspl-test 'sexp-parser 'main #:stdin #")" #:exit-code 1)
+  (yaspl-test 'sexp-parser 'main #:stdin #"()" #:exit-code 0)
+  (yaspl-test 'sexp-parser 'main #:stdin #"(()" #:exit-code 1)
+  (yaspl-test 'sexp-parser 'main #:stdin #"(()())" #:exit-code 0)
+  (yaspl-test 'sexp-parser 'main #:stdin #"( ( ()(( )  )\n )( ))" #:exit-code 0)
+
 
   )
