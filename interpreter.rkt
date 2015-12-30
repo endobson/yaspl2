@@ -166,7 +166,7 @@
 ;; Ties the knot of recursive global functions
 (define (make-global-env modules)
   (define (make-primitive-environment)
-    (define prims '(+ - = void write-byte make-bytes read-bytes bytes-ref))
+    (define prims '(+ - = or void write-byte make-bytes read-bytes bytes-ref bytes-length))
     (hash-copy
       (for/hash ([prim (in-list prims)])
         (values (full-name 'prim prim) (prim-function-val prim)))))
@@ -259,6 +259,11 @@
         (cont-machine-state (hash-ref fields field-name) cont)])]
     [(prim-function-val name)
      (case name
+       [(or)
+        (match args
+          [(list (boolean-val x) (boolean-val y))
+           (cont-machine-state (boolean-val (or x y)) cont)])]
+
        [(+)
         (match args
           [(list (byte-val x) (byte-val y))
@@ -292,7 +297,11 @@
        [(bytes-ref)
         (match args
           [(list (bytes-val b) (byte-val index))
-           (cont-machine-state (byte-val (bytes-ref b index)) cont)])])]))
+           (cont-machine-state (byte-val (bytes-ref b index)) cont)])]
+       [(bytes-length)
+        (match args
+          [(list (bytes-val b))
+           (cont-machine-state (byte-val (bytes-length b)) cont)])])]))
 
 (define (hash-copy/immutable env)
   (make-immutable-hash (hash->list env)))
@@ -366,7 +375,7 @@
   (define (add-module! module)
     (set-add! modules (parse-module module)))
 
-  (define (yaspl-test module-name main-name 
+  (define (yaspl-test module-name main-name
                       #:exit-code [exit-code 0]
                       #:stdin [stdin #""]
                       #:stdout [stdout #""]
@@ -527,6 +536,76 @@
 
 
 
+  (add-module!
+    '(module lexer
+        (import (prim + = make-bytes read-bytes bytes-length bytes-ref or))
+        (export main make-lexer run-lexer lex-result-v lex-result-next )
+        (types
+          (define-type Lexer
+            (lexer [input Bytes] [pos Byte]))
+
+          (define-type Lexeme
+            (left-paren)
+            (right-paren)
+            ;; TODO support more cases
+            #; #;
+            (number [v Bytes])
+            (symbol [v Bytes]))
+
+          (define-type Result
+            (lex-result [v lexeme] [next Lexer])
+            (end-of-input)
+            (bad-input)))
+
+        #;
+        (define (digit? v)
+          (and (<= 48 v) (< v 58)))
+
+        #;
+        (define (digit->number v)
+          (- v 48))
+
+        ;; Space or Newline
+        (define (whitespace? v)
+          (or (= v 32) (= v 10)))
+
+        (define (make-lexer bytes)
+          (lexer bytes 0))
+
+        (define (run-lexer lexer)
+          (run (lexer-input lexer) (lexer-pos lexer)))
+
+
+        (define (run bytes pos)
+          (if (= pos (bytes-length bytes))
+              (end-of-input)
+              (let ([byte (bytes-ref bytes pos)])
+                (if (= byte 40)
+                    (lex-result (left-paren) (lexer bytes (+ pos 1)))
+                    (if (= byte 41)
+                        (lex-result (right-paren) (lexer bytes (+ pos 1)))
+                        (if (whitespace? byte)
+                            (run bytes (+ 1 pos))
+                            (bad-input)))))))
+
+        (define (loop lexer)
+          (let ([result (run-lexer lexer)])
+            (case result
+              [lex-result (loop (lex-result-next result))]
+              [end-of-input 0]
+              [bad-input 1])))
+
+        (define (main stdin stdout stderr)
+          (let ([bytes (make-bytes 4)])
+            (let ([amount-read (read-bytes bytes stdin 0 4)])
+              (if (= amount-read 4)
+                  (loop (make-lexer bytes))
+                  2))))))
+
+
+
+
+
   (yaspl-test 'exit-code 'main #:exit-code 1)
   (yaspl-test 'exit-code2 'main #:exit-code 2)
   (yaspl-test 'exit-code3 'main #:exit-code 3)
@@ -539,5 +618,11 @@
   (yaspl-test 'stdin1 'main #:stdin #"A" #:exit-code 65)
   (yaspl-test 'echo 'main #:stdin #"Hello world" #:stdout #"Hello world")
   (yaspl-test 'sum-tree 'main #:exit-code 15)
+
+
+  (yaspl-test 'lexer 'main #:stdin #"((((" #:exit-code 0)
+  (yaspl-test 'lexer 'main #:stdin #"()()" #:exit-code 0)
+  (yaspl-test 'lexer 'main #:stdin #"(()" #:exit-code 2)
+  (yaspl-test 'lexer 'main #:stdin #"aaaa" #:exit-code 1)
 
   )
