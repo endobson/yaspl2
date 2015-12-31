@@ -23,7 +23,7 @@
 (struct case& expression& (expr clauses))
 (struct case-clause& (variant-name field-variables expr))
 
-(struct define-type& (type-name variants))
+(struct define-type& (type-name type-variables variants))
 (struct variant& (name fields))
 (struct variant-field& (name type))
 
@@ -57,9 +57,11 @@
        (variant& variant-name (map variant-field& field-name field-type))]))
   (define (parse-type type)
     (match type
-      [`(define-type ,(? symbol? type-name)
-          . ,(list (app parse-variant variants) ...))
-       (define-type& type-name variants)]))
+      [`(define-type ,(? symbol? type-name) . ,(list (app parse-variant variants) ...))
+       (define-type& type-name #f variants)]
+      [`(define-type ,(list (? symbol? type-name) (? symbol? type-variables) ..1)
+                     . ,(list (app parse-variant variants) ...))
+       (define-type& type-name type-variables variants)]))
   (map parse-type types))
 
 
@@ -621,8 +623,8 @@
         (import)
         (export cons empty cons-head cons-tail reverse)
         (types
-          (define-type List
-            (cons [head ANY] [tail List])
+          (define-type (List a)
+            (cons [head a] [tail (List a)])
             (empty)))
 
         (define (reverse list)
