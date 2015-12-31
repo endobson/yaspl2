@@ -4,6 +4,7 @@
   "machine-structs.rkt"
   "primitives.rkt"
   racket/list
+  (only-in racket/contract/base and\/c)
   racket/set
   racket/match)
 
@@ -15,6 +16,7 @@
 
 (struct expression& ())
 (struct byte& expression& (v))
+(struct bytes& expression& (v))
 (struct boolean& expression& (v))
 (struct string& expression& (v))
 (struct variable& expression& (v))
@@ -80,6 +82,7 @@
   (define parse parse-expression)
   (match sexp
     [(? byte? num) (byte& num)]
+    [(? (and/c bytes? immutable?) bytes) (bytes& bytes)]
     [(? string? str) (string& str)]
     [(? boolean? bool) (boolean& bool)]
     [(? symbol? sym) (variable& sym)]
@@ -256,6 +259,8 @@
      (match expr
        [(byte& v)
         (run-machine (cont-machine-state (byte-val v) cont))]
+       [(bytes& v)
+        (run-machine (cont-machine-state (bytes-val v) cont))]
        [(boolean& v)
         (run-machine (cont-machine-state (boolean-val v) cont))]
        [(variable& v)
@@ -321,8 +326,14 @@
   (require rackunit)
 
   (define modules (mutable-set))
-  (define (add-module! module)
-    (set-add! modules (parse-module module)))
+  (define module-names (mutable-set))
+  (define (add-module! mod-src)
+    (define mod (parse-module mod-src))
+    (define mod-name (module&-name mod))
+    (when (set-member? module-names mod-name)
+      (error 'add-module! "Cannot add module: ~s is already defined" mod-name))
+    (set-add! module-names mod-name)
+    (set-add! modules mod))
 
   (define (yaspl-test module-name main-name
                       #:exit-code [exit-code 0]
@@ -437,6 +448,13 @@
        (define (main stdin stdout stderr)
          (panic (make-bytes 3)))))
 
+  (add-module!
+    '(module panic2
+       (import (prim panic make-bytes))
+       (export main)
+       (types)
+       (define (main stdin stdout stderr)
+         (panic #"Boom"))))
 
   (add-module!
     '(module bytes-output
@@ -731,6 +749,7 @@
   (yaspl-test 'stdout1 'main #:stdout #"Aa")
   (yaspl-test 'stdin1 'main #:stdin #"A" #:exit-code 65)
   (yaspl-test 'panic1 'main #:exit-code 255 #:error #"\0\0\0")
+  (yaspl-test 'panic2 'main #:exit-code 255 #:error #"Boom")
   (yaspl-test 'echo1 'main #:stdin #"Hello world" #:stdout #"Hello world")
   (yaspl-test 'echo2 'main #:stdin #"Hello world" #:stdout #"Hello world")
   (yaspl-test 'sum-tree 'main #:exit-code 15)
