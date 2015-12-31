@@ -21,7 +21,7 @@
 (struct app& expression& (op args))
 (struct let& expression& (name expr body))
 (struct case& expression& (expr clauses))
-(struct case-clause& (variant-name expr))
+(struct case-clause& (variant-name field-variables expr))
 
 (struct define-type& (type-name variants))
 (struct variant& (name fields))
@@ -85,8 +85,8 @@
      (begin& (parse first-expr) (map parse exprs))]
     [`(let ([,(? symbol? name) ,expr]) ,body)
      (let& name (parse expr) (parse body))]
-    [`(case ,expr . ,(list (list variant-names bodies) ...))
-     (case& (parse expr) (map case-clause& variant-names (map parse bodies)))]
+    [`(case ,expr . ,(list (list (list (? symbol? variant-names) (? symbol? field-namess) ...) bodies) ...))
+     (case& (parse expr) (map case-clause& variant-names field-namess (map parse bodies)))]
     [(list op args ...)
      (app& (parse op) (map parse args))]))
 
@@ -191,11 +191,11 @@
             variant-name
             (map variant-field&-name (variant&-fields variant))))
 
-        (for ([field (variant&-fields variant)])
+        (for ([field (variant&-fields variant)] [index (in-naturals)])
           (define field-name (variant-field&-name field))
           (hash-set! local-env
             (string->symbol (format "~a-~a" variant-name field-name))
-            (field-accessor-val variant-name field-name)))))
+            (field-accessor-val variant-name index)))))
 
     (for ([(name def) (in-hash (module&-definitions module))])
       (define val
@@ -253,11 +253,11 @@
      (unless (= (length args) (length fields))
        (error 'variant-constructor "Wrong number of arguments for ~a: Expected ~a, got ~a"
               variant-name (length fields) (length args)))
-     (cont-machine-state (variant-val variant-name (make-hash (map cons fields args))) cont)]
-    [(field-accessor-val variant-name field-name)
+     (cont-machine-state (variant-val variant-name args) cont)]
+    [(field-accessor-val variant-name index)
      (match args
        [(list (variant-val (== variant-name equal?) fields))
-        (cont-machine-state (hash-ref fields field-name) cont)])]
+        (cont-machine-state (list-ref fields index) cont)])]
     [(prim-function-val name)
      (case name
        [(or)
@@ -367,14 +367,19 @@
        [(case-k clauses env cont)
         (match val
           [(variant-val variant-name _)
-           (define expr
+           (define clause
              (for/first ([clause (in-list clauses)]
                          #:when (equal? (case-clause&-variant-name clause) variant-name))
-               (case-clause&-expr clause)))
-           (unless expr
+               clause))
+           (unless clause
              (error 'case "No match for ~a in ~a"
                     variant-name (map case-clause&-variant-name clauses)))
-           (run-machine (eval-machine-state expr env cont))])]
+           (define new-env
+             (for/fold ([env env]) ([arg-name (in-list (case-clause&-field-variables clause))]
+                                    [field-val (in-list (variant-val-fields val))])
+               (hash-set env arg-name field-val)))
+
+           (run-machine (eval-machine-state (case-clause&-expr clause) new-env cont))])]
        [(bind-k name body env cont)
         (run-machine (eval-machine-state body (hash-set env name val) cont))])]))
 
@@ -564,8 +569,8 @@
 
         (define (sum-tree t)
           (case t
-            [node (+ (node-v t) (+ (sum-tree (node-left t)) (sum-tree (node-right t))))]
-            [leaf 0]))
+            [(node v left right) (+ v (+ (sum-tree left) (sum-tree right)))]
+            [(leaf) 0]))
 
         (define (main stdin stdout stderr)
           (sum-tree (node 4
@@ -624,8 +629,8 @@
           (reverse-helper list empty))
         (define (reverse-helper l1 l2)
           (case l1
-            [empty l2]
-            [cons (reverse-helper (cons-tail l1) (cons (cons-head l1) l2))]))))
+            [(empty) l2]
+            [(cons hd tl) (reverse-helper tl (cons hd l2))]))))
 
 
   (add-module!
@@ -652,44 +657,42 @@
          (let ([lexer (make-lexer bytes)])
            (let ([val (loop lexer)])
              (case val
-               (sexp-result-internal
-                 (let ([finished (run-lexer (sexp-result-internal-lexer val))])
-                   (case finished
-                     (lex-result (sexp-result-error))
-                     (bad-input (sexp-result-error))
-                     (end-of-input (sexp-result (sexp-result-internal-v val))))))
-               (sexp-result-internal-error (sexp-result-error))))))
+               [(sexp-result-internal v lexer)
+                 (case (run-lexer lexer)
+                   [(lex-result v lexer) (sexp-result-error)]
+                   [(bad-input) (sexp-result-error)]
+                   [(end-of-input) (sexp-result v)])]
+               [(sexp-result-internal-error) (sexp-result-error)]))))
 
        (define (loop lexer)
          (let ([val (run-lexer lexer)])
            (case val
-             (end-of-input (sexp-result-internal-error))
-             (bad-input (sexp-result-internal-error))
-             (lex-result
-               (case (lex-result-v val)
-                 (left-paren (node-loop (empty) (lex-result-next val)))
-                 (right-paren (sexp-result-internal-error)))))))
+             [(end-of-input) (sexp-result-internal-error)]
+             [(bad-input) (sexp-result-internal-error)]
+             [(lex-result v lexer)
+               (case v
+                 [(left-paren) (node-loop (empty) lexer)]
+                 [(right-paren) (sexp-result-internal-error)])])))
 
        (define (node-loop vals lexer)
          (let ([val (run-lexer lexer)])
            (case val
-             (end-of-input (sexp-result-internal-error))
-             (bad-input (sexp-result-internal-error))
-             (lex-result
+             [(end-of-input) (sexp-result-internal-error)]
+             [(bad-input) (sexp-result-internal-error)]
+             [(lex-result v lexer)
                (case (lex-result-v val)
-                 [left-paren
-                   (let ([inner (node-loop (empty) (lex-result-next val))])
-                     (case inner
-                       [sexp-result-internal (node-loop (cons (sexp-result-internal-v inner) vals)
-                                                        (sexp-result-internal-lexer inner))]
-                       [sexp-result-internal-error inner]))]
-                 [right-paren (sexp-result-internal (node (reverse vals)) (lex-result-next val))])))))
+                 [(left-paren)
+                   (case (node-loop (empty) lexer)
+                     [(sexp-result-internal v lexer)
+                      (node-loop (cons v vals) lexer)]
+                     [(sexp-result-internal-error) (sexp-result-internal-error)])]
+                 [(right-paren) (sexp-result-internal (node (reverse vals)) lexer)])])))
 
        (define (main stdin stderr stdout)
          (let ([result (parse-sexp (read-all-bytes stdin))])
            (case result
-             [sexp-result 0]
-             [sexp-result-error 1])))))
+             [(sexp-result v) 0]
+             [(sexp-result-error) 1])))))
 
 
 
@@ -748,11 +751,10 @@
                             (bad-input)))))))
 
         (define (loop lexer)
-          (let ([result (run-lexer lexer)])
-            (case result
-              [lex-result (loop (lex-result-next result))]
-              [end-of-input 0]
-              [bad-input 1])))
+          (case (run-lexer lexer)
+            [(lex-result v lexer) (loop lexer)]
+            [(end-of-input) 0]
+            [(bad-input) 1]))
 
         (define (main stdin stdout stderr)
           (loop (make-lexer (read-all-bytes stdin))))))
