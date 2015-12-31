@@ -540,7 +540,7 @@
   (add-module!
     '(module bytes
         (import (prim + - = bytes-set! bytes-ref void))
-        (export bytes-copy)
+        (export bytes-copy bytes=?)
         (types)
 
         (define (bytes-copy src s-off s-len dest d-off)
@@ -548,7 +548,19 @@
               (void)
               (begin
                 (bytes-set! dest d-off (bytes-ref src s-off))
-                (bytes-copy src (+ s-off 1) (- s-len 1) dest (+ d-off 1)))))))
+                (bytes-copy src (+ s-off 1) (- s-len 1) dest (+ d-off 1)))))
+
+       (define (bytes=? b1 b2)
+         (if (= (bytes-length b1) (bytes-length b2))
+             (inner-bytes=? b1 b2 0)
+             false))
+       (define (inner-bytes=? b1 b2 offset)
+         (if (= offset (bytes-length b1))
+             true
+             (if (= (bytes-ref b1 offset) (bytes-ref b2 offset)A)
+                 (inner-bytes=? b1 b2 (+ 1 offset))
+                 false)))))
+
 
 
   (add-module!
