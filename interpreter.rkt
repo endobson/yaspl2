@@ -634,23 +634,39 @@
             [(empty) l2]
             [(cons hd tl) (reverse-helper tl (cons hd l2))]))))
 
+  (add-module!
+    '(module either
+        (import)
+        (export left right)
+        (types
+          (define-type (Either a b)
+            (left [v a])
+            (right [v a])))))
+
+  (add-module!
+    '(module maybe
+        (import)
+        (export just nothing)
+        (types
+          (define-type (Maybe a)
+            (just [v a])
+            (nothing)))))
+
 
   (add-module!
     '(module sexp-parser
        (import (lexer make-lexer run-lexer lex-result-v lex-result-next)
                (io read-all-bytes)
+               (prim void)
+               (either left right)
                (list cons empty reverse))
        (export main)
        (types
          (define-type Sexp
             (node [list List]))
 
-         (define-type SexpResultInternal
-            (sexp-result-internal [v Sexp] [lexer Lexer])
-            (sexp-result-internal-error))
-
          (define-type SexpResult
-            (sexp-result [v Sexp])
+            (sexp-result [v Sexp] [lexer Lexer])
             (sexp-result-error)))
 
 
@@ -659,42 +675,42 @@
          (let ([lexer (make-lexer bytes)])
            (let ([val (loop lexer)])
              (case val
-               [(sexp-result-internal v lexer)
+               [(sexp-result v lexer)
                  (case (run-lexer lexer)
-                   [(lex-result v lexer) (sexp-result-error)]
-                   [(bad-input) (sexp-result-error)]
-                   [(end-of-input) (sexp-result v)])]
-               [(sexp-result-internal-error) (sexp-result-error)]))))
+                   [(lex-result v lexer) (left (void))]
+                   [(bad-input) (left (void))]
+                   [(end-of-input) (right v)])]
+               [(sexp-result-error) (left (void))]))))
 
        (define (loop lexer)
          (let ([val (run-lexer lexer)])
            (case val
-             [(end-of-input) (sexp-result-internal-error)]
-             [(bad-input) (sexp-result-internal-error)]
+             [(end-of-input) (sexp-result-error)]
+             [(bad-input) (sexp-result-error)]
              [(lex-result v lexer)
                (case v
                  [(left-paren) (node-loop (empty) lexer)]
-                 [(right-paren) (sexp-result-internal-error)])])))
+                 [(right-paren) (sexp-result-error)])])))
 
        (define (node-loop vals lexer)
          (let ([val (run-lexer lexer)])
            (case val
-             [(end-of-input) (sexp-result-internal-error)]
-             [(bad-input) (sexp-result-internal-error)]
+             [(end-of-input) (sexp-result-error)]
+             [(bad-input) (sexp-result-error)]
              [(lex-result v lexer)
                (case (lex-result-v val)
                  [(left-paren)
                    (case (node-loop (empty) lexer)
-                     [(sexp-result-internal v lexer)
+                     [(sexp-result v lexer)
                       (node-loop (cons v vals) lexer)]
-                     [(sexp-result-internal-error) (sexp-result-internal-error)])]
-                 [(right-paren) (sexp-result-internal (node (reverse vals)) lexer)])])))
+                     [(sexp-result-error) (sexp-result-error)])]
+                 [(right-paren) (sexp-result (node (reverse vals)) lexer)])])))
 
        (define (main stdin stderr stdout)
          (let ([result (parse-sexp (read-all-bytes stdin))])
            (case result
-             [(sexp-result v) 0]
-             [(sexp-result-error) 1])))))
+             [(right v) 0]
+             [(left v) 1])))))
 
 
 
