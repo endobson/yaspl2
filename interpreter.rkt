@@ -1,6 +1,8 @@
 #lang racket/base
 
 (require
+  "machine-structs.rkt"
+  "primitives.rkt"
   racket/list
   racket/set
   racket/match)
@@ -95,28 +97,6 @@
 
 ;;;;
 
-(struct value ())
-(struct function-val value (args env body))
-(struct void-val value ())
-(struct byte-val value (v))
-(struct boolean-val value (v))
-(struct bytes-val value (v))
-
-(struct prim-port-val value (port))
-(struct prim-function-val value (name))
-
-(struct variant-val (variant-name fields))
-(struct variant-constructor-val (variant-name fields))
-(struct field-accessor-val value (variant-name field-name))
-
-(struct halt-k ())
-(struct apply-k (vals args env cont))
-(struct if-k (true false env cont))
-(struct ignore-k (expr env cont))
-(struct bind-k (name expr env cont))
-(struct case-k (clauses env cont))
-
-(struct full-name (module-name main-name) #:transparent)
 
 
 (define (topo-sort modules)
@@ -168,9 +148,8 @@
 ;; Ties the knot of recursive global functions
 (define (make-global-env modules)
   (define (make-primitive-environment)
-    (define prims '(+ - * = or void write-byte make-bytes read-bytes bytes-ref bytes-length bytes-set!))
     (hash-copy
-      (for/hash ([prim (in-list prims)])
+      (for/hash ([prim (in-list supported-primitives)])
         (values (full-name 'prim prim) (prim-function-val prim)))))
 
 
@@ -261,59 +240,7 @@
        [(list (variant-val (== variant-name equal?) fields))
         (cont-machine-state (list-ref fields index) cont)])]
     [(prim-function-val name)
-     (case name
-       [(or)
-        (match args
-          [(list (boolean-val x) (boolean-val y))
-           (cont-machine-state (boolean-val (or x y)) cont)])]
-
-       [(+)
-        (match args
-          [(list (byte-val x) (byte-val y))
-           (cont-machine-state (byte-val (+ x y)) cont)])]
-       [(-)
-        (match args
-          [(list (byte-val x) (byte-val y))
-           (cont-machine-state (byte-val (- x y)) cont)])]
-       [(*)
-        (match args
-          [(list (byte-val x) (byte-val y))
-           (cont-machine-state (byte-val (* x y)) cont)])]
-       [(=)
-        (match args
-          [(list (byte-val x) (byte-val y))
-           (cont-machine-state (boolean-val (= x y)) cont)])]
-       [(void)
-        (match args
-          [(list)
-           (cont-machine-state (void-val) cont)])]
-       [(write-byte)
-        (match args
-          [(list (byte-val x) (prim-port-val p))
-           (write-byte x p)
-           (cont-machine-state (void-val) cont)])]
-       [(make-bytes)
-        (match args
-          [(list (byte-val size))
-           (cont-machine-state (bytes-val (make-bytes size)) cont)])]
-       [(read-bytes)
-        (match args
-          [(list (bytes-val b) (prim-port-val p) (byte-val start-pos) (byte-val end-pos))
-           (define amount-read (read-bytes! b p start-pos end-pos))
-           (cont-machine-state (byte-val (if (eof-object? amount-read) 0 amount-read)) cont)])]
-       [(bytes-ref)
-        (match args
-          [(list (bytes-val b) (byte-val index))
-           (cont-machine-state (byte-val (bytes-ref b index)) cont)])]
-       [(bytes-set!)
-        (match args
-          [(list (bytes-val b) (byte-val index) (byte-val v))
-           (bytes-set! b index v)
-           (cont-machine-state (void) cont)])]
-       [(bytes-length)
-        (match args
-          [(list (bytes-val b))
-           (cont-machine-state (byte-val (bytes-length b)) cont)])])]))
+     (cont-machine-state (run-primitive name args) cont)]))
 
 (define (hash-copy/immutable env)
   (make-immutable-hash (hash->list env)))
