@@ -9,6 +9,8 @@
 (struct boolean-val value (v))
 (struct bytes-val value (v))
 
+(struct error-sentinal (info))
+
 (struct prim-port-val value (port))
 (struct prim-function-val value (name))
 

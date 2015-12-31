@@ -49,13 +49,16 @@
   [(void)
    (void-val)]
 
+  [(panic (bytes-val bytes))
+   (error-sentinal bytes)]
+
   [(make-bytes (byte-val size))
    (bytes-val (make-bytes size))]
   [(bytes-ref (bytes-val b) (byte-val index))
    (byte-val (bytes-ref b index))]
   [(bytes-set! (bytes-val b) (byte-val index) (byte-val v))
    (bytes-set! b index v)
-   (void)]
+   (void-val)]
   [(bytes-length (bytes-val b))
    (byte-val (bytes-length b))]
 

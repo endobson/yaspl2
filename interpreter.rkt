@@ -190,7 +190,7 @@
                  (hash-ref local-env name))))
   global-env)
 
-(struct program-result (exit-code stdout stderr))
+(struct program-result (exit-code error-info stdout stderr))
 
 (define (run-program modules module-name main-name #:stdin stdin-bytes)
   (define env (make-global-env modules))
@@ -208,10 +208,10 @@
   (define stdin (open-input-bytes stdin-bytes 'stderr))
   (define args (list (prim-port-val stdin) (prim-port-val stdout) (prim-port-val stderr)))
 
+  (define return-val (run-machine (call-function main-fun args (halt-k))))
   (program-result
-    (byte-val-v
-      (run-machine
-        (call-function main-fun args (halt-k))))
+    (if (error-sentinal? return-val) 255 (byte-val-v return-val))
+    (and (error-sentinal? return-val) (error-sentinal-info return-val))
     (get-output-bytes stdout)
     (get-output-bytes stderr)))
 
@@ -240,7 +240,9 @@
        [(list (variant-val (== variant-name equal?) fields))
         (cont-machine-state (list-ref fields index) cont)])]
     [(prim-function-val name)
-     (cont-machine-state (run-primitive name args) cont)]))
+     (match (run-primitive name args)
+       [(? value? val) (cont-machine-state val cont)]
+       [(error-sentinal info) (error-machine-state info)])]))
 
 (define (hash-copy/immutable env)
   (make-immutable-hash (hash->list env)))
@@ -249,7 +251,7 @@
 (define (run-machine machine)
   (match machine
     [(error-machine-state info)
-     (error 'run-machine "Error running the machine: %s" info)]
+     (error-sentinal info)]
     [(eval-machine-state expr env cont)
      (match expr
        [(byte& v)
@@ -325,11 +327,13 @@
   (define (yaspl-test module-name main-name
                       #:exit-code [exit-code 0]
                       #:stdin [stdin #""]
+                      #:error [error-info #f]
                       #:stdout [stdout #""]
                       #:stderr [stderr #""])
     (test-case (format "~a/~a" module-name main-name)
       (define result (run-program modules module-name main-name #:stdin stdin))
       (check-equal? (program-result-exit-code result) exit-code)
+      (check-equal? (program-result-error-info result) error-info)
       (check-equal? (program-result-stdout result) stdout)
       (check-equal? (program-result-stderr result) stderr)))
 
@@ -424,6 +428,15 @@
            (begin
              (read-bytes bytes stdin 0 5)
              (bytes-ref bytes 0))))))
+
+  (add-module!
+    '(module panic1
+       (import (prim panic make-bytes))
+       (export main)
+       (types)
+       (define (main stdin stdout stderr)
+         (panic (make-bytes 3)))))
+
 
   (add-module!
     '(module bytes-output
@@ -716,8 +729,8 @@
   (yaspl-test 'exit-code6 'main #:exit-code 6)
 
   (yaspl-test 'stdout1 'main #:stdout #"Aa")
-
   (yaspl-test 'stdin1 'main #:stdin #"A" #:exit-code 65)
+  (yaspl-test 'panic1 'main #:exit-code 255 #:error #"\0\0\0")
   (yaspl-test 'echo1 'main #:stdin #"Hello world" #:stdout #"Hello world")
   (yaspl-test 'echo2 'main #:stdin #"Hello world" #:stdout #"Hello world")
   (yaspl-test 'sum-tree 'main #:exit-code 15)
