@@ -539,16 +539,20 @@
 
   (add-module!
     '(module bytes
-        (import (prim + - = bytes-set! bytes-ref void))
-        (export bytes-copy bytes=?)
+        (import (prim + - = bytes-set! bytes-ref void make-bytes))
+        (export bytes-copy! bytes=? subbytes)
         (types)
 
-        (define (bytes-copy src s-off s-len dest d-off)
-          (if (= s-len 0)
+        (define (bytes-copy! src s-start s-end dest d-start)
+          (if (= s-start s-end)
               (void)
               (begin
-                (bytes-set! dest d-off (bytes-ref src s-off))
-                (bytes-copy src (+ s-off 1) (- s-len 1) dest (+ d-off 1)))))
+                (bytes-set! dest d-start (bytes-ref src s-start))
+                (bytes-copy! src (+ s-start 1) s-end dest (+ d-start 1)))))
+
+        (define (subbytes src start end)
+          (let ([new-bytes (make-bytes (- end start))])
+            (bytes-copy! src start end new-bytes 0)))
 
        (define (bytes=? b1 b2)
          (if (= (bytes-length b1) (bytes-length b2))
@@ -566,7 +570,7 @@
   (add-module!
     '(module io
         (import (prim make-bytes read-bytes + * - bytes-length =)
-                (bytes bytes-copy))
+                (bytes bytes-copy!))
         (export read-all-bytes)
         (types)
 
@@ -578,13 +582,13 @@
             (if (= amount-read 0)
                 (let ([trim-bytes (make-bytes cur-size)])
                    (begin
-                     (bytes-copy buf 0 cur-size trim-bytes 0)
+                     (bytes-copy! buf 0 cur-size trim-bytes 0)
                      trim-bytes))
                 (let ([new-size (+ amount-read cur-size)])
                   (if (= new-size (bytes-length buf))
                       (let ([new-buf (make-bytes (* 2 (bytes-length buf)))])
                         (begin
-                          (bytes-copy buf 0 new-size new-buf 0)
+                          (bytes-copy! buf 0 new-size new-buf 0)
                           (read-all-bytes-loop in new-buf new-size)))
                       (read-all-bytes-loop in buf new-size))))))))
 
@@ -633,7 +637,8 @@
        (export main)
        (types
          (define-type Sexp
-            (node [list List]))
+            (node [list List])
+            (symbol-sexp [bytes Bytes]))
 
          (define-type SexpResult
             (sexp-result [v Sexp] [lexer Lexer])
@@ -659,8 +664,9 @@
              [(bad-input) (sexp-result-error)]
              [(lex-result v lexer)
                (case v
-                 [(left-paren) (node-loop (empty) lexer)]
-                 [(right-paren) (sexp-result-error)])])))
+                 [(symbol-lexeme bytes) (sexp-result (symbol-sexp bytes) lexer)]
+                 [(left-paren-lexeme) (node-loop (empty) lexer)]
+                 [(right-paren-lexeme) (sexp-result-error)])])))
 
        (define (node-loop vals lexer)
          (let ([val (run-lexer lexer)])
@@ -669,12 +675,14 @@
              [(bad-input) (sexp-result-error)]
              [(lex-result v lexer)
                (case (lex-result-v val)
-                 [(left-paren)
+                 [(symbol-lexeme bytes) 
+                  (node-loop (cons (symbol-sexp bytes) vals) lexer)]
+                 [(left-paren-lexeme)
                    (case (node-loop (empty) lexer)
                      [(sexp-result v lexer)
                       (node-loop (cons v vals) lexer)]
                      [(sexp-result-error) (sexp-result-error)])]
-                 [(right-paren) (sexp-result (node (reverse vals)) lexer)])])))
+                 [(right-paren-lexeme) (sexp-result (node (reverse vals)) lexer)])])))
 
        (define (main stdin stderr stdout)
          (let ([result (parse-sexp (read-all-bytes stdin))])
@@ -688,6 +696,7 @@
   (add-module!
     '(module lexer
         (import (prim + = make-bytes read-bytes bytes-length bytes-ref or)
+                (bytes subbytes)
                 (io read-all-bytes))
         (export main make-lexer run-lexer lex-result-v lex-result-next )
         (types
@@ -695,12 +704,12 @@
             (lexer [input Bytes] [pos Byte]))
 
           (define-type Lexeme
-            (left-paren)
-            (right-paren)
+            (left-paren-lexeme)
+            (right-paren-lexeme)
+            (symbol-lexeme [v Bytes])
             ;; TODO support more cases
-            #; #;
-            (number [v Bytes])
-            (symbol [v Bytes]))
+            #;
+            (number [v Bytes]))
 
           (define-type Result
             (lex-result [v lexeme] [next Lexer])
@@ -719,6 +728,26 @@
         (define (whitespace? v)
           (or (= v 32) (= v 10)))
 
+
+        (define (symbol-start-byte? v)
+          (or (= v 42)
+              (or (= v 43)
+                  (or (= v 45)
+                      (= v 47)))))
+
+        (define (symbol-continue-byte? v)
+          #f)
+
+        (define (lex-symbol bytes start cur)
+          (if (= (bytes-length bytes) cur)
+              (lex-result (symbol-lexeme (subbytes bytes start cur))
+                          (lexer bytes cur))
+              (if (symbol-continue-byte? bytes cur)
+                  (lex-symbol bytes start (+ 1 cur))
+                  (lex-result (symbol-lexeme (subbytes bytes start cur))
+                              (lexer bytes cur)))))
+
+
         (define (make-lexer bytes)
           (lexer bytes 0))
 
@@ -731,12 +760,14 @@
               (end-of-input)
               (let ([byte (bytes-ref bytes pos)])
                 (if (= byte 40)
-                    (lex-result (left-paren) (lexer bytes (+ pos 1)))
+                    (lex-result (left-paren-lexeme) (lexer bytes (+ pos 1)))
                     (if (= byte 41)
-                        (lex-result (right-paren) (lexer bytes (+ pos 1)))
+                        (lex-result (right-paren-lexeme) (lexer bytes (+ pos 1)))
                         (if (whitespace? byte)
                             (run bytes (+ 1 pos))
-                            (bad-input)))))))
+                            (if (symbol-start-byte? byte)
+                                (lex-symbol bytes pos (+ pos 1))
+                                (bad-input))))))))
 
         (define (loop lexer)
           (case (run-lexer lexer)
@@ -780,6 +811,8 @@
   (yaspl-test 'sexp-parser 'main #:stdin #"(()" #:exit-code 1)
   (yaspl-test 'sexp-parser 'main #:stdin #"(()())" #:exit-code 0)
   (yaspl-test 'sexp-parser 'main #:stdin #"( ( ()(( )  )\n )( ))" #:exit-code 0)
+  (yaspl-test 'sexp-parser 'main #:stdin #"+" #:exit-code 0)
+  (yaspl-test 'sexp-parser 'main #:stdin #"(+ (+))" #:exit-code 0)
 
 
   )
