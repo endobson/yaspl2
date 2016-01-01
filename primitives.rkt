@@ -36,6 +36,8 @@
 
   [(or (boolean-val x) (boolean-val y))
    (boolean-val (or x y))]
+  [(and (boolean-val x) (boolean-val y))
+   (boolean-val (and x y))]
 
   [(+ (byte-val x) (byte-val y))
    (byte-val (+ x y))]
@@ -45,6 +47,10 @@
    (byte-val (* x y))]
   [(= (byte-val x) (byte-val y))
    (boolean-val (= x y))]
+  [(<= (byte-val x) (byte-val y))
+   (boolean-val (<= x y))]
+  [(< (byte-val x) (byte-val y))
+   (boolean-val (< x y))]
 
   [(void)
    (void-val)]

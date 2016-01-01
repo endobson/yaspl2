@@ -322,8 +322,10 @@
 
 
 (module+ test
-  (require racket/set)
-  (require rackunit)
+  (require
+    racket/set
+    rackunit
+    rackunit/text-ui)
 
   (define modules (mutable-set))
   (define module-names (mutable-set))
@@ -341,12 +343,12 @@
                       #:error [error-info #f]
                       #:stdout [stdout #""]
                       #:stderr [stderr #""])
-    (test-case (format "~a/~a" module-name main-name)
-      (define result (run-program modules module-name main-name #:stdin stdin))
-      (check-equal? (program-result-exit-code result) exit-code)
-      (check-equal? (program-result-error-info result) error-info)
-      (check-equal? (program-result-stdout result) stdout)
-      (check-equal? (program-result-stderr result) stderr)))
+    (test-suite (format "~a/~a" module-name main-name)
+      (let ([result (run-program modules module-name main-name #:stdin stdin)])
+        (check-equal? (program-result-exit-code result) exit-code)
+        (check-equal? (program-result-error-info result) error-info)
+        (check-equal? (program-result-stdout result) stdout)
+        (check-equal? (program-result-stderr result) stderr))))
 
 
   (add-module!
@@ -631,14 +633,15 @@
     '(module sexp-parser
        (import (lexer make-lexer run-lexer lex-result-v lex-result-next)
                (io read-all-bytes)
-               (prim void)
+               (prim void panic)
                (either left right)
                (list cons empty reverse))
        (export main)
        (types
          (define-type Sexp
             (node [list List])
-            (symbol-sexp [bytes Bytes]))
+            (symbol-sexp [bytes Bytes])
+            (number-sexp [bytes Bytes]))
 
          (define-type SexpResult
             (sexp-result [v Sexp] [lexer Lexer])
@@ -652,10 +655,10 @@
              (case val
                [(sexp-result v lexer)
                  (case (run-lexer lexer)
-                   [(lex-result v lexer) (left (void))]
-                   [(bad-input) (left (void))]
+                   [(lex-result v lexer) (left #"Leftovers")]
+                   [(bad-input) (left #"Bad input")]
                    [(end-of-input) (right v)])]
-               [(sexp-result-error) (left (void))]))))
+               [(sexp-result-error) (left #"Sexp result error")]))))
 
        (define (loop lexer)
          (let ([val (run-lexer lexer)])
@@ -664,6 +667,7 @@
              [(bad-input) (sexp-result-error)]
              [(lex-result v lexer)
                (case v
+                 [(number-lexeme bytes) (sexp-result (number-sexp bytes) lexer)]
                  [(symbol-lexeme bytes) (sexp-result (symbol-sexp bytes) lexer)]
                  [(left-paren-lexeme) (node-loop (empty) lexer)]
                  [(right-paren-lexeme) (sexp-result-error)])])))
@@ -675,8 +679,10 @@
              [(bad-input) (sexp-result-error)]
              [(lex-result v lexer)
                (case (lex-result-v val)
-                 [(symbol-lexeme bytes) 
+                 [(symbol-lexeme bytes)
                   (node-loop (cons (symbol-sexp bytes) vals) lexer)]
+                 [(number-lexeme bytes)
+                  (node-loop (cons (number-sexp bytes) vals) lexer)]
                  [(left-paren-lexeme)
                    (case (node-loop (empty) lexer)
                      [(sexp-result v lexer)
@@ -688,14 +694,14 @@
          (let ([result (parse-sexp (read-all-bytes stdin))])
            (case result
              [(right v) 0]
-             [(left v) 1])))))
+             [(left v) (panic v)])))))
 
 
 
 
   (add-module!
     '(module lexer
-        (import (prim + = make-bytes read-bytes bytes-length bytes-ref or)
+        (import (prim + = <= < make-bytes read-bytes bytes-length bytes-ref or and)
                 (bytes subbytes)
                 (io read-all-bytes))
         (export main make-lexer run-lexer lex-result-v lex-result-next )
@@ -707,16 +713,13 @@
             (left-paren-lexeme)
             (right-paren-lexeme)
             (symbol-lexeme [v Bytes])
-            ;; TODO support more cases
-            #;
-            (number [v Bytes]))
+            (number-lexeme [v Bytes]))
 
           (define-type Result
             (lex-result [v lexeme] [next Lexer])
             (end-of-input)
             (bad-input)))
 
-        #;
         (define (digit? v)
           (and (<= 48 v) (< v 58)))
 
@@ -729,12 +732,16 @@
           (or (= v 32) (= v 10)))
 
 
+        (define (number-start-byte? v)
+          (digit? v))
+        (define (number-continue-byte? v)
+          (digit? v))
+
         (define (symbol-start-byte? v)
           (or (= v 42)
               (or (= v 43)
                   (or (= v 45)
                       (= v 47)))))
-
         (define (symbol-continue-byte? v)
           #f)
 
@@ -746,6 +753,16 @@
                   (lex-symbol bytes start (+ 1 cur))
                   (lex-result (symbol-lexeme (subbytes bytes start cur))
                               (lexer bytes cur)))))
+
+        (define (lex-number bytes start cur)
+          (if (= (bytes-length bytes) cur)
+              (lex-result (number-lexeme (subbytes bytes start cur))
+                          (lexer bytes cur))
+              (if (number-continue-byte? (bytes-ref bytes cur))
+                  (lex-number bytes start (+ 1 cur))
+                  (lex-result (number-lexeme (subbytes bytes start cur))
+                              (lexer bytes cur)))))
+
 
 
         (define (make-lexer bytes)
@@ -767,7 +784,9 @@
                             (run bytes (+ 1 pos))
                             (if (symbol-start-byte? byte)
                                 (lex-symbol bytes pos (+ pos 1))
-                                (bad-input))))))))
+                                (if (number-start-byte? byte)
+                                    (lex-number bytes pos (+ pos 1))
+                                    (bad-input)))))))))
 
         (define (loop lexer)
           (case (run-lexer lexer)
@@ -782,37 +801,44 @@
 
 
 
-  (yaspl-test 'exit-code 'main #:exit-code 1)
-  (yaspl-test 'exit-code2 'main #:exit-code 2)
-  (yaspl-test 'exit-code3 'main #:exit-code 3)
-  (yaspl-test 'exit-code4 'main #:exit-code 4)
-  (yaspl-test 'exit-code5 'main #:exit-code 5)
-  (yaspl-test 'exit-code6 'main #:exit-code 6)
+  (void (run-tests
+    (test-suite "Yaspl tests"
+      (yaspl-test 'exit-code 'main #:exit-code 1)
+      (yaspl-test 'exit-code2 'main #:exit-code 2)
+      (yaspl-test 'exit-code3 'main #:exit-code 3)
+      (yaspl-test 'exit-code4 'main #:exit-code 4)
+      (yaspl-test 'exit-code5 'main #:exit-code 5)
+      (yaspl-test 'exit-code6 'main #:exit-code 6)
 
-  (yaspl-test 'stdout1 'main #:stdout #"Aa")
-  (yaspl-test 'stdin1 'main #:stdin #"A" #:exit-code 65)
-  (yaspl-test 'panic1 'main #:exit-code 255 #:error #"\0\0\0")
-  (yaspl-test 'panic2 'main #:exit-code 255 #:error #"Boom")
-  (yaspl-test 'echo1 'main #:stdin #"Hello world" #:stdout #"Hello world")
-  (yaspl-test 'echo2 'main #:stdin #"Hello world" #:stdout #"Hello world")
-  (yaspl-test 'sum-tree 'main #:exit-code 15)
-
-
-  (yaspl-test 'lexer 'main #:stdin #"((((" #:exit-code 0)
-  (yaspl-test 'lexer 'main #:stdin #"()()()" #:exit-code 0)
-  (yaspl-test 'lexer 'main #:stdin #"(()" #:exit-code 0)
-  (yaspl-test 'lexer 'main #:stdin #"aaaa" #:exit-code 1)
+      (yaspl-test 'stdout1 'main #:stdout #"Aa")
+      (yaspl-test 'stdin1 'main #:stdin #"A" #:exit-code 65)
+      (yaspl-test 'panic1 'main #:exit-code 255 #:error #"\0\0\0")
+      (yaspl-test 'panic2 'main #:exit-code 255 #:error #"Boom")
+      (yaspl-test 'echo1 'main #:stdin #"Hello world" #:stdout #"Hello world")
+      (yaspl-test 'echo2 'main #:stdin #"Hello world" #:stdout #"Hello world")
+      (yaspl-test 'sum-tree 'main #:exit-code 15)
 
 
-  (yaspl-test 'sexp-parser 'main #:stdin #"" #:exit-code 1)
-  (yaspl-test 'sexp-parser 'main #:stdin #"(" #:exit-code 1)
-  (yaspl-test 'sexp-parser 'main #:stdin #")" #:exit-code 1)
-  (yaspl-test 'sexp-parser 'main #:stdin #"()" #:exit-code 0)
-  (yaspl-test 'sexp-parser 'main #:stdin #"(()" #:exit-code 1)
-  (yaspl-test 'sexp-parser 'main #:stdin #"(()())" #:exit-code 0)
-  (yaspl-test 'sexp-parser 'main #:stdin #"( ( ()(( )  )\n )( ))" #:exit-code 0)
-  (yaspl-test 'sexp-parser 'main #:stdin #"+" #:exit-code 0)
-  (yaspl-test 'sexp-parser 'main #:stdin #"(+ (+))" #:exit-code 0)
+      (yaspl-test 'lexer 'main #:stdin #"((((" #:exit-code 0)
+      (yaspl-test 'lexer 'main #:stdin #"()()()" #:exit-code 0)
+      (yaspl-test 'lexer 'main #:stdin #"(()" #:exit-code 0)
+      (yaspl-test 'lexer 'main #:stdin #"aaaa" #:exit-code 1)
 
 
-  )
+      (yaspl-test 'sexp-parser 'main #:stdin #"" #:exit-code 255 #:error #"Sexp result error")
+      (yaspl-test 'sexp-parser 'main #:stdin #"(" #:exit-code 255 #:error #"Sexp result error")
+      (yaspl-test 'sexp-parser 'main #:stdin #")" #:exit-code 255 #:error #"Sexp result error")
+      (yaspl-test 'sexp-parser 'main #:stdin #"()" #:exit-code 0)
+      (yaspl-test 'sexp-parser 'main #:stdin #"(()" #:exit-code 255 #:error #"Sexp result error")
+      (yaspl-test 'sexp-parser 'main #:stdin #"(()())" #:exit-code 0)
+      (yaspl-test 'sexp-parser 'main #:stdin #"( ( ()(( )  )\n )( ))" #:exit-code 0)
+      (yaspl-test 'sexp-parser 'main #:stdin #"+" #:exit-code 0)
+      (yaspl-test 'sexp-parser 'main #:stdin #"(+ (+))" #:exit-code 0)
+      (yaspl-test 'sexp-parser 'main #:stdin #"2" #:exit-code 0)
+      (yaspl-test 'sexp-parser 'main #:stdin #"23" #:exit-code 0)
+      (yaspl-test 'sexp-parser 'main #:stdin #"456" #:exit-code 0)
+      (yaspl-test 'sexp-parser 'main #:stdin #"(+ 2 3)" #:exit-code 0)
+    )
+    'verbose)))
+
+
