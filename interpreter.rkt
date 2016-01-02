@@ -241,7 +241,9 @@
     [(field-accessor-val variant-name index)
      (match args
        [(list (variant-val (== variant-name equal?) fields))
-        (cont-machine-state (list-ref fields index) cont)])]
+        (cont-machine-state (list-ref fields index) cont)]
+       [_
+         (error-machine-state #"Wrong variant")])]
     [(prim-function-val name)
      (match (run-primitive name args)
        [(? value? val) (cont-machine-state val cont)]
@@ -553,7 +555,7 @@
 
   (add-module!
     '(module bytes
-        (import (prim + - = bytes-set! bytes-ref void make-bytes))
+        (import (prim + - = bytes-set! bytes-ref void make-bytes bytes-length))
         (export bytes-copy! bytes=? subbytes)
         (types)
 
@@ -573,13 +575,13 @@
        (define (bytes=? b1 b2)
          (if (= (bytes-length b1) (bytes-length b2))
              (inner-bytes=? b1 b2 0)
-             false))
+             #f))
        (define (inner-bytes=? b1 b2 offset)
          (if (= offset (bytes-length b1))
-             true
-             (if (= (bytes-ref b1 offset) (bytes-ref b2 offset)A)
+             #t
+             (if (= (bytes-ref b1 offset) (bytes-ref b2 offset))
                  (inner-bytes=? b1 b2 (+ 1 offset))
-                 false)))))
+                 #f)))))
 
 
   (add-module!
@@ -637,7 +639,7 @@
             (empty)))
 
         (define (reverse list)
-          (reverse-helper list empty))
+          (reverse-helper list (empty)))
         (define (reverse-helper l1 l2)
           (case l1
             [(empty) l2]
@@ -646,7 +648,7 @@
   (add-module!
     '(module either
         (import)
-        (export left right)
+        (export left right right-v)
         (types
           (define-type (Either a b)
             (left [v a])
@@ -670,12 +672,12 @@
                (prim void panic)
                (either left right)
                (list cons empty reverse))
-       (export main)
+       (export parse-sexp main)
        (types
          (define-type Sexp
             (node [list List])
             (symbol-sexp [bytes Bytes])
-            (number-sexp [bytes Bytes]))
+            (number-sexp [byte Byte]))
 
          (define-type SexpResult
             (sexp-result [v Sexp] [lexer Lexer])
@@ -830,6 +832,73 @@
           (loop (make-lexer (read-all-bytes stdin))))))
 
 
+  (add-module!
+    '(module arithmetic-expr
+       (import
+         (prim panic)
+         (sexp-parser parse-sexp)
+         (io read-all-bytes)
+         (either right-v)
+         (bytes bytes=?))
+       (export parse-arith-expr main)
+       (types
+         (define-type ArithExpr
+           (num-lit [v Byte])
+           (num-op-expr [v NumOp] [left arith-expr] [right arith-expr]))
+         (define-type NumOp
+           (plus-op)
+           (minus-op)
+           (times-op)))
+
+       (define (parse-arith-expr sexp)
+         (case sexp
+           [(node ops)
+            (case ops
+              [(cons sym ops)
+               (case ops
+                 [(cons arg1 ops)
+                  (case ops
+                    [(cons arg2 ops)
+                     (case ops
+                       [(empty) (parse-arith/fun-two-args sym arg1 arg2)]
+                       [(cons arg3 ops) (panic #"Too many arguments")])]
+                    [(empty) (panic #"Too few arguments: got 1")])]
+                 [(empty) (panic #"Too few arguments: got 0")])]
+              [(empty) (panic #"No function symbol")])]
+           [(symbol-sexp bytes) (panic #"Symbols not supported")]
+           [(number-sexp byte) (num-lit byte)]))
+
+       (define (parse-arith/fun-two-args sym arg1 arg2)
+         (let ([arg1-parsed (parse-arith-expr arg1)])
+           (let ([arg2-parsed (parse-arith-expr arg2)])
+             (case sym
+               [(node args) (panic #"Function position is a node")]
+               [(number-sexp v) (panic #"Function position is a number")]
+               [(symbol-sexp bytes)
+                (num-op-expr (bytes->num-op bytes) arg1-parsed arg2-parsed)]))))
+
+       (define (bytes->num-op bytes)
+         (if (bytes=? bytes #"+")
+             (plus-op)
+             (if (bytes=? bytes #"-")
+                 (minus-op)
+                 (if (bytes=? bytes #"*")
+                     (times-op)
+                     (panic #"Unknown op")))))
+
+       (define (main stdin stdout stderr)
+         (begin
+           (parse-arith-expr (right-v (parse-sexp (read-all-bytes stdin))))
+           0))))
+
+
+
+
+
+
+
+
+
 
 
 
@@ -871,6 +940,11 @@
       (yaspl-test 'sexp-parser 'main #:stdin #"23" #:exit-code 0)
       (yaspl-test 'sexp-parser 'main #:stdin #"456" #:exit-code 0)
       (yaspl-test 'sexp-parser 'main #:stdin #"(+ 2 3)" #:exit-code 0)
+
+      (yaspl-test 'arithmetic-expr 'main #:stdin #"2" #:exit-code 0)
+      (yaspl-test 'arithmetic-expr 'main #:stdin #"(+ 2 3)" #:exit-code 0)
+      (yaspl-test 'arithmetic-expr 'main #:stdin #"(+ (* 1 2) (- 4 3))" #:exit-code 0)
+
     )
     'verbose)))
 
