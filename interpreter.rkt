@@ -165,7 +165,10 @@
     (for ([import (in-list (module&-imports module))])
       (hash-set! local-env (import&-name import)
                  (hash-ref global-env
-                           (full-name (import&-module-name import) (import&-name import)))))
+                           (full-name (import&-module-name import) (import&-name import))
+                           (λ ()
+                              (error 'make-global-env "No export with name '~a' in ~a"
+                                     (import&-name import) (import&-module-name import))))))
 
     (for ([type (in-list (module&-types module))])
       (for ([variant (in-list (define-type&-variants type))])
@@ -190,7 +193,9 @@
     (for ([export (in-list (module&-exports module))])
       (define name (export&-name export))
       (hash-set! global-env (full-name (module&-name module) name)
-                 (hash-ref local-env name))))
+                 (hash-ref local-env name
+                           (λ () (error 'make-global-env "No definition for export '~a' in ~a"
+                                   (export&-name export) (module&-name module)))))))
   global-env)
 
 (struct program-result (exit-code error-info stdout stderr))
@@ -228,11 +233,13 @@
 (define (call-function fun args cont)
   (match fun
     [(function-val arg-names env body)
-     (define new-env
-       (for/fold ([env (hash-copy/immutable env)])
-                 ([v (in-list args)] [name (in-list arg-names)])
-         (hash-set env name v)))
-     (eval-machine-state body new-env cont)]
+     (if (or #t (= (length args) (length arg-names)))
+       (let ([new-env
+               (for/fold ([env (hash-copy/immutable env)])
+                         ([v (in-list args)] [name (in-list arg-names)])
+                 (hash-set env name v))])
+         (eval-machine-state body new-env cont))
+       (error-machine-state #"Number of arguments to function is incorrect"))]
     [(variant-constructor-val variant-name fields)
      (unless (= (length args) (length fields))
        (error 'variant-constructor "Wrong number of arguments for ~a: Expected ~a, got ~a"
@@ -266,7 +273,11 @@
        [(boolean& v)
         (run-machine (cont-machine-state (boolean-val v) cont))]
        [(variable& v)
-        (run-machine (cont-machine-state (hash-ref env v) cont))]
+        (define val (hash-ref env v #f))
+        (run-machine 
+          (if val
+              (cont-machine-state val cont)
+              (error-machine-state (string->bytes/utf-8 (format "No binding for ~a available" v)))))]
        [(app& op vs)
         (run-machine (apply-machine-state empty (cons op vs) env cont))]
        [(if& cond true false)
@@ -323,14 +334,11 @@
 
 
 
-(module+ test
-  (require
-    racket/set
-    rackunit
-    rackunit/text-ui)
-
+(module+ modules
+  (provide modules)
   (define modules (mutable-set))
   (define module-names (mutable-set))
+
   (define (add-module! mod-src)
     (define mod (parse-module mod-src))
     (define mod-name (module&-name mod))
@@ -338,20 +346,6 @@
       (error 'add-module! "Cannot add module: ~s is already defined" mod-name))
     (set-add! module-names mod-name)
     (set-add! modules mod))
-
-  (define (yaspl-test module-name main-name
-                      #:exit-code [exit-code 0]
-                      #:stdin [stdin #""]
-                      #:error [error-info #f]
-                      #:stdout [stdout #""]
-                      #:stderr [stderr #""])
-    (test-suite (format "~a/~a" module-name main-name)
-      (let ([result (run-program modules module-name main-name #:stdin stdin)])
-        (check-equal? (program-result-exit-code result) exit-code)
-        (check-equal? (program-result-error-info result) error-info)
-        (check-equal? (program-result-stdout result) stdout)
-        (check-equal? (program-result-stderr result) stderr))))
-
 
   (add-module!
     '(module empty
@@ -586,8 +580,9 @@
 
   (add-module!
     '(module numbers
-        (import (prim and bytes-length bytes-ref + * - = <= <))
-        (export digit? decimal-bytes->integer)
+        (import (prim and bytes-length bytes-ref bytes-set! + * - quotient remainder = <= < > panic
+                      make-bytes void))
+        (export digit? decimal-bytes->integer integer->decimal-bytes)
         (types)
 
         (define (digit? v)
@@ -600,15 +595,42 @@
           (if (= start end)
               acc
               (let ([acc (+ (* 10 acc) (- (bytes-ref bytes start) 48))])
-                (decimal-bytes->integer/loop bytes (+ 1 start) end acc))))))
+                (decimal-bytes->integer/loop bytes (+ 1 start) end acc))))
+
+        (define (integer->decimal-bytes-length v)
+          (if (< v 0)
+              (+ 1 (integer->decimal-bytes-length (- 0 v)))
+              (if (< v 10)
+                  1
+                  (+ 1 (integer->decimal-bytes-length (quotient v 10))))))
+
+        (define (write-decimal-bytes v bytes offset)
+          (if (< v 0)
+              (begin
+                (bytes-set! bytes offset 45) ;; '-'
+                (write-decimal-bytes (- 0 v) bytes (+ 1 offset)))
+              (let ([b (remainder v 10)])
+                (begin
+                  (bytes-set! bytes offset (+ v 48))
+                  (let ([v (quotient v 10)])
+                    (if (> v 0)
+                        (write-decimal-bytes v bytes (+ offset 1))
+                        (void)))))))
+
+        (define (integer->decimal-bytes v)
+          (let ([bytes (make-bytes (integer->decimal-bytes-length v))])
+            (begin
+              (write-decimal-bytes v bytes 0)
+              bytes)))))
 
 
 
   (add-module!
     '(module io
         (import (prim make-bytes read-bytes + * - bytes-length =)
+                (bytes-output write-bytes)
                 (bytes bytes-copy!))
-        (export read-all-bytes)
+        (export read-all-bytes write-all-bytes write-newline)
         (types)
 
         (define (read-all-bytes in)
@@ -627,7 +649,17 @@
                         (begin
                           (bytes-copy! buf 0 new-size new-buf 0)
                           (read-all-bytes-loop in new-buf new-size)))
-                      (read-all-bytes-loop in buf new-size))))))))
+                      (read-all-bytes-loop in buf new-size))))))
+
+        (define (write-all-bytes bytes out)
+          (write-bytes bytes out 0 (bytes-length bytes)))
+        (define (write-newline out)
+          (write-all-bytes #"\n" out))
+
+
+        ))
+
+
 
   (add-module!
     '(module list
@@ -893,11 +925,87 @@
 
 
 
+  (add-module!
+    '(module stack-machine
+       (import 
+         (prim void)
+         (arithmetic-expr parse-arith-expr)
+         (sexp-parser parse-sexp)
+         (io read-all-bytes write-all-bytes write-newline)
+         (bytes-output write-bytes)
+         (numbers integer->decimal-bytes)
+         (either right-v))
+       (export main)
+       (types
+         (define-type Stack
+           (num-lit-cmd [v Byte] [stack Stack])
+           (eval-op-cmd [v NumOp] [stack Stack])
+           (halt-cmd)))
+
+       (define (compile-arith-expr expr)
+         (compile-arith-expr/loop expr (halt-cmd)))
+
+       (define (compile-arith-expr/loop expr stack)
+         (case expr
+           [(num-op-expr op left right)
+            (compile-arith-expr/loop left (compile-arith-expr/loop right (eval-op-cmd op stack)))]
+           [(num-lit v)
+            (num-lit-cmd v stack)]))
+
+       (define (print-stack stack output)
+         (case stack
+           [(halt-cmd) (void)]
+           [(num-lit-cmd v stack)
+            (begin
+              (write-all-bytes (integer->decimal-bytes v) output)
+              (write-newline output)
+              (print-stack stack output))]
+           [(eval-op-cmd op stack)
+            (begin
+              (write-all-bytes (num-op->bytes op) output)
+              (write-newline output)
+              (print-stack stack output))]))
+
+       (define (num-op->bytes op)
+         (case op
+           [(plus-op) #"+"]
+           [(minus-op) #"-"]
+           [(times-op) #"*"]))
+
+       (define (main stdin stdout stderr)
+         (begin
+           (print-stack
+             (compile-arith-expr (parse-arith-expr (right-v (parse-sexp (read-all-bytes stdin)))))
+             stdout)
+           0)))))
 
 
 
 
 
+
+
+(module+ test
+  (require
+    (submod ".." modules)
+    rackunit
+    rackunit/text-ui)
+
+
+
+
+  (define (yaspl-test module-name main-name
+                      #:exit-code [exit-code 0]
+                      #:stdin [stdin #""]
+                      #:error [error-info #f]
+                      #:stdout [stdout #""]
+                      #:stderr [stderr #""])
+    (test-suite (format "~a/~a" module-name main-name)
+      (let ([result (run-program modules module-name main-name #:stdin stdin)])
+        (check-equal? (program-result-exit-code result) exit-code)
+        (check-equal? (program-result-error-info result) error-info)
+        (check-equal? (program-result-stdout result) stdout)
+        (check-equal? (program-result-stderr result) stderr))))
 
 
 
@@ -944,6 +1052,9 @@
       (yaspl-test 'arithmetic-expr 'main #:stdin #"2" #:exit-code 0)
       (yaspl-test 'arithmetic-expr 'main #:stdin #"(+ 2 3)" #:exit-code 0)
       (yaspl-test 'arithmetic-expr 'main #:stdin #"(+ (* 1 2) (- 4 3))" #:exit-code 0)
+
+      (yaspl-test 'stack-machine 'main #:stdin #"1" #:exit-code 0 #:stdout #"1\n")
+      (yaspl-test 'stack-machine 'main #:stdin #"(+ 1 2)" #:exit-code 0 #:stdout #"1\n2\n+\n")
 
     )
     'verbose)))

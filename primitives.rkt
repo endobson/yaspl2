@@ -45,12 +45,21 @@
    (byte-val (- x y))]
   [(* (byte-val x) (byte-val y))
    (byte-val (* x y))]
+  [(quotient (byte-val x) (byte-val y))
+   (byte-val (quotient x y))]
+  [(remainder (byte-val x) (byte-val y))
+   (byte-val (remainder x y))]
+
   [(= (byte-val x) (byte-val y))
    (boolean-val (= x y))]
   [(<= (byte-val x) (byte-val y))
    (boolean-val (<= x y))]
   [(< (byte-val x) (byte-val y))
    (boolean-val (< x y))]
+  [(> (byte-val x) (byte-val y))
+   (boolean-val (> x y))]
+  [(>= (byte-val x) (byte-val y))
+   (boolean-val (>= x y))]
 
   [(void)
    (void-val)]
