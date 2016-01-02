@@ -141,7 +141,7 @@
       (set! order (cons mod order))
       (loop)))
   (unless (= (length order) (length modules))
-    (error 'topo-sort "Something went wrong"))
+    (error 'topo-sort "Something went wrong: ~n~a~n~a" order (map module&-name modules)))
   (map (λ (name) (hash-ref module-hash name)) (reverse order)))
 
 
@@ -443,6 +443,18 @@
              (bytes-ref bytes 0))))))
 
   (add-module!
+    '(module stdin2
+       (import
+         (numbers decimal-bytes->integer)
+         (io read-all-bytes))
+       (export main)
+       (types)
+
+       (define (main stdin stdout stderr)
+         (decimal-bytes->integer (read-all-bytes stdin)))))
+
+
+  (add-module!
     '(module panic1
        (import (prim panic make-bytes))
        (export main)
@@ -554,7 +566,9 @@
 
         (define (subbytes src start end)
           (let ([new-bytes (make-bytes (- end start))])
-            (bytes-copy! src start end new-bytes 0)))
+            (begin
+              (bytes-copy! src start end new-bytes 0)
+              new-bytes)))
 
        (define (bytes=? b1 b2)
          (if (= (bytes-length b1) (bytes-length b2))
@@ -566,6 +580,25 @@
              (if (= (bytes-ref b1 offset) (bytes-ref b2 offset)A)
                  (inner-bytes=? b1 b2 (+ 1 offset))
                  false)))))
+
+
+  (add-module!
+    '(module numbers
+        (import (prim and bytes-length bytes-ref + * - = <= <))
+        (export digit? decimal-bytes->integer)
+        (types)
+
+        (define (digit? v)
+          (and (<= 48 v) (< v 58)))
+
+        (define (decimal-bytes->integer bytes)
+          (decimal-bytes->integer/loop bytes 0 (bytes-length bytes) 0))
+
+        (define (decimal-bytes->integer/loop bytes start end acc)
+          (if (= start end)
+              acc
+              (let ([acc (+ (* 10 acc) (- (bytes-ref bytes start) 48))])
+                (decimal-bytes->integer/loop bytes (+ 1 start) end acc))))))
 
 
 
@@ -632,6 +665,7 @@
   (add-module!
     '(module sexp-parser
        (import (lexer make-lexer run-lexer lex-result-v lex-result-next)
+               (numbers decimal-bytes->integer)
                (io read-all-bytes)
                (prim void panic)
                (either left right)
@@ -667,7 +701,7 @@
              [(bad-input) (sexp-result-error)]
              [(lex-result v lexer)
                (case v
-                 [(number-lexeme bytes) (sexp-result (number-sexp bytes) lexer)]
+                 [(number-lexeme bytes) (sexp-result (number-sexp (decimal-bytes->integer bytes)) lexer)]
                  [(symbol-lexeme bytes) (sexp-result (symbol-sexp bytes) lexer)]
                  [(left-paren-lexeme) (node-loop (empty) lexer)]
                  [(right-paren-lexeme) (sexp-result-error)])])))
@@ -682,7 +716,7 @@
                  [(symbol-lexeme bytes)
                   (node-loop (cons (symbol-sexp bytes) vals) lexer)]
                  [(number-lexeme bytes)
-                  (node-loop (cons (number-sexp bytes) vals) lexer)]
+                  (node-loop (cons (number-sexp (decimal-bytes->integer bytes)) vals) lexer)]
                  [(left-paren-lexeme)
                    (case (node-loop (empty) lexer)
                      [(sexp-result v lexer)
@@ -701,7 +735,8 @@
 
   (add-module!
     '(module lexer
-        (import (prim + = <= < make-bytes read-bytes bytes-length bytes-ref or and)
+        (import (prim + = make-bytes read-bytes bytes-length bytes-ref or)
+                (numbers digit?)
                 (bytes subbytes)
                 (io read-all-bytes))
         (export main make-lexer run-lexer lex-result-v lex-result-next )
@@ -719,9 +754,6 @@
             (lex-result [v lexeme] [next Lexer])
             (end-of-input)
             (bad-input)))
-
-        (define (digit? v)
-          (and (<= 48 v) (< v 58)))
 
         #;
         (define (digit->number v)
@@ -812,6 +844,7 @@
 
       (yaspl-test 'stdout1 'main #:stdout #"Aa")
       (yaspl-test 'stdin1 'main #:stdin #"A" #:exit-code 65)
+      (yaspl-test 'stdin2 'main #:stdin #"123" #:exit-code 123)
       (yaspl-test 'panic1 'main #:exit-code 255 #:error #"\0\0\0")
       (yaspl-test 'panic2 'main #:exit-code 255 #:error #"Boom")
       (yaspl-test 'echo1 'main #:stdin #"Hello world" #:stdout #"Hello world")
