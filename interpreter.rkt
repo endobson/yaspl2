@@ -607,21 +607,22 @@
         (define (write-decimal-bytes v bytes offset)
           (if (< v 0)
               (begin
-                (bytes-set! bytes offset 45) ;; '-'
-                (write-decimal-bytes (- 0 v) bytes (+ 1 offset)))
+                (bytes-set! bytes 0 45) ;; '-'
+                (write-decimal-bytes (- 0 v) bytes offset))
               (let ([b (remainder v 10)])
                 (begin
-                  (bytes-set! bytes offset (+ v 48))
+                  (bytes-set! bytes offset (+ b 48))
                   (let ([v (quotient v 10)])
                     (if (> v 0)
-                        (write-decimal-bytes v bytes (+ offset 1))
+                        (write-decimal-bytes v bytes (- offset 1))
                         (void)))))))
 
         (define (integer->decimal-bytes v)
-          (let ([bytes (make-bytes (integer->decimal-bytes-length v))])
-            (begin
-              (write-decimal-bytes v bytes 0)
-              bytes)))))
+          (let ([len (integer->decimal-bytes-length v)])
+            (let ([bytes (make-bytes len)])
+              (begin
+                (write-decimal-bytes v bytes (- len 1))
+                bytes))))))
 
 
 
@@ -997,18 +998,33 @@
 
        (define (compile-stack-machine stack)
          (let ([bytes (make-bytes (* 64 64))])
-           (let ([amount-written (compile-stack-machine/loop stack bytes 0)])
-             (subbytes bytes 0 amount-written))))
+           (let ([offset 0])
+             (let ([offset (write-prologue bytes offset)])
+               (let ([offset (compile-stack-machine/loop stack bytes offset)])
+                 (let ([offset (write-epilogue bytes offset)])
+                   (subbytes bytes 0 offset)))))))
+
+       (define (write-prologue bytes offset)
+         (let ([prologue #".section __TEXT,__text\n\n.global _start\n_start:\n"])
+           (begin
+             (bytes-copy! prologue 0 (bytes-length prologue) bytes offset)
+             (+ (bytes-length prologue) offset))))
+       (define (write-epilogue bytes offset)
+         (let ([epilogue #"movq $0x2000001, %rax\npop %rdi\nsyscall\n"])
+           (begin
+             (bytes-copy! epilogue 0 (bytes-length epilogue) bytes offset)
+             (+ (bytes-length epilogue) offset))))
+
 
 
        (define (compile-stack-machine/loop stack bytes offset)
          (case stack
-           [(halt-cmd) 0]
+           [(halt-cmd) offset]
            [(num-lit-cmd v stack)
             (let ([initial-offset offset])
               (begin
-                (bytes-copy! #"push " 0 5 bytes offset)
-                (let ([offset (+ 5 offset)])
+                (bytes-copy! #"push $" 0 6 bytes offset)
+                (let ([offset (+ 6 offset)])
                   (let ([decimal-number (integer->decimal-bytes v)])
                     (begin
                       (bytes-copy! decimal-number 0 (bytes-length decimal-number) bytes offset)
@@ -1016,9 +1032,15 @@
                         (begin
                           (bytes-copy! #"\n" 0 1 bytes offset)
                           (let ([offset (+ 1 offset)])
-                            (+ (- offset initial-offset)
-                               (compile-stack-machine/loop stack bytes offset))))))))))]
-           [(eval-op-cmd op stack) (compile-stack-machine/loop stack bytes offset)]))
+                            (compile-stack-machine/loop stack bytes offset)))))))))]
+           [(eval-op-cmd op stack)
+            (let ([op-bytes (case op
+                              [(plus-op) #"pop %rbx\npop %rax\naddq %rbx, %rax\npush %rax\n"]
+                              [(times-op) #"pop %rbx\npop %rax\nmulq %rbx\npush %rax\n"]
+                              [(minus-op) #"pop %rbx\npop %rax\nsubq %rbx, %rax\npush %rax\n"])])
+              (begin
+                (bytes-copy! op-bytes 0 (bytes-length op-bytes) bytes offset)
+                (compile-stack-machine/loop stack bytes (+ offset (bytes-length op-bytes)))))]))
 
 
        (define (main stdin stdout stderr)
@@ -1109,6 +1131,8 @@
       (yaspl-test 'stack-machine 'main #:stdin #"(+ 1 2)" #:exit-code 0 #:stdout #"1\n2\n+\n")
 
       (yaspl-test 'x86-64-stack-machine 'main #:stdin #"1" #:exit-code 0 #:stdout #"push 1\n")
+      (yaspl-test 'x86-64-stack-machine 'main #:stdin #"(+ 1 2)" #:exit-code 0
+                  #:stdout #"push 1\npush 2\npop %eax\npop %ebx\naddq %ebx, %eax\npush %eax\n")
     )
     'verbose)))
 
@@ -1118,7 +1142,7 @@
     (submod ".." modules)
     racket/port)
   (define stdin (port->bytes (current-input-port)))
-  (let ([result (run-program modules 'stack-machine 'main #:stdin stdin)])
+  (let ([result (run-program modules 'x86-64-stack-machine 'main #:stdin stdin)])
     (write-bytes (program-result-stdout result) (current-output-port))
     (write-bytes (program-result-stderr result) (current-error-port))
     (exit (program-result-exit-code result)))
