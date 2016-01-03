@@ -274,7 +274,7 @@
         (run-machine (cont-machine-state (boolean-val v) cont))]
        [(variable& v)
         (define val (hash-ref env v #f))
-        (run-machine 
+        (run-machine
           (if val
               (cont-machine-state val cont)
               (error-machine-state (string->bytes/utf-8 (format "No binding for ~a available" v)))))]
@@ -927,7 +927,7 @@
 
   (add-module!
     '(module stack-machine
-       (import 
+       (import
          (prim void)
          (arithmetic-expr parse-arith-expr)
          (sexp-parser parse-sexp)
@@ -935,7 +935,7 @@
          (bytes-output write-bytes)
          (numbers integer->decimal-bytes)
          (either right-v))
-       (export main)
+       (export main compile-arith-expr)
        (types
          (define-type Stack
            (num-lit-cmd [v Byte] [stack Stack])
@@ -977,8 +977,60 @@
            (print-stack
              (compile-arith-expr (parse-arith-expr (right-v (parse-sexp (read-all-bytes stdin)))))
              stdout)
-           0)))))
+           0))))
 
+
+  (add-module!
+    '(module x86-64-stack-machine
+       (import
+         (prim bytes-length make-bytes * + -)
+         (numbers integer->decimal-bytes)
+         (io read-all-bytes write-all-bytes write-newline)
+         (arithmetic-expr parse-arith-expr)
+         (sexp-parser parse-sexp)
+         (bytes bytes-copy! subbytes)
+         (bytes-output write-bytes)
+         (stack-machine compile-arith-expr)
+         (either right-v))
+       (export main)
+       (types)
+
+       (define (compile-stack-machine stack)
+         (let ([bytes (make-bytes (* 64 64))])
+           (let ([amount-written (compile-stack-machine/loop stack bytes 0)])
+             (subbytes bytes 0 amount-written))))
+
+
+       (define (compile-stack-machine/loop stack bytes offset)
+         (case stack
+           [(halt-cmd) 0]
+           [(num-lit-cmd v stack)
+            (let ([initial-offset offset])
+              (begin
+                (bytes-copy! #"push " 0 5 bytes offset)
+                (let ([offset (+ 5 offset)])
+                  (let ([decimal-number (integer->decimal-bytes v)])
+                    (begin
+                      (bytes-copy! decimal-number 0 (bytes-length decimal-number) bytes offset)
+                      (let ([offset (+ offset (bytes-length decimal-number))])
+                        (begin
+                          (bytes-copy! #"\n" 0 1 bytes offset)
+                          (let ([offset (+ 1 offset)])
+                            (+ (- offset initial-offset)
+                               (compile-stack-machine/loop stack bytes offset))))))))))]
+           [(eval-op-cmd op stack) (compile-stack-machine/loop stack bytes offset)]))
+
+
+       (define (main stdin stdout stderr)
+         (begin
+           (write-all-bytes
+             (compile-stack-machine
+               (compile-arith-expr
+                 (parse-arith-expr
+                   (right-v (parse-sexp (read-all-bytes stdin))))))
+             stdout)
+           0))))
+  )
 
 
 
@@ -1056,7 +1108,19 @@
       (yaspl-test 'stack-machine 'main #:stdin #"1" #:exit-code 0 #:stdout #"1\n")
       (yaspl-test 'stack-machine 'main #:stdin #"(+ 1 2)" #:exit-code 0 #:stdout #"1\n2\n+\n")
 
+      (yaspl-test 'x86-64-stack-machine 'main #:stdin #"1" #:exit-code 0 #:stdout #"push 1\n")
     )
     'verbose)))
 
+
+(module+ stack-machine-driver
+  (require
+    (submod ".." modules)
+    racket/port)
+  (define stdin (port->bytes (current-input-port)))
+  (let ([result (run-program modules 'stack-machine 'main #:stdin stdin)])
+    (write-bytes (program-result-stdout result) (current-output-port))
+    (write-bytes (program-result-stderr result) (current-error-port))
+    (exit (program-result-exit-code result)))
+         )
 
