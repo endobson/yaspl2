@@ -937,13 +937,13 @@
        (import
          (prim void)
          (arithmetic-expr parse-arith-expr)
-         (list cons empty)
+         (list cons empty cons-head)
          (sexp-parser parse-sexp)
          (io read-all-bytes write-all-bytes write-newline)
          (bytes-output write-bytes)
          (numbers integer->decimal-bytes)
          (either right-v))
-       (export main compile-arith-expr)
+       (export main compile-arith-expr stack-function-blocks stack-basic-block-cmds)
        (types
          (define-type StackCmd
            (num-lit-cmd [v Byte])
@@ -956,7 +956,9 @@
            (stack-function [name Bytes] [blocks (List StackBasicBlock)])))
 
        (define (compile-arith-expr expr)
-         (compile-arith-expr/loop expr (empty)))
+         (stack-function #"main"
+                         (cons (stack-basic-block (compile-arith-expr/loop expr (empty)) (return))
+                               (empty))))
 
        (define (compile-arith-expr/loop expr cmds)
          (case expr
@@ -964,6 +966,9 @@
             (compile-arith-expr/loop left (compile-arith-expr/loop right (cons (eval-op-cmd op) cmds)))]
            [(num-lit v)
             (cons (num-lit-cmd v) cmds)]))
+
+       (define (print-function sfun output)
+         (print-cmds (stack-basic-block-cmds (cons-head (stack-function-blocks sfun))) output))
 
        (define (print-cmds cmds output)
          (case cmds
@@ -989,7 +994,7 @@
 
        (define (main stdin stdout stderr)
          (begin
-           (print-cmds
+           (print-function
              (compile-arith-expr (parse-arith-expr (right-v (parse-sexp (read-all-bytes stdin)))))
              stdout)
            0))))
@@ -999,35 +1004,46 @@
     '(module x86-64-stack-machine
        (import
          (prim bytes-length make-bytes * + -)
+         (list cons-head)
          (numbers integer->decimal-bytes)
          (io read-all-bytes write-all-bytes write-newline)
          (arithmetic-expr parse-arith-expr)
          (sexp-parser parse-sexp)
          (bytes bytes-copy! subbytes)
          (bytes-output write-bytes)
-         (stack-machine compile-arith-expr)
+         (stack-machine compile-arith-expr stack-function-blocks stack-basic-block-cmds)
          (either right-v))
        (export main)
        (types)
 
-       (define (compile-stack-machine cmds)
-         (let ([bytes (make-bytes (* 64 64))])
-           (let ([offset 0])
-             (let ([offset (write-prologue bytes offset)])
-               (let ([offset (compile-stack-machine/loop cmds bytes offset)])
-                 (let ([offset (write-epilogue bytes offset)])
-                   (subbytes bytes 0 offset)))))))
+       (define (compile-stack-machine sfun)
+         (let ([cmds (stack-basic-block-cmds (cons-head (stack-function-blocks sfun)))])
+           (let ([bytes (make-bytes (* 64 64))])
+             (let ([offset 0])
+               (let ([offset (write-start bytes offset)])
+                 (let ([offset (write-main-header bytes offset)])
+                   (let ([offset (compile-stack-machine/loop cmds bytes offset)])
+                     (let ([offset (write-main-footer bytes offset)])
+                       (subbytes bytes 0 offset)))))))))
 
-       (define (write-prologue bytes offset)
-         (let ([prologue #".section __TEXT,__text\n\n.global _start\n_start:\n"])
+       (define (write-start bytes offset)
+         (let ([prologue #".section __TEXT,__text\n\n.global _start\n_start:\ncall main\nmovq $0x2000001, %rax\npop %rdi\nsyscall\n"])
            (begin
              (bytes-copy! prologue 0 (bytes-length prologue) bytes offset)
              (+ (bytes-length prologue) offset))))
-       (define (write-epilogue bytes offset)
-         (let ([epilogue #"movq $0x2000001, %rax\npop %rdi\nsyscall\n"])
+
+       (define (write-main-header bytes offset)
+         (let ([header #"main:\n"])
            (begin
-             (bytes-copy! epilogue 0 (bytes-length epilogue) bytes offset)
-             (+ (bytes-length epilogue) offset))))
+             (bytes-copy! header 0 (bytes-length header) bytes offset)
+             (+ (bytes-length header) offset))))
+       (define (write-main-footer bytes offset)
+         (let ([footer #"pop %rax\npop %rbx\npush %rax\njmpq *%rbx"])
+           (begin
+             (bytes-copy! footer 0 (bytes-length footer) bytes offset)
+             (+ (bytes-length footer) offset))))
+
+
 
 
 
