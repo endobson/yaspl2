@@ -35,7 +35,6 @@
     (yaspl-test 'exit-code5 'main #:exit-code 5)
     (yaspl-test 'exit-code6 'main #:exit-code 6)
 
-    (yaspl-test 'stdout1 'main #:stdout #"Aa")
     (yaspl-test 'stdin1 'main #:stdin #"A" #:exit-code 65)
     (yaspl-test 'stdin2 'main #:stdin #"123" #:exit-code 123)
     (yaspl-test 'panic1 'main #:exit-code 255 #:error #"\0\0\0")

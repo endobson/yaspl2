@@ -77,9 +77,9 @@
   [(bytes-length (bytes-val b))
    (byte-val (bytes-length b))]
 
-  [(write-byte (byte-val x) (prim-port-val p))
-   (write-byte x p)
-   (void-val)]
+  [(write-bytes (bytes-val x) (prim-port-val p) (byte-val start-pos) (byte-val end-pos))
+   (byte-val (write-bytes x p start-pos end-pos))]
+
   [(read-bytes (bytes-val b) (prim-port-val p) (byte-val start-pos) (byte-val end-pos))
    (define amount-read (read-bytes! b p start-pos end-pos))
    (byte-val (if (eof-object? amount-read) 0 amount-read))])

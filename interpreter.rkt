@@ -422,17 +422,6 @@
 
 
   (add-module!
-    '(module stdout1
-       (import (prim write-byte))
-       (export main)
-       (types)
-       (define (main stdin stdout stderr)
-         (begin
-           (write-byte 65 stdout)
-           (write-byte 97 stdout)
-           0))))
-
-  (add-module!
     '(module stdin1
        (import (prim make-bytes read-bytes bytes-ref))
        (export main)
@@ -473,24 +462,9 @@
          (panic #"Boom"))))
 
   (add-module!
-    '(module bytes-output
-       (import (prim write-byte = bytes-ref + - void))
-       (export write-bytes)
-       (types)
-
-       (define (write-bytes bytes out offset amount)
-         (if (= amount 0)
-             (void)
-             (begin
-               (write-byte (bytes-ref bytes offset) out)
-               (write-bytes bytes out (+ offset 1) (- amount 1)))))))
-
-
-
-  (add-module!
     '(module echo1
-       (import (prim make-bytes write-byte read-bytes bytes-ref + - = void)
-               (bytes-output write-bytes))
+       (import
+         (prim make-bytes write-bytes read-bytes bytes-ref + - = void))
        (export main)
        (types)
 
@@ -511,9 +485,9 @@
 
   (add-module!
     '(module echo2
-       (import (prim bytes-length)
+       (import (prim bytes-length write-bytes)
                (io read-all-bytes)
-               (bytes-output write-bytes))
+               )
        (export main)
        (types)
 
@@ -634,8 +608,7 @@
 
   (add-module!
     '(module io
-        (import (prim make-bytes read-bytes + * - bytes-length =)
-                (bytes-output write-bytes)
+        (import (prim make-bytes write-bytes read-bytes + * - bytes-length =)
                 (bytes bytes-copy!))
         (export read-all-bytes write-all-bytes write-newline)
         (types)
@@ -940,7 +913,6 @@
          (list cons empty cons-head)
          (sexp-parser parse-sexp)
          (io read-all-bytes write-all-bytes write-newline)
-         (bytes-output write-bytes)
          (numbers integer->decimal-bytes)
          (either right-v))
        (export main compile-arith-expr stack-function-blocks stack-basic-block-cmds)
@@ -1010,7 +982,6 @@
          (arithmetic-expr parse-arith-expr)
          (sexp-parser parse-sexp)
          (bytes bytes-copy! subbytes)
-         (bytes-output write-bytes)
          (stack-machine compile-arith-expr stack-function-blocks stack-basic-block-cmds)
          (either right-v))
        (export main)
