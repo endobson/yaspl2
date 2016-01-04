@@ -233,13 +233,16 @@
 (define (call-function fun args cont)
   (match fun
     [(function-val arg-names env body)
-     (if (or #t (= (length args) (length arg-names)))
-       (let ([new-env
-               (for/fold ([env (hash-copy/immutable env)])
-                         ([v (in-list args)] [name (in-list arg-names)])
-                 (hash-set env name v))])
-         (eval-machine-state body new-env cont))
-       (error-machine-state #"Number of arguments to function is incorrect"))]
+     (if (= (length args) (length arg-names))
+         (let ([new-env
+                 (for/fold ([env (hash-copy/immutable env)])
+                           ([v (in-list args)] [name (in-list arg-names)])
+                   (hash-set env name v))])
+           (eval-machine-state body new-env cont))
+         (error-machine-state
+           (string->bytes/utf-8
+             (format "Wrong number of arguments: Expected ~a, got ~a"
+                     (length arg-names) (length args)))))]
     [(variant-constructor-val variant-name fields)
      (unless (= (length args) (length fields))
        (error 'variant-constructor "Wrong number of arguments for ~a: Expected ~a, got ~a"
@@ -816,7 +819,7 @@
           (if (= (bytes-length bytes) cur)
               (lex-result (symbol-lexeme (subbytes bytes start cur))
                           (lexer bytes cur))
-              (if (symbol-continue-byte? bytes cur)
+              (if (symbol-continue-byte? (bytes-ref bytes cur))
                   (lex-symbol bytes start (+ 1 cur))
                   (lex-result (symbol-lexeme (subbytes bytes start cur))
                               (lexer bytes cur)))))
