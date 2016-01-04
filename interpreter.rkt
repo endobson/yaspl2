@@ -931,6 +931,7 @@
        (import
          (prim void)
          (arithmetic-expr parse-arith-expr)
+         (list cons empty)
          (sexp-parser parse-sexp)
          (io read-all-bytes write-all-bytes write-newline)
          (bytes-output write-bytes)
@@ -938,34 +939,41 @@
          (either right-v))
        (export main compile-arith-expr)
        (types
-         (define-type Stack
-           (num-lit-cmd [v Byte] [stack Stack])
-           (eval-op-cmd [v NumOp] [stack Stack])
-           (halt-cmd)))
+         (define-type StackCmd
+           (num-lit-cmd [v Byte])
+           (eval-op-cmd [v NumOp]))
+         (define-type StackTerminal
+           (return))
+         (define-type StackBasicBlock
+           (stack-basic-block [cmds (List StackCmd)] [terminal StackTerminal]))
+         (define-type StackFunction
+           (stack-function [name Bytes] [blocks (List StackBasicBlock)])))
 
        (define (compile-arith-expr expr)
-         (compile-arith-expr/loop expr (halt-cmd)))
+         (compile-arith-expr/loop expr (empty)))
 
-       (define (compile-arith-expr/loop expr stack)
+       (define (compile-arith-expr/loop expr cmds)
          (case expr
            [(num-op-expr op left right)
-            (compile-arith-expr/loop left (compile-arith-expr/loop right (eval-op-cmd op stack)))]
+            (compile-arith-expr/loop left (compile-arith-expr/loop right (cons (eval-op-cmd op) cmds)))]
            [(num-lit v)
-            (num-lit-cmd v stack)]))
+            (cons (num-lit-cmd v) cmds)]))
 
-       (define (print-stack stack output)
-         (case stack
-           [(halt-cmd) (void)]
-           [(num-lit-cmd v stack)
-            (begin
-              (write-all-bytes (integer->decimal-bytes v) output)
-              (write-newline output)
-              (print-stack stack output))]
-           [(eval-op-cmd op stack)
-            (begin
-              (write-all-bytes (num-op->bytes op) output)
-              (write-newline output)
-              (print-stack stack output))]))
+       (define (print-cmds cmds output)
+         (case cmds
+           [(empty) (void)]
+           [(cons cmd cmds)
+            (case cmd
+              [(num-lit-cmd v)
+               (begin
+                 (write-all-bytes (integer->decimal-bytes v) output)
+                 (write-newline output)
+                 (print-cmds cmds output))]
+              [(eval-op-cmd op)
+               (begin
+                 (write-all-bytes (num-op->bytes op) output)
+                 (write-newline output)
+                 (print-cmds cmds output))])]))
 
        (define (num-op->bytes op)
          (case op
@@ -975,7 +983,7 @@
 
        (define (main stdin stdout stderr)
          (begin
-           (print-stack
+           (print-cmds
              (compile-arith-expr (parse-arith-expr (right-v (parse-sexp (read-all-bytes stdin)))))
              stdout)
            0))))
@@ -996,11 +1004,11 @@
        (export main)
        (types)
 
-       (define (compile-stack-machine stack)
+       (define (compile-stack-machine cmds)
          (let ([bytes (make-bytes (* 64 64))])
            (let ([offset 0])
              (let ([offset (write-prologue bytes offset)])
-               (let ([offset (compile-stack-machine/loop stack bytes offset)])
+               (let ([offset (compile-stack-machine/loop cmds bytes offset)])
                  (let ([offset (write-epilogue bytes offset)])
                    (subbytes bytes 0 offset)))))))
 
@@ -1017,30 +1025,32 @@
 
 
 
-       (define (compile-stack-machine/loop stack bytes offset)
-         (case stack
-           [(halt-cmd) offset]
-           [(num-lit-cmd v stack)
-            (let ([initial-offset offset])
-              (begin
-                (bytes-copy! #"push $" 0 6 bytes offset)
-                (let ([offset (+ 6 offset)])
-                  (let ([decimal-number (integer->decimal-bytes v)])
-                    (begin
-                      (bytes-copy! decimal-number 0 (bytes-length decimal-number) bytes offset)
-                      (let ([offset (+ offset (bytes-length decimal-number))])
-                        (begin
-                          (bytes-copy! #"\n" 0 1 bytes offset)
-                          (let ([offset (+ 1 offset)])
-                            (compile-stack-machine/loop stack bytes offset)))))))))]
-           [(eval-op-cmd op stack)
-            (let ([op-bytes (case op
-                              [(plus-op) #"pop %rbx\npop %rax\naddq %rbx, %rax\npush %rax\n"]
-                              [(times-op) #"pop %rbx\npop %rax\nmulq %rbx\npush %rax\n"]
-                              [(minus-op) #"pop %rbx\npop %rax\nsubq %rbx, %rax\npush %rax\n"])])
-              (begin
-                (bytes-copy! op-bytes 0 (bytes-length op-bytes) bytes offset)
-                (compile-stack-machine/loop stack bytes (+ offset (bytes-length op-bytes)))))]))
+       (define (compile-stack-machine/loop cmds bytes offset)
+         (case cmds
+           [(empty) offset]
+           [(cons cmd cmds)
+            (case cmd
+              [(num-lit-cmd v)
+               (let ([initial-offset offset])
+                 (begin
+                   (bytes-copy! #"push $" 0 6 bytes offset)
+                   (let ([offset (+ 6 offset)])
+                     (let ([decimal-number (integer->decimal-bytes v)])
+                       (begin
+                         (bytes-copy! decimal-number 0 (bytes-length decimal-number) bytes offset)
+                         (let ([offset (+ offset (bytes-length decimal-number))])
+                           (begin
+                             (bytes-copy! #"\n" 0 1 bytes offset)
+                             (let ([offset (+ 1 offset)])
+                               (compile-stack-machine/loop cmds bytes offset)))))))))]
+              [(eval-op-cmd op)
+               (let ([op-bytes (case op
+                                 [(plus-op) #"pop %rbx\npop %rax\naddq %rbx, %rax\npush %rax\n"]
+                                 [(times-op) #"pop %rbx\npop %rax\nmulq %rbx\npush %rax\n"]
+                                 [(minus-op) #"pop %rbx\npop %rax\nsubq %rbx, %rax\npush %rax\n"])])
+                 (begin
+                   (bytes-copy! op-bytes 0 (bytes-length op-bytes) bytes offset)
+                   (compile-stack-machine/loop cmds bytes (+ offset (bytes-length op-bytes)))))])]))
 
 
        (define (main stdin stdout stderr)
@@ -1078,7 +1088,8 @@
       (let ([result (run-program modules module-name main-name #:stdin stdin)])
         (check-equal? (program-result-exit-code result) exit-code)
         (check-equal? (program-result-error-info result) error-info)
-        (check-equal? (program-result-stdout result) stdout)
+        (when stdout
+          (check-equal? (program-result-stdout result) stdout))
         (check-equal? (program-result-stderr result) stderr))))
 
 
@@ -1130,9 +1141,8 @@
       (yaspl-test 'stack-machine 'main #:stdin #"1" #:exit-code 0 #:stdout #"1\n")
       (yaspl-test 'stack-machine 'main #:stdin #"(+ 1 2)" #:exit-code 0 #:stdout #"1\n2\n+\n")
 
-      (yaspl-test 'x86-64-stack-machine 'main #:stdin #"1" #:exit-code 0 #:stdout #"push 1\n")
-      (yaspl-test 'x86-64-stack-machine 'main #:stdin #"(+ 1 2)" #:exit-code 0
-                  #:stdout #"push 1\npush 2\npop %eax\npop %ebx\naddq %ebx, %eax\npush %eax\n")
+      (yaspl-test 'x86-64-stack-machine 'main #:stdin #"1" #:exit-code 0 #:stdout #f)
+      (yaspl-test 'x86-64-stack-machine 'main #:stdin #"(+ 1 2)" #:exit-code 0 #:stdout #f)
     )
     'verbose)))
 
