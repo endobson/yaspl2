@@ -3,20 +3,26 @@
 (require
   "interpreter.rkt"
   (submod "interpreter.rkt" modules)
+  racket/runtime-path
+  racket/set
   rackunit
+  racket/match
   rackunit/text-ui)
 
 
 
 
-(define (yaspl-test module-name main-name
+(define (yaspl-test main-name
+                    #:module-name module-name
+                    #:modules [extra-modules null]
                     #:exit-code [exit-code 0]
                     #:stdin [stdin #""]
                     #:error [error-info #f]
                     #:stdout [stdout #""]
                     #:stderr [stderr #""])
   (test-suite (format "~a/~a" module-name main-name)
-    (let ([result (run-program modules module-name main-name #:stdin stdin)])
+    (let* ([full-modules (set-union (list->set extra-modules) modules)]
+           [result (run-program full-modules module-name main-name #:stdin stdin)])
       (check-equal? (program-result-exit-code result) exit-code)
       (check-equal? (program-result-error-info result) error-info)
       (when stdout
@@ -26,52 +32,68 @@
 
 
 
+(define (read-all port)
+  (port-count-lines! port)
+  (let loop ([l null])
+    (let ([v (read port)])
+      (if (eof-object? v)
+          (reverse l)
+          (loop (cons v l))))))
+
+(define (kw-split kws)
+  (define kw-hash (apply hash kws))
+  (for/lists (kws vals) ([kw (in-list (sort (hash-keys kw-hash) keyword<?))])
+    (values kw (hash-ref kw-hash kw))))
+
+(define-runtime-path test-dir "tests")
+
+
 (void (run-tests
   (test-suite "Yaspl tests"
-    (yaspl-test 'exit-code 'main #:exit-code 1)
-    (yaspl-test 'exit-code2 'main #:exit-code 2)
-    (yaspl-test 'exit-code3 'main #:exit-code 3)
-    (yaspl-test 'exit-code4 'main #:exit-code 4)
-    (yaspl-test 'exit-code5 'main #:exit-code 5)
-    (yaspl-test 'exit-code6 'main #:exit-code 6)
 
-    (yaspl-test 'stdin1 'main #:stdin #"A" #:exit-code 65)
-    (yaspl-test 'stdin2 'main #:stdin #"123" #:exit-code 123)
-    (yaspl-test 'panic1 'main #:exit-code 255 #:error #"\0\0\0")
-    (yaspl-test 'panic2 'main #:exit-code 255 #:error #"Boom")
-    (yaspl-test 'echo1 'main #:stdin #"Hello world" #:stdout #"Hello world")
-    (yaspl-test 'echo2 'main #:stdin #"Hello world" #:stdout #"Hello world")
-    (yaspl-test 'sum-tree 'main #:exit-code 15)
-
-
-    (yaspl-test 'lexer 'main #:stdin #"((((" #:exit-code 0)
-    (yaspl-test 'lexer 'main #:stdin #"()()()" #:exit-code 0)
-    (yaspl-test 'lexer 'main #:stdin #"(()" #:exit-code 0)
-    (yaspl-test 'lexer 'main #:stdin #"aaaa" #:exit-code 1)
+    (make-test-suite ""
+      (for/list ([file (in-directory test-dir)])
+        (define-values (dir name-path is-dir) (split-path file))
+        (when (symbol? name-path)
+          (error 'tests "Bad path"))
+        (define name (path->string name-path))
+        (match (call-with-input-file* file read-all)
+          [`(,new-modules ... #:test-cases ,test-cases ...)
+           (make-test-suite ""
+              (for/list ([tc (in-list test-cases)])
+                (define-values (kws vals) (kw-split tc))
+                (keyword-apply yaspl-test kws vals (list 'main)
+                               #:modules (map parse-module new-modules))))])))
 
 
-    (yaspl-test 'sexp-parser 'main #:stdin #"" #:exit-code 255 #:error #"Sexp result error")
-    (yaspl-test 'sexp-parser 'main #:stdin #"(" #:exit-code 255 #:error #"Sexp result error")
-    (yaspl-test 'sexp-parser 'main #:stdin #")" #:exit-code 255 #:error #"Sexp result error")
-    (yaspl-test 'sexp-parser 'main #:stdin #"()" #:exit-code 0)
-    (yaspl-test 'sexp-parser 'main #:stdin #"(()" #:exit-code 255 #:error #"Sexp result error")
-    (yaspl-test 'sexp-parser 'main #:stdin #"(()())" #:exit-code 0)
-    (yaspl-test 'sexp-parser 'main #:stdin #"( ( ()(( )  )\n )( ))" #:exit-code 0)
-    (yaspl-test 'sexp-parser 'main #:stdin #"+" #:exit-code 0)
-    (yaspl-test 'sexp-parser 'main #:stdin #"(+ (+))" #:exit-code 0)
-    (yaspl-test 'sexp-parser 'main #:stdin #"2" #:exit-code 0)
-    (yaspl-test 'sexp-parser 'main #:stdin #"23" #:exit-code 0)
-    (yaspl-test 'sexp-parser 'main #:stdin #"456" #:exit-code 0)
-    (yaspl-test 'sexp-parser 'main #:stdin #"(+ 2 3)" #:exit-code 0)
+    (yaspl-test #:module-name 'lexer 'main #:stdin #"((((" #:exit-code 0)
+    (yaspl-test #:module-name 'lexer 'main #:stdin #"()()()" #:exit-code 0)
+    (yaspl-test #:module-name 'lexer 'main #:stdin #"(()" #:exit-code 0)
+    (yaspl-test #:module-name 'lexer 'main #:stdin #"aaaa" #:exit-code 1)
 
-    (yaspl-test 'arithmetic-expr 'main #:stdin #"2" #:exit-code 0)
-    (yaspl-test 'arithmetic-expr 'main #:stdin #"(+ 2 3)" #:exit-code 0)
-    (yaspl-test 'arithmetic-expr 'main #:stdin #"(+ (* 1 2) (- 4 3))" #:exit-code 0)
 
-    (yaspl-test 'stack-machine 'main #:stdin #"1" #:exit-code 0 #:stdout #"1\n")
-    (yaspl-test 'stack-machine 'main #:stdin #"(+ 1 2)" #:exit-code 0 #:stdout #"1\n2\n+\n")
+    (yaspl-test #:module-name 'sexp-parser 'main #:stdin #"" #:exit-code 255 #:error #"Sexp result error")
+    (yaspl-test #:module-name 'sexp-parser 'main #:stdin #"(" #:exit-code 255 #:error #"Sexp result error")
+    (yaspl-test #:module-name 'sexp-parser 'main #:stdin #")" #:exit-code 255 #:error #"Sexp result error")
+    (yaspl-test #:module-name 'sexp-parser 'main #:stdin #"()" #:exit-code 0)
+    (yaspl-test #:module-name 'sexp-parser 'main #:stdin #"(()" #:exit-code 255 #:error #"Sexp result error")
+    (yaspl-test #:module-name 'sexp-parser 'main #:stdin #"(()())" #:exit-code 0)
+    (yaspl-test #:module-name 'sexp-parser 'main #:stdin #"( ( ()(( )  )\n )( ))" #:exit-code 0)
+    (yaspl-test #:module-name 'sexp-parser 'main #:stdin #"+" #:exit-code 0)
+    (yaspl-test #:module-name 'sexp-parser 'main #:stdin #"(+ (+))" #:exit-code 0)
+    (yaspl-test #:module-name 'sexp-parser 'main #:stdin #"2" #:exit-code 0)
+    (yaspl-test #:module-name 'sexp-parser 'main #:stdin #"23" #:exit-code 0)
+    (yaspl-test #:module-name 'sexp-parser 'main #:stdin #"456" #:exit-code 0)
+    (yaspl-test #:module-name 'sexp-parser 'main #:stdin #"(+ 2 3)" #:exit-code 0)
 
-    (yaspl-test 'x86-64-stack-machine 'main #:stdin #"1" #:exit-code 0 #:stdout #f)
-    (yaspl-test 'x86-64-stack-machine 'main #:stdin #"(+ 1 2)" #:exit-code 0 #:stdout #f)
+    (yaspl-test #:module-name 'arithmetic-expr 'main #:stdin #"2" #:exit-code 0)
+    (yaspl-test #:module-name 'arithmetic-expr 'main #:stdin #"(+ 2 3)" #:exit-code 0)
+    (yaspl-test #:module-name 'arithmetic-expr 'main #:stdin #"(+ (* 1 2) (- 4 3))" #:exit-code 0)
+
+    (yaspl-test #:module-name 'stack-machine 'main #:stdin #"1" #:exit-code 0 #:stdout #"1\n")
+    (yaspl-test #:module-name 'stack-machine 'main #:stdin #"(+ 1 2)" #:exit-code 0 #:stdout #"1\n2\n+\n")
+
+    (yaspl-test #:module-name 'x86-64-stack-machine 'main #:stdin #"1" #:exit-code 0 #:stdout #f)
+    (yaspl-test #:module-name 'x86-64-stack-machine 'main #:stdin #"(+ 1 2)" #:exit-code 0 #:stdout #f)
   )
   'verbose))

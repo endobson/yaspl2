@@ -1,0 +1,8 @@
+(module exit-code5
+  (import (prim +))
+  (export main)
+  (types)
+  (define (main stdin stdout stderr)
+    (+ 2 3)))
+#:test-cases
+(#:module-name exit-code5 #:exit-code 5)
