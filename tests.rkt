@@ -3,6 +3,8 @@
 (require
   "interpreter.rkt"
   "libraries.rkt"
+  racket/system
+  racket/file
   racket/runtime-path
   racket/set
   rackunit
@@ -46,6 +48,36 @@
 
 (define-runtime-path test-dir "tests")
 
+(define (call-with-temporary-files n f)
+  (if (= n 0)
+      (f)
+      (call-with-temporary-file
+        (λ (file)
+           (call-with-temporary-files
+             (sub1 n)
+             (λ files (apply f (cons file files))))))))
+
+(define (call-with-temporary-file f)
+  (define file (make-temporary-file))
+  (dynamic-wind
+    void
+    (λ () (f file))
+    (λ () (delete-file file))))
+
+
+(define (compiler-test program #:exit-code [exit-code 0])
+  (test-suite ""
+    (let ([result (run-program modules 'x86-64-stack-machine 'main #:stdin program)])
+      (test-begin
+        (check-equal? (program-result-exit-code result) 0)
+        (call-with-temporary-files 3
+          (λ (asm object binary)
+            (call-with-output-file asm #:exists 'truncate
+                (λ (p) (write-bytes (program-result-stdout result) p)))
+            (system* "/usr/bin/env" "as" asm "-o" object)
+            (system* "/usr/bin/env" "ld" "-arch" "x86_64" "-macosx_version_min" "10.11"
+                     "-e" "_start" "-static" object "-o" binary)
+            (system* binary)))))))
 
 (void (run-tests
   (test-suite "Yaspl tests"
@@ -94,5 +126,9 @@
 
     (yaspl-test #:module-name 'x86-64-stack-machine #:stdin #"1" #:exit-code 0 #:stdout #f)
     (yaspl-test #:module-name 'x86-64-stack-machine #:stdin #"(+ 1 2)" #:exit-code 0 #:stdout #f)
+
+    (compiler-test #"0")
+
+
   )
   'verbose))
