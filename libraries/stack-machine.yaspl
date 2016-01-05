@@ -1,0 +1,64 @@
+(module stack-machine
+  (import
+    (prim void)
+    (arithmetic-expr parse-arith-expr)
+    (list cons empty cons-head)
+    (sexp-parser parse-sexp)
+    (io read-all-bytes write-all-bytes write-newline)
+    (numbers integer->decimal-bytes)
+    (either right-v))
+  (export main compile-arith-expr stack-function-blocks stack-basic-block-cmds)
+  (types
+    (define-type StackCmd
+      (num-lit-cmd [v Byte])
+      (eval-op-cmd [v NumOp]))
+    (define-type StackTerminal
+      (return))
+    (define-type StackBasicBlock
+      (stack-basic-block [cmds (List StackCmd)] [terminal StackTerminal]))
+    (define-type StackFunction
+      (stack-function [name Bytes] [blocks (List StackBasicBlock)])))
+
+  (define (compile-arith-expr expr)
+    (stack-function #"main"
+                    (cons (stack-basic-block (compile-arith-expr/loop expr (empty)) (return))
+                          (empty))))
+
+  (define (compile-arith-expr/loop expr cmds)
+    (case expr
+      [(num-op-expr op left right)
+       (compile-arith-expr/loop left (compile-arith-expr/loop right (cons (eval-op-cmd op) cmds)))]
+      [(num-lit v)
+       (cons (num-lit-cmd v) cmds)]))
+
+  (define (print-function sfun output)
+    (print-cmds (stack-basic-block-cmds (cons-head (stack-function-blocks sfun))) output))
+
+  (define (print-cmds cmds output)
+    (case cmds
+      [(empty) (void)]
+      [(cons cmd cmds)
+       (case cmd
+         [(num-lit-cmd v)
+          (begin
+            (write-all-bytes (integer->decimal-bytes v) output)
+            (write-newline output)
+            (print-cmds cmds output))]
+         [(eval-op-cmd op)
+          (begin
+            (write-all-bytes (num-op->bytes op) output)
+            (write-newline output)
+            (print-cmds cmds output))])]))
+
+  (define (num-op->bytes op)
+    (case op
+      [(plus-op) #"+"]
+      [(minus-op) #"-"]
+      [(times-op) #"*"]))
+
+  (define (main stdin stdout stderr)
+    (begin
+      (print-function
+        (compile-arith-expr (parse-arith-expr (right-v (parse-sexp (read-all-bytes stdin)))))
+        stdout)
+      0)))

@@ -1,0 +1,66 @@
+(module sexp-parser
+  (import (lexer make-lexer run-lexer lex-result-v lex-result-next)
+          (numbers decimal-bytes->integer)
+          (io read-all-bytes)
+          (prim void panic)
+          (either left right)
+          (list cons empty reverse))
+  (export parse-sexp main)
+  (types
+    (define-type Sexp
+       (node [list List])
+       (symbol-sexp [bytes Bytes])
+       (number-sexp [byte Byte]))
+
+    (define-type SexpResult
+       (sexp-result [v Sexp] [lexer Lexer])
+       (sexp-result-error)))
+
+
+
+  (define (parse-sexp bytes)
+    (let ([lexer (make-lexer bytes)])
+      (let ([val (loop lexer)])
+        (case val
+          [(sexp-result v lexer)
+            (case (run-lexer lexer)
+              [(lex-result v lexer) (left #"Leftovers")]
+              [(bad-input) (left #"Bad input")]
+              [(end-of-input) (right v)])]
+          [(sexp-result-error) (left #"Sexp result error")]))))
+
+  (define (loop lexer)
+    (let ([val (run-lexer lexer)])
+      (case val
+        [(end-of-input) (sexp-result-error)]
+        [(bad-input) (sexp-result-error)]
+        [(lex-result v lexer)
+          (case v
+            [(number-lexeme bytes) (sexp-result (number-sexp (decimal-bytes->integer bytes)) lexer)]
+            [(symbol-lexeme bytes) (sexp-result (symbol-sexp bytes) lexer)]
+            [(left-paren-lexeme) (node-loop (empty) lexer)]
+            [(right-paren-lexeme) (sexp-result-error)])])))
+
+  (define (node-loop vals lexer)
+    (let ([val (run-lexer lexer)])
+      (case val
+        [(end-of-input) (sexp-result-error)]
+        [(bad-input) (sexp-result-error)]
+        [(lex-result v lexer)
+          (case (lex-result-v val)
+            [(symbol-lexeme bytes)
+             (node-loop (cons (symbol-sexp bytes) vals) lexer)]
+            [(number-lexeme bytes)
+             (node-loop (cons (number-sexp (decimal-bytes->integer bytes)) vals) lexer)]
+            [(left-paren-lexeme)
+              (case (node-loop (empty) lexer)
+                [(sexp-result v lexer)
+                 (node-loop (cons v vals) lexer)]
+                [(sexp-result-error) (sexp-result-error)])]
+            [(right-paren-lexeme) (sexp-result (node (reverse vals)) lexer)])])))
+
+  (define (main stdin stderr stdout)
+    (let ([result (parse-sexp (read-all-bytes stdin))])
+      (case result
+        [(right v) 0]
+        [(left v) (panic v)]))))

@@ -1,0 +1,82 @@
+(module x86-64-stack-machine
+  (import
+    (prim bytes-length make-bytes * + -)
+    (list cons-head)
+    (numbers integer->decimal-bytes)
+    (io read-all-bytes write-all-bytes write-newline)
+    (arithmetic-expr parse-arith-expr)
+    (sexp-parser parse-sexp)
+    (bytes bytes-copy! subbytes)
+    (stack-machine compile-arith-expr stack-function-blocks stack-basic-block-cmds)
+    (either right-v))
+  (export main)
+  (types)
+
+  (define (compile-stack-machine sfun)
+    (let ([cmds (stack-basic-block-cmds (cons-head (stack-function-blocks sfun)))])
+      (let ([bytes (make-bytes (* 64 64))])
+        (let ([offset 0])
+          (let ([offset (write-start bytes offset)])
+            (let ([offset (write-main-header bytes offset)])
+              (let ([offset (compile-stack-machine/loop cmds bytes offset)])
+                (let ([offset (write-main-footer bytes offset)])
+                  (subbytes bytes 0 offset)))))))))
+
+  (define (write-start bytes offset)
+    (let ([prologue #".section __TEXT,__text\n\n.global _start\n_start:\ncall main\nmovq $0x2000001, %rax\npop %rdi\nsyscall\n"])
+      (begin
+        (bytes-copy! prologue 0 (bytes-length prologue) bytes offset)
+        (+ (bytes-length prologue) offset))))
+
+  (define (write-main-header bytes offset)
+    (let ([header #"main:\n"])
+      (begin
+        (bytes-copy! header 0 (bytes-length header) bytes offset)
+        (+ (bytes-length header) offset))))
+  (define (write-main-footer bytes offset)
+    (let ([footer #"pop %rax\npop %rbx\npush %rax\njmpq *%rbx"])
+      (begin
+        (bytes-copy! footer 0 (bytes-length footer) bytes offset)
+        (+ (bytes-length footer) offset))))
+
+
+
+
+
+  (define (compile-stack-machine/loop cmds bytes offset)
+    (case cmds
+      [(empty) offset]
+      [(cons cmd cmds)
+       (case cmd
+         [(num-lit-cmd v)
+          (let ([initial-offset offset])
+            (begin
+              (bytes-copy! #"push $" 0 6 bytes offset)
+              (let ([offset (+ 6 offset)])
+                (let ([decimal-number (integer->decimal-bytes v)])
+                  (begin
+                    (bytes-copy! decimal-number 0 (bytes-length decimal-number) bytes offset)
+                    (let ([offset (+ offset (bytes-length decimal-number))])
+                      (begin
+                        (bytes-copy! #"\n" 0 1 bytes offset)
+                        (let ([offset (+ 1 offset)])
+                          (compile-stack-machine/loop cmds bytes offset)))))))))]
+         [(eval-op-cmd op)
+          (let ([op-bytes (case op
+                            [(plus-op) #"pop %rbx\npop %rax\naddq %rbx, %rax\npush %rax\n"]
+                            [(times-op) #"pop %rbx\npop %rax\nmulq %rbx\npush %rax\n"]
+                            [(minus-op) #"pop %rbx\npop %rax\nsubq %rbx, %rax\npush %rax\n"])])
+            (begin
+              (bytes-copy! op-bytes 0 (bytes-length op-bytes) bytes offset)
+              (compile-stack-machine/loop cmds bytes (+ offset (bytes-length op-bytes)))))])]))
+
+
+  (define (main stdin stdout stderr)
+    (begin
+      (write-all-bytes
+        (compile-stack-machine
+          (compile-arith-expr
+            (parse-arith-expr
+              (right-v (parse-sexp (read-all-bytes stdin))))))
+        stdout)
+      0)))

@@ -1,0 +1,90 @@
+(module lexer
+  (import (prim + = make-bytes read-bytes bytes-length bytes-ref or)
+          (numbers digit?)
+          (bytes subbytes)
+          (io read-all-bytes))
+  (export main make-lexer run-lexer lex-result-v lex-result-next)
+  (types
+    (define-type Lexer
+      (lexer [input Bytes] [pos Byte]))
+
+    (define-type Lexeme
+      (left-paren-lexeme)
+      (right-paren-lexeme)
+      (symbol-lexeme [v Bytes])
+      (number-lexeme [v Bytes]))
+
+    (define-type Result
+      (lex-result [v lexeme] [next Lexer])
+      (end-of-input)
+      (bad-input)))
+
+  ;; Space or Newline
+  (define (whitespace? v)
+    (or (= v 32) (= v 10)))
+
+
+  (define (number-start-byte? v)
+    (digit? v))
+  (define (number-continue-byte? v)
+    (digit? v))
+
+  (define (symbol-start-byte? v)
+    (or (= v 42)
+        (or (= v 43)
+            (or (= v 45)
+                (= v 47)))))
+  (define (symbol-continue-byte? v)
+    #f)
+
+  (define (lex-symbol bytes start cur)
+    (if (= (bytes-length bytes) cur)
+        (lex-result (symbol-lexeme (subbytes bytes start cur))
+                    (lexer bytes cur))
+        (if (symbol-continue-byte? (bytes-ref bytes cur))
+            (lex-symbol bytes start (+ 1 cur))
+            (lex-result (symbol-lexeme (subbytes bytes start cur))
+                        (lexer bytes cur)))))
+
+  (define (lex-number bytes start cur)
+    (if (= (bytes-length bytes) cur)
+        (lex-result (number-lexeme (subbytes bytes start cur))
+                    (lexer bytes cur))
+        (if (number-continue-byte? (bytes-ref bytes cur))
+            (lex-number bytes start (+ 1 cur))
+            (lex-result (number-lexeme (subbytes bytes start cur))
+                        (lexer bytes cur)))))
+
+
+
+  (define (make-lexer bytes)
+    (lexer bytes 0))
+
+  (define (run-lexer lexer)
+    (run (lexer-input lexer) (lexer-pos lexer)))
+
+
+  (define (run bytes pos)
+    (if (= pos (bytes-length bytes))
+        (end-of-input)
+        (let ([byte (bytes-ref bytes pos)])
+          (if (= byte 40)
+              (lex-result (left-paren-lexeme) (lexer bytes (+ pos 1)))
+              (if (= byte 41)
+                  (lex-result (right-paren-lexeme) (lexer bytes (+ pos 1)))
+                  (if (whitespace? byte)
+                      (run bytes (+ 1 pos))
+                      (if (symbol-start-byte? byte)
+                          (lex-symbol bytes pos (+ pos 1))
+                          (if (number-start-byte? byte)
+                              (lex-number bytes pos (+ pos 1))
+                              (bad-input)))))))))
+
+  (define (loop lexer)
+    (case (run-lexer lexer)
+      [(lex-result v lexer) (loop lexer)]
+      [(end-of-input) 0]
+      [(bad-input) 1]))
+
+  (define (main stdin stdout stderr)
+    (loop (make-lexer (read-all-bytes stdin)))))
