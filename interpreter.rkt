@@ -608,7 +608,7 @@
 
   (add-module!
     '(module io
-        (import (prim make-bytes write-bytes read-bytes + * - bytes-length =)
+        (import (prim void make-bytes write-bytes read-bytes + * - bytes-length =)
                 (bytes bytes-copy!))
         (export read-all-bytes write-all-bytes write-newline)
         (types)
@@ -632,7 +632,11 @@
                       (read-all-bytes-loop in buf new-size))))))
 
         (define (write-all-bytes bytes out)
-          (write-bytes bytes out 0 (bytes-length bytes)))
+          (let ([amount-written (write-bytes bytes out 0 (bytes-length bytes))])
+            (if (= amount-written (bytes-length bytes))
+                (void)
+                (ponic "write-all-bytes: Didn't write all the bytes"))))
+
         (define (write-newline out)
           (write-all-bytes #"\n" out))
 
