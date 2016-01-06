@@ -77,7 +77,7 @@
             (system* "/usr/bin/env" "as" asm "-o" object)
             (system* "/usr/bin/env" "ld" "-arch" "x86_64" "-macosx_version_min" "10.11"
                      "-e" "_start" "-static" object "-o" binary)
-            (system* binary)))))))
+            (check-equal? (system*/exit-code binary) exit-code)))))))
 
 (void (run-tests
   (test-suite "Yaspl tests"
@@ -128,6 +128,8 @@
     (yaspl-test #:module-name 'x86-64-stack-machine #:stdin #"(+ 1 2)" #:exit-code 0 #:stdout #f)
 
     (compiler-test #"0")
+    (compiler-test #"(+ 1 1)" #:exit-code 2)
+    (compiler-test #"(* (- 117 113) (+ 10 2))" #:exit-code 48)
 
 
   )
