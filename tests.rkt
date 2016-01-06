@@ -100,7 +100,7 @@
     (yaspl-test #:module-name 'lexer #:stdin #"((((" #:exit-code 0)
     (yaspl-test #:module-name 'lexer #:stdin #"()()()" #:exit-code 0)
     (yaspl-test #:module-name 'lexer #:stdin #"(()" #:exit-code 0)
-    (yaspl-test #:module-name 'lexer #:stdin #"aaaa" #:exit-code 1)
+    (yaspl-test #:module-name 'lexer #:stdin #"aaaa" #:exit-code 0)
 
 
     (yaspl-test #:module-name 'sexp-parser #:stdin #"" #:exit-code 255 #:error #"Sexp result error")
