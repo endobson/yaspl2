@@ -1,6 +1,6 @@
 (module arithmetic-expr
   (import
-    (prim panic)
+    (prim panic or)
     (sexp-parser parse-sexp)
     (io read-all-bytes)
     (either right-v)
@@ -14,6 +14,7 @@
       (function [name Bytes] [arg-names (List Bytes)] [body ArithExpr]))
     (define-type ArithExpr
       (num-lit [v Byte])
+      (fun-call-expr [fun Bytes] [args (List arith-expr)])
       (num-op-expr [v NumOp] [left arith-expr] [right arith-expr]))
     (define-type NumOp
       (plus-op)
@@ -27,8 +28,8 @@
          [(cons mod-sym function-sexps)
           (if (module-symbol? mod-sym)
               (module (parse-functions function-sexps))
-              (panic "Not a module symbol."))])]
-      [(symbol-sexp bytes) (panic "Not a module form")]))
+              (panic #"Not a module symbol."))])]
+      [(symbol-sexp bytes) (panic #"Not a module form")]))
 
   (define (parse-functions sexps)
     (case sexps
@@ -50,11 +51,11 @@
                        [(cons body sexps)
                         (case sexps
                           [(empty) (function name args (parse-arith-expr body))]
-                          [(cons sexp sexps) (panic "Too many forms in define")])]
+                          [(cons sexp sexps) (panic #"Too many forms in define")])]
                        [(empty) (panic #"Too few forms in define: no body")])))]
                 [(empty) (panic #"Too few forms in define: no name/args")])
-              (panic "Not a define symbol"))])]
-      [(symbol-sexp bytes) (panic "Not a define form")]))
+              (panic #"Not a define symbol"))])]
+      [(symbol-sexp bytes) (panic #"Not a define form")]))
 
   (define (module-symbol? sexp)
     (case sexp
@@ -63,6 +64,11 @@
   (define (define-symbol? sexp)
     (case sexp
       [(symbol-sexp bytes) (bytes=? bytes #"define")]))
+
+  (define (num-op-symbol-bytes? bytes)
+    (or (bytes=? bytes #"+")
+        (or (bytes=? bytes #"-")
+            (bytes=? bytes #"*"))))
 
   (define (extract-name sexp)
     (case sexp
@@ -91,30 +97,45 @@
 
   (define (parse-arith-expr sexp)
     (case sexp
-      [(node ops)
-       (case ops
-         [(cons sym ops)
-          (case ops
-            [(cons arg1 ops)
-             (case ops
-               [(cons arg2 ops)
-                (case ops
-                  [(empty) (parse-arith/fun-two-args sym arg1 arg2)]
-                  [(cons arg3 ops) (panic #"Too many arguments")])]
-               [(empty) (panic #"Too few arguments: got 1")])]
-            [(empty) (panic #"Too few arguments: got 0")])]
+      [(node sexps)
+       (case sexps
+         [(cons sym args)
+          (parse-arith-expr/fun-call sym args)]
          [(empty) (panic #"No function symbol")])]
       [(symbol-sexp bytes) (panic #"Symbols not supported")]
       [(number-sexp byte) (num-lit byte)]))
 
-  (define (parse-arith/fun-two-args sym arg1 arg2)
-    (let ([arg1-parsed (parse-arith-expr arg1)])
-      (let ([arg2-parsed (parse-arith-expr arg2)])
-        (case sym
-          [(node args) (panic #"Function position is a node")]
-          [(number-sexp v) (panic #"Function position is a number")]
-          [(symbol-sexp bytes)
-           (num-op-expr (bytes->num-op bytes) arg1-parsed arg2-parsed)]))))
+
+  (define (parse-arith-expr/fun-call sym args)
+    (case sym
+      [(node args) (panic #"Function position is a node")]
+      [(number-sexp v) (panic #"Function position is a number")]
+      [(symbol-sexp bytes)
+       (if (num-op-symbol-bytes? bytes)
+           (case args
+             [(cons arg1 args)
+              (case args
+                [(cons arg2 args)
+                 (case args
+                   [(empty)
+                    (num-op-expr
+                      (bytes->num-op bytes)
+                      (parse-arith-expr arg1)
+                      (parse-arith-expr arg2))]
+                   [(cons arg3 args) (panic #"Too many arguments")])]
+                [(empty) (panic #"Too few arguments: got 1")])]
+             [(empty) (panic #"Too few arguments: got 0")])
+           (fun-call-expr
+             bytes
+             (parse-arith-exprs args)))]))
+
+
+  (define (parse-arith-exprs sexps)
+    (case sexps
+      [(empty) (empty)]
+      [(cons expr exprs)
+       (cons (parse-arith-exprs expr) (parse-arith-exprs exprs))]))
+
 
   (define (bytes->num-op bytes)
     (if (bytes=? bytes #"+")

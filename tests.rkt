@@ -121,6 +121,8 @@
     (yaspl-test #:module-name 'arithmetic-expr #:stdin #"(module (define (f x) (+ 2 3)))" #:exit-code 0)
     (yaspl-test #:module-name 'arithmetic-expr
                 #:stdin #"(module (define (f x y) 2) (define (g z) (+ (* 1 2) (- 4 3))))" #:exit-code 0)
+    (yaspl-test #:module-name 'arithmetic-expr
+                #:stdin #"(module (define (f) 2) (define (g) (f)))" #:exit-code 0)
 
     (yaspl-test #:module-name 'x86-64-stack-machine
                 #:stdin #"(module (define (main) 1))" #:exit-code 0 #:stdout #f)
