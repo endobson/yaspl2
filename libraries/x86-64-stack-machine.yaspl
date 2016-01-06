@@ -13,14 +13,11 @@
   (types)
 
   (define (compile-stack-machine sfun)
-    (let ([cmds (stack-basic-block-cmds (cons-head (stack-function-blocks sfun)))])
-      (let ([bytes (make-bytes (* 64 64))])
-        (let ([offset 0])
-          (let ([offset (write-start bytes offset)])
-            (let ([offset (write-main-header bytes offset)])
-              (let ([offset (compile-stack-machine/loop cmds bytes offset)])
-                (let ([offset (write-main-footer bytes offset)])
-                  (subbytes bytes 0 offset)))))))))
+    (let ([bytes (make-bytes (* 64 64))])
+      (let ([offset 0])
+        (let ([offset (write-start bytes offset)])
+          (let ([offset (write-function sfun bytes offset)])
+            (subbytes bytes 0 offset))))))
 
   (define (write-start bytes offset)
     (let ([prologue #".section __TEXT,__text\n\n.global _start\n_start:\ncall main\nmovq $0x2000001, %rax\npop %rdi\nsyscall\n"])
@@ -28,22 +25,41 @@
         (bytes-copy! prologue 0 (bytes-length prologue) bytes offset)
         (+ (bytes-length prologue) offset))))
 
-  (define (write-main-header bytes offset)
-    (let ([header #"main:\n"])
-      (begin
-        (bytes-copy! header 0 (bytes-length header) bytes offset)
-        (+ (bytes-length header) offset))))
-  (define (write-main-footer bytes offset)
-    (let ([footer #"pop %rax\npop %rbx\npush %rax\njmpq *%rbx"])
-      (begin
-        (bytes-copy! footer 0 (bytes-length footer) bytes offset)
-        (+ (bytes-length footer) offset))))
+  (define (write-function fun bytes offset)
+    (case fun
+      [(stack-function name blocks)
+       (begin
+         (bytes-copy! name 0 (bytes-length name) bytes offset)
+         (let ([offset (+ (bytes-length name) offset)])
+           (begin
+             (bytes-copy! #":\n" 0 2 bytes offset)
+             (let ([offset (+ offset 2)])
+               (write-basic-blocks blocks bytes offset)))))]))
+
+  (define (write-basic-blocks blocks bytes offset)
+    (case blocks
+      [(empty) offset]
+      [(cons block blocks)
+       (let ([offset (write-basic-block block bytes offset)])
+         (write-basic-blocks blocks bytes offset))]))
+
+  (define (write-basic-block block bytes offset)
+    (case block
+      [(stack-basic-block cmds terminal)
+       (let ([offset (write-commands cmds bytes offset)])
+         (write-terminal terminal bytes offset))]))
 
 
+  (define (write-terminal terminal bytes offset)
+    (case terminal
+      [(return)
+       (let ([ret #"pop %rax\npop %rbx\npush %rax\njmpq *%rbx\n"])
+         (begin
+           (bytes-copy! ret 0 (bytes-length ret) bytes offset)
+           (+ (bytes-length ret) offset)))]))
 
 
-
-  (define (compile-stack-machine/loop cmds bytes offset)
+  (define (write-commands cmds bytes offset)
     (case cmds
       [(empty) offset]
       [(cons cmd cmds)
@@ -60,7 +76,7 @@
                       (begin
                         (bytes-copy! #"\n" 0 1 bytes offset)
                         (let ([offset (+ 1 offset)])
-                          (compile-stack-machine/loop cmds bytes offset)))))))))]
+                          (write-commands cmds bytes offset)))))))))]
          [(eval-op-cmd op)
           (let ([op-bytes (case op
                             [(plus-op) #"pop %rbx\npop %rax\naddq %rbx, %rax\npush %rax\n"]
@@ -68,7 +84,7 @@
                             [(minus-op) #"pop %rbx\npop %rax\nsubq %rbx, %rax\npush %rax\n"])])
             (begin
               (bytes-copy! op-bytes 0 (bytes-length op-bytes) bytes offset)
-              (compile-stack-machine/loop cmds bytes (+ offset (bytes-length op-bytes)))))])]))
+              (write-commands cmds bytes (+ offset (bytes-length op-bytes)))))])]))
 
 
   (define (main stdin stdout stderr)
