@@ -4,9 +4,14 @@
     (sexp-parser parse-sexp)
     (io read-all-bytes)
     (either right-v)
+    (list cons empty)
     (bytes bytes=?))
-  (export parse-arith-expr main)
+  (export parse-module parse-arith-expr main)
   (types
+    (define-type Module
+      (module [functions (List Function)]))
+    (define-type Function
+      (function [name Bytes] [arg-names (List Bytes)] [body ArithExpr]))
     (define-type ArithExpr
       (num-lit [v Byte])
       (num-op-expr [v NumOp] [left arith-expr] [right arith-expr]))
@@ -14,6 +19,75 @@
       (plus-op)
       (minus-op)
       (times-op)))
+
+  (define (parse-module sexp)
+    (case sexp
+      [(node sexps)
+       (case sexps
+         [(cons mod-sym function-sexps)
+          (if (module-symbol? mod-sym)
+              (module (parse-functions function-sexps))
+              (panic "Not a module symbol."))])]
+      [(symbol-sexp bytes) (panic "Not a module form")]))
+
+  (define (parse-functions sexps)
+    (case sexps
+      [(empty) (empty)]
+      [(cons sexp sexps)
+       (cons (parse-function sexp) (parse-functions sexps))]))
+
+  (define (parse-function sexp)
+    (case sexp
+      [(node sexps)
+       (case sexps
+         [(cons fun-sym sexps)
+          (if (define-symbol? fun-sym)
+              (case sexps
+                [(cons name-args sexps)
+                 (let ([name (extract-name name-args)])
+                   (let ([args (extract-args name-args)])
+                     (case sexps
+                       [(cons body sexps)
+                        (case sexps
+                          [(empty) (function name args (parse-arith-expr body))]
+                          [(cons sexp sexps) (panic "Too many forms in define")])]
+                       [(empty) (panic #"Too few forms in define: no body")])))]
+                [(empty) (panic #"Too few forms in define: no name/args")])
+              (panic "Not a define symbol"))])]
+      [(symbol-sexp bytes) (panic "Not a define form")]))
+
+  (define (module-symbol? sexp)
+    (case sexp
+      [(symbol-sexp bytes) (bytes=? bytes #"module")]))
+
+  (define (define-symbol? sexp)
+    (case sexp
+      [(symbol-sexp bytes) (bytes=? bytes #"define")]))
+
+  (define (extract-name sexp)
+    (case sexp
+      [(node sexps)
+       (case sexps
+         [(cons sexp sexps)
+          (case sexp
+            [(symbol-sexp bytes) bytes])])]
+      [(symbol-sexp bytes) (panic #"Bad name/args")]))
+
+
+  (define (extract-args sexp)
+    (case sexp
+      [(node sexps)
+       (case sexps
+         [(cons sexp sexps)
+          (extract-args-helper sexps)])]))
+
+  (define (extract-args-helper sexps)
+    (case sexps
+      [(empty) (empty)]
+      [(cons sexp sexps)
+       (case sexp
+         [(symbol-sexp bytes) (cons bytes (extract-args-helper sexps))])]))
+
 
   (define (parse-arith-expr sexp)
     (case sexp
@@ -53,5 +127,5 @@
 
   (define (main stdin stdout stderr)
     (begin
-      (parse-arith-expr (right-v (parse-sexp (read-all-bytes stdin))))
+      (parse-module (right-v (parse-sexp (read-all-bytes stdin))))
       0)))

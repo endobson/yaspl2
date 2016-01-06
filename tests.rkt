@@ -117,9 +117,10 @@
     (yaspl-test #:module-name 'sexp-parser #:stdin #"456" #:exit-code 0)
     (yaspl-test #:module-name 'sexp-parser #:stdin #"(+ 2 3)" #:exit-code 0)
 
-    (yaspl-test #:module-name 'arithmetic-expr #:stdin #"2" #:exit-code 0)
-    (yaspl-test #:module-name 'arithmetic-expr #:stdin #"(+ 2 3)" #:exit-code 0)
-    (yaspl-test #:module-name 'arithmetic-expr #:stdin #"(+ (* 1 2) (- 4 3))" #:exit-code 0)
+    (yaspl-test #:module-name 'arithmetic-expr #:stdin #"(module (define (f) 2))" #:exit-code 0)
+    (yaspl-test #:module-name 'arithmetic-expr #:stdin #"(module (define (f x) (+ 2 3)))" #:exit-code 0)
+    (yaspl-test #:module-name 'arithmetic-expr
+                #:stdin #"(module (define (f x y) 2) (define (g z) (+ (* 1 2) (- 4 3))))" #:exit-code 0)
 
     (yaspl-test #:module-name 'stack-machine #:stdin #"1" #:exit-code 0 #:stdout #"1\n")
     (yaspl-test #:module-name 'stack-machine #:stdin #"(+ 1 2)" #:exit-code 0 #:stdout #"1\n2\n+\n")
