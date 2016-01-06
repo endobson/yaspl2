@@ -122,15 +122,15 @@
     (yaspl-test #:module-name 'arithmetic-expr
                 #:stdin #"(module (define (f x y) 2) (define (g z) (+ (* 1 2) (- 4 3))))" #:exit-code 0)
 
-    (yaspl-test #:module-name 'stack-machine #:stdin #"1" #:exit-code 0 #:stdout #"1\n")
-    (yaspl-test #:module-name 'stack-machine #:stdin #"(+ 1 2)" #:exit-code 0 #:stdout #"1\n2\n+\n")
+    (yaspl-test #:module-name 'x86-64-stack-machine
+                #:stdin #"(module (define (main) 1))" #:exit-code 0 #:stdout #f)
+    (yaspl-test #:module-name 'x86-64-stack-machine
+                #:stdin #"(module (define (main) (+ 1 2)))" #:exit-code 0 #:stdout #f)
 
-    (yaspl-test #:module-name 'x86-64-stack-machine #:stdin #"1" #:exit-code 0 #:stdout #f)
-    (yaspl-test #:module-name 'x86-64-stack-machine #:stdin #"(+ 1 2)" #:exit-code 0 #:stdout #f)
-
-    (compiler-test #"0")
-    (compiler-test #"(+ 1 1)" #:exit-code 2)
-    (compiler-test #"(* (- 117 113) (+ 10 2))" #:exit-code 48)
+    (compiler-test #"(module (define (main) 0))")
+    (compiler-test #"(module (define (main) (+ 1 1)))" #:exit-code 2)
+    (compiler-test #"(module (define (main) (* (- 117 113) (+ 10 2))))" #:exit-code 48)
+    (compiler-test #"(module (define (main) 1) (define (foo) 2))" #:exit-code 1)
 
 
   )
