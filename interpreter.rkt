@@ -23,7 +23,6 @@
 (struct byte& expression& (v))
 (struct bytes& expression& (v))
 (struct boolean& expression& (v))
-(struct string& expression& (v))
 (struct variable& expression& (v))
 (struct if& expression& (cond true false))
 (struct begin& expression& (first-expr exprs))
@@ -88,7 +87,6 @@
   (match sexp
     [(? byte? num) (byte& num)]
     [(? (and/c bytes? immutable?) bytes) (bytes& bytes)]
-    [(? string? str) (string& str)]
     [(? boolean? bool) (boolean& bool)]
     [(? symbol? sym) (variable& sym)]
     [`(if ,cond ,true ,false)
