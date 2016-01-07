@@ -21,6 +21,7 @@
 
 (define (add-module! mod-src)
   (define mod (parse-module mod-src))
+  (check-module mod)
   (define mod-name (module&-name mod))
   (when (set-member? module-names mod-name)
     (error 'add-module! "Cannot add module: ~s is already defined" mod-name))

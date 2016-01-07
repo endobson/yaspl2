@@ -11,6 +11,7 @@
   run-program
   module&-name
   parse-module
+  check-module
   (struct-out program-result))
 
 (struct module& (name imports exports types definitions))
@@ -99,6 +100,60 @@
      (case& (parse expr) (map case-clause& variant-names field-namess (map parse bodies)))]
     [(list op args ...)
      (app& (parse op) (map parse args))]))
+
+
+(define (check-module module)
+  (ensure-no-free-variables module))
+
+(define (ensure-no-free-variables module)
+  (define ((recur/env env) expr)
+    (define recur (recur/env env))
+    (match expr
+      [(? byte&?) (void)]
+      [(? bytes&?) (void)]
+      [(? boolean&?) (void)]
+      [(variable& sym)
+       (unless (set-member? env sym)
+         (error 'ensure-no-free-variables "Unbound symbol '~a' in ~a" sym (module&-name module)))]
+      [(if& cond true false)
+       (for-each recur (list cond true false))]
+      [(begin& first-expr exprs)
+       (for-each recur (cons first-expr exprs))]
+      [(app& op exprs)
+       (for-each recur (cons op exprs))]
+      [(let& name expr body)
+       (recur expr)
+       ((recur/env (set-add env name)) body)]
+      [(case& expr (list (case-clause& _ field-varss bodies) ...))
+       (recur expr)
+       (for ([body (in-list bodies)]
+             [field-vars (in-list field-varss)])
+         ((recur/env (set-union env (list->set field-vars))) body))]))
+
+
+  (match module
+    [(module& _ (list (import& _ import-names) ...) _
+       (list (define-type& _ _
+               (list (variant& variant-namess (list (variant-field& field-namesss _) ...)) ...)) ...)
+       definitions)
+     (define mut-env (mutable-set))
+     (for ([import-name (in-list import-names)])
+       (set-add! mut-env import-name))
+     (for ([variant-name (in-list (append* variant-namess))])
+       (set-add! mut-env variant-name)
+       (for ([field-names (in-list (append* field-namesss))]
+             #:when #t
+             [field-name field-names])
+         (set-add! mut-env (string->symbol (format "~a-~a" variant-name field-name)))))
+     (for ([definition-name (in-hash-keys definitions)])
+       (set-add! mut-env definition-name))
+
+     (define env (set-union (set) mut-env))
+     (for ([definition (in-hash-values definitions)])
+       (match definition
+         [(definition& args body)
+          (let ([env (set-union env (list->set args))])
+            ((recur/env env) body))]))]))
 
 
 ;;;;
