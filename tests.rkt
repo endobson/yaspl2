@@ -69,6 +69,7 @@
   (test-suite ""
     (let ([result (run-program modules 'x86-64-stack-machine 'main #:stdin program)])
       (test-begin
+        (check-equal? (program-result-error-info result) #F)
         (check-equal? (program-result-exit-code result) 0)
         (call-with-temporary-files 3
           (λ (asm object binary)
@@ -133,6 +134,7 @@
     (compiler-test #"(module (define (main) (+ 1 1)))" #:exit-code 2)
     (compiler-test #"(module (define (main) (* (- 117 113) (+ 10 2))))" #:exit-code 48)
     (compiler-test #"(module (define (main) 1) (define (foo) 2))" #:exit-code 1)
+    (compiler-test #"(module (define (main) (foo)) (define (foo) 2))" #:exit-code 2)
 
 
   )
