@@ -12,6 +12,7 @@
   module&-name
   parse-module
   check-module
+  construct-module-signature
   (struct-out program-result))
 
 (struct module& (name imports exports types definitions))
@@ -35,6 +36,20 @@
 (struct define-type& (type-name type-variables variants))
 (struct variant& (name fields))
 (struct variant-field& (name type))
+
+(struct type ())
+(struct void-ty type ())
+(struct byte-ty type ())
+(struct bytes-ty type ())
+(struct boolean-ty type ())
+(struct inductive-ty type (module-name name))
+(struct fun-ty type (args result))
+
+;; Information needed to compile other modules from this module
+(struct module-signature (name exports types))
+(struct inductive-signature (module-name name variants))
+(struct variant-signature (name types))
+
 
 (define (parse-module sexp)
   (match sexp
@@ -155,6 +170,15 @@
           (let ([env (set-union env (list->set args))])
             ((recur/env env) body))]))]))
 
+;; TODO implement this
+(define (construct-module-signature module module-signatures)
+  (match module
+    [(module& name imports exports type-defs defs)
+     (define export-types
+       (for/hash ([export exports])
+         (values (export&-name export) (void-ty))))
+
+     (module-signature name export-types (set))]))
 
 ;;;;
 
