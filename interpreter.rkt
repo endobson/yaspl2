@@ -19,7 +19,7 @@
 
 (struct export& (name))
 (struct import& (module-name name))
-(struct definition& (args body))
+(struct definition& (type args body))
 
 (struct expression& ())
 (struct byte& expression& (v))
@@ -92,8 +92,14 @@
 (define (parse-definitions defs)
   (define (parse-definition sexp)
     (match sexp
-      [`(define (,name . ,(list (? symbol? args) ...)) ,body)
-        (values name (definition& args (parse-expression body)))]))
+      ;; TODO remove
+      [`(define (,name ,(? symbol? args) ...) ,body)
+        (define type (void-ty))
+        (values name (definition& type args (parse-expression body)))]
+      ;; TODO implement
+      [`(define (,name (,(? symbol? args) : ,arg-types) ...) : ,return-type ,body)
+        (define type (void-ty))
+        (values name (definition& type args (parse-expression body)))]))
   (for/hash ([def (in-list defs)])
     (parse-definition def)))
 
@@ -166,7 +172,7 @@
      (define env (set-union (set) mut-env))
      (for ([definition (in-hash-values definitions)])
        (match definition
-         [(definition& args body)
+         [(definition& _ args body)
           (let ([env (set-union env (list->set args))])
             ((recur/env env) body))]))]))
 
@@ -269,7 +275,7 @@
     (for ([(name def) (in-hash (module&-definitions module))])
       (define val
         (match def
-          [(definition& args body)
+          [(definition& _ args body)
            (function-val args local-env body)]))
       (hash-set! local-env name val))
     (for ([export (in-list (module&-exports module))])
