@@ -221,8 +221,15 @@
                       [parsed-field-type parsed-field-types])
                   (hash-set! type-env (string->symbol (format "~a-~a" variant-name field-name))
                              (fun-ty type-vars defined-type parsed-field-type)))]))]))
-     ;; TODO add defined function types
 
+     (define parse-type (parse-type/env type-name-env))
+
+     (for ([(def-name def) (in-hash defs)])
+       (match def
+         [(definition& type _ _)
+          (hash-set! type-env def-name (parse-type type))]))
+
+     ;; TODO check definitions
 
 
 
