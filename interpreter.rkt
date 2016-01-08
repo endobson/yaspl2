@@ -5,6 +5,7 @@
   "primitives.rkt"
   racket/list
   (only-in racket/contract/base and\/c)
+  racket/hash
   racket/set
   racket/match)
 (provide
@@ -37,13 +38,19 @@
 (struct variant& (name fields))
 (struct variant-field& (name type))
 
+(struct pre-type ())
+(struct var-pre-type pre-type (v))
+(struct fun-pre-type pre-type (args result))
+
+
 (struct type ())
 (struct void-ty type ())
 (struct byte-ty type ())
 (struct bytes-ty type ())
 (struct boolean-ty type ())
 (struct inductive-ty type (module-name name))
-(struct fun-ty type (args result))
+(struct fun-ty type (type-vars args result))
+(struct type-var-ty type (v))
 
 ;; Information needed to compile other modules from this module
 (struct module-signature (name exports types))
@@ -160,11 +167,10 @@
      (define mut-env (mutable-set))
      (for ([import-name (in-list import-names)])
        (set-add! mut-env import-name))
-     (for ([variant-name (in-list (append* variant-namess))])
+     (for ([variant-name (in-list (append* variant-namess))]
+           [field-names (in-list (append* field-namesss))])
        (set-add! mut-env variant-name)
-       (for ([field-names (in-list (append* field-namesss))]
-             #:when #t
-             [field-name field-names])
+       (for ([field-name field-names])
          (set-add! mut-env (string->symbol (format "~a-~a" variant-name field-name)))))
      (for ([definition-name (in-hash-keys definitions)])
        (set-add! mut-env definition-name))
@@ -176,15 +182,57 @@
           (let ([env (set-union env (list->set args))])
             ((recur/env env) body))]))]))
 
+
+(define ((parse-type/env type-env) pre-type)
+  ;; TODO
+  (void-ty))
+
 ;; TODO implement this
 (define (construct-module-signature module module-signatures)
   (match module
-    [(module& name imports exports type-defs defs)
+    [(module& module-name imports exports type-defs defs)
+     (define mut-type-name-env (make-hash))
+     ;; TODO add local types to type-env
+     ;; TODO add imported types to type-env
+     (define type-name-env (hash-copy/immutable mut-type-name-env))
+
+     (define type-env (make-hash))
+
+
+     (for ([type-def (in-list type-defs)])
+       (match type-def
+         [(define-type& type-name type-vars* variants)
+          ;; TODO see if we want to distinguish this
+          (define type-vars (or type-vars* empty))
+          (define defined-type (inductive-ty module-name type-name))
+          (define parse-type
+            (parse-type/env
+              (hash-union
+                type-name-env
+                (for/hash ([type-var type-vars])
+                  (values type-var (type-var-ty type-var))))))
+          (for ([variant (in-list variants)])
+             (match variant
+               [(variant& variant-name (list (variant-field& field-names field-types) ...))
+                (define parsed-field-types (map parse-type field-types))
+                (hash-set! type-env variant-name
+                  (fun-ty type-vars parsed-field-types defined-type))
+                (for ([field-name field-names]
+                      [parsed-field-type parsed-field-types])
+                  (hash-set! type-env (string->symbol (format "~a-~a" variant-name field-name))
+                             (fun-ty type-vars defined-type parsed-field-type)))]))]))
+     ;; TODO add defined function types
+
+
+
+
+
+     ;; TODO Make this lookup in type-env
      (define export-types
        (for/hash ([export exports])
          (values (export&-name export) (void-ty))))
 
-     (module-signature name export-types (set))]))
+     (module-signature module-name export-types type-name-env)]))
 
 ;;;;
 
