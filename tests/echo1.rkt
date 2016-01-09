@@ -4,7 +4,7 @@
   (export main)
   (types)
 
-  (define (loop in out size)
+  (define (loop [in : InputPort] [out : OutputPort] [size : Byte]) : Void
     (let ([bytes (make-bytes size)])
       (let ([amount-read (read-bytes bytes in 0 size)])
         (if (= amount-read 0)
@@ -14,7 +14,7 @@
               (loop in out (if (= amount-read size) (+ size size) size)))))))
 
 
-  (define (main stdin stdout stderr)
+  (define (main [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Byte
     (begin
       (loop stdin stdout 1)
       0)))

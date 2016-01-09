@@ -100,9 +100,6 @@
   (define (parse-definition sexp)
     (match sexp
       ;; TODO remove
-      [`(define (,name ,(? symbol? args) ...) ,body)
-        (define type (void-ty))
-        (values name (definition& type args (parse-expression body)))]
       ;; TODO implement
       [`(define (,name (,(? symbol? args) : ,arg-types) ...) : ,return-type ,body)
         (define type (void-ty))
