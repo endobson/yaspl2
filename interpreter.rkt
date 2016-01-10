@@ -288,15 +288,11 @@
          [(definition& type _ _)
           (hash-set! type-env def-name (parse-type type))]))
 
-     ;; TODO check definitions
-
-
-
-
-     ;; TODO Make this lookup in type-env
+     ;; TODO limit this to only exported values not types
      (define exported-value-bindings
        (for/hash ([export exports])
-         (values (export&-name export) (void-ty))))
+         (define name (export&-name export))
+         (values name (hash-ref type-env name (void-ty)))))
 
      ;; TODO limit this to the exported types
      ;; TODO add variants
