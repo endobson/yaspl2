@@ -39,26 +39,26 @@
 (struct variant& (name fields))
 (struct variant-field& (name type))
 
-(struct pre-type ())
-(struct var-pre-type pre-type (v))
-(struct fun-pre-type pre-type (args result))
+(struct pre-type () #:transparent)
+(struct var-pre-type pre-type (v) #:transparent)
+(struct fun-pre-type pre-type (args result) #:transparent)
 (struct type-app-pre-type pre-type (constructor args))
 
 
 (struct kind ())
 (struct *-kind kind ())
 
-(struct type ())
-(struct void-ty type ())
-(struct byte-ty type ())
-(struct bytes-ty type ())
-(struct boolean-ty type ())
-(struct input-port-ty type ())
-(struct output-port-ty type ())
-(struct data-ty type (module-name name args))
-(struct data-ty-constructor type (module-name name arg-kinds))
-(struct fun-ty type (type-vars args result))
-(struct type-var-ty type (v))
+(struct type () #:transparent)
+(struct void-ty type () #:transparent)
+(struct byte-ty type () #:transparent)
+(struct bytes-ty type () #:transparent)
+(struct boolean-ty type () #:transparent)
+(struct input-port-ty type () #:transparent)
+(struct output-port-ty type () #:transparent)
+(struct data-ty type (module-name name args) #:transparent)
+(struct data-ty-constructor type (module-name name arg-kinds) #:transparent)
+(struct fun-ty type (type-vars args result) #:transparent)
+(struct type-var-ty type (v) #:transparent)
 
 ;; Information needed to compile other modules from this module
 (struct module-signature (name exports types))
@@ -255,7 +255,7 @@
            mut-type-name-env)))
 
 
-     (define type-env (make-hash))
+     (define mut-type-env (make-hash))
 
 
      (for ([type-def (in-list type-defs)])
@@ -274,11 +274,11 @@
              (match variant
                [(variant& variant-name (list (variant-field& field-names field-types) ...))
                 (define parsed-field-types (map parse-type field-types))
-                (hash-set! type-env variant-name
+                (hash-set! mut-type-env variant-name
                   (fun-ty type-vars parsed-field-types defined-type))
                 (for ([field-name field-names]
                       [parsed-field-type parsed-field-types])
-                  (hash-set! type-env (string->symbol (format "~a-~a" variant-name field-name))
+                  (hash-set! mut-type-env (string->symbol (format "~a-~a" variant-name field-name))
                              (fun-ty type-vars defined-type parsed-field-type)))]))]))
 
      (define parse-type (parse-type/env type-name-env))
@@ -286,7 +286,16 @@
      (for ([(def-name def) (in-hash defs)])
        (match def
          [(definition& type _ _)
-          (hash-set! type-env def-name (parse-type type))]))
+          (hash-set! mut-type-env def-name (parse-type type))]))
+     (define type-env (hash-copy/immutable mut-type-env))
+
+     (for ([(def-name def) (in-hash defs)])
+       (match def
+         [(definition& _ args body)
+          (match (hash-ref type-env def-name)
+            [(fun-ty type-vars arg-types result-type)
+             (let ([type-env (foldl (λ (k v h) (hash-set h k v)) type-env args arg-types)])
+               ((type-check/env type-env) body result-type))])]))
 
      ;; TODO limit this to only exported values not types
      (define exported-value-bindings
@@ -306,6 +315,82 @@
 
 
      (module-signature module-name exported-value-bindings exported-type-bindings)]))
+
+(define ((type-check/env type-env) expr type)
+  (define type-check (type-check/env type-env))
+  (define type-infer (type-infer/env type-env))
+  ;; TODO only check against the actual type once
+  (define (check actual-type)
+    (unless (equal? actual-type type)
+      (error 'type-check "Types don't match: Got ~s but expected ~s" actual-type type))
+    actual-type)
+  (check
+    (match expr
+      [(byte& _) (byte-ty)]
+      [(bytes& _) (bytes-ty)]
+      [(boolean& _) (boolean-ty)]
+      [(variable& v)
+       ;; TODO remove the hack here
+       (hash-ref type-env v type)]
+      [(if& cond true false)
+       (type-check cond (boolean-ty))
+       (type-check true type)
+       (type-check false type)]
+      [(begin& first-expr exprs)
+       (match (cons first-expr exprs)
+         [(list exprs ... last-expr)
+          (for-each (λ (e) (type-check e (void-ty))) exprs)
+          (type-check last-expr type)])]
+      [(app& op args)
+       ;(type-infer op)
+       ;(map type-infer args)
+       ;; TODO actually do this
+       type]
+      [(let& name expr body)
+       type
+       ;; TODO actually check here
+       #;
+       (let* ([expr-type (type-infer expr)]
+              [type-env (hash-set type-env name expr-type)])
+         ((type-check/env type-env) body type))]
+      [(case& expr clauses)
+       ;; TODO actually do this
+       type])))
+
+;; TODO actually do this
+(define ((type-infer/env type-env) expr)
+  (define type-check (type-check/env type-env))
+  (define type-infer (type-infer/env type-env))
+
+  (match expr
+    [(byte& _) (byte-ty)]
+    [(bytes& _) (bytes-ty)]
+    [(boolean& _) (boolean-ty)]
+    [(variable& v) (hash-ref type-env v)]
+    [(if& cond true false)
+     (type-check cond (boolean-ty))
+     (type-infer true)
+     (type-infer false)]
+    [(begin& first-expr exprs)
+     (match (cons first-expr exprs)
+       [(list exprs ... last-expr)
+        (for-each (λ (e) (type-check e (void-ty))) exprs)
+        (type-infer last-expr)])]
+    [(app& op args)
+     (type-infer op)
+     (map type-infer args)
+     ;; TODO actually do this
+     (error 'type-infer "NYI app")]
+    [(let& name expr body)
+     (let* ([expr-type (type-infer expr)]
+            [type-env (hash-set type-env name expr-type)])
+       ((type-infer/env type-env) body))]
+    [(case& expr clauses)
+     ;; TODO actually do this
+     (error 'type-infer "NYI case")]))
+
+
+
 
 ;;;;
 
