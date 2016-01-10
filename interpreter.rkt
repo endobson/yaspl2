@@ -49,7 +49,7 @@
 (struct byte-ty type ())
 (struct bytes-ty type ())
 (struct boolean-ty type ())
-(struct inductive-ty type (module-name name))
+(struct data-ty type (module-name name args))
 (struct fun-ty type (type-vars args result))
 (struct type-var-ty type (v))
 
@@ -100,12 +100,8 @@
 (define (parse-definitions defs)
   (define (parse-definition sexp)
     (match sexp
-      ;; TODO implement
       [`(define (,name (,(? symbol? args) : ,arg-types) ...) : ,return-type ,body)
-        (map parse-pre-type arg-types)
-        (parse-pre-type return-type)
-
-        (define type (void-ty))
+        (define type (fun-pre-type (map parse-pre-type arg-types) (parse-pre-type return-type)))
         (values name (definition& type args (parse-expression body)))]))
   (for/hash ([def (in-list defs)])
     (parse-definition def)))
@@ -193,16 +189,40 @@
             ((recur/env env) body))]))]))
 
 
+;; TODO
 (define ((parse-type/env type-env) pre-type)
-  ;; TODO
-  (void-ty))
+  (define parse-type (parse-type/env type-env))
+  (match pre-type
+    [(var-pre-type v)
+     (void-ty)]
+    [(fun-pre-type args result)
+     (fun-ty empty (map parse-type args) (parse-type result))]
+    [(type-app-pre-type constructor args)
+     (map parse-type args)
+     (void-ty)]))
+
 
 ;; TODO implement this
 (define (construct-module-signature module module-signatures)
   (match module
     [(module& module-name imports exports type-defs defs)
      (define mut-type-name-env (make-hash))
-     ;; TODO add local types to type-env
+
+     ;; TODO move this into the prim module-signature
+     (hash-set! mut-type-name-env 'Byte (byte-ty))
+     (hash-set! mut-type-name-env 'Void (void-ty))
+     (hash-set! mut-type-name-env 'Bytes (bytes-ty))
+     (hash-set! mut-type-name-env 'Boolean (boolean-ty))
+
+
+     (for ([type-def (in-list type-defs)])
+       (match type-def
+         [(define-type& type-name #f _)
+          (hash-set! mut-type-name-env type-name (data-ty module-name type-name empty))]
+         [(define-type& type-name (? list type-vars) _)
+          (void)]))
+
+
      ;; TODO add imported types to type-env
      (define type-name-env (hash-copy/immutable mut-type-name-env))
 
@@ -212,9 +232,9 @@
      (for ([type-def (in-list type-defs)])
        (match type-def
          [(define-type& type-name type-vars* variants)
-          ;; TODO see if we want to distinguish this
+          ;; TODO figure out how to handle this correctly
           (define type-vars (or type-vars* empty))
-          (define defined-type (inductive-ty module-name type-name))
+          (define defined-type (data-ty module-name type-name type-vars))
           (define parse-type
             (parse-type/env
               (hash-union
