@@ -45,6 +45,9 @@
 (struct type-app-pre-type pre-type (constructor args))
 
 
+(struct kind ())
+(struct *-kind kind ())
+
 (struct type ())
 (struct void-ty type ())
 (struct byte-ty type ())
@@ -53,6 +56,7 @@
 (struct input-port-ty type ())
 (struct output-port-ty type ())
 (struct data-ty type (module-name name args))
+(struct data-ty-constructor type (module-name name arg-kinds))
 (struct fun-ty type (type-vars args result))
 (struct type-var-ty type (v))
 
@@ -194,7 +198,6 @@
             ((recur/env env) body))]))]))
 
 
-;; TODO
 (define ((parse-type/env type-env) pre-type)
   (define parse-type (parse-type/env type-env))
   (match pre-type
@@ -202,8 +205,12 @@
     [(fun-pre-type args result)
      (fun-ty empty (map parse-type args) (parse-type result))]
     [(type-app-pre-type constructor args)
-     (map parse-type args)
-     (void-ty)]))
+     ;; TODO check that args are the right kind
+     (match (hash-ref type-env constructor)
+       [(data-ty-constructor mod-name ty-name arg-kinds)
+        (unless (= (length args) (length arg-kinds))
+          (error 'parse-type "Type constructor applied to wrong number of arguments"))
+        (data-ty mod-name ty-name (map parse-type args))])]))
 
 
 ;; TODO implement this
@@ -225,7 +232,9 @@
        (match type-def
          [(define-type& type-name #f _)
           (hash-set! mut-type-name-env type-name (data-ty module-name type-name empty))]
-         [(define-type& type-name (? list type-vars) _)
+         [(define-type& type-name (list (? symbol? type-vars) ...) _)
+          (hash-set! mut-type-name-env type-name
+                     (data-ty-constructor module-name type-name (map (λ (_) (*-kind)) type-vars)))
           (void)]))
 
 
@@ -238,7 +247,10 @@
             (match type
               [#f (void)]
               [(inductive-signature orig-mod-name ty-name #f variants)
-               (hash-set! mut-type-name-env name (data-ty orig-mod-name ty-name empty))]))]))
+               (hash-set! mut-type-name-env name (data-ty orig-mod-name ty-name empty))]
+              [(inductive-signature orig-mod-name ty-name type-vars variants)
+               (hash-set! mut-type-name-env name
+                          (data-ty-constructor orig-mod-name ty-name (map (λ (_) (*-kind)) type-vars)))]))]))
 
      ;; TODO add imported types to type-env
      (define type-name-env (hash-copy/immutable mut-type-name-env))
@@ -285,13 +297,17 @@
      (define exported-value-bindings
        (for/hash ([export exports])
          (values (export&-name export) (void-ty))))
+
+     ;; TODO limit this to the exported types
+     ;; TODO add variants
      (define exported-type-bindings
-       (for/hash ([export exports])
-         (let ([name (export&-name export)])
-           ;; TODO only export types
-           ;; TODO use correct type args
-           ;; TODO add variants
-           (values name (inductive-signature module-name name #f empty)))))
+       (for/hash ([type-def (in-list type-defs)])
+         (match type-def
+           [(define-type& type-name type-vars variants)
+            (values
+              type-name
+              (inductive-signature module-name type-name type-vars empty))])))
+
 
      (module-signature module-name exported-value-bindings exported-type-bindings)]))
 
