@@ -13,6 +13,7 @@
   module&-name
   parse-module
   check-module
+  topo-sort
   construct-module-signature
   (struct-out program-result))
 
@@ -49,13 +50,15 @@
 (struct byte-ty type ())
 (struct bytes-ty type ())
 (struct boolean-ty type ())
+(struct input-port-ty type ())
+(struct output-port-ty type ())
 (struct data-ty type (module-name name args))
 (struct fun-ty type (type-vars args result))
 (struct type-var-ty type (v))
 
 ;; Information needed to compile other modules from this module
 (struct module-signature (name exports types))
-(struct inductive-signature (module-name name variants))
+(struct inductive-signature (module-name name type-args variants))
 (struct variant-signature (name types))
 
 
@@ -136,9 +139,11 @@
 
 
 
+;; TODO ensure all exports have sensible bindings
 (define (check-module module)
   (ensure-no-free-variables module))
 
+;; TODO make this work over types and not conflate type bindings and value bindings
 (define (ensure-no-free-variables module)
   (define ((recur/env env) expr)
     (define recur (recur/env env))
@@ -193,8 +198,7 @@
 (define ((parse-type/env type-env) pre-type)
   (define parse-type (parse-type/env type-env))
   (match pre-type
-    [(var-pre-type v)
-     (void-ty)]
+    [(var-pre-type v) (hash-ref type-env v)]
     [(fun-pre-type args result)
      (fun-ty empty (map parse-type args) (parse-type result))]
     [(type-app-pre-type constructor args)
@@ -213,6 +217,8 @@
      (hash-set! mut-type-name-env 'Void (void-ty))
      (hash-set! mut-type-name-env 'Bytes (bytes-ty))
      (hash-set! mut-type-name-env 'Boolean (boolean-ty))
+     (hash-set! mut-type-name-env 'InputPort (input-port-ty))
+     (hash-set! mut-type-name-env 'OutputPort (output-port-ty))
 
 
      (for ([type-def (in-list type-defs)])
@@ -222,6 +228,17 @@
          [(define-type& type-name (? list type-vars) _)
           (void)]))
 
+
+     (for ([import (in-list imports)])
+       (match import
+         [(import& src-mod name)
+          ;; TODO add support for the prim module-signature
+          (unless (equal? src-mod 'prim)
+            (define type (hash-ref (module-signature-types (hash-ref module-signatures src-mod)) name #f))
+            (match type
+              [#f (void)]
+              [(inductive-signature orig-mod-name ty-name #f variants)
+               (hash-set! mut-type-name-env name (data-ty orig-mod-name ty-name empty))]))]))
 
      ;; TODO add imported types to type-env
      (define type-name-env (hash-copy/immutable mut-type-name-env))
@@ -265,11 +282,18 @@
 
 
      ;; TODO Make this lookup in type-env
-     (define export-types
+     (define exported-value-bindings
        (for/hash ([export exports])
          (values (export&-name export) (void-ty))))
+     (define exported-type-bindings
+       (for/hash ([export exports])
+         (let ([name (export&-name export)])
+           ;; TODO only export types
+           ;; TODO use correct type args
+           ;; TODO add variants
+           (values name (inductive-signature module-name name #f empty)))))
 
-     (module-signature module-name export-types type-name-env)]))
+     (module-signature module-name exported-value-bindings exported-type-bindings)]))
 
 ;;;;
 
@@ -336,12 +360,12 @@
     (define local-env (make-hash))
 
     (for ([import (in-list (module&-imports module))])
-      (hash-set! local-env (import&-name import)
-                 (hash-ref global-env
-                           (full-name (import&-module-name import) (import&-name import))
-                           (λ ()
-                              (error 'make-global-env "No export with name '~a' in ~a"
-                                     (import&-name import) (import&-module-name import))))))
+      (define imported-val
+        (hash-ref global-env
+                  (full-name (import&-module-name import) (import&-name import))
+                  #f))
+      (when imported-val
+        (hash-set! local-env (import&-name import) imported-val)))
 
     (for ([type (in-list (module&-types module))])
       (for ([variant (in-list (define-type&-variants type))])
@@ -365,10 +389,9 @@
       (hash-set! local-env name val))
     (for ([export (in-list (module&-exports module))])
       (define name (export&-name export))
-      (hash-set! global-env (full-name (module&-name module) name)
-                 (hash-ref local-env name
-                           (λ () (error 'make-global-env "No definition for export '~a' in ~a"
-                                   (export&-name export) (module&-name module)))))))
+      (define local-val (hash-ref local-env name #f))
+      (when local-val
+        (hash-set! global-env (full-name (module&-name module) name) local-val))))
   global-env)
 
 (struct program-result (exit-code error-info stdout stderr))
