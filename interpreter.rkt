@@ -217,43 +217,43 @@
 (define (construct-module-signature module module-signatures)
   (match module
     [(module& module-name imports exports type-defs defs)
-     (define mut-type-name-env (make-hash))
 
-     ;; TODO move this into the prim module-signature
-     (hash-set! mut-type-name-env 'Byte (byte-ty))
-     (hash-set! mut-type-name-env 'Void (void-ty))
-     (hash-set! mut-type-name-env 'Bytes (bytes-ty))
-     (hash-set! mut-type-name-env 'Boolean (boolean-ty))
-     (hash-set! mut-type-name-env 'InputPort (input-port-ty))
-     (hash-set! mut-type-name-env 'OutputPort (output-port-ty))
+     (define type-name-env
+       (hash-copy/immutable
+         (let ([mut-type-name-env (make-hash)])
+           ;; TODO move this into the prim module-signature
+           (hash-set! mut-type-name-env 'Byte (byte-ty))
+           (hash-set! mut-type-name-env 'Void (void-ty))
+           (hash-set! mut-type-name-env 'Bytes (bytes-ty))
+           (hash-set! mut-type-name-env 'Boolean (boolean-ty))
+           (hash-set! mut-type-name-env 'InputPort (input-port-ty))
+           (hash-set! mut-type-name-env 'OutputPort (output-port-ty))
 
+           (for ([type-def (in-list type-defs)])
+             (match type-def
+               [(define-type& type-name #f _)
+                (hash-set! mut-type-name-env type-name (data-ty module-name type-name empty))]
+               [(define-type& type-name (list (? symbol? type-vars) ...) _)
+                (hash-set! mut-type-name-env type-name
+                           (data-ty-constructor module-name type-name (map (λ (_) (*-kind)) type-vars)))
+                (void)]))
+           (for ([import (in-list imports)])
+             (match import
+               [(import& src-mod name)
+                ;; TODO add support for the prim module-signature
+                (unless (equal? src-mod 'prim)
+                  (define type (hash-ref (module-signature-types (hash-ref module-signatures src-mod))
+                                         name #f))
+                  (match type
+                    [#f (void)]
+                    [(inductive-signature orig-mod-name ty-name #f variants)
+                     (hash-set! mut-type-name-env name (data-ty orig-mod-name ty-name empty))]
+                    [(inductive-signature orig-mod-name ty-name type-vars variants)
+                     (hash-set! mut-type-name-env name
+                                (data-ty-constructor orig-mod-name ty-name
+                                                     (map (λ (_) (*-kind)) type-vars)))]))]))
+           mut-type-name-env)))
 
-     (for ([type-def (in-list type-defs)])
-       (match type-def
-         [(define-type& type-name #f _)
-          (hash-set! mut-type-name-env type-name (data-ty module-name type-name empty))]
-         [(define-type& type-name (list (? symbol? type-vars) ...) _)
-          (hash-set! mut-type-name-env type-name
-                     (data-ty-constructor module-name type-name (map (λ (_) (*-kind)) type-vars)))
-          (void)]))
-
-
-     (for ([import (in-list imports)])
-       (match import
-         [(import& src-mod name)
-          ;; TODO add support for the prim module-signature
-          (unless (equal? src-mod 'prim)
-            (define type (hash-ref (module-signature-types (hash-ref module-signatures src-mod)) name #f))
-            (match type
-              [#f (void)]
-              [(inductive-signature orig-mod-name ty-name #f variants)
-               (hash-set! mut-type-name-env name (data-ty orig-mod-name ty-name empty))]
-              [(inductive-signature orig-mod-name ty-name type-vars variants)
-               (hash-set! mut-type-name-env name
-                          (data-ty-constructor orig-mod-name ty-name (map (λ (_) (*-kind)) type-vars)))]))]))
-
-     ;; TODO add imported types to type-env
-     (define type-name-env (hash-copy/immutable mut-type-name-env))
 
      (define type-env (make-hash))
 
