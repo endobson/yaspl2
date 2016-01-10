@@ -41,6 +41,7 @@
 (struct pre-type ())
 (struct var-pre-type pre-type (v))
 (struct fun-pre-type pre-type (args result))
+(struct type-app-pre-type pre-type (constructor args))
 
 
 (struct type ())
@@ -63,7 +64,7 @@
     [`(module ,(? symbol? name)
         (import . ,(app parse-imports imports))
         (export . ,(app parse-exports exports))
-        (types . ,(app parse-types types))
+        (types . ,(app parse-type-definitions types))
         . ,(app parse-definitions definitions))
      (module& name imports exports types definitions)]))
 
@@ -81,27 +82,29 @@
    [(list (? symbol? exports) ...)
     (map export& exports)]))
 
-(define (parse-types types)
+(define (parse-type-definitions types)
   (define (parse-variant variant)
     (match variant
-      [(list variant-name [list field-name field-type] ...)
+      [(list variant-name [list field-name (app parse-pre-type field-type)] ...)
        (variant& variant-name (map variant-field& field-name field-type))]))
-  (define (parse-type type)
+  (define (parse-type-definition type)
     (match type
       [`(define-type ,(? symbol? type-name) . ,(list (app parse-variant variants) ...))
        (define-type& type-name #f variants)]
       [`(define-type ,(list (? symbol? type-name) (? symbol? type-variables) ..1)
                      . ,(list (app parse-variant variants) ...))
        (define-type& type-name type-variables variants)]))
-  (map parse-type types))
+  (map parse-type-definition types))
 
 
 (define (parse-definitions defs)
   (define (parse-definition sexp)
     (match sexp
-      ;; TODO remove
       ;; TODO implement
       [`(define (,name (,(? symbol? args) : ,arg-types) ...) : ,return-type ,body)
+        (map parse-pre-type arg-types)
+        (parse-pre-type return-type)
+
         (define type (void-ty))
         (values name (definition& type args (parse-expression body)))]))
   (for/hash ([def (in-list defs)])
@@ -125,6 +128,16 @@
      (case& (parse expr) (map case-clause& variant-names field-namess (map parse bodies)))]
     [(list op args ...)
      (app& (parse op) (map parse args))]))
+
+(define (parse-pre-type sexp)
+  (match sexp
+    [(? symbol?) (var-pre-type sexp)]
+    [(list arg-types ... '-> result-type)
+     (displayln 'here)
+     (fun-pre-type (map parse-pre-type arg-types) (map parse-pre-type result-type))]
+    [(list (? symbol? type-constructor) arg-types ...)
+     (type-app-pre-type type-constructor (map parse-pre-type arg-types))]))
+
 
 
 (define (check-module module)
