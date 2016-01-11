@@ -23,17 +23,17 @@
 (struct import& (module-name name))
 (struct definition& (type args body))
 
-(struct expression& ())
-(struct byte& expression& (v))
-(struct bytes& expression& (v))
-(struct boolean& expression& (v))
-(struct variable& expression& (v))
-(struct if& expression& (cond true false))
-(struct begin& expression& (first-expr exprs))
-(struct app& expression& (op args))
-(struct let& expression& (name expr body))
-(struct case& expression& (expr clauses))
-(struct case-clause& (variant-name field-variables expr))
+(struct expression& () #:transparent)
+(struct byte& expression& (v) #:transparent)
+(struct bytes& expression& (v) #:transparent)
+(struct boolean& expression& (v) #:transparent)
+(struct variable& expression& (v) #:transparent)
+(struct if& expression& (cond true false) #:transparent)
+(struct begin& expression& (first-expr exprs) #:transparent)
+(struct app& expression& (op args) #:transparent)
+(struct let& expression& (name expr body) #:transparent)
+(struct case& expression& (expr clauses) #:transparent)
+(struct case-clause& (variant-name field-variables expr) #:transparent)
 
 (struct define-type& (type-name type-variables variants))
 (struct variant& (name fields))
@@ -49,6 +49,8 @@
 (struct *-kind kind ())
 
 (struct type () #:transparent)
+(struct top-ty type () #:transparent)
+(struct bottom-ty type () #:transparent)
 (struct void-ty type () #:transparent)
 (struct byte-ty type () #:transparent)
 (struct bytes-ty type () #:transparent)
@@ -136,7 +138,6 @@
   (match sexp
     [(? symbol?) (var-pre-type sexp)]
     [(list arg-types ... '-> result-type)
-     (displayln 'here)
      (fun-pre-type (map parse-pre-type arg-types) (map parse-pre-type result-type))]
     [(list (? symbol? type-constructor) arg-types ...)
      (type-app-pre-type type-constructor (map parse-pre-type arg-types))]))
@@ -279,7 +280,7 @@
                 (for ([field-name field-names]
                       [parsed-field-type parsed-field-types])
                   (hash-set! mut-type-env (string->symbol (format "~a-~a" variant-name field-name))
-                             (fun-ty type-vars defined-type parsed-field-type)))]))]))
+                             (fun-ty type-vars (list defined-type) parsed-field-type)))]))]))
 
      (define parse-type (parse-type/env type-name-env))
 
@@ -287,6 +288,49 @@
        (match def
          [(definition& type _ _)
           (hash-set! mut-type-env def-name (parse-type type))]))
+
+     ;; TODO move this into the prim module-signature
+     (hash-set! mut-type-env '= (fun-ty empty (list (byte-ty) (byte-ty)) (boolean-ty)))
+     (hash-set! mut-type-env '<= (fun-ty empty (list (byte-ty) (byte-ty)) (boolean-ty)))
+     (hash-set! mut-type-env '< (fun-ty empty (list (byte-ty) (byte-ty)) (boolean-ty)))
+     (hash-set! mut-type-env '> (fun-ty empty (list (byte-ty) (byte-ty)) (boolean-ty)))
+     (hash-set! mut-type-env '>= (fun-ty empty (list (byte-ty) (byte-ty)) (boolean-ty)))
+     (hash-set! mut-type-env '+ (fun-ty empty (list (byte-ty) (byte-ty)) (byte-ty)))
+     (hash-set! mut-type-env '* (fun-ty empty (list (byte-ty) (byte-ty)) (byte-ty)))
+     (hash-set! mut-type-env '- (fun-ty empty (list (byte-ty) (byte-ty)) (byte-ty)))
+     (hash-set! mut-type-env 'quotient (fun-ty empty (list (byte-ty) (byte-ty)) (byte-ty)))
+     (hash-set! mut-type-env 'remainder (fun-ty empty (list (byte-ty) (byte-ty)) (byte-ty)))
+
+     (hash-set! mut-type-env 'make-bytes (fun-ty empty (list (byte-ty)) (bytes-ty)))
+     (hash-set! mut-type-env 'bytes-length (fun-ty empty (list (bytes-ty)) (byte-ty)))
+     (hash-set! mut-type-env 'bytes-ref (fun-ty empty (list (bytes-ty) (byte-ty)) (byte-ty)))
+     (hash-set! mut-type-env 'bytes-set! (fun-ty empty (list (bytes-ty) (byte-ty) (byte-ty)) (void-ty)))
+
+     (hash-set! mut-type-env 'read-bytes
+                (fun-ty empty (list (bytes-ty) (input-port-ty) (byte-ty) (byte-ty)) (byte-ty)))
+     (hash-set! mut-type-env 'write-bytes
+                (fun-ty empty (list (bytes-ty) (output-port-ty) (byte-ty) (byte-ty)) (byte-ty)))
+     ;; This should be polymorphic
+     (hash-set! mut-type-env 'panic
+                (fun-ty empty (list (bytes-ty)) (bottom-ty)))
+
+
+     (hash-set! mut-type-env 'and (fun-ty empty (list (boolean-ty) (boolean-ty)) (boolean-ty)))
+     (hash-set! mut-type-env 'or (fun-ty empty (list (boolean-ty) (boolean-ty)) (boolean-ty)))
+     (hash-set! mut-type-env 'void (fun-ty empty empty (void-ty)))
+
+
+     (for ([import (in-list imports)])
+       (match import
+         [(import& src-mod name)
+          ;; TODO add support for the prim module-signature
+          (unless (equal? src-mod 'prim)
+            (define type (hash-ref (module-signature-exports (hash-ref module-signatures src-mod))
+                                   name #f))
+            (hash-set! mut-type-env name type))]))
+
+
+
      (define type-env (hash-copy/immutable mut-type-env))
 
      (for ([(def-name def) (in-hash defs)])
@@ -319,9 +363,12 @@
 (define ((type-check/env type-env) expr type)
   (define type-check (type-check/env type-env))
   (define type-infer (type-infer/env type-env))
-  (define (check actual-type)
-    (unless (equal? actual-type type)
-      (error 'type-check "Types don't match: Got ~s but expected ~s" actual-type type)))
+
+  (define (check actual-type [expected-type type])
+    (unless (bottom-ty? actual-type)
+      (unless (equal? actual-type expected-type)
+        (error 'type-check "Types don't match: Got ~s but expected ~s in ~s"
+               actual-type expected-type expr))))
   (match expr
     [(byte& _) (check (byte-ty))]
     [(bytes& _) (check (bytes-ty))]
@@ -339,14 +386,20 @@
         (for-each (λ (e) (type-check e (void-ty))) exprs)
         (type-check last-expr type)])]
     [(app& op args)
-     ;(type-infer op)
-     ;(map type-infer args)
-     ;; TODO actually do this
-     (check type)]
+     (match (type-infer op)
+       [(fun-ty type-vars arg-types body-type)
+        (unless (equal? (length arg-types) (length args))
+          (error 'type-check "Cannot apply function: Got ~s but expected ~s arguments"
+                 (length arg-types)
+                 (length args)))
+        (cond
+          [(empty? type-vars)
+           (for ([arg (in-list args)] [arg-type (in-list arg-types)])
+             (type-check arg arg-type))
+           (check body-type)]
+          ;; TODO figure out how to support functions with type variables
+          [else (void)])])]
     [(let& name expr body)
-     (check type)
-     ;; TODO actually check here
-     #;
      (let* ([expr-type (type-infer expr)]
             [type-env (hash-set type-env name expr-type)])
        ((type-check/env type-env) body type))]
@@ -363,7 +416,7 @@
     [(byte& _) (byte-ty)]
     [(bytes& _) (bytes-ty)]
     [(boolean& _) (boolean-ty)]
-    [(variable& v) (hash-ref type-env v)]
+    [(variable& v) (hash-ref type-env v (λ () (error 'type-infer "Unbound variable ~s" v)))]
     [(if& cond true false)
      (type-check cond (boolean-ty))
      (type-infer true)
@@ -374,10 +427,19 @@
         (for-each (λ (e) (type-check e (void-ty))) exprs)
         (type-infer last-expr)])]
     [(app& op args)
-     (type-infer op)
-     (map type-infer args)
-     ;; TODO actually do this
-     (error 'type-infer "NYI app")]
+     (match (type-infer op)
+       [(fun-ty type-vars arg-types body-type)
+        (unless (equal? (length arg-types) (length args))
+          (error 'type-check "Cannot apply function: Got ~s but expected ~s arguments"
+                 (length arg-types)
+                 (length args)))
+        (cond
+          [(empty? type-vars)
+           (for ([arg (in-list args)] [arg-type (in-list arg-types)])
+             (type-check arg arg-type))
+           body-type]
+          ;; TODO figure out how to support functions with type variables
+          [else (error 'type-infer "NYI app")])])]
     [(let& name expr body)
      (let* ([expr-type (type-infer expr)]
             [type-env (hash-set type-env name expr-type)])
