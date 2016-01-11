@@ -257,16 +257,12 @@
                 (hash-set! mut-type-name-env type-name
                            (data-ty-constructor module-name type-name (map (λ (_) (*-kind)) type-vars)))
                 (void)]))
-           ;; TODO Stop using values here
-           (for ([import (in-list (append (imports&-types imports) (imports&-values imports)))])
+           (for ([import (in-list (imports&-types imports))])
              (match import
                [(import& src-mod name)
                 ;; TODO add support for the prim module-signature
                 (unless (equal? src-mod 'prim)
-                  (define type (hash-ref (module-signature-types (hash-ref module-signatures src-mod))
-                                         name #f))
-                  (match type
-                    [#f (void)]
+                  (match (hash-ref (module-signature-types (hash-ref module-signatures src-mod)) name)
                     [(inductive-signature orig-mod-name ty-name #f variants)
                      (hash-set! mut-type-name-env name (data-ty orig-mod-name ty-name empty))]
                     [(inductive-signature orig-mod-name ty-name type-vars variants)
@@ -345,10 +341,9 @@
          [(import& src-mod name)
           ;; TODO add support for the prim module-signature
           (unless (equal? src-mod 'prim)
-            (define type (hash-ref (module-signature-exports (hash-ref module-signatures src-mod))
-                                   name #f))
-            ;; TODO stop supporting this not being bound
-            (hash-set! mut-type-env name type))]))
+            (hash-set! mut-type-env name
+                       (hash-ref (module-signature-exports (hash-ref module-signatures src-mod))
+                                   name)))]))
 
 
 
@@ -541,13 +536,9 @@
     (define local-env (make-hash))
 
     (for ([import (in-list (imports&-values (module&-imports module)))])
-      (define imported-val
-        (hash-ref global-env
-                  (full-name (import&-module-name import) (import&-name import))
-                  #f))
-      ;; TODO stop supporting that this is not bound
-      (when imported-val
-        (hash-set! local-env (import&-name import) imported-val)))
+      (hash-set! local-env (import&-name import)
+                 (hash-ref global-env
+                   (full-name (import&-module-name import) (import&-name import)))))
 
     (for ([type (in-list (module&-types module))])
       (for ([variant (in-list (define-type&-variants type))])
