@@ -319,43 +319,40 @@
 (define ((type-check/env type-env) expr type)
   (define type-check (type-check/env type-env))
   (define type-infer (type-infer/env type-env))
-  ;; TODO only check against the actual type once
   (define (check actual-type)
     (unless (equal? actual-type type)
-      (error 'type-check "Types don't match: Got ~s but expected ~s" actual-type type))
-    actual-type)
-  (check
-    (match expr
-      [(byte& _) (byte-ty)]
-      [(bytes& _) (bytes-ty)]
-      [(boolean& _) (boolean-ty)]
-      [(variable& v)
-       ;; TODO remove the hack here
-       (hash-ref type-env v type)]
-      [(if& cond true false)
-       (type-check cond (boolean-ty))
-       (type-check true type)
-       (type-check false type)]
-      [(begin& first-expr exprs)
-       (match (cons first-expr exprs)
-         [(list exprs ... last-expr)
-          (for-each (λ (e) (type-check e (void-ty))) exprs)
-          (type-check last-expr type)])]
-      [(app& op args)
-       ;(type-infer op)
-       ;(map type-infer args)
-       ;; TODO actually do this
-       type]
-      [(let& name expr body)
-       type
-       ;; TODO actually check here
-       #;
-       (let* ([expr-type (type-infer expr)]
-              [type-env (hash-set type-env name expr-type)])
-         ((type-check/env type-env) body type))]
-      [(case& expr clauses)
-       ;; TODO actually do this
-       type])))
+      (error 'type-check "Types don't match: Got ~s but expected ~s" actual-type type)))
+  (match expr
+    [(byte& _) (check (byte-ty))]
+    [(bytes& _) (check (bytes-ty))]
+    [(boolean& _) (check (boolean-ty))]
+    [(variable& v)
+     ;; TODO remove the hack here
+     (check (hash-ref type-env v type))]
+    [(if& cond true false)
+     (type-check cond (boolean-ty))
+     (type-check true type)
+     (type-check false type)]
+    [(begin& first-expr exprs)
+     (match (cons first-expr exprs)
+       [(list exprs ... last-expr)
+        (for-each (λ (e) (type-check e (void-ty))) exprs)
+        (type-check last-expr type)])]
+    [(app& op args)
+     ;(type-infer op)
+     ;(map type-infer args)
+     ;; TODO actually do this
+     (check type)]
+    [(let& name expr body)
+     (check type)
+     ;; TODO actually check here
+     #;
+     (let* ([expr-type (type-infer expr)]
+            [type-env (hash-set type-env name expr-type)])
+       ((type-check/env type-env) body type))]
+    [(case& expr clauses)
+     ;; TODO actually do this
+     (check type)]))
 
 ;; TODO actually do this
 (define ((type-infer/env type-env) expr)
