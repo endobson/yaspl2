@@ -1,7 +1,7 @@
 (module echo2
-  (import (prim bytes-length write-bytes)
-          (io read-all-bytes)
-          )
+  (import
+    (prim bytes-length write-bytes)
+    (io read-all-bytes))
   (export main)
   (types)
 

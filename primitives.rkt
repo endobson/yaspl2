@@ -77,7 +77,8 @@
               (hash-union
                 (hash (?@ 'clauses.name clauses.ty) ...)
                 prim-types)
-              empty))
+              empty
+              (hash)))
          (define (run name args)
            (match (cons name args)
              clauses.match-clause ...))))]))

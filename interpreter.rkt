@@ -22,7 +22,8 @@
 (struct module& (name imports exports types definitions))
 
 (struct export& (name))
-(struct imports& (types values))
+;; TODO change the order to match others
+(struct imports& (types values patterns))
 (struct import& (module-name name))
 (struct definition& (type args body))
 
@@ -60,7 +61,7 @@
 
 (define (parse-imports imports)
   (define (parse-imports imports)
-    (for/lists (types vals) ([import (in-list imports)])
+    (for/lists (types vals patterns) ([import (in-list imports)])
       (parse-import import)))
 
   (define (parse-import import)
@@ -69,19 +70,23 @@
        (values
          empty
          (for/list ([function-name (in-list function-names)])
-           (import& module-name function-name)))]
+           (import& module-name function-name))
+         empty)]
       [`(,(? symbol? module-name)
           #:types (,(? symbol? type-names) ...)
-          #:values (,(? symbol? function-names) ...))
+          #:values (,(? symbol? function-names) ...)
+          #:patterns (,(? symbol? pattern-names) ...))
        (values
          (for/list ([type-name (in-list type-names)])
            (import& module-name type-name))
          (for/list ([function-name (in-list function-names)])
-           (import& module-name function-name)))]))
+           (import& module-name function-name))
+         (for/list ([pattern-name (in-list pattern-names)])
+           (import& module-name pattern-name)))]))
 
 
-  (let-values ([(types vals) (parse-imports imports)])
-    (imports& (append* types) (append* vals))))
+  (let-values ([(types vals patterns) (parse-imports imports)])
+    (imports& (append* types) (append* vals) (append* patterns))))
 
 (define (parse-exports exports)
   (match exports
@@ -173,7 +178,7 @@
 
 
   (match module
-    [(module& _ (imports& _ (list (import& _ import-names) ...)) _
+    [(module& _ (imports& _ (list (import& _ import-names) ...) _) _
        (list (define-type& _ _
                (list (variant& variant-namess (list (variant-field& field-namesss _) ...)) ...)) ...)
        definitions)
@@ -330,8 +335,16 @@
               type-name
               (inductive-signature module-name type-name type-vars empty))])))
 
+     ;; TODO implement this
+     (define exported-pattern-bindings
+       (hash))
 
-     (module-signature module-name exported-value-bindings exported-type-bindings)]))
+
+     (module-signature
+       module-name
+       exported-value-bindings
+       exported-type-bindings
+       exported-pattern-bindings)]))
 
 (struct binding-env (values types patterns))
 
