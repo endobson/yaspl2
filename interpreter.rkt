@@ -2,6 +2,8 @@
 
 (require
   "machine-structs.rkt"
+  "type-structs.rkt"
+  "signature-structs.rkt"
   "primitives.rkt"
   racket/list
   (only-in racket/contract/base and\/c)
@@ -45,28 +47,6 @@
 (struct fun-pre-type pre-type (args result) #:transparent)
 (struct type-app-pre-type pre-type (constructor args))
 
-
-(struct kind ())
-(struct *-kind kind ())
-
-(struct type () #:transparent)
-(struct top-ty type () #:transparent)
-(struct bottom-ty type () #:transparent)
-(struct void-ty type () #:transparent)
-(struct byte-ty type () #:transparent)
-(struct bytes-ty type () #:transparent)
-(struct boolean-ty type () #:transparent)
-(struct input-port-ty type () #:transparent)
-(struct output-port-ty type () #:transparent)
-(struct data-ty type (module-name name args) #:transparent)
-(struct data-ty-constructor type (module-name name arg-kinds) #:transparent)
-(struct fun-ty type (type-vars args result) #:transparent)
-(struct type-var-ty type (v) #:transparent)
-
-;; Information needed to compile other modules from this module
-(struct module-signature (name exports types))
-(struct inductive-signature (module-name name type-args variants))
-(struct variant-signature (name types))
 
 
 (define (parse-module sexp)
@@ -232,12 +212,9 @@
           (error 'parse-type "Type constructor applied to wrong number of arguments"))
         (data-ty mod-name ty-name (map parse-type args))])]))
 
-
-;; TODO implement this
 (define (construct-module-signature module module-signatures)
   (match module
     [(module& module-name imports exports type-defs defs)
-
      (define type-name-env
        (hash-copy/immutable
          (let ([mut-type-name-env (make-hash)])
@@ -305,45 +282,12 @@
          [(definition& type _ _)
           (hash-set! mut-type-env def-name (parse-type type))]))
 
-     ;; TODO move this into the prim module-signature
-     (hash-set! mut-type-env '= (fun-ty empty (list (byte-ty) (byte-ty)) (boolean-ty)))
-     (hash-set! mut-type-env '<= (fun-ty empty (list (byte-ty) (byte-ty)) (boolean-ty)))
-     (hash-set! mut-type-env '< (fun-ty empty (list (byte-ty) (byte-ty)) (boolean-ty)))
-     (hash-set! mut-type-env '> (fun-ty empty (list (byte-ty) (byte-ty)) (boolean-ty)))
-     (hash-set! mut-type-env '>= (fun-ty empty (list (byte-ty) (byte-ty)) (boolean-ty)))
-     (hash-set! mut-type-env '+ (fun-ty empty (list (byte-ty) (byte-ty)) (byte-ty)))
-     (hash-set! mut-type-env '* (fun-ty empty (list (byte-ty) (byte-ty)) (byte-ty)))
-     (hash-set! mut-type-env '- (fun-ty empty (list (byte-ty) (byte-ty)) (byte-ty)))
-     (hash-set! mut-type-env 'quotient (fun-ty empty (list (byte-ty) (byte-ty)) (byte-ty)))
-     (hash-set! mut-type-env 'remainder (fun-ty empty (list (byte-ty) (byte-ty)) (byte-ty)))
-
-     (hash-set! mut-type-env 'make-bytes (fun-ty empty (list (byte-ty)) (bytes-ty)))
-     (hash-set! mut-type-env 'bytes-length (fun-ty empty (list (bytes-ty)) (byte-ty)))
-     (hash-set! mut-type-env 'bytes-ref (fun-ty empty (list (bytes-ty) (byte-ty)) (byte-ty)))
-     (hash-set! mut-type-env 'bytes-set! (fun-ty empty (list (bytes-ty) (byte-ty) (byte-ty)) (void-ty)))
-
-     (hash-set! mut-type-env 'read-bytes
-                (fun-ty empty (list (bytes-ty) (input-port-ty) (byte-ty) (byte-ty)) (byte-ty)))
-     (hash-set! mut-type-env 'write-bytes
-                (fun-ty empty (list (bytes-ty) (output-port-ty) (byte-ty) (byte-ty)) (byte-ty)))
-     ;; This should be polymorphic
-     (hash-set! mut-type-env 'panic
-                (fun-ty empty (list (bytes-ty)) (bottom-ty)))
-
-
-     (hash-set! mut-type-env 'and (fun-ty empty (list (boolean-ty) (boolean-ty)) (boolean-ty)))
-     (hash-set! mut-type-env 'or (fun-ty empty (list (boolean-ty) (boolean-ty)) (boolean-ty)))
-     (hash-set! mut-type-env 'void (fun-ty empty empty (void-ty)))
-
-
      (for ([import (in-list (imports&-values imports))])
        (match import
          [(import& src-mod name)
-          ;; TODO add support for the prim module-signature
-          (unless (equal? src-mod 'prim)
-            (hash-set! mut-type-env name
-                       (hash-ref (module-signature-exports (hash-ref module-signatures src-mod))
-                                   name)))]))
+          (hash-set! mut-type-env name
+                     (hash-ref (module-signature-exports (hash-ref module-signatures src-mod))
+                               name))]))
 
 
 
@@ -432,7 +376,9 @@
     [(byte& _) (byte-ty)]
     [(bytes& _) (bytes-ty)]
     [(boolean& _) (boolean-ty)]
-    [(variable& v) (hash-ref type-env v (λ () (error 'type-infer "Unbound variable ~s" v)))]
+    [(variable& v) 
+     
+     (hash-ref type-env v (λ () (error 'type-infer "Unbound variable ~s" v)))]
     [(if& cond true false)
      (type-check cond (boolean-ty))
      (type-infer true)

@@ -1,0 +1,20 @@
+#lang racket/base
+
+(provide (all-defined-out))
+
+(struct kind ())
+(struct *-kind kind ())
+
+(struct type () #:transparent)
+(struct top-ty type () #:transparent)
+(struct bottom-ty type () #:transparent)
+(struct void-ty type () #:transparent)
+(struct byte-ty type () #:transparent)
+(struct bytes-ty type () #:transparent)
+(struct boolean-ty type () #:transparent)
+(struct input-port-ty type () #:transparent)
+(struct output-port-ty type () #:transparent)
+(struct data-ty type (module-name name args) #:transparent)
+(struct data-ty-constructor type (module-name name arg-kinds) #:transparent)
+(struct fun-ty type (type-vars args result) #:transparent)
+(struct type-var-ty type (v) #:transparent)

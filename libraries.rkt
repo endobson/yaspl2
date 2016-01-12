@@ -2,6 +2,7 @@
 
 (require
   "interpreter.rkt"
+  "primitives.rkt"
   racket/runtime-path
   racket/set)
 (provide modules)
@@ -9,7 +10,7 @@
 
 
 (define modules (mutable-set))
-(define module-signatures (make-hash))
+(define module-signatures (make-hash (list (cons 'prim primitive-module-signature))))
 (define module-names (mutable-set))
 
 (define (read-module port)
