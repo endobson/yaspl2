@@ -256,13 +256,13 @@
                 (for ([variant (in-list variants)])
                   (match variant
                     [(variant& name (list (variant-field& field-names field-types) ...))
-                     (hash-set! mut-pattern-env (string->symbol (format "~a-~a" type-name name))
+                     (hash-set! mut-pattern-env name
                                 'pattern)]))]
                [(define-type& type-name type-vars variants)
                 (for ([variant (in-list variants)])
                   (match variant
                     [(variant& name (list (variant-field& field-names field-types) ...))
-                     (hash-set! mut-pattern-env (string->symbol (format "~a-~a" type-name name))
+                     (hash-set! mut-pattern-env name
                                 'pattern)]))]))
            mut-pattern-env)))
 
@@ -335,10 +335,17 @@
               type-name
               (inductive-signature module-name type-name type-vars empty))])))
 
-     ;; TODO implement this
+     ;; TODO limit this to the exported patterns
      (define exported-pattern-bindings
-       (hash))
-
+       (for/fold ([acc (hash)]) ([type-def (in-list type-defs)])
+         (hash-union acc
+           (match type-def
+             [(define-type& type-name type-vars variants)
+              (for/hash ([variant (in-list variants)])
+                (define name (variant&-name variant))
+                (values
+                  name
+                  (hash-ref pattern-env name)))]))))
 
      (module-signature
        module-name
