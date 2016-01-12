@@ -5,6 +5,7 @@
   "type-structs.rkt"
   "signature-structs.rkt"
   racket/match
+  racket/hash
   racket/list
   (for-syntax
     racket/base
@@ -53,6 +54,15 @@
                              (result-type.constructor (let () body ...))]
       #:with ty #'(fun-ty empty (list types.ty ...) result-type.ty))))
 
+(define prim-types
+  (hash
+    'Byte (byte-ty)
+    'Bytes (bytes-ty)
+    'Boolean (boolean-ty)
+    'InputPort (input-port-ty)
+    'OutputPort (output-port-ty)
+    'Void (void-ty)
+    'Bottom (bottom-ty)))
 
 
 (define-syntax define-primitives
@@ -64,7 +74,9 @@
          (define supported (list 'clauses.name ...))
          (define module-sig 
            (module-signature 'prim
-              (hash (?@ 'clauses.name clauses.ty) ...)
+              (hash-union
+                (hash (?@ 'clauses.name clauses.ty) ...)
+                prim-types)
               empty))
          (define (run name args)
            (match (cons name args)
