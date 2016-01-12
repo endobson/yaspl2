@@ -71,7 +71,7 @@
          (for/list ([function-name (in-list function-names)])
            (import& module-name function-name)))]
       [`(,(? symbol? module-name)
-          #:types (,(? symbol? type-names) ...) 
+          #:types (,(? symbol? type-names) ...)
           #:values (,(? symbol? function-names) ...))
        (values
          (for/list ([type-name (in-list type-names)])
@@ -290,8 +290,8 @@
          [(definition& _ args body)
           (match (hash-ref type-env def-name)
             [(fun-ty type-vars arg-types result-type)
-             (let ([type-env (foldl (λ (k v h) (hash-set h k v)) type-env args arg-types)])
-               ((type-check/env type-env) body result-type))])]))
+             (let ([values (foldl (λ (k v h) (hash-set h k v)) type-env args arg-types)])
+               ((type-check/env (binding-env values (hash) (hash))) body result-type))])]))
 
      ;; TODO limit this to only exported values not types
      (define exported-value-bindings
@@ -312,9 +312,21 @@
 
      (module-signature module-name exported-value-bindings exported-type-bindings)]))
 
-(define ((type-check/env type-env) expr type)
-  (define type-check (type-check/env type-env))
-  (define type-infer (type-infer/env type-env))
+(struct binding-env (values types patterns))
+
+(define (binding-env-value-ref env name)
+  (hash-ref (binding-env-values env) name))
+
+(define (binding-env-value-set env name ty)
+  (match env
+    [(binding-env v t p)
+     (binding-env (hash-set v name ty) t p)]))
+
+
+
+(define ((type-check/env env) expr type)
+  (define type-check (type-check/env env))
+  (define type-infer (type-infer/env env))
 
   (define (check actual-type [expected-type type])
     (unless (bottom-ty? actual-type)
@@ -326,7 +338,7 @@
     [(bytes& _) (check (bytes-ty))]
     [(boolean& _) (check (boolean-ty))]
     [(variable& v)
-     (check (hash-ref type-env v))]
+     (check (binding-env-value-ref env v))]
     [(if& cond true false)
      (type-check cond (boolean-ty))
      (type-check true type)
@@ -352,24 +364,24 @@
           [else (void)])])]
     [(let& name expr body)
      (let* ([expr-type (type-infer expr)]
-            [type-env (hash-set type-env name expr-type)])
+            [type-env (binding-env-value-set env name expr-type)])
        ((type-check/env type-env) body type))]
     [(case& expr clauses)
+     (type-infer expr)
      ;; TODO actually do this
      (check type)]))
 
 ;; TODO actually do this
-(define ((type-infer/env type-env) expr)
-  (define type-check (type-check/env type-env))
-  (define type-infer (type-infer/env type-env))
+(define ((type-infer/env env) expr)
+  (define type-check (type-check/env env))
+  (define type-infer (type-infer/env env))
 
   (match expr
     [(byte& _) (byte-ty)]
     [(bytes& _) (bytes-ty)]
     [(boolean& _) (boolean-ty)]
-    [(variable& v) 
-     
-     (hash-ref type-env v (λ () (error 'type-infer "Unbound variable ~s" v)))]
+    [(variable& v)
+     (binding-env-value-ref env v)]
     [(if& cond true false)
      (type-check cond (boolean-ty))
      (type-infer true)
@@ -395,7 +407,7 @@
           [else (error 'type-infer "NYI app")])])]
     [(let& name expr body)
      (let* ([expr-type (type-infer expr)]
-            [type-env (hash-set type-env name expr-type)])
+            [type-env (binding-env-value-set env name expr-type)])
        ((type-infer/env type-env) body))]
     [(case& expr clauses)
      ;; TODO actually do this
