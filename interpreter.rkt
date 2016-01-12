@@ -48,6 +48,8 @@
 (struct fun-pre-type pre-type (args result) #:transparent)
 (struct type-app-pre-type pre-type (constructor args))
 
+(struct pattern-spec (input-type type-vars field-types))
+
 
 
 (define (parse-module sexp)
@@ -245,8 +247,6 @@
                                                        (map (λ (_) (*-kind)) type-vars))])))]))
            mut-type-name-env)))
 
-
-     ;; TODO put real values in the pattern environment
      (define pattern-env
        (hash-copy/immutable
          (let ([mut-pattern-env (make-hash)])
@@ -257,13 +257,22 @@
                   (match variant
                     [(variant& name (list (variant-field& field-names field-types) ...))
                      (hash-set! mut-pattern-env name
-                                'pattern)]))]
+                                (pattern-spec
+                                  (hash-ref type-name-env type-name)
+                                  empty
+                                  ;; Make this real
+                                  (map (λ (_) 'ty) field-types)))]))]
                [(define-type& type-name type-vars variants)
                 (for ([variant (in-list variants)])
                   (match variant
                     [(variant& name (list (variant-field& field-names field-types) ...))
                      (hash-set! mut-pattern-env name
-                                'pattern)]))]))
+                                (pattern-spec
+                                  ;; Apply this to the type vars
+                                  (hash-ref type-name-env type-name)
+                                  type-vars
+                                  ;; Make this real
+                                  (map (λ (_) 'ty) field-types)))]))]))
            mut-pattern-env)))
 
 
