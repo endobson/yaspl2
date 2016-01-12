@@ -224,8 +224,7 @@
                 (hash-set! mut-type-name-env type-name (data-ty module-name type-name empty))]
                [(define-type& type-name (list (? symbol? type-vars) ...) _)
                 (hash-set! mut-type-name-env type-name
-                           (data-ty-constructor module-name type-name (map (λ (_) (*-kind)) type-vars)))
-                (void)]))
+                           (data-ty-constructor module-name type-name (map (λ (_) (*-kind)) type-vars)))]))
            (for ([import (in-list (imports&-types imports))])
              (match import
                [(import& src-mod name)
@@ -240,6 +239,28 @@
                           (data-ty-constructor orig-mod-name ty-name
                                                        (map (λ (_) (*-kind)) type-vars))])))]))
            mut-type-name-env)))
+
+
+     ;; TODO put real values in the pattern environment
+     (define pattern-env
+       (hash-copy/immutable
+         (let ([mut-pattern-env (make-hash)])
+           (for ([type-def (in-list type-defs)])
+             (match type-def
+               [(define-type& type-name #f variants)
+                (for ([variant (in-list variants)])
+                  (match variant
+                    [(variant& name (list (variant-field& field-names field-types) ...))
+                     (hash-set! mut-pattern-env (string->symbol (format "~a-~a" type-name name))
+                                'pattern)]))]
+               [(define-type& type-name type-vars variants)
+                (for ([variant (in-list variants)])
+                  (match variant
+                    [(variant& name (list (variant-field& field-names field-types) ...))
+                     (hash-set! mut-pattern-env (string->symbol (format "~a-~a" type-name name))
+                                'pattern)]))]))
+           mut-pattern-env)))
+
 
      (define mut-type-env (make-hash))
 
@@ -291,7 +312,7 @@
           (match (hash-ref type-env def-name)
             [(fun-ty type-vars arg-types result-type)
              (let ([values (foldl (λ (k v h) (hash-set h k v)) type-env args arg-types)])
-               ((type-check/env (binding-env values (hash) (hash))) body result-type))])]))
+               ((type-check/env (binding-env values (hash) pattern-env)) body result-type))])]))
 
      ;; TODO limit this to only exported values not types
      (define exported-value-bindings
