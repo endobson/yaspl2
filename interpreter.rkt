@@ -326,8 +326,7 @@
     [(bytes& _) (check (bytes-ty))]
     [(boolean& _) (check (boolean-ty))]
     [(variable& v)
-     ;; TODO remove the hack here
-     (check (hash-ref type-env v type))]
+     (check (hash-ref type-env v))]
     [(if& cond true false)
      (type-check cond (boolean-ty))
      (type-check true type)
