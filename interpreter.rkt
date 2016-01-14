@@ -273,6 +273,13 @@
                                   type-vars
                                   ;; Make this real
                                   (map (λ (_) 'ty) field-types)))]))]))
+          (for ([import (in-list (imports&-patterns imports))])
+            (match import
+              [(import& src-mod name)
+               (hash-set!
+                 mut-pattern-env
+                 name
+                 (hash-ref (module-signature-patterns (hash-ref module-signatures src-mod)) name))]))
            mut-pattern-env)))
 
 
@@ -372,6 +379,9 @@
     [(binding-env v t p)
      (binding-env (hash-set v name ty) t p)]))
 
+(define (binding-env-pattern-ref env name)
+  (hash-ref (binding-env-patterns env) name))
+
 
 
 (define ((type-check/env env) expr type)
@@ -418,6 +428,9 @@
        ((type-check/env type-env) body type))]
     [(case& expr clauses)
      (type-infer expr)
+     (for ([clause (in-list clauses)])
+       (define name (case-clause&-variant-name clause))
+       (binding-env-pattern-ref env name))
      ;; TODO actually do this
      (check type)]))
 
