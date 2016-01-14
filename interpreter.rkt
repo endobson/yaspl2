@@ -45,7 +45,7 @@
 
 (struct pre-type () #:transparent)
 (struct var-pre-type pre-type (v) #:transparent)
-(struct fun-pre-type pre-type (args result) #:transparent)
+(struct fun-pre-type pre-type (type-vars args result) #:transparent)
 (struct type-app-pre-type pre-type (constructor args))
 
 (struct pattern-spec (input-type type-vars field-types))
@@ -114,8 +114,12 @@
   (define (parse-definition sexp)
     (match sexp
       [`(define (,name (,(? symbol? args) : ,arg-types) ...) : ,return-type ,body)
-        (define type (fun-pre-type (map parse-pre-type arg-types) (parse-pre-type return-type)))
+        (define type (fun-pre-type empty (map parse-pre-type arg-types) (parse-pre-type return-type)))
+        (values name (definition& type args (parse-expression body)))]
+      [`(define (,(? symbol? type-vars) ...) (,name (,(? symbol? args) : ,arg-types) ...) : ,return-type ,body)
+        (define type (fun-pre-type type-vars (map parse-pre-type arg-types) (parse-pre-type return-type)))
         (values name (definition& type args (parse-expression body)))]))
+
   (for/hash ([def (in-list defs)])
     (parse-definition def)))
 
@@ -142,7 +146,7 @@
   (match sexp
     [(? symbol?) (var-pre-type sexp)]
     [(list arg-types ... '-> result-type)
-     (fun-pre-type (map parse-pre-type arg-types) (map parse-pre-type result-type))]
+     (fun-pre-type empty (map parse-pre-type arg-types) (map parse-pre-type result-type))]
     [(list (? symbol? type-constructor) arg-types ...)
      (type-app-pre-type type-constructor (map parse-pre-type arg-types))]))
 
@@ -153,6 +157,7 @@
   (ensure-no-free-variables module))
 
 ;; TODO make this work over types and not conflate type bindings and value bindings
+;; TODO also support patterns
 (define (ensure-no-free-variables module)
   (define ((recur/env env) expr)
     (define recur (recur/env env))
@@ -209,8 +214,12 @@
   (define parse-type (parse-type/env type-env))
   (match pre-type
     [(var-pre-type v) (hash-ref type-env v)]
-    [(fun-pre-type args result)
-     (fun-ty empty (map parse-type args) (parse-type result))]
+    [(fun-pre-type type-vars args result)
+     (define parse-type
+       (parse-type/env
+        (for/fold ([env type-env]) ([tv (in-list type-vars)])
+          (hash-set env tv (type-var-ty tv)))))
+     (fun-ty type-vars (map parse-type args) (parse-type result))]
     [(type-app-pre-type constructor args)
      ;; TODO check that args are the right kind
      (match (hash-ref type-env constructor)
