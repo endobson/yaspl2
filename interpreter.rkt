@@ -222,6 +222,7 @@
 (define (construct-module-signature module module-signatures)
   (match module
     [(module& module-name imports exports type-defs defs)
+
      (define type-name-env
        (hash-copy/immutable
          (let ([mut-type-name-env (make-hash)])
@@ -247,44 +248,9 @@
                                                        (map (λ (_) (*-kind)) type-vars))])))]))
            mut-type-name-env)))
 
-     (define pattern-env
-       (hash-copy/immutable
-         (let ([mut-pattern-env (make-hash)])
-           (for ([type-def (in-list type-defs)])
-             (match type-def
-               [(define-type& type-name #f variants)
-                (for ([variant (in-list variants)])
-                  (match variant
-                    [(variant& name (list (variant-field& field-names field-types) ...))
-                     (hash-set! mut-pattern-env name
-                                (pattern-spec
-                                  (hash-ref type-name-env type-name)
-                                  empty
-                                  ;; Make this real
-                                  (map (λ (_) 'ty) field-types)))]))]
-               [(define-type& type-name type-vars variants)
-                (for ([variant (in-list variants)])
-                  (match variant
-                    [(variant& name (list (variant-field& field-names field-types) ...))
-                     (hash-set! mut-pattern-env name
-                                (pattern-spec
-                                  ;; Apply this to the type vars
-                                  (hash-ref type-name-env type-name)
-                                  type-vars
-                                  ;; Make this real
-                                  (map (λ (_) 'ty) field-types)))]))]))
-          (for ([import (in-list (imports&-patterns imports))])
-            (match import
-              [(import& src-mod name)
-               (hash-set!
-                 mut-pattern-env
-                 name
-                 (hash-ref (module-signature-patterns (hash-ref module-signatures src-mod)) name))]))
-           mut-pattern-env)))
-
-
      (define mut-type-env (make-hash))
 
+     (define variant-parsed-field-types (make-hash))
 
      (for ([type-def (in-list type-defs)])
        (match type-def
@@ -302,6 +268,7 @@
              (match variant
                [(variant& variant-name (list (variant-field& field-names field-types) ...))
                 (define parsed-field-types (map parse-type field-types))
+                (hash-set! variant-parsed-field-types variant-name parsed-field-types)
                 (hash-set! mut-type-env variant-name
                   (fun-ty type-vars parsed-field-types defined-type))
                 (for ([field-name field-names]
@@ -326,6 +293,44 @@
 
 
      (define type-env (hash-copy/immutable mut-type-env))
+
+
+     (define pattern-env
+       (hash-copy/immutable
+         (let ([mut-pattern-env (make-hash)])
+           (for ([type-def (in-list type-defs)])
+             (match type-def
+               [(define-type& type-name #f variants)
+                (for ([variant (in-list variants)])
+                  (match variant
+                    [(variant& name (list (variant-field& field-names field-types) ...))
+                     (hash-set! mut-pattern-env name
+                                (pattern-spec
+                                  (hash-ref type-name-env type-name)
+                                  empty
+                                  (hash-ref variant-parsed-field-types name)))]))]
+               [(define-type& type-name type-vars variants)
+                (for ([variant (in-list variants)])
+                  (match variant
+                    [(variant& name (list (variant-field& field-names field-types) ...))
+                     (hash-set! mut-pattern-env name
+                                (pattern-spec
+                                  ;; Apply this to the type vars
+                                  (hash-ref type-name-env type-name)
+                                  type-vars
+                                  (hash-ref variant-parsed-field-types name)))]))]))
+          (for ([import (in-list (imports&-patterns imports))])
+            (match import
+              [(import& src-mod name)
+               (hash-set!
+                 mut-pattern-env
+                 name
+                 (hash-ref (module-signature-patterns (hash-ref module-signatures src-mod)) name))]))
+           mut-pattern-env)))
+
+
+
+
 
      (for ([(def-name def) (in-hash defs)])
        (match def
@@ -383,7 +388,6 @@
   (hash-ref (binding-env-patterns env) name))
 
 
-
 (define ((type-check/env env) expr type)
   (define type-check (type-check/env env))
   (define type-infer (type-infer/env env))
@@ -428,9 +432,28 @@
        ((type-check/env type-env) body type))]
     [(case& expr clauses)
      (type-infer expr)
-     (for ([clause (in-list clauses)])
-       (define name (case-clause&-variant-name clause))
-       (binding-env-pattern-ref env name))
+     (define patterns
+       (for/list ([clause (in-list clauses)])
+         (binding-env-pattern-ref env (case-clause&-variant-name clause))))
+     ;; Handle type-vars here
+     (define expected-types (list->set (map pattern-spec-input-type patterns)))
+     (unless (= (set-count expected-types) 1)
+       (error 'type-check "Case clause has multiple expected types: ~s" expected-types))
+
+     (for ([clause (in-list clauses)] [pattern (in-list patterns)])
+       (match* (clause pattern)
+         [((case-clause& _ field-vars expr) (pattern-spec _ type-vars field-types))
+          ;; Handle type-vars here
+          (unless (= (length field-vars) (length field-types))
+            (error 'type-check "Case clause has wrong number of patterns"))
+          ;; This is currently broken because we don't support polymorphic types correctly
+          #;
+          ((type-check/env
+            (for/fold ([env env]) ([field-var (in-list field-vars)] [field-type field-types])
+              (binding-env-value-set env field-var field-type)))
+           expr
+           type)]))
+
      ;; TODO actually do this
      (check type)]))
 
