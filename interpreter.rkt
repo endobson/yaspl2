@@ -396,6 +396,47 @@
 (define (binding-env-pattern-ref env name)
   (hash-ref (binding-env-patterns env) name))
 
+(define (unify-types type-vars type-pairs-list result-type)
+  (define (substitute type-map t)
+    (match t
+      ;; TODO support the rest of the primitive types
+      [(type-var-ty v) (hash-ref type-map v t)]))
+
+  (let loop ([type-map (hash)] [pairs type-pairs-list])
+    (define (add-to-type-map var type)
+      (define existing-type (hash-ref type-map var #f))
+      (when (and existing-type (not (equal? existing-type type)))
+        (error 'unify-types "Cannot unify ~s with ~s" type existing-type))
+      (if existing-type
+          type-map
+          (hash-set type-map var type)))
+
+    (match pairs
+      [(list) (substitute type-map result-type)]
+      [(cons (list l r) pairs)
+       (match* (l r)
+         [((type-var-ty (? (λ (v) (member v type-vars)) v)) r)
+          (loop (add-to-type-map v r) pairs)]
+         ;; TODO support top and bottom type
+         ;; TODO support for function types
+         ;; TODO support for inductive types
+         [((void-ty) (void-ty))
+          (loop type-map pairs)]
+         [((byte-ty) (byte-ty))
+          (loop type-map pairs)]
+         [((bytes-ty) (bytes-ty))
+          (loop type-map pairs)]
+         [((boolean-ty) (boolean-ty))
+          (loop type-map pairs)]
+         [((input-port-ty) (input-port-ty))
+          (loop type-map pairs)]
+         [((output-port-ty) (output-port-ty))
+          (loop type-map pairs)]
+         [((type-var-ty lv) (type-var-ty rv))
+          #:when (equal? lv rv)
+          (loop type-map pairs)])])))
+
+
 
 (define ((type-check/env env) expr type)
   (define type-check (type-check/env env))
