@@ -322,10 +322,11 @@
                 (for ([variant (in-list variants)])
                   (match variant
                     [(variant& name (list (variant-field& field-names field-types) ...))
+                     (match-define (data-ty-constructor ty-module-name ty-name _)
+                       (hash-ref type-name-env type-name))
                      (hash-set! mut-pattern-env name
                                 (pattern-spec
-                                  ;; Apply this to the type vars
-                                  (hash-ref type-name-env type-name)
+                                  (data-ty ty-module-name ty-name (map type-var-ty type-vars))
                                   type-vars
                                   (hash-ref variant-parsed-field-types name)))]))]))
           (for ([import (in-list (imports&-patterns imports))])
@@ -487,7 +488,7 @@
             [type-env (binding-env-value-set env name expr-type)])
        ((type-check/env type-env) body type))]
     [(case& expr clauses)
-     (type-infer expr)
+     (define expr-type (type-infer expr))
      (define patterns
        (for/list ([clause (in-list clauses)])
          (binding-env-pattern-ref env (case-clause&-variant-name clause))))
@@ -495,6 +496,10 @@
      (define expected-types (list->set (map pattern-spec-input-type patterns)))
      (unless (= (set-count expected-types) 1)
        (error 'type-check "Case clause has multiple expected types: ~s" expected-types))
+
+     ;; TODO get a unification
+     ;(check expr-type (set-first expected-types))
+
 
      (for ([clause (in-list clauses)] [pattern (in-list patterns)])
        (match* (clause pattern)
