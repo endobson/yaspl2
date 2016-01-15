@@ -12,7 +12,7 @@
     (either
       #:types (Either)
       #:values ()
-      #:patterns (right))
+      #:patterns (right left))
     (list
       #:types (List)
       #:values (cons empty)
@@ -27,11 +27,14 @@
     (define-type ArithExpr
       (num-lit [v Byte])
       (fun-call-expr [fun Bytes] [args (List ArithExpr)])
+      (let-expr [var Bytes] [expr ArithExpr] [body ArithExpr])
       (num-op-expr [v NumOp] [left ArithExpr] [right ArithExpr]))
     (define-type NumOp
       (plus-op)
       (minus-op)
-      (times-op)))
+      (times-op))
+    (define-type Binder
+      (binder [name Bytes] [expr ArithExpr])))
 
   (define (parse-module [sexp : Sexp]) : Module
     (case sexp
@@ -77,6 +80,11 @@
     (case sexp
       [(symbol-sexp bytes) (bytes=? bytes #"define")]))
 
+  (define (let-symbol? [sexp : Sexp]) : Boolean
+    (case sexp
+      [(symbol-sexp bytes) (bytes=? bytes #"let")]))
+
+
   (define (num-op-symbol-bytes? [bytes : Bytes]) : Boolean
     (or (bytes=? bytes #"+")
         (or (bytes=? bytes #"-")
@@ -112,10 +120,66 @@
       [(node sexps)
        (case sexps
          [(cons sym args)
-          (parse-arith-expr/fun-call sym args)]
+          (if (let-symbol? sym)
+              (parse-let-expr args)
+              (parse-arith-expr/fun-call sym args))]
          [(empty) (panic #"No function symbol")])]
       [(symbol-sexp bytes) (panic #"Symbols not supported")]
       [(number-sexp byte) (num-lit byte)]))
+
+  (define (parse-let-expr [args : (List Sexp)]) : ArithExpr
+    (case args
+      [(empty) (panic #"Too short let")]
+      [(cons bind args)
+       (case args
+         [(empty) (panic #"Too short let")]
+         [(cons body args)
+          (case args
+            [(cons arg args) (panic #"Too long let")]
+            [(empty)
+             (case (parse-binders/1 bind)
+               [(binder name expr)
+                (let-expr name expr (parse-arith-expr body))])])])]))
+
+  (define (parse-binders/1 [sexp : Sexp]) : Binder
+    (case (parse-binders/sexp sexp)
+      [(empty) (panic #"Too short binders")]
+      [(cons binder binders)
+       (case binders
+         [(cons binder binders) (panic #"Too long binders")]
+         [(empty) binder])]))
+
+  (define (parse-binders/sexp [sexp : Sexp]) : (List Binder)
+    (case sexp
+      [(node sexps)
+       (parse-binders sexps)]
+      [(symbol-sexp bytes) (panic #"Symbol is not a valid list of binders")]
+      [(number-sexp byte) (panic #"Number is not a valid list of binders")]))
+
+  (define (parse-binders [sexps : (List Sexp)]) : (List Binder)
+    (case sexps
+      [(cons sexp sexps)
+       (cons (parse-binder sexp) (parse-binders sexps))]
+      [(empty) (empty)]))
+
+  (define (parse-binder [sexp : Sexp]) : Binder
+    (case sexp
+      [(node sexps)
+       (case sexps
+         [(empty) (panic #"Too short binder")]
+         [(cons sym sexps)
+          (case sexps
+            [(empty) (panic #"Too short binder")]
+            [(cons expr sexps)
+             (case sexps
+               [(cons expr sexps) (panic #"Too long binder")]
+               [(empty)
+                (case sym
+                  [(symbol-sexp name) (binder name (parse-arith-expr expr))]
+                  [(node sexps) (panic #"Node is not valid binding identifier")]
+                  [(number-sexp v) (panic #"Number is not valid binding identifier")])])])])]
+      [(symbol-sexp bytes) (panic #"Symbol is not a valid binder")]
+      [(number-sexp byte) (panic #"Number is not a valid binder")]))
 
 
   (define (parse-arith-expr/fun-call [sym : Sexp] [args : (List Sexp)]) : ArithExpr
@@ -165,7 +229,8 @@
   ;; TODO switch this to a polymorphic version
   (define (extract-sexp [either : (Either Bytes Sexp)]) : Sexp
     (case either
-      [(right v) v]))
+      [(right v) v]
+      [(left b) (panic b)]))
 
   (define (main [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Byte
     (begin
