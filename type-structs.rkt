@@ -6,8 +6,6 @@
 (struct *-kind kind ())
 
 (struct type () #:transparent)
-(struct top-ty type () #:transparent)
-(struct bottom-ty type () #:transparent)
 (struct void-ty type () #:transparent)
 (struct byte-ty type () #:transparent)
 (struct bytes-ty type () #:transparent)

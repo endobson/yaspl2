@@ -41,18 +41,25 @@
     (pattern (~datum Void)
       #:with constructor #'(λ (_) (void-val))
       #:with ty #'(void-ty))
-    (pattern (~datum Bottom)
+    (pattern ((~datum type-var) v:id)
       #:with constructor #'(λ (x) x)
-      #:with ty #'(bottom-ty)))
+      #:with ty #'(type-var-ty 'v)))
 
 
 
   (define-syntax-class primitive-clause
     #:attributes (name match-clause ty)
     (pattern ((name:id (args:id (~datum :) types:prim-ty) ...) (~datum :) result-type:prim-ty body ...+)
-      #:with match-clause #'[(list 'name (types.constructor args) ...) 
+      #:with match-clause #'[(list 'name (types.constructor args) ...)
                              (result-type.constructor (let () body ...))]
-      #:with ty #'(fun-ty empty (list types.ty ...) result-type.ty))))
+      #:with ty #'(fun-ty empty (list types.ty ...) result-type.ty))
+    (pattern ((type-vars:id ...) (name:id (args:id (~datum :) types:prim-ty) ...)
+                                 (~datum :) result-type:prim-ty body ...+)
+      #:with match-clause #'[(list 'name (types.constructor args) ...)
+                             (result-type.constructor (let () body ...))]
+      #:with ty #'(fun-ty (list 'type-vars ...) (list types.ty ...) result-type.ty))))
+
+
 
 (define prim-types
   (hash
@@ -61,8 +68,7 @@
     'Boolean (boolean-ty)
     'InputPort (input-port-ty)
     'OutputPort (output-port-ty)
-    'Void (void-ty)
-    'Bottom (bottom-ty)))
+    'Void (void-ty)))
 
 
 (define-syntax define-primitives
@@ -72,7 +78,7 @@
      (template
        (begin
          (define supported (list 'clauses.name ...))
-         (define module-sig 
+         (define module-sig
            (module-signature 'prim
               (hash-union
                 (hash (?@ 'clauses.name clauses.ty) ...)
@@ -103,7 +109,7 @@
 
   [(void) : Void (void)]
 
-  [(panic [bytes : Bytes]) : Bottom (error-sentinal bytes)]
+  [(a) (panic [bytes : Bytes]) : (type-var a) (error-sentinal bytes)]
 
   [(make-bytes [size : Byte]) : Bytes (make-bytes size)]
   [(bytes-ref [b : Bytes] [index : Byte]) : Byte (bytes-ref b index)]

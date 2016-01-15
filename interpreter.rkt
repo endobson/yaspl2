@@ -421,7 +421,6 @@
        (match* (l r)
          [((type-var-ty (? (λ (v) (member v type-vars)) v)) r)
           (loop (add-to-type-map v r) pairs)]
-         ;; TODO support top and bottom type
          ;; TODO support for function types
          ;; TODO support for inductive types
          [((void-ty) (void-ty))
@@ -448,6 +447,13 @@
   (match t
     ;; TODO support the rest of the primitive types
     [(type-var-ty v) (hash-ref type-map v t)]
+    [(void-ty) t]
+    [(byte-ty) t]
+    [(bytes-ty) t]
+    [(boolean-ty) t]
+    [(input-port-ty) t]
+    [(output-port-ty) t]
+
     [(data-ty module-name name types)
      (data-ty module-name name (map sub types))]))
 
@@ -459,10 +465,9 @@
   (define type-infer (type-infer/env env))
 
   (define (check actual-type [expected-type type])
-    (unless (bottom-ty? actual-type)
-      (unless (equal? actual-type expected-type)
-        (error 'type-check "Types don't match: Got ~s but expected ~s in ~s"
-               actual-type expected-type expr))))
+    (unless (equal? actual-type expected-type)
+      (error 'type-check "Types don't match: Got ~s but expected ~s in ~s"
+             actual-type expected-type expr)))
   (match expr
     [(byte& _) (check (byte-ty))]
     [(bytes& _) (check (bytes-ty))]
@@ -485,15 +490,9 @@
           (error 'type-check "Cannot apply function: Got ~s but expected ~s arguments"
                  (length arg-types)
                  (length args)))
-        (cond
-          [(empty? type-vars)
-           (for ([arg (in-list args)] [arg-type (in-list arg-types)])
-             (type-check arg arg-type))
-           (check body-type)]
-          [else
-            (define substitution (unify-types type-vars (list (list body-type type))))
-            (for ([arg (in-list args)] [arg-type (in-list arg-types)])
-              (type-check arg (substitute substitution arg-type)))])])]
+        (define substitution (unify-types type-vars (list (list body-type type))))
+        (for ([arg (in-list args)] [arg-type (in-list arg-types)])
+          (type-check arg (substitute substitution arg-type)))])]
     [(let& name expr body)
      (let* ([expr-type (type-infer expr)]
             [type-env (binding-env-value-set env name expr-type)])
