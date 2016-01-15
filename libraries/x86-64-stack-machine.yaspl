@@ -2,7 +2,7 @@
   (import
     (prim
       #:types (Bytes Byte InputPort OutputPort Void)
-      #:values (bytes-length make-bytes * + - = panic)
+      #:values (bytes-length make-bytes * + - = panic void)
       #:patterns ())
     (list
       #:types (List)
@@ -31,102 +31,89 @@
   (export main)
   (types)
 
-  (define (compile-stack-machine [sfuns : (List StackFunction)]) : Bytes
-    (let ([bytes (make-bytes (* 64 64))])
-      (let ([offset 0])
-        (let ([offset (write-start bytes offset)])
-          (let ([offset (write-functions sfuns bytes offset)])
-            (subbytes bytes 0 offset))))))
+  (define (compile-stack-machine [sfuns : (List StackFunction)] [output : OutputPort]) : Void
+    (begin 
+      (write-start output)
+      (write-functions sfuns output)))
 
-  (define (write-start [bytes : Bytes] [offset : Byte]) : Byte
-    (let ([prologue #".section __TEXT,__text\n\n.global _start\n_start:\ncall main\nmov %rax, %rdi\nmovq $0x2000001, %rax\nsyscall\n"])
-      (begin
-        (bytes-copy! prologue 0 (bytes-length prologue) bytes offset)
-        (+ (bytes-length prologue) offset))))
+  (define (write-start [output : OutputPort]) : Void
+    (begin
+      (write-all-bytes #".section __TEXT,__text\n\n" output)
+      (write-all-bytes #".global _start\n" output)
+      (write-all-bytes #"_start:\n" output)
+      (write-all-bytes #"call main\n" output)
+      (write-all-bytes #"mov %rax, %rdi\n" output)
+      (write-all-bytes #"movq $0x2000001, %rax\n" output)
+      (write-all-bytes #"syscall\n" output)))
 
 
-  (define (write-functions [funs : (List StackFunction)] [bytes : Bytes] [offset : Byte]) : Byte
+  (define (write-functions [funs : (List StackFunction)] [output : OutputPort]) : Void
     (case funs
-      [(empty) offset]
+      [(empty) (void)]
       [(cons fun funs)
-       (write-functions funs bytes (write-function fun bytes offset))]))
+       (begin
+         (write-function fun output)
+         (write-functions funs output))]))
 
 
-  (define (write-function [fun : StackFunction] [bytes : Bytes] [offset : Byte]) : Byte
+  (define (write-function [fun : StackFunction] [output : OutputPort]) : Void
     (case fun
       [(stack-function name blocks)
        (begin
-         (bytes-copy! name 0 (bytes-length name) bytes offset)
-         (let ([offset (+ (bytes-length name) offset)])
-           (begin
-             (bytes-copy! #":\n" 0 2 bytes offset)
-             (let ([offset (+ offset 2)])
-               (write-basic-blocks blocks bytes offset)))))]))
+         (write-all-bytes name output)
+         (write-all-bytes #":\n" output)
+         (write-basic-blocks blocks output))]))
 
-  (define (write-basic-blocks [blocks : (List StackBasicBlock)] [bytes : Bytes] [offset : Byte])
-    : Byte
+  (define (write-basic-blocks [blocks : (List StackBasicBlock)] [output : OutputPort]) : Void
     (case blocks
-      [(empty) offset]
+      [(empty) (void)]
       [(cons block blocks)
-       (let ([offset (write-basic-block block bytes offset)])
-         (write-basic-blocks blocks bytes offset))]))
+       (begin
+         (write-basic-block block output)
+         (write-basic-blocks blocks output))]))
 
-  (define (write-basic-block [block : StackBasicBlock] [bytes : Bytes] [offset : Byte]) : Byte
+  (define (write-basic-block [block : StackBasicBlock] [output : OutputPort]) : Void
     (case block
       [(stack-basic-block cmds terminal)
-       (let ([offset (write-commands cmds bytes offset)])
-         (write-terminal terminal bytes offset))]))
+       (begin
+         (write-commands cmds output)
+         (write-terminal terminal output))]))
 
 
-  (define (write-terminal [terminal : StackTerminal] [bytes : Bytes] [offset : Byte]) : Byte
+  (define (write-terminal [terminal : StackTerminal] [output : OutputPort]) : Void
     (case terminal
       [(return)
-       (let ([ret #"pop %rax\nret\n"])
-         (begin
-           (bytes-copy! ret 0 (bytes-length ret) bytes offset)
-           (+ (bytes-length ret) offset)))]))
+       (write-all-bytes #"pop %rax\nret\n" output)]))
 
 
-  (define (write-commands [cmds : (List StackCmd)] [bytes : Bytes] [offset : Byte]) : Byte
+  (define (write-commands [cmds : (List StackCmd)] [output : OutputPort]) : Void
     (case cmds
-      [(empty) offset]
+      [(empty) (void)]
       [(cons cmd cmds)
        (case cmd
          [(num-lit-cmd v)
-          (let ([initial-offset offset])
-            (begin
-              (bytes-copy! #"push $" 0 6 bytes offset)
-              (let ([offset (+ 6 offset)])
-                (let ([decimal-number (integer->decimal-bytes v)])
-                  (begin
-                    (bytes-copy! decimal-number 0 (bytes-length decimal-number) bytes offset)
-                    (let ([offset (+ offset (bytes-length decimal-number))])
-                      (begin
-                        (bytes-copy! #"\n" 0 1 bytes offset)
-                        (let ([offset (+ 1 offset)])
-                          (write-commands cmds bytes offset)))))))))]
+          (begin
+            (write-all-bytes #"push $" output)
+            (write-all-bytes (integer->decimal-bytes v) output)
+            (write-all-bytes #"\n" output)
+            (write-commands cmds output))]
          [(fun-call-cmd name num-args)
           (if (= 0 num-args)
-              (let ([prefix #"callq "])
-                (let ([suffix #"\npush %rax\n"])
-                  (begin
-                    (bytes-copy! prefix 0 (bytes-length prefix) bytes offset)
-                    (let ([offset (+ offset (bytes-length prefix))])
-                      (begin
-                        (bytes-copy! name 0 (bytes-length name) bytes offset)
-                        (let ([offset (+ offset (bytes-length name))])
-                          (begin
-                            (bytes-copy! suffix 0 (bytes-length suffix) bytes offset)
-                            (+ offset (bytes-length suffix)))))))))
+              (begin
+                (write-all-bytes #"callq " output)
+                (write-all-bytes name output)
+                (write-all-bytes #"\npush %rax\n" output)
+                (write-commands cmds output))
               (panic #"Cannot handle functions with arguments yet."))]
          [(eval-op-cmd op)
-          (let ([op-bytes (case op
-                            [(plus-op) #"pop %rbx\npop %rax\naddq %rbx, %rax\npush %rax\n"]
-                            [(times-op) #"pop %rbx\npop %rax\nmulq %rbx\npush %rax\n"]
-                            [(minus-op) #"pop %rbx\npop %rax\nsubq %rbx, %rax\npush %rax\n"])])
-            (begin
-              (bytes-copy! op-bytes 0 (bytes-length op-bytes) bytes offset)
-              (write-commands cmds bytes (+ offset (bytes-length op-bytes)))))])]))
+          (begin
+            (write-all-bytes
+              (case op
+                [(plus-op) #"pop %rbx\npop %rax\naddq %rbx, %rax\npush %rax\n"]
+                [(times-op) #"pop %rbx\npop %rax\nmulq %rbx\npush %rax\n"]
+                [(minus-op) #"pop %rbx\npop %rax\nsubq %rbx, %rax\npush %rax\n"])
+              output)
+            (write-commands cmds output))])]))
 
 
   ;; TODO switch to a polymorphic one when it works
@@ -136,10 +123,9 @@
 
   (define (main [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Byte
     (begin
-      (write-all-bytes
-        (compile-stack-machine
-          (compile-module
-            (parse-module
-              (extract-sexp (parse-sexp (read-all-bytes stdin))))))
+      (compile-stack-machine
+        (compile-module
+          (parse-module
+            (extract-sexp (parse-sexp (read-all-bytes stdin)))))
         stdout)
       0)))
