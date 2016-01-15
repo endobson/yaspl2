@@ -231,7 +231,6 @@
 (define (construct-module-signature module module-signatures)
   (match module
     [(module& module-name imports exports type-defs defs)
-
      (define type-name-env
        (hash-copy/immutable
          (let ([mut-type-name-env (make-hash)])
@@ -510,29 +509,23 @@
        (error 'type-check "Case clause has conflicting type-vars"))
 
 
-     ;; TODO use the substitution
      (define substitution
        (unify-types (set-first expected-type-vars)
                     (list (list (set-first expected-types) expr-type))))
 
      (for ([clause (in-list clauses)] [pattern (in-list patterns)])
        (match* (clause pattern)
-         [((case-clause& _ field-vars expr) (pattern-spec _ type-vars field-types))
-          ;; Handle type-vars here
+         [((case-clause& _ field-vars expr) (pattern-spec _ _ field-types))
           (unless (= (length field-vars) (length field-types))
             (error 'type-check "Case clause has wrong number of patterns"))
-          ;; This is currently broken because we don't support polymorphic types correctly
-          #;
-          ((type-check/env
+
+          (define new-env
             (for/fold ([env env]) ([field-var (in-list field-vars)] [field-type field-types])
-              (binding-env-value-set env field-var field-type)))
-           expr
-           type)]))
+              (binding-env-value-set env field-var (substitute substitution field-type))))
 
-     ;; TODO actually do this
-     (check type)]))
+          ((type-check/env new-env) expr type)]))]))
 
-;; TODO actually do this
+;; TODO: Merge this code with typechecking
 (define ((type-infer/env env) expr)
   (define type-check (type-check/env env))
   (define type-infer (type-infer/env env))
@@ -573,8 +566,35 @@
             [type-env (binding-env-value-set env name expr-type)])
        ((type-infer/env type-env) body))]
     [(case& expr clauses)
-     ;; TODO actually do this
-     (error 'type-infer "NYI case")]))
+     (define expr-type (type-infer expr))
+     (define patterns
+       (for/list ([clause (in-list clauses)])
+         (binding-env-pattern-ref env (case-clause&-variant-name clause))))
+     (define expected-types (list->set (map pattern-spec-input-type patterns)))
+     (define expected-type-vars (list->set (map pattern-spec-type-vars patterns)))
+     (unless (= (set-count expected-types) 1)
+       (error 'type-infer "Case clause has multiple expected types: ~s" expected-types))
+     (unless (= (set-count expected-type-vars) 1)
+       (error 'type-infer "Case clause has conflicting type-vars"))
+
+     (define substitution
+       (unify-types (set-first expected-type-vars)
+                    (list (list (set-first expected-types) expr-type))))
+
+     (define types
+       (for/set ([clause (in-list clauses)] [pattern (in-list patterns)])
+         (match* (clause pattern)
+           [((case-clause& _ field-vars expr) (pattern-spec _ _ field-types))
+            (unless (= (length field-vars) (length field-types))
+              (error 'type-check "Case clause has wrong number of patterns"))
+            (define new-env
+              (for/fold ([env env]) ([field-var (in-list field-vars)] [field-type field-types])
+                (binding-env-value-set env field-var (substitute substitution field-type))))
+
+            ((type-infer/env new-env) expr)])))
+     (unless (= (set-count types) 1)
+       (error 'type-infer "Case clauses have conflicting result types"))
+     (set-first types)]))
 
 
 
