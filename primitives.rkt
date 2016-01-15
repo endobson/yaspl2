@@ -37,13 +37,18 @@
     (pattern (~datum OutputPort)
       #:with constructor #'prim-port-val
       #:with ty #'(output-port-ty))
+
+    (pattern ((~datum Box) v:id)
+      #:with constructor #'box-val
+      #:with ty #'(box-ty (type-var-ty 'v)))
+    (pattern ((~datum type-var) v:id)
+      #:with constructor #'identity*
+      #:with ty #'(type-var-ty 'v))
+
     ;; These should not be used for arg types
     (pattern (~datum Void)
       #:with constructor #'(λ (_) (void-val))
-      #:with ty #'(void-ty))
-    (pattern ((~datum type-var) v:id)
-      #:with constructor #'(λ (x) x)
-      #:with ty #'(type-var-ty 'v)))
+      #:with ty #'(void-ty)))
 
 
 
@@ -59,6 +64,10 @@
                              (result-type.constructor (let () body ...))]
       #:with ty #'(fun-ty (list 'type-vars ...) (list types.ty ...) result-type.ty))))
 
+(define-match-expander
+  identity*
+  (syntax-parser [(_ v:id) #'(var v)])
+  (syntax-parser [(_ exprs ...) #'((λ (x) x) exprs ...)]))
 
 
 (define prim-types
@@ -68,7 +77,8 @@
     'Boolean (boolean-ty)
     'InputPort (input-port-ty)
     'OutputPort (output-port-ty)
-    'Void (void-ty)))
+    'Void (void-ty)
+    'Box (box-ty-constructor)))
 
 
 (define-syntax define-primitives
@@ -121,5 +131,9 @@
 
   [(read-bytes [b : Bytes] [p : InputPort] [start-pos : Byte] [end-pos : Byte]) : Byte
    (define amount-read (read-bytes! b p start-pos end-pos))
-   (if (eof-object? amount-read) 0 amount-read)])
+   (if (eof-object? amount-read) 0 amount-read)]
+
+  [(a) (box [v : (type-var a)]) : (Box a) (box v)]
+  [(a) (unbox [b : (Box a)]) : (type-var a) (unbox b)]
+  [(a) (set-box! [b : (Box a)] [v : (type-var a)]) : Void (set-box! b v)])
 
