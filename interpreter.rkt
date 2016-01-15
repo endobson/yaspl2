@@ -400,6 +400,11 @@
 ;; Finds a substitution of types for type-vars so that if every type variable in the left half of the
 ;; pairs was replaced by its corresponding type it would be equal to the right half of that pair.
 (define (unify-types type-vars type-pairs-list)
+  (define (check-type-map type-map)
+    (unless (andmap (λ (tv) (hash-has-key? type-map tv)) type-vars)
+      (error 'unify-types "Not all type variables were used.: ~s ~s ~s~n"
+             type-vars type-map type-pairs-list))
+    type-map)
 
   (let loop ([type-map (hash)] [pairs type-pairs-list])
     (define (add-to-type-map var type)
@@ -411,7 +416,7 @@
           (hash-set type-map var type)))
 
     (match pairs
-      [(list) type-map]
+      [(list) (check-type-map type-map)]
       [(cons (list l r) pairs)
        (match* (l r)
          [((type-var-ty (? (λ (v) (member v type-vars)) v)) r)
@@ -486,10 +491,9 @@
              (type-check arg arg-type))
            (check body-type)]
           [else
-            (check
-              (substitute
-                (unify-types type-vars (map list arg-types (map type-infer args)))
-                body-type))])])]
+            (define substitution (unify-types type-vars (list (list body-type type))))
+            (for ([arg (in-list args)] [arg-type (in-list arg-types)])
+              (type-check arg (substitute substitution arg-type)))])])]
     [(let& name expr body)
      (let* ([expr-type (type-infer expr)]
             [type-env (binding-env-value-set env name expr-type)])
@@ -499,14 +503,18 @@
      (define patterns
        (for/list ([clause (in-list clauses)])
          (binding-env-pattern-ref env (case-clause&-variant-name clause))))
-     ;; Handle type-vars here
      (define expected-types (list->set (map pattern-spec-input-type patterns)))
+     (define expected-type-vars (list->set (map pattern-spec-type-vars patterns)))
      (unless (= (set-count expected-types) 1)
        (error 'type-check "Case clause has multiple expected types: ~s" expected-types))
+     (unless (= (set-count expected-type-vars) 1)
+       (error 'type-check "Case clause has conflicting type-vars"))
 
-     ;; TODO get a unification
-     ;(check expr-type (set-first expected-types))
 
+     ;; TODO use the substitution
+     (define substitution
+       (unify-types (set-first expected-type-vars)
+                    (list (list (set-first expected-types) expr-type))))
 
      (for ([clause (in-list clauses)] [pattern (in-list patterns)])
        (match* (clause pattern)
@@ -557,7 +565,6 @@
            (for ([arg (in-list args)] [arg-type (in-list arg-types)])
              (type-check arg arg-type))
            body-type]
-          ;; TODO figure out how to support functions with type variables
           [else
             (substitute
               (unify-types type-vars (map list arg-types (map type-infer args)))
