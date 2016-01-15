@@ -435,6 +435,9 @@
           (loop type-map pairs)]
          [((output-port-ty) (output-port-ty))
           (loop type-map pairs)]
+         [((data-ty mod-name-l name-l args-l) (data-ty mod-name-r name-r args-r))
+          #:when (and (equal? mod-name-l mod-name-r) (equal? name-l name-r))
+          (loop type-map (append (map list args-l args-r) pairs))]
          [((type-var-ty lv) (type-var-ty rv))
           #:when (equal? lv rv)
           (loop type-map pairs)])])))
@@ -477,10 +480,8 @@
            (for ([arg (in-list args)] [arg-type (in-list arg-types)])
              (type-check arg arg-type))
            (check body-type)]
-          ;; TODO figure out how to support functions with type variables
           [else
-            (map type-infer args)
-            (void)])])]
+            (check (unify-types type-vars (map list arg-types (map type-infer args)) body-type))])])]
     [(let& name expr body)
      (let* ([expr-type (type-infer expr)]
             [type-env (binding-env-value-set env name expr-type)])
