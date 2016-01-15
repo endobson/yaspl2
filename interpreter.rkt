@@ -266,7 +266,7 @@
          [(define-type& type-name type-vars* variants)
           ;; TODO figure out how to handle this correctly
           (define type-vars (or type-vars* empty))
-          (define defined-type (data-ty module-name type-name type-vars))
+          (define defined-type (data-ty module-name type-name (map type-var-ty type-vars)))
           (define parse-type
             (parse-type/env
               (hash-union
@@ -397,10 +397,13 @@
   (hash-ref (binding-env-patterns env) name))
 
 (define (unify-types type-vars type-pairs-list result-type)
-  (define (substitute type-map t)
+  (define ((substitute type-map) t)
+    (define sub (substitute type-map))
     (match t
       ;; TODO support the rest of the primitive types
-      [(type-var-ty v) (hash-ref type-map v t)]))
+      [(type-var-ty v) (hash-ref type-map v t)]
+      [(data-ty module-name name types)
+       (data-ty module-name name (map sub types))]))
 
   (let loop ([type-map (hash)] [pairs type-pairs-list])
     (define (add-to-type-map var type)
@@ -412,7 +415,7 @@
           (hash-set type-map var type)))
 
     (match pairs
-      [(list) (substitute type-map result-type)]
+      [(list) ((substitute type-map) result-type)]
       [(cons (list l r) pairs)
        (match* (l r)
          [((type-var-ty (? (λ (v) (member v type-vars)) v)) r)
@@ -475,7 +478,9 @@
              (type-check arg arg-type))
            (check body-type)]
           ;; TODO figure out how to support functions with type variables
-          [else (void)])])]
+          [else
+            (map type-infer args)
+            (void)])])]
     [(let& name expr body)
      (let* ([expr-type (type-infer expr)]
             [type-env (binding-env-value-set env name expr-type)])
@@ -540,7 +545,8 @@
              (type-check arg arg-type))
            body-type]
           ;; TODO figure out how to support functions with type variables
-          [else (error 'type-infer "NYI app")])])]
+          [else
+            (unify-types type-vars (map list arg-types (map type-infer args)) body-type)])])]
     [(let& name expr body)
      (let* ([expr-type (type-infer expr)]
             [type-env (binding-env-value-set env name expr-type)])
