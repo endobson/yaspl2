@@ -127,6 +127,8 @@
 
     (yaspl-test #:module-name 'arithmetic-expr
                 #:stdin #"(module (define (f) (let ((x 3)) 2)))" #:exit-code 0)
+    (yaspl-test #:module-name 'arithmetic-expr
+                #:stdin #"(module (define (f) (let ((x 3)) x)))" #:exit-code 0)
 
     (yaspl-test #:module-name 'x86-64-stack-machine
                 #:stdin #"(module (define (main) 1))" #:exit-code 0 #:stdout #f)
@@ -139,7 +141,8 @@
     (compiler-test #"(module (define (main) 1) (define (foo) 2))" #:exit-code 1)
     (compiler-test #"(module (define (main) (foo)) (define (foo) 2))" #:exit-code 2)
     (compiler-test #"(module (define (main) (let ((x 1)) 0)))")
-
+    (compiler-test #"(module (define (main) (let ((x 1)) x)))" #:exit-code 1)
+    (compiler-test #"(module (define (main) (let ((x 1)) (+ x (let ((y 2)) (* y x))))))" #:exit-code 3)
 
   )
   'verbose))

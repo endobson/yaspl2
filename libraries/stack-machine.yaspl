@@ -7,7 +7,9 @@
     (arithmetic-expr
       #:types (ArithExpr NumOp Module Function)
       #:values (parse-arith-expr)
-      #:patterns (module function num-op-expr fun-call-expr num-lit plus-op minus-op times-op let-expr))
+      #:patterns (module function
+                  var-expr num-op-expr fun-call-expr num-lit
+                  plus-op minus-op times-op let-expr))
     (list
       #:types (List)
       #:values (cons empty cons-head)
@@ -25,7 +27,6 @@
   (types
     (define-type StackCmd
       (num-lit-cmd [v Byte])
-      ;; TODO use this when variables are supported in ArithExpr
       (dup-cmd [offset Byte])
       (pop-cmd)
       (swap-cmd)
@@ -79,6 +80,8 @@
          (compile-arith-expr body
            (name-temporary var
              (compile-arith-expr expr state))))]
+      [(var-expr var)
+       (variable-ref var state) ]
       [(num-op-expr op left right)
        (add-op op
          (compile-arith-expr right
@@ -109,6 +112,13 @@
        (gen-state
          (var-slot var (remove-temporaries 1 stack))
          cmds)]))
+  (define (variable-ref [var : Bytes] [state : GenState]) : GenState
+    (case state
+      [(gen-state stack cmds)
+       (gen-state
+         (tmp-slot stack)
+         (snoc-jl cmds (dup-cmd (stack-index var stack))))]))
+
   (define (add-op [v : NumOp] [state : GenState]) : GenState
     (case state
       [(gen-state stack cmds)
@@ -145,6 +155,17 @@
           [(tmp-slot stack) (remove-temporaries (- n 1) stack)]
           [(empty-abstract-stack) (panic #"Unexpcted end of stack")])))
 
+  (define (stack-index [var : Bytes] [stack : AbstractStack]) : Byte
+    (stack-index-helper var stack 0))
+
+  (define (stack-index-helper [var : Bytes] [stack : AbstractStack] [offset : Byte]) : Byte
+    (case stack
+      [(empty-abstract-stack) (panic #"Unbound variable")]
+      [(tmp-slot stack) (stack-index-helper var stack (+ 1 offset))]
+      [(var-slot slot-var stack)
+       (if (bytes=? var slot-var)
+           offset
+           (stack-index-helper var stack (+ 1 offset)))]))
 
   (define (print-function [sfun : StackFunction] [output : OutputPort]) : Void
     (print-cmds (stack-basic-block-cmds (cons-head (stack-function-blocks sfun))) output))
