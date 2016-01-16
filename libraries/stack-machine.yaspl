@@ -12,6 +12,10 @@
       #:types (List)
       #:values (cons empty cons-head)
       #:patterns (cons empty))
+    (join-list
+      #:types (JoinList)
+      #:values (empty-jl single-jl append-jl jl->list cons-jl)
+      #:patterns ())
     (sexp-parser parse-sexp)
     (io read-all-bytes write-all-bytes write-newline)
     (numbers integer->decimal-bytes))
@@ -54,28 +58,35 @@
        ;; TODO Make environment wth argument names
        (stack-function
          name
-         (cons (stack-basic-block (compile-arith-expr body (empty-env) (empty)) (return))
+         (cons (stack-basic-block (jl->list (compile-arith-expr body (empty-env))) (return))
                (empty)))]))
 
-  (define (compile-arith-expr [expr : ArithExpr] [env : Env] [cmds : (List StackCmd)]) : (List StackCmd)
+  (define (compile-arith-expr [expr : ArithExpr] [env : Env]) : (JoinList StackCmd)
     (case expr
       [(let-expr var expr body)
-       (compile-arith-expr expr env
-         (compile-arith-expr body (env-entry var env)
-           (cons (swap-cmd) (cons (pop-cmd) cmds))))]
+       (append-jl (compile-arith-expr expr env)
+         (append-jl (compile-arith-expr body (env-entry var env))
+            (cons-jl (swap-cmd) (cons-jl (pop-cmd) (empty-jl)))))]
       [(num-op-expr op left right)
-       (compile-arith-expr left env (compile-arith-expr right env (cons (eval-op-cmd op) cmds)))]
+       (append-jl
+         (compile-arith-expr left env)
+         (append-jl
+           (compile-arith-expr right env)
+           (single-jl (eval-op-cmd op))))]
       [(fun-call-expr bytes args)
-       (compile-arith-exprs args env (cons (fun-call-cmd bytes (length args)) cmds))]
+       (append-jl
+         (compile-arith-exprs args env)
+         (single-jl (fun-call-cmd bytes (length args))))]
       [(num-lit v)
-       (cons (num-lit-cmd v) cmds)]))
+       (single-jl (num-lit-cmd v))]))
 
-  (define (compile-arith-exprs [exprs : (List ArithExpr)] [env : Env] [cmds : (List StackCmd)]) : (List StackCmd)
+  (define (compile-arith-exprs [exprs : (List ArithExpr)] [env : Env]) : (JoinList StackCmd)
     (case exprs
-      [(empty) cmds]
+      [(empty) (empty-jl)]
       [(cons expr exprs)
-       (compile-arith-exprs exprs env (compile-arith-expr expr env cmds))]))
-
+       (append-jl
+         (compile-arith-expr expr env)
+         (compile-arith-exprs exprs env))]))
 
   (define (print-function [sfun : StackFunction] [output : OutputPort]) : Void
     (print-cmds (stack-basic-block-cmds (cons-head (stack-function-blocks sfun))) output))
