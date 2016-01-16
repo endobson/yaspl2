@@ -2,7 +2,7 @@
   (import
     (prim
       #:types (Bytes Byte InputPort OutputPort Void)
-      #:values (void +)
+      #:values (void - + panic =)
       #:patterns ())
     (arithmetic-expr
       #:types (ArithExpr NumOp Module Function)
@@ -14,8 +14,9 @@
       #:patterns (cons empty))
     (join-list
       #:types (JoinList)
-      #:values (empty-jl single-jl append-jl jl->list cons-jl)
+      #:values (empty-jl jl->list snoc-jl)
       #:patterns ())
+    (bytes bytes=?)
     (sexp-parser parse-sexp)
     (io read-all-bytes write-all-bytes write-newline)
     (numbers integer->decimal-bytes))
@@ -30,15 +31,19 @@
       (swap-cmd)
       (fun-call-cmd [name Bytes] [num-args Byte])
       (eval-op-cmd [v NumOp]))
-    (define-type Env
-      (env-entry [var-name Bytes] [env Env])
-      (empty-env))
+    (define-type AbstractStack
+      (tmp-slot [stack AbstractStack])
+      (var-slot [var-name Bytes] [stack AbstractStack])
+      (empty-abstract-stack))
     (define-type StackTerminal
       (return))
     (define-type StackBasicBlock
       (stack-basic-block [cmds (List StackCmd)] [terminal StackTerminal]))
     (define-type StackFunction
-      (stack-function [name Bytes] [blocks (List StackBasicBlock)])))
+      (stack-function [name Bytes] [blocks (List StackBasicBlock)]))
+
+    (define-type GenState
+      (gen-state [stack AbstractStack] [cmds (JoinList StackCmd)])))
 
   (define (compile-module [mod : Module]) : (List StackFunction)
     (case mod
@@ -58,35 +63,88 @@
        ;; TODO Make environment wth argument names
        (stack-function
          name
-         (cons (stack-basic-block (jl->list (compile-arith-expr body (empty-env))) (return))
-               (empty)))]))
+         (cons
+           (stack-basic-block
+             ;; TODO validate this has one temporary left in it
+             (jl->list
+               (gen-state-cmds
+                 (compile-arith-expr body (gen-state (empty-abstract-stack) (empty-jl)))))
+             (return))
+           (empty)))]))
 
-  (define (compile-arith-expr [expr : ArithExpr] [env : Env]) : (JoinList StackCmd)
+  (define (compile-arith-expr [expr : ArithExpr] [state : GenState]) : GenState
     (case expr
       [(let-expr var expr body)
-       (append-jl (compile-arith-expr expr env)
-         (append-jl (compile-arith-expr body (env-entry var env))
-            (cons-jl (swap-cmd) (cons-jl (pop-cmd) (empty-jl)))))]
+       (unscope-variable var
+         (compile-arith-expr body
+           (name-temporary var
+             (compile-arith-expr expr state))))]
       [(num-op-expr op left right)
-       (append-jl
-         (compile-arith-expr left env)
-         (append-jl
-           (compile-arith-expr right env)
-           (single-jl (eval-op-cmd op))))]
+       (add-op op
+         (compile-arith-expr right
+           (compile-arith-expr left state)))]
       [(fun-call-expr bytes args)
-       (append-jl
-         (compile-arith-exprs args env)
-         (single-jl (fun-call-cmd bytes (length args))))]
+       (call-function bytes (length args)
+         (compile-arith-exprs args state))]
       [(num-lit v)
-       (single-jl (num-lit-cmd v))]))
+       (add-literal v state)]))
 
-  (define (compile-arith-exprs [exprs : (List ArithExpr)] [env : Env]) : (JoinList StackCmd)
+
+  (define (compile-arith-exprs [exprs : (List ArithExpr)] [state : GenState]) : GenState
     (case exprs
-      [(empty) (empty-jl)]
+      [(empty) state]
       [(cons expr exprs)
-       (append-jl
-         (compile-arith-expr expr env)
-         (compile-arith-exprs exprs env))]))
+       (compile-arith-exprs exprs
+         (compile-arith-expr expr state))]))
+
+  (define (unscope-variable [var : Bytes] [state : GenState]) : GenState
+    (case state
+      [(gen-state stack cmds)
+       (gen-state
+         (tmp-slot (remove-variable var (remove-temporaries 1 stack)))
+         (snoc-jl (snoc-jl cmds (swap-cmd)) (pop-cmd)))]))
+  (define (name-temporary [var : Bytes] [state : GenState]) : GenState
+    (case state
+      [(gen-state stack cmds)
+       (gen-state
+         (var-slot var (remove-temporaries 1 stack))
+         cmds)]))
+  (define (add-op [v : NumOp] [state : GenState]) : GenState
+    (case state
+      [(gen-state stack cmds)
+       (gen-state
+         (tmp-slot (remove-temporaries 2 stack))
+         (snoc-jl cmds (eval-op-cmd v)))]))
+  (define (call-function [name : Bytes] [num-args : Byte] [state : GenState]) : GenState
+    (case state
+      [(gen-state stack cmds)
+       (gen-state
+         (tmp-slot (remove-temporaries num-args stack))
+         (snoc-jl cmds (fun-call-cmd name num-args)))]))
+  (define (add-literal [v : Byte] [state : GenState]) : GenState
+    (case state
+      [(gen-state stack cmds)
+       (gen-state
+         (tmp-slot stack)
+         (snoc-jl cmds (num-lit-cmd v)))]))
+
+  (define (remove-variable [var : Bytes] [stack : AbstractStack]) : AbstractStack
+    (case stack
+      [(var-slot v stack)
+       (if (bytes=? v var)
+           stack
+           (panic #"Unexpected variable on stack"))]
+      [(tmp-slot stack) (panic #"Unexpcted temporary on stack")]
+      [(empty-abstract-stack) (panic #"Unexpcted end of stack")]))
+
+  (define (remove-temporaries [n : Byte] [stack : AbstractStack]) : AbstractStack
+    (if (= 0 n)
+        stack
+        (case stack
+          [(var-slot v stack) (panic #"Unexpected variable on stack")]
+          [(tmp-slot stack) (remove-temporaries (- n 1) stack)]
+          [(empty-abstract-stack) (panic #"Unexpcted end of stack")])))
+
 
   (define (print-function [sfun : StackFunction] [output : OutputPort]) : Void
     (print-cmds (stack-basic-block-cmds (cons-head (stack-function-blocks sfun))) output))
