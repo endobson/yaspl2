@@ -7,7 +7,7 @@
     (arithmetic-expr
       #:types (ArithExpr NumOp Module Function)
       #:values (parse-arith-expr)
-      #:patterns (module function num-op-expr fun-call-expr num-lit plus-op minus-op times-op))
+      #:patterns (module function num-op-expr fun-call-expr num-lit plus-op minus-op times-op let-expr))
     (list
       #:types (List)
       #:values (cons empty cons-head)
@@ -20,8 +20,15 @@
   (types
     (define-type StackCmd
       (num-lit-cmd [v Byte])
+      ;; TODO use this when variables are supported in ArithExpr
+      (dup-cmd [offset Byte])
+      (pop-cmd)
+      (swap-cmd)
       (fun-call-cmd [name Bytes] [num-args Byte])
       (eval-op-cmd [v NumOp]))
+    (define-type Env
+      (env-entry [var-name Bytes] [env Env])
+      (empty-env))
     (define-type StackTerminal
       (return))
     (define-type StackBasicBlock
@@ -44,25 +51,30 @@
   (define (compile-function [function : Function]) : StackFunction
     (case function
       [(function name arg-names body)
+       ;; TODO Make environment wth argument names
        (stack-function
          name
-         (cons (stack-basic-block (compile-arith-expr body (empty)) (return))
+         (cons (stack-basic-block (compile-arith-expr body (empty-env) (empty)) (return))
                (empty)))]))
 
-  (define (compile-arith-expr [expr : ArithExpr] [cmds : (List StackCmd)]) : (List StackCmd)
+  (define (compile-arith-expr [expr : ArithExpr] [env : Env] [cmds : (List StackCmd)]) : (List StackCmd)
     (case expr
+      [(let-expr var expr body)
+       (compile-arith-expr expr env
+         (compile-arith-expr body (env-entry var env)
+           (cons (swap-cmd) (cons (pop-cmd) cmds))))]
       [(num-op-expr op left right)
-       (compile-arith-expr left (compile-arith-expr right (cons (eval-op-cmd op) cmds)))]
+       (compile-arith-expr left env (compile-arith-expr right env (cons (eval-op-cmd op) cmds)))]
       [(fun-call-expr bytes args)
-       (compile-arith-exprs args (cons (fun-call-cmd bytes (length args)) cmds))]
+       (compile-arith-exprs args env (cons (fun-call-cmd bytes (length args)) cmds))]
       [(num-lit v)
        (cons (num-lit-cmd v) cmds)]))
 
-  (define (compile-arith-exprs [exprs : (List ArithExpr)] [cmds : (List StackCmd)]) : (List StackCmd)
+  (define (compile-arith-exprs [exprs : (List ArithExpr)] [env : Env] [cmds : (List StackCmd)]) : (List StackCmd)
     (case exprs
       [(empty) cmds]
       [(cons expr exprs)
-       (compile-arith-exprs exprs (compile-arith-expr expr cmds))]))
+       (compile-arith-exprs exprs env (compile-arith-expr expr env cmds))]))
 
 
   (define (print-function [sfun : StackFunction] [output : OutputPort]) : Void

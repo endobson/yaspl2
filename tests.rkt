@@ -138,6 +138,7 @@
     (compiler-test #"(module (define (main) (* (- 117 113) (+ 10 2))))" #:exit-code 48)
     (compiler-test #"(module (define (main) 1) (define (foo) 2))" #:exit-code 1)
     (compiler-test #"(module (define (main) (foo)) (define (foo) 2))" #:exit-code 2)
+    (compiler-test #"(module (define (main) (let ((x 1)) 0)))")
 
 
   )
