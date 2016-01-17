@@ -2,6 +2,8 @@
 
 (require
   "interpreter.rkt"
+  "parser.rkt"
+  "validator.rkt"
   "primitives.rkt"
   racket/runtime-path
   racket/set)

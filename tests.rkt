@@ -3,6 +3,7 @@
 (require
   "interpreter.rkt"
   "libraries.rkt"
+  "parser.rkt"
   racket/system
   racket/file
   racket/runtime-path
