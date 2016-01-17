@@ -5,6 +5,7 @@
   "libraries.rkt"
   "parser.rkt"
   racket/system
+  racket/cmdline
   racket/file
   racket/runtime-path
   racket/set
@@ -118,6 +119,12 @@
                                #:modules (map parse-module new-modules)))))]))))
 
 
+(define all-tests #f)
+(command-line
+  #:once-any
+    ("--full" "Whether to run the full test suite or not" (set! all-tests #t)))
+
+
 (void (run-tests
   (test-suite "Yaspl tests"
 
@@ -189,6 +196,7 @@
                        (define (f x) (+ x (g 3 4)))
                        (define (g y z) (* y z)))" #:exit-code 14)
 
-    ;parse-libraries-suite
+    (when all-tests
+      parse-libraries-suite)
   )
   'verbose))
