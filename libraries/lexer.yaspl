@@ -18,6 +18,8 @@
       (left-bracket-lexeme)
       (right-bracket-lexeme)
       (symbol-lexeme [v Bytes])
+      (bytes-lexeme [v Bytes])
+      (keyword-lexeme [v Bytes])
       (number-lexeme [v Bytes]))
 
     (define-type Result
@@ -53,6 +55,26 @@
     (or (math-symbol? v)
         (letter? v)))
 
+  (define (keyword-continue-byte? [v : Byte]) : Boolean
+    (or (math-symbol? v)
+        (letter? v)))
+
+  (define (bytes-continue-byte? [v : Byte]) : Boolean
+    (or (letter? v) (space? v)))
+
+
+  (define (hash? [v : Byte]) : Boolean
+    (= v 35))
+
+  (define (colon? [v : Byte]) : Boolean
+    (= v 58))
+
+  (define (double-quote? [v : Byte]) : Boolean
+    (= v 34))
+
+  (define (space? [v : Byte]) : Boolean
+    (= v 32))
+
   (define (lex-symbol [bytes : Bytes] [start : Byte] [cur : Byte]) : Result
     (if (= (bytes-length bytes) cur)
         (lex-result (symbol-lexeme (subbytes bytes start cur))
@@ -61,6 +83,37 @@
             (lex-symbol bytes start (+ 1 cur))
             (lex-result (symbol-lexeme (subbytes bytes start cur))
                         (lexer bytes cur)))))
+
+
+  (define (lex-after-hash [bytes : Bytes] [pos : Byte]) : Result
+    (if (= (bytes-length bytes) pos)
+        (bad-input)
+        (let ([byte (bytes-ref bytes pos)])
+          (let ([next-pos (+ 1 pos)])
+            (if (colon? byte)
+                (lex-keyword bytes next-pos next-pos)
+                (if (double-quote? byte)
+                    (lex-bytes bytes next-pos next-pos)
+                    (bad-input)))))))
+
+  (define (lex-keyword [bytes : Bytes] [start : Byte] [cur : Byte]) : Result
+    (if (= (bytes-length bytes) cur)
+        (lex-result (symbol-lexeme (subbytes bytes start cur))
+                    (lexer bytes cur))
+        (if (keyword-continue-byte? (bytes-ref bytes cur))
+            (lex-keyword bytes start (+ 1 cur))
+            (lex-result (keyword-lexeme (subbytes bytes start cur))
+                        (lexer bytes cur)))))
+
+  (define (lex-bytes [bytes : Bytes] [start : Byte] [cur : Byte]) : Result
+    (if (= (bytes-length bytes) cur)
+        (bad-input)
+        (if (bytes-continue-byte? (bytes-ref bytes cur))
+            (lex-bytes bytes start (+ 1 cur))
+            (if (double-quote? (bytes-ref bytes cur))
+                (lex-result (bytes-lexeme (subbytes bytes start cur))
+                            (lexer bytes (+ 1 cur)))
+                (bad-input)))))
 
   (define (lex-number [bytes : Bytes] [start : Byte] [cur : Byte]) : Result
     (if (= (bytes-length bytes) cur)
@@ -98,7 +151,9 @@
                                   (lex-symbol bytes pos (+ pos 1))
                                   (if (number-start-byte? byte)
                                       (lex-number bytes pos (+ pos 1))
-                                      (bad-input)))))))))))
+                                      (if (hash? byte)
+                                          (lex-after-hash bytes (+ pos 1))
+                                          (bad-input))))))))))))
 
   (define (loop [lexer : Lexer]) : Byte
     (case (run-lexer lexer)

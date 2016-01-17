@@ -487,8 +487,8 @@
        [(fun-ty type-vars arg-types body-type)
         (unless (equal? (length arg-types) (length args))
           (error 'type-check "Cannot apply function: Got ~s but expected ~s arguments"
-                 (length arg-types)
-                 (length args)))
+                 (length args)
+                 (length arg-types)))
         (define substitution (unify-types type-vars (list (list body-type type))))
         (for ([arg (in-list args)] [arg-type (in-list arg-types)])
           (type-check arg (substitute substitution arg-type)))])]
