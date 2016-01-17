@@ -100,7 +100,7 @@
       (test-suite name
         (test-begin
           (define file-contents (call-with-input-file* file port->bytes))
-          (yaspl-test #:module-name 'lexer #:stdin file-contents))))))
+          (yaspl-test #:module-name 'sexp-parser #:stdin file-contents))))))
 
 (define run-test-files-suite
   (make-test-suite "test directory"
@@ -159,6 +159,8 @@
     (yaspl-test #:module-name 'sexp-parser #:stdin #"#\"foo\"" #:exit-code 0)
     (yaspl-test #:module-name 'sexp-parser #:stdin #";.&\na" #:exit-code 0)
     (yaspl-test #:module-name 'sexp-parser #:stdin #"(a;.&\na)" #:exit-code 0)
+    (yaspl-test #:module-name 'sexp-parser #:stdin #"#t" #:exit-code 0)
+    (yaspl-test #:module-name 'sexp-parser #:stdin #"(#t)" #:exit-code 0)
 
 
     (yaspl-test #:module-name 'sexp-parser #:stdin #"[]" #:exit-code 0)
