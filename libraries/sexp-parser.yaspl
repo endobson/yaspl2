@@ -4,7 +4,8 @@
       #:types (Lexer)
       #:values (make-lexer run-lexer lex-result-v lex-result-next)
       #:patterns (end-of-input bad-input lex-result
-                  symbol-lexeme number-lexeme left-paren-lexeme right-paren-lexeme))
+                  symbol-lexeme number-lexeme left-paren-lexeme right-paren-lexeme
+                  left-bracket-lexeme right-bracket-lexeme))
     (numbers decimal-bytes->integer)
     (io read-all-bytes)
     (prim
@@ -22,13 +23,16 @@
   (export Sexp parse-sexp main)
   (types
     (define-type Sexp
-       (node [list (List Sexp)])
-       (symbol-sexp [bytes Bytes])
-       (number-sexp [byte Byte]))
+      (node [list (List Sexp)])
+      (symbol-sexp [bytes Bytes])
+      (number-sexp [byte Byte]))
+    (define-type ParenStyle
+      (bracket)
+      (paren))
 
     (define-type SexpResult
-       (sexp-result [v Sexp] [lexer Lexer])
-       (sexp-result-error)))
+      (sexp-result [v Sexp] [lexer Lexer])
+      (sexp-result-error)))
 
 
 
@@ -52,10 +56,12 @@
           (case v
             [(number-lexeme bytes) (sexp-result (number-sexp (decimal-bytes->integer bytes)) lexer)]
             [(symbol-lexeme bytes) (sexp-result (symbol-sexp bytes) lexer)]
-            [(left-paren-lexeme) (node-loop (empty) lexer)]
+            [(left-paren-lexeme) (node-loop (empty) (paren) lexer)]
+            [(left-bracket-lexeme) (node-loop (empty) (bracket) lexer)]
+            [(right-bracket-lexeme) (sexp-result-error)]
             [(right-paren-lexeme) (sexp-result-error)])])))
 
-  (define (node-loop [vals : (List Sexp)] [lexer : Lexer]) : SexpResult
+  (define (node-loop [vals : (List Sexp)] [paren-style : ParenStyle] [lexer : Lexer]) : SexpResult
     (let ([val (run-lexer lexer)])
       (case val
         [(end-of-input) (sexp-result-error)]
@@ -63,15 +69,27 @@
         [(lex-result v lexer)
           (case (lex-result-v val)
             [(symbol-lexeme bytes)
-             (node-loop (cons (symbol-sexp bytes) vals) lexer)]
+             (node-loop (cons (symbol-sexp bytes) vals) paren-style lexer)]
             [(number-lexeme bytes)
-             (node-loop (cons (number-sexp (decimal-bytes->integer bytes)) vals) lexer)]
+             (node-loop (cons (number-sexp (decimal-bytes->integer bytes)) vals) paren-style lexer)]
             [(left-paren-lexeme)
-              (case (node-loop (empty) lexer)
+              (case (node-loop (empty) (paren) lexer)
                 [(sexp-result v lexer)
-                 (node-loop (cons v vals) lexer)]
+                 (node-loop (cons v vals) paren-style lexer)]
                 [(sexp-result-error) (sexp-result-error)])]
-            [(right-paren-lexeme) (sexp-result (node (reverse vals)) lexer)])])))
+            [(left-bracket-lexeme)
+              (case (node-loop (empty) (bracket) lexer)
+                [(sexp-result v lexer)
+                 (node-loop (cons v vals) paren-style lexer)]
+                [(sexp-result-error) (sexp-result-error)])]
+            [(right-bracket-lexeme)
+             (case paren-style
+               [(bracket) (sexp-result (node (reverse vals)) lexer)]
+               [(paren) (sexp-result-error)])]
+            [(right-paren-lexeme)
+             (case paren-style
+               [(paren) (sexp-result (node (reverse vals)) lexer)]
+               [(bracket) (sexp-result-error)])])])))
 
   (define (main [stdin : InputPort] [stderr : OutputPort] [stdout : OutputPort]) : Byte
     (let ([result (parse-sexp (read-all-bytes stdin))])

@@ -118,6 +118,12 @@
     (yaspl-test #:module-name 'sexp-parser #:stdin #"456" #:exit-code 0)
     (yaspl-test #:module-name 'sexp-parser #:stdin #"(+ 2 3)" #:exit-code 0)
 
+
+    (yaspl-test #:module-name 'sexp-parser #:stdin #"[]" #:exit-code 0)
+    (yaspl-test #:module-name 'sexp-parser #:stdin #"[[]()]" #:exit-code 0)
+    (yaspl-test #:module-name 'sexp-parser #:stdin #"[)" #:exit-code 255 #:error #"Sexp result error")
+    (yaspl-test #:module-name 'sexp-parser #:stdin #"(]" #:exit-code 255 #:error #"Sexp result error")
+
     (yaspl-test #:module-name 'arithmetic-expr #:stdin #"(module (define (f) 2))" #:exit-code 0)
     (yaspl-test #:module-name 'arithmetic-expr #:stdin #"(module (define (f x) (+ 2 3)))" #:exit-code 0)
     (yaspl-test #:module-name 'arithmetic-expr
@@ -126,9 +132,9 @@
                 #:stdin #"(module (define (f) 2) (define (g) (f)))" #:exit-code 0)
 
     (yaspl-test #:module-name 'arithmetic-expr
-                #:stdin #"(module (define (f) (let ((x 3)) 2)))" #:exit-code 0)
+                #:stdin #"(module (define (f) (let ([x 3]) 2)))" #:exit-code 0)
     (yaspl-test #:module-name 'arithmetic-expr
-                #:stdin #"(module (define (f) (let ((x 3)) x)))" #:exit-code 0)
+                #:stdin #"(module (define (f) (let ([x 3]) x)))" #:exit-code 0)
 
     (yaspl-test #:module-name 'x86-64-stack-machine
                 #:stdin #"(module (define (main) 1))" #:exit-code 0 #:stdout #f)
@@ -140,9 +146,9 @@
     (compiler-test #"(module (define (main) (* (- 117 113) (+ 10 2))))" #:exit-code 48)
     (compiler-test #"(module (define (main) 1) (define (foo) 2))" #:exit-code 1)
     (compiler-test #"(module (define (main) (foo)) (define (foo) 2))" #:exit-code 2)
-    (compiler-test #"(module (define (main) (let ((x 1)) 0)))")
-    (compiler-test #"(module (define (main) (let ((x 1)) x)))" #:exit-code 1)
-    (compiler-test #"(module (define (main) (let ((x 1)) (+ x (let ((y 2)) (* y x))))))" #:exit-code 3)
+    (compiler-test #"(module (define (main) (let ([x 1]) 0)))")
+    (compiler-test #"(module (define (main) (let ([x 1]) x)))" #:exit-code 1)
+    (compiler-test #"(module (define (main) (let ([x 1]) (+ x (let ([y 2]) (* y x))))))" #:exit-code 3)
     (compiler-test #"(module
                        (define (main) (f 2))
                        (define (f x) (+ x (g 3 4)))
