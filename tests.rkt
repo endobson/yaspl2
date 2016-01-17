@@ -121,6 +121,8 @@
     (yaspl-test #:module-name 'sexp-parser #:stdin #"23" #:exit-code 0)
     (yaspl-test #:module-name 'sexp-parser #:stdin #"456" #:exit-code 0)
     (yaspl-test #:module-name 'sexp-parser #:stdin #"(+ 2 3)" #:exit-code 0)
+    (yaspl-test #:module-name 'sexp-parser #:stdin #"#:foo" #:exit-code 0)
+    (yaspl-test #:module-name 'sexp-parser #:stdin #"#\"foo\"" #:exit-code 0)
 
 
     (yaspl-test #:module-name 'sexp-parser #:stdin #"[]" #:exit-code 0)
