@@ -7,6 +7,7 @@
   racket/file
   racket/runtime-path
   racket/set
+  racket/port
   rackunit
   racket/match
   rackunit/text-ui)
@@ -21,9 +22,14 @@
                     #:error [error-info #f]
                     #:stdout [stdout #""]
                     #:stderr [stderr #""])
-  (test-suite (format "~a" module-name)
-    (let* ([full-modules (set-union (list->set extra-modules) modules)]
-           [result (run-program full-modules module-name 'main #:stdin stdin)])
+  (test-case (format "~a" module-name)
+    (define full-modules (set-union (list->set extra-modules) modules))
+    (define result (run-program full-modules module-name 'main #:stdin stdin))
+    (with-check-info
+      (['exit-code (program-result-exit-code result)]
+       ['error-info (program-result-error-info result)]
+       ['stdout (program-result-stdout result)]
+       ['stderr (program-result-stderr result)])
       (check-equal? (program-result-exit-code result) exit-code)
       (check-equal? (program-result-error-info result) error-info)
       (when stdout
@@ -47,6 +53,7 @@
     (values kw (hash-ref kw-hash kw))))
 
 (define-runtime-path test-dir "tests")
+(define-runtime-path library-dir "libraries")
 
 (define (call-with-temporary-files n f)
   (if (= n 0)
@@ -80,22 +87,40 @@
                      "-e" "_start" "-static" object "-o" binary)
             (check-equal? (system*/exit-code binary) exit-code)))))))
 
+
+(define parse-libraries-suite
+  (make-test-suite "parse libraries"
+    (for/list ([file (in-directory library-dir)])
+      (define-values (dir name-path is-dir) (split-path file))
+      (when (symbol? name-path)
+        (error 'tests "Bad path"))
+      (define name (path->string name-path))
+      (test-suite name
+        (test-begin
+          (define file-contents (call-with-input-file* file port->bytes))
+          (yaspl-test #:module-name 'lexer #:stdin file-contents))))))
+
+(define run-test-files-suite
+  (make-test-suite "test directory"
+    (for/list ([file (in-directory test-dir)])
+      (define-values (dir name-path is-dir) (split-path file))
+      (when (symbol? name-path)
+        (error 'tests "Bad path"))
+      (define name (path->string name-path))
+      (match (call-with-input-file* file read-all)
+        [`(,new-modules ... #:test-cases ,test-cases ...)
+         (make-test-suite name
+            (for/list ([tc (in-list test-cases)] [i (in-naturals)])
+              (define-values (kws vals) (kw-split tc))
+              (test-suite (format "~a" i)
+                (keyword-apply yaspl-test kws vals null
+                               #:modules (map parse-module new-modules)))))]))))
+
+
 (void (run-tests
   (test-suite "Yaspl tests"
 
-    (make-test-suite ""
-      (for/list ([file (in-directory test-dir)])
-        (define-values (dir name-path is-dir) (split-path file))
-        (when (symbol? name-path)
-          (error 'tests "Bad path"))
-        (define name (path->string name-path))
-        (match (call-with-input-file* file read-all)
-          [`(,new-modules ... #:test-cases ,test-cases ...)
-           (make-test-suite ""
-              (for/list ([tc (in-list test-cases)])
-                (define-values (kws vals) (kw-split tc))
-                (keyword-apply yaspl-test kws vals null
-                               #:modules (map parse-module new-modules))))])))
+    run-test-files-suite
 
 
     (yaspl-test #:module-name 'lexer #:stdin #"((((" #:exit-code 0)
@@ -160,5 +185,6 @@
                        (define (f x) (+ x (g 3 4)))
                        (define (g y z) (* y z)))" #:exit-code 14)
 
+  ;  parse-libraries-suite
   )
   'verbose))
