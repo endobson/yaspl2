@@ -143,6 +143,10 @@
     (compiler-test #"(module (define (main) (let ((x 1)) 0)))")
     (compiler-test #"(module (define (main) (let ((x 1)) x)))" #:exit-code 1)
     (compiler-test #"(module (define (main) (let ((x 1)) (+ x (let ((y 2)) (* y x))))))" #:exit-code 3)
+    (compiler-test #"(module
+                       (define (main) (f 2))
+                       (define (f x) (+ x (g 3 4)))
+                       (define (g y z) (* y z)))" #:exit-code 14)
 
   )
   'verbose))

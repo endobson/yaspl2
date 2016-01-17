@@ -34,10 +34,11 @@
       (eval-op-cmd [v NumOp]))
     (define-type AbstractStack
       (tmp-slot [stack AbstractStack])
+      (return-address-slot [stack AbstractStack])
       (var-slot [var-name Bytes] [stack AbstractStack])
       (empty-abstract-stack))
     (define-type StackTerminal
-      (return))
+      (return [num-args Byte]))
     (define-type StackBasicBlock
       (stack-basic-block [cmds (List StackCmd)] [terminal StackTerminal]))
     (define-type StackFunction
@@ -61,16 +62,15 @@
   (define (compile-function [function : Function]) : StackFunction
     (case function
       [(function name arg-names body)
-       ;; TODO Make environment wth argument names
        (stack-function
          name
          (cons
            (stack-basic-block
-             ;; TODO validate this has one temporary left in it
+             ;; TODO validate this has one temporary left in it, the return addr, and then the variables.
              (jl->list
                (gen-state-cmds
-                 (compile-arith-expr body (gen-state (empty-abstract-stack) (empty-jl)))))
-             (return))
+                 (compile-arith-expr body (gen-state (initial-variables arg-names) (empty-jl)))))
+             (return (length/bytes arg-names)))
            (empty)))]))
 
   (define (compile-arith-expr [expr : ArithExpr] [state : GenState]) : GenState
@@ -144,8 +144,9 @@
        (if (bytes=? v var)
            stack
            (panic #"Unexpected variable on stack"))]
-      [(tmp-slot stack) (panic #"Unexpcted temporary on stack")]
-      [(empty-abstract-stack) (panic #"Unexpcted end of stack")]))
+      [(tmp-slot stack) (panic #"Unexpected temporary on stack")]
+      [(return-address-slot stack) (panic #"Unexpected return address on stack")]
+      [(empty-abstract-stack) (panic #"Unexpected end of stack")]))
 
   (define (remove-temporaries [n : Byte] [stack : AbstractStack]) : AbstractStack
     (if (= 0 n)
@@ -153,7 +154,17 @@
         (case stack
           [(var-slot v stack) (panic #"Unexpected variable on stack")]
           [(tmp-slot stack) (remove-temporaries (- n 1) stack)]
-          [(empty-abstract-stack) (panic #"Unexpcted end of stack")])))
+          [(return-address-slot stack) (panic #"Unexpected return address on stack")]
+          [(empty-abstract-stack) (panic #"Unexpected end of stack")])))
+
+  (define (initial-variables [vars : (List Bytes)]) : AbstractStack
+    (initial-variables-helper vars (empty-abstract-stack)))
+
+  (define (initial-variables-helper [vars : (List Bytes)] [stack : AbstractStack]) : AbstractStack
+    (case vars
+      [(empty) (return-address-slot stack)]
+      [(cons var vars) (initial-variables-helper vars (var-slot var stack))]))
+
 
   (define (stack-index [var : Bytes] [stack : AbstractStack]) : Byte
     (stack-index-helper var stack 0))
@@ -161,6 +172,7 @@
   (define (stack-index-helper [var : Bytes] [stack : AbstractStack] [offset : Byte]) : Byte
     (case stack
       [(empty-abstract-stack) (panic #"Unbound variable")]
+      [(return-address-slot stack) (stack-index-helper var stack (+ 1 offset))]
       [(tmp-slot stack) (stack-index-helper var stack (+ 1 offset))]
       [(var-slot slot-var stack)
        (if (bytes=? var slot-var)
@@ -191,6 +203,12 @@
       [(plus-op) #"+"]
       [(minus-op) #"-"]
       [(times-op) #"*"]))
+
+  ;; TODO make this work polymorphically
+  (define (length/bytes [l : (List Bytes)]) : Byte
+    (case l
+      [(empty) 0]
+      [(cons e l) (+ 1 (length/bytes l))]))
 
   (define (length [l : (List ArithExpr)]) : Byte
     (case l
