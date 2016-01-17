@@ -188,6 +188,6 @@
                        (define (f x) (+ x (g 3 4)))
                        (define (g y z) (* y z)))" #:exit-code 14)
 
-    parse-libraries-suite
+    ;parse-libraries-suite
   )
   'verbose))
