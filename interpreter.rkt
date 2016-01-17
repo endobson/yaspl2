@@ -130,17 +130,13 @@
   (define stdin (open-input-bytes stdin-bytes 'stderr))
   (define args (list (prim-port-val stdin) (prim-port-val stdout) (prim-port-val stderr)))
 
-  (define return-val (run-machine (call-function main-fun args (halt-k))))
+  (define return-val (call-function main-fun args (halt-k)))
   (program-result
     (if (error-sentinal? return-val) 255 (byte-val-v return-val))
     (and (error-sentinal? return-val) (error-sentinal-info return-val))
     (get-output-bytes stdout)
     (get-output-bytes stderr)))
 
-(struct eval-machine-state (expr env cont))
-(struct apply-machine-state (vals exprs env cont))
-(struct cont-machine-state (val cont))
-(struct error-machine-state (info))
 
 
 
@@ -152,8 +148,8 @@
                  (for/fold ([env (hash-copy/immutable env)])
                            ([v (in-list args)] [name (in-list arg-names)])
                    (hash-set env name v))])
-           (eval-machine-state body new-env cont))
-         (error-machine-state
+           (run-eval body new-env cont))
+         (error-sentinal
            (string->bytes/utf-8
              (format "Wrong number of arguments: Expected ~a, got ~a"
                      (length arg-names) (length args)))))]
@@ -161,89 +157,80 @@
      (unless (= (length args) (length fields))
        (error 'variant-constructor "Wrong number of arguments for ~a: Expected ~a, got ~a"
               variant-name (length fields) (length args)))
-     (cont-machine-state (variant-val variant-name args) cont)]
+     (run-cont (variant-val variant-name args) cont)]
     [(field-accessor-val variant-name index)
      (match args
        [(list (variant-val (== variant-name equal?) fields))
-        (cont-machine-state (list-ref fields index) cont)]
+        (run-cont (list-ref fields index) cont)]
        [_
-         (error-machine-state #"Wrong variant")])]
+         (error-sentinal #"Wrong variant")])]
     [(prim-function-val name)
      (match (run-primitive name args)
-       [(? value? val) (cont-machine-state val cont)]
-       [(error-sentinal info) (error-machine-state info)])]))
+       [(? value? val) (run-cont val cont)]
+       [(error-sentinal info) (error-sentinal info)])]))
 
 
+(define (run-eval expr env cont)
+  (match expr
+    [(byte& v)
+     (run-cont (byte-val v) cont)]
+    [(bytes& v)
+     (run-cont (bytes-val v) cont)]
+    [(boolean& v)
+     (run-cont (boolean-val v) cont)]
+    [(variable& v)
+     (define val (hash-ref env v #f))
+     (if val
+         (run-cont val cont)
+         (error-sentinal (string->bytes/utf-8 (format "No binding for ~a available" v))))]
+    [(app& op vs)
+     (run-apply empty (cons op vs) env cont)]
+    [(if& cond true false)
+     (run-eval cond env (if-k true false env cont))]
+    [(begin& first-expr exprs)
+     (run-eval first-expr env
+       (for/fold ([cont cont]) ([expr (in-list (reverse exprs))])
+         (ignore-k expr env cont)))]
+    [(case& expr clauses)
+     (run-eval expr env (case-k clauses env cont))]
+    [(let& name expr body)
+     (run-eval expr env (bind-k name body env cont))]))
 
-(define (run-machine machine)
-  (match machine
-    [(error-machine-state info)
-     (error-sentinal info)]
-    [(eval-machine-state expr env cont)
-     (match expr
-       [(byte& v)
-        (run-machine (cont-machine-state (byte-val v) cont))]
-       [(bytes& v)
-        (run-machine (cont-machine-state (bytes-val v) cont))]
-       [(boolean& v)
-        (run-machine (cont-machine-state (boolean-val v) cont))]
-       [(variable& v)
-        (define val (hash-ref env v #f))
-        (run-machine
-          (if val
-              (cont-machine-state val cont)
-              (error-machine-state (string->bytes/utf-8 (format "No binding for ~a available" v)))))]
-       [(app& op vs)
-        (run-machine (apply-machine-state empty (cons op vs) env cont))]
-       [(if& cond true false)
-        (run-machine (eval-machine-state cond env (if-k true false env cont)))]
-       [(begin& first-expr exprs)
-        (run-machine
-          (eval-machine-state first-expr env
-            (for/fold ([cont cont]) ([expr (in-list (reverse exprs))])
-              (ignore-k expr env cont))))]
-       [(case& expr clauses)
-        (run-machine
-          (eval-machine-state expr env (case-k clauses env cont)))]
-       [(let& name expr body)
-        (run-machine
-          (eval-machine-state expr env
-            (bind-k name body env cont)))])]
-    [(apply-machine-state vals exprs env cont)
-     (run-machine
-       (if (empty? exprs)
-           (let ([vals (reverse vals)])
-             (call-function (first vals) (rest vals) cont))
-           (eval-machine-state
-             (first exprs)
-             env
-             (apply-k vals (rest exprs) env cont))))]
-    [(cont-machine-state val cont)
-     (match cont
-       [(halt-k) val]
-       [(ignore-k expr env cont)
-        (run-machine (eval-machine-state expr env cont))]
-       [(apply-k vals args env cont)
-        (run-machine (apply-machine-state (cons val vals) args env cont))]
-       [(if-k true false env cont)
-        (define expr (if (boolean-val-v val) true false))
-        (run-machine (eval-machine-state expr env cont))]
-       [(case-k clauses env cont)
-        (match val
-          [(variant-val variant-name _)
-           (define clause
-             (for/first ([clause (in-list clauses)]
-                         #:when (equal? (case-clause&-variant-name clause) variant-name))
-               clause))
-           (unless clause
-             (error 'case "No match for ~a in ~a"
-                    variant-name (map case-clause&-variant-name clauses)))
-           (define new-env
-             (for/fold ([env env]) ([arg-name (in-list (case-clause&-field-variables clause))]
-                                    [field-val (in-list (variant-val-fields val))])
-               (hash-set env arg-name field-val)))
+(define (run-apply vals exprs env cont)
+  (if (empty? exprs)
+      (let ([vals (reverse vals)])
+        (call-function (first vals) (rest vals) cont))
+      (run-eval
+        (first exprs)
+        env
+        (apply-k vals (rest exprs) env cont))))
 
-           (run-machine (eval-machine-state (case-clause&-expr clause) new-env cont))])]
-       [(bind-k name body env cont)
-        (run-machine (eval-machine-state body (hash-set env name val) cont))])]))
+(define (run-cont val cont)
+  (match cont
+    [(halt-k) val]
+    [(ignore-k expr env cont)
+     (run-eval expr env cont)]
+    [(apply-k vals args env cont)
+     (run-apply (cons val vals) args env cont)]
+    [(if-k true false env cont)
+     (define expr (if (boolean-val-v val) true false))
+     (run-eval expr env cont)]
+    [(case-k clauses env cont)
+     (match val
+       [(variant-val variant-name _)
+        (define clause
+          (for/first ([clause (in-list clauses)]
+                      #:when (equal? (case-clause&-variant-name clause) variant-name))
+            clause))
+        (unless clause
+          (error 'case "No match for ~a in ~a"
+                 variant-name (map case-clause&-variant-name clauses)))
+        (define new-env
+          (for/fold ([env env]) ([arg-name (in-list (case-clause&-field-variables clause))]
+                                 [field-val (in-list (variant-val-fields val))])
+            (hash-set env arg-name field-val)))
+
+        (run-eval (case-clause&-expr clause) new-env cont)])]
+    [(bind-k name body env cont)
+     (run-eval body (hash-set env name val) cont)]))
 
