@@ -131,6 +131,7 @@
     (yaspl-test #:module-name 'lexer #:stdin #"#:foo" #:exit-code 0)
     (yaspl-test #:module-name 'lexer #:stdin #"#\"foo" #:exit-code 1)
     (yaspl-test #:module-name 'lexer #:stdin #"#\"foo\"" #:exit-code 0)
+    (yaspl-test #:module-name 'lexer #:stdin #"a;.&\na" #:exit-code 0)
 
 
     (yaspl-test #:module-name 'sexp-parser #:stdin #"" #:exit-code 255 #:error #"Sexp result error")
@@ -148,6 +149,8 @@
     (yaspl-test #:module-name 'sexp-parser #:stdin #"(+ 2 3)" #:exit-code 0)
     (yaspl-test #:module-name 'sexp-parser #:stdin #"#:foo" #:exit-code 0)
     (yaspl-test #:module-name 'sexp-parser #:stdin #"#\"foo\"" #:exit-code 0)
+    (yaspl-test #:module-name 'sexp-parser #:stdin #";.&\na" #:exit-code 0)
+    (yaspl-test #:module-name 'sexp-parser #:stdin #"(a;.&\na)" #:exit-code 0)
 
 
     (yaspl-test #:module-name 'sexp-parser #:stdin #"[]" #:exit-code 0)
