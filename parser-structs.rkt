@@ -20,7 +20,12 @@
 (struct app& expression& (op args) #:transparent)
 (struct let& expression& (name expr body) #:transparent)
 (struct case& expression& (expr clauses) #:transparent)
-(struct case-clause& (variant-name field-variables expr) #:transparent)
+(struct case-clause& (pattern expr) #:transparent)
+
+(struct pattern& ())
+(struct bytes-pattern& pattern& ())
+(struct variable-pattern& pattern& (v))
+(struct abstraction-pattern& pattern& (name patterns))
 
 (struct define-type& (type-name type-variables variants))
 (struct variant& (name fields))

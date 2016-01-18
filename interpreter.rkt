@@ -220,13 +220,17 @@
        [(variant-val variant-name _)
         (define clause
           (for/first ([clause (in-list clauses)]
-                      #:when (equal? (case-clause&-variant-name clause) variant-name))
+                      #:when (equal?
+                               (abstraction-pattern&-name (case-clause&-pattern clause))
+                               variant-name))
             clause))
         (unless clause
           (error 'case "No match for ~a in ~a"
-                 variant-name (map case-clause&-variant-name clauses)))
+                 variant-name (map case-clause&-pattern clauses)))
         (define new-env
-          (for/fold ([env env]) ([arg-name (in-list (case-clause&-field-variables clause))]
+          (for/fold ([env env]) ([arg-name (in-list (map variable-pattern&-v
+                                                         (abstraction-pattern&-patterns
+                                                           (case-clause&-pattern clause))))]
                                  [field-val (in-list (variant-val-fields val))])
             (hash-set env arg-name field-val)))
 

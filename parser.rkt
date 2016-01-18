@@ -95,7 +95,13 @@
     [`(let ([,(? symbol? name) ,expr]) ,body)
      (let& name (parse expr) (parse body))]
     [`(case ,expr . ,(list (list (list (? symbol? variant-names) (? symbol? field-namess) ...) bodies) ...))
-     (case& (parse expr) (map case-clause& variant-names field-namess (map parse bodies)))]
+     (case& (parse expr)
+            (for/list ([variant-name (in-list variant-names)]
+                       [field-names (in-list field-namess)]
+                       [body (in-list bodies)])
+              (case-clause&
+                (abstraction-pattern& variant-name (map variable-pattern& field-names))
+                (parse body))))]
     [(list op args ...)
      (app& (parse op) (map parse args))]))
 

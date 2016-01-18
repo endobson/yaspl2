@@ -42,7 +42,10 @@
       [(let& name expr body)
        (recur expr)
        ((recur/env (set-add env name)) body)]
-      [(case& expr (list (case-clause& _ field-varss bodies) ...))
+      [(case& expr (list (case-clause&
+                           (abstraction-pattern& _ (list (variable-pattern& field-varss) ...))
+                           bodies)
+                         ...))
        (recur expr)
        (for ([body (in-list bodies)]
              [field-vars (in-list field-varss)])
@@ -365,7 +368,7 @@
      (define expr-type (type-infer expr))
      (define patterns
        (for/list ([clause (in-list clauses)])
-         (binding-env-pattern-ref env (case-clause&-variant-name clause))))
+         (binding-env-pattern-ref env (abstraction-pattern&-name (case-clause&-pattern clause)))))
      (define expected-types (list->set (map pattern-spec-input-type patterns)))
      (define expected-type-vars (list->set (map pattern-spec-type-vars patterns)))
      (unless (= (set-count expected-types) 1)
@@ -380,7 +383,10 @@
 
      (for ([clause (in-list clauses)] [pattern (in-list patterns)])
        (match* (clause pattern)
-         [((case-clause& _ field-vars expr) (pattern-spec _ _ field-types))
+         [((case-clause&
+             (abstraction-pattern& _ (list (variable-pattern& field-vars) ...))
+             expr)
+           (pattern-spec _ _ field-types))
           (unless (= (length field-vars) (length field-types))
             (error 'type-check "Case clause has wrong number of patterns"))
 
@@ -434,7 +440,7 @@
      (define expr-type (type-infer expr))
      (define patterns
        (for/list ([clause (in-list clauses)])
-         (binding-env-pattern-ref env (case-clause&-variant-name clause))))
+         (binding-env-pattern-ref env (abstraction-pattern&-name (case-clause&-pattern clause)))))
      (define expected-types (list->set (map pattern-spec-input-type patterns)))
      (define expected-type-vars (list->set (map pattern-spec-type-vars patterns)))
      (unless (= (set-count expected-types) 1)
@@ -449,7 +455,10 @@
      (define types
        (for/set ([clause (in-list clauses)] [pattern (in-list patterns)])
          (match* (clause pattern)
-           [((case-clause& _ field-vars expr) (pattern-spec _ _ field-types))
+           [((case-clause&
+               (abstraction-pattern& _ (list (variable-pattern& field-vars) ...))
+               expr)
+             (pattern-spec _ _ field-types))
             (unless (= (length field-vars) (length field-types))
               (error 'type-check "Case clause has wrong number of patterns"))
             (define new-env
