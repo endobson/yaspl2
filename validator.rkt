@@ -42,14 +42,21 @@
       [(let& name expr body)
        (recur expr)
        ((recur/env (set-add env name)) body)]
-      [(case& expr (list (case-clause&
-                           (abstraction-pattern& _ (list (variable-pattern& field-varss) ...))
-                           bodies)
-                         ...))
-       (recur expr)
-       (for ([body (in-list bodies)]
-             [field-vars (in-list field-varss)])
-         ((recur/env (set-union env (list->set field-vars))) body))]))
+      [(case& expr clauses)
+       (for ([clause (in-list clauses)])
+         (define (pattern-binding-variables p acc)
+           (match p
+             [(bytes-pattern&) acc]
+             [(variable-pattern& v) (cons v acc)]
+             [(abstraction-pattern& name patterns)
+              (for/fold ([acc acc]) ([pattern (in-list patterns)])
+                (pattern-binding-variables pattern acc))]))
+         (match clause
+           [(case-clause& pattern expr)
+            (define binders (pattern-binding-variables pattern empty))
+            (when (check-duplicates binders)
+              (error 'ensure-no-free-variables "Duplicate binder in ~a" binders))
+            ((recur/env (set-union env (list->set binders))) expr)]))]))
 
 
   (match module
