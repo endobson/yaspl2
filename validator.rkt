@@ -336,12 +336,16 @@
 
 (define ((type-check/env env) expr type)
   (define type-check (type-check/env env))
-  (define type-infer (type-infer/env env))
+  (define (type-infer expr) ((type-check/env env) expr (unknown-ty)))
 
   (define (check actual-type [expected-type type])
-    (unless (equal? actual-type expected-type)
-      (error 'type-check "Types don't match: Got ~s but expected ~s in ~s"
-             actual-type expected-type expr)))
+    (cond
+      [(unknown-ty? expected-type)
+       actual-type]
+      [else
+       (unless (equal? actual-type expected-type)
+         (error 'type-check "Types don't match: Got ~s but expected ~s in ~s"
+                actual-type expected-type expr))]))
   (match expr
     [(byte& _) (check (byte-ty))]
     [(bytes& _) (check (bytes-ty))]
@@ -358,15 +362,29 @@
         (for-each (λ (e) (type-check e (void-ty))) exprs)
         (type-check last-expr type)])]
     [(app& op args)
+     ;; TODO make this use the type information on the op instead
      (match (type-infer op)
        [(fun-ty type-vars arg-types body-type)
         (unless (equal? (length arg-types) (length args))
           (error 'type-check "Cannot apply function: Got ~s but expected ~s arguments"
                  (length args)
                  (length arg-types)))
-        (define substitution (unify-types type-vars (list (list body-type type))))
-        (for ([arg (in-list args)] [arg-type (in-list arg-types)])
-          (type-check arg (substitute substitution arg-type)))])]
+        (cond
+          [(unknown-ty? type)
+           (cond
+             [(empty? type-vars)
+              (for ([arg (in-list args)] [arg-type (in-list arg-types)])
+                (type-check arg arg-type))
+              (check body-type)]
+             [else
+               (check
+                 (substitute
+                   (unify-types type-vars (map list arg-types (map type-infer args)))
+                   body-type))])]
+          [else
+           (define substitution (unify-types type-vars (list (list body-type type))))
+           (for ([arg (in-list args)] [arg-type (in-list arg-types)])
+             (type-check arg (substitute substitution arg-type)))])])]
     [(let& name expr body)
      (let* ([expr-type (type-infer expr)]
             [type-env (binding-env-value-set env name expr-type)])
@@ -388,77 +406,6 @@
        (unify-types (set-first expected-type-vars)
                     (list (list (set-first expected-types) expr-type))))
 
-     (for ([clause (in-list clauses)] [pattern (in-list patterns)])
-       (match* (clause pattern)
-         [((case-clause&
-             (abstraction-pattern& _ (list (variable-pattern& field-vars) ...))
-             expr)
-           (pattern-spec _ _ field-types))
-          (unless (= (length field-vars) (length field-types))
-            (error 'type-check "Case clause has wrong number of patterns"))
-
-          (define new-env
-            (for/fold ([env env]) ([field-var (in-list field-vars)] [field-type field-types])
-              (binding-env-value-set env field-var (substitute substitution field-type))))
-
-          ((type-check/env new-env) expr type)]))]))
-
-;; TODO: Merge this code with typechecking
-(define ((type-infer/env env) expr)
-  (define type-check (type-check/env env))
-  (define type-infer (type-infer/env env))
-
-  (match expr
-    [(byte& _) (byte-ty)]
-    [(bytes& _) (bytes-ty)]
-    [(boolean& _) (boolean-ty)]
-    [(variable& v)
-     (binding-env-value-ref env v)]
-    [(if& cond true false)
-     (type-check cond (boolean-ty))
-     (type-infer true)
-     (type-infer false)]
-    [(begin& first-expr exprs)
-     (match (cons first-expr exprs)
-       [(list exprs ... last-expr)
-        (for-each (λ (e) (type-check e (void-ty))) exprs)
-        (type-infer last-expr)])]
-    [(app& op args)
-     (match (type-infer op)
-       [(fun-ty type-vars arg-types body-type)
-        (unless (equal? (length arg-types) (length args))
-          (error 'type-check "Cannot apply function: Got ~s but expected ~s arguments"
-                 (length arg-types)
-                 (length args)))
-        (cond
-          [(empty? type-vars)
-           (for ([arg (in-list args)] [arg-type (in-list arg-types)])
-             (type-check arg arg-type))
-           body-type]
-          [else
-            (substitute
-              (unify-types type-vars (map list arg-types (map type-infer args)))
-              body-type)])])]
-    [(let& name expr body)
-     (let* ([expr-type (type-infer expr)]
-            [type-env (binding-env-value-set env name expr-type)])
-       ((type-infer/env type-env) body))]
-    [(case& expr clauses)
-     (define expr-type (type-infer expr))
-     (define patterns
-       (for/list ([clause (in-list clauses)])
-         (binding-env-pattern-ref env (abstraction-pattern&-name (case-clause&-pattern clause)))))
-     (define expected-types (list->set (map pattern-spec-input-type patterns)))
-     (define expected-type-vars (list->set (map pattern-spec-type-vars patterns)))
-     (unless (= (set-count expected-types) 1)
-       (error 'type-infer "Case clause has multiple expected types: ~s" expected-types))
-     (unless (= (set-count expected-type-vars) 1)
-       (error 'type-infer "Case clause has conflicting type-vars"))
-
-     (define substitution
-       (unify-types (set-first expected-type-vars)
-                    (list (list (set-first expected-types) expr-type))))
-
      (define types
        (for/set ([clause (in-list clauses)] [pattern (in-list patterns)])
          (match* (clause pattern)
@@ -468,12 +415,15 @@
              (pattern-spec _ _ field-types))
             (unless (= (length field-vars) (length field-types))
               (error 'type-check "Case clause has wrong number of patterns"))
+
             (define new-env
               (for/fold ([env env]) ([field-var (in-list field-vars)] [field-type field-types])
                 (binding-env-value-set env field-var (substitute substitution field-type))))
 
-            ((type-infer/env new-env) expr)])))
-     (unless (= (set-count types) 1)
-       (error 'type-infer "Case clauses have conflicting result types"))
-     (set-first types)]))
+            ((type-check/env new-env) expr type)])))
 
+
+     (when (unknown-ty? type)
+       (unless (= (set-count types) 1)
+         (error 'type-infer "Case clauses have conflicting result types"))
+       (set-first types))]))

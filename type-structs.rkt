@@ -13,6 +13,9 @@
 (struct input-port-ty type () #:transparent)
 (struct output-port-ty type () #:transparent)
 
+;; Only used in typechecking as an expected type to indicate type inference
+(struct unknown-ty type () #:transparent)
+
 (struct box-ty-constructor type () #:transparent)
 (struct box-ty type (v) #:transparent)
 
