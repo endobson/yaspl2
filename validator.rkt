@@ -271,8 +271,8 @@
 (define (binding-env-pattern-ref env name)
   (hash-ref (binding-env-patterns env) name))
 
-;; Finds a substitution of types for type-vars so that if every type variable in the left half of the
-;; pairs was replaced by its corresponding type it would be equal to the right half of that pair.
+;; Finds a substitution of types for type-vars so that if every type variable instance was replaced by
+;; its correspending type then all the pairs would be equal.
 (define (unify-types type-vars type-pairs-list)
   (define (check-type-map type-map)
     (unless (andmap (λ (tv) (hash-has-key? type-map tv)) type-vars)
@@ -280,21 +280,67 @@
              type-vars type-map type-pairs-list))
     type-map)
 
+
+  (define ((replace v new-t) t)
+    (define (replace t)
+      (match t
+        [(type-var-ty v2)
+         (if (equal? v v2) new-t t)]
+        [(data-ty mod-name name args)
+         (data-ty mod-name name (map replace args))]
+        [(void-ty) t]
+        [(byte-ty) t]
+        [(bytes-ty) t]
+        [(boolean-ty) t]
+        [(input-port-ty) t]
+        [(output-port-ty) t]))
+    (replace t))
+
+  (define ((replace-pair v new-t) pair)
+    (map (replace v new-t) pair))
+
+  (define (occurs-check v t)
+    (define (check t)
+      (match t
+        [(type-var-ty v2)
+         (when (equal? v v2)
+           (error 'occurs-check))]
+        [(data-ty mod-name name args)
+         (for-each check args)]
+        [(void-ty) (void)]
+        [(byte-ty) (void)]
+        [(bytes-ty) (void)]
+        [(boolean-ty) (void)]
+        [(input-port-ty) (void)]
+        [(output-port-ty) (void)]))
+    (check t))
+
+
   (let loop ([type-map (hash)] [pairs type-pairs-list])
     (define (add-to-type-map var type)
-      (define existing-type (hash-ref type-map var #f))
-      (when (and existing-type (not (equal? existing-type type)))
-        (error 'unify-types "Cannot unify ~s with ~s" type existing-type))
-      (if existing-type
-          type-map
-          (hash-set type-map var type)))
+      (when (hash-ref type-map var #f)
+        (error 'unify-types "Cannot unify ~s twice" var))
+      (hash-set
+        (for/hash ([(k v) (in-hash type-map)])
+          (values k ((replace var type) v)))
+        var
+        type))
 
     (match pairs
       [(list) (check-type-map type-map)]
       [(cons (list l r) pairs)
        (match* (l r)
+         [((type-var-ty lv) (type-var-ty rv))
+          #:when (equal? lv rv)
+          (loop type-map pairs)]
          [((type-var-ty (? (λ (v) (member v type-vars)) v)) r)
-          (loop (add-to-type-map v r) pairs)]
+          (occurs-check v r)
+          (loop (add-to-type-map v r)
+                (map (replace-pair v r) pairs))]
+         [(l (type-var-ty (? (λ (v) (member v type-vars)) v)))
+          (occurs-check v l)
+          (loop (add-to-type-map v l)
+                (map (replace-pair v l) pairs))]
          ;; TODO support for function types
          ;; TODO support for inductive types
          [((void-ty) (void-ty))
@@ -311,10 +357,7 @@
           (loop type-map pairs)]
          [((data-ty mod-name-l name-l args-l) (data-ty mod-name-r name-r args-r))
           #:when (and (equal? mod-name-l mod-name-r) (equal? name-l name-r))
-          (loop type-map (append (map list args-l args-r) pairs))]
-         [((type-var-ty lv) (type-var-ty rv))
-          #:when (equal? lv rv)
-          (loop type-map pairs)])])))
+          (loop type-map (append (map list args-l args-r) pairs))])])))
 
 (define (substitute type-map t)
   (define sub (λ (t) (substitute type-map t)))
@@ -393,37 +436,24 @@
        ((type-check/env type-env) body type))]
     [(case& expr clauses)
      (define expr-type (type-infer expr))
-     (define patterns
-       (for/list ([clause (in-list clauses)])
-         (binding-env-pattern-ref env (abstraction-pattern&-name (case-clause&-pattern clause)))))
-     ;; TODO use fresh type variables here
-     (define expected-types (list->set (map pattern-spec-input-type patterns)))
-     (define expected-type-vars (list->set (map pattern-spec-type-vars patterns)))
-     (unless (= (set-count expected-types) 1)
-       (error 'type-check "Case clause has multiple expected types: ~s" expected-types))
-     (unless (= (set-count expected-type-vars) 1)
-       (error 'type-check "Case clause has conflicting type-vars"))
-
-
-     (define substitution
-       (unify-types (set-first expected-type-vars)
-                    (list (list (set-first expected-types) expr-type))))
 
      (define types
-       (for/set ([clause (in-list clauses)] [pattern (in-list patterns)])
-         (match* (clause pattern)
-           [((case-clause&
-               (abstraction-pattern& _ (list (variable-pattern& field-vars) ...))
-               expr)
-             (pattern-spec _ _ field-types))
-            (unless (= (length field-vars) (length field-types))
-              (error 'type-check "Case clause has wrong number of patterns"))
+       (for/set ([clause (in-list clauses)])
+         (match clause
+           [(case-clause& pattern body)
+            ;; The variables are already fresh
+            (match-define (template-data type-vars var-types constraints pattern-type)
+              ((pattern->template-data/env env) pattern))
+
+            (define substitution
+              (unify-types type-vars (cons (list pattern-type expr-type) constraints)))
+
 
             (define new-env
-              (for/fold ([env env]) ([field-var (in-list field-vars)] [field-type field-types])
+              (for/fold ([env env]) ([(field-var field-type) (in-hash var-types)])
                 (binding-env-value-set env field-var (substitute substitution field-type))))
 
-            ((type-check/env new-env) expr type)])))
+            ((type-check/env new-env) body type)])))
 
 
      (when (unknown-ty? type)
@@ -440,3 +470,31 @@
   (values
     fresh-ty-vars
     (map (λ (t) (substitute type-map t)) stale-types)))
+
+
+(struct template-data (type-vars var-types constraints type))
+
+(define ((pattern->template-data/env env) pattern)
+  (define pattern->template-data (pattern->template-data/env env))
+  (match pattern
+    [(bytes-pattern&) (template-data empty (hash) empty (bytes-ty))]
+    [(variable-pattern& v)
+     (define tv (fresh-ty-var v))
+     (template-data (list tv) (hash v (type-var-ty tv)) empty (type-var-ty tv))]
+    [(abstraction-pattern& name patterns)
+     (define templates (map pattern->template-data patterns))
+     (define pattern-spec (binding-env-pattern-ref env name))
+     (define-values (ty-vars types)
+       (freshen-types
+         (pattern-spec-type-vars pattern-spec)
+         (cons (pattern-spec-input-type pattern-spec)
+               (pattern-spec-field-types pattern-spec))))
+     (match-define (cons type field-types) types)
+     (define constraints
+       (map list field-types (map template-data-type templates)))
+
+     (template-data
+       (append* ty-vars (map template-data-type-vars templates))
+       (apply hash-union (hash) (map template-data-var-types templates))
+       (append* constraints (map template-data-constraints templates))
+       type)]))
