@@ -364,7 +364,9 @@
     [(app& op args)
      ;; TODO make this use the type information on the op instead
      (match (type-infer op)
-       [(fun-ty type-vars arg-types body-type)
+       [(fun-ty stale-type-vars stale-arg-types stale-body-type)
+        (match-define-values (type-vars (cons body-type arg-types))
+          (freshen-types stale-type-vars (cons stale-body-type stale-arg-types)))
         (unless (equal? (length arg-types) (length args))
           (error 'type-check "Cannot apply function: Got ~s but expected ~s arguments"
                  (length args)
@@ -394,6 +396,7 @@
      (define patterns
        (for/list ([clause (in-list clauses)])
          (binding-env-pattern-ref env (abstraction-pattern&-name (case-clause&-pattern clause)))))
+     ;; TODO use fresh type variables here
      (define expected-types (list->set (map pattern-spec-input-type patterns)))
      (define expected-type-vars (list->set (map pattern-spec-type-vars patterns)))
      (unless (= (set-count expected-types) 1)
@@ -427,3 +430,13 @@
        (unless (= (set-count types) 1)
          (error 'type-infer "Case clauses have conflicting result types"))
        (set-first types))]))
+
+(define (fresh-ty-var sym)
+  (gensym sym))
+
+(define (freshen-types stale-vars stale-types)
+  (define fresh-ty-vars (map fresh-ty-var stale-vars))
+  (define type-map (make-immutable-hash (map cons stale-vars (map type-var-ty fresh-ty-vars))))
+  (values
+    fresh-ty-vars
+    (map (λ (t) (substitute type-map t)) stale-types)))
