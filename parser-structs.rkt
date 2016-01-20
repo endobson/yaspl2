@@ -23,7 +23,7 @@
 (struct case-clause& (pattern expr) #:transparent)
 
 (struct pattern& ())
-(struct bytes-pattern& pattern& ())
+(struct bytes-pattern& pattern& (v))
 (struct variable-pattern& pattern& (v))
 (struct abstraction-pattern& pattern& (name patterns))
 

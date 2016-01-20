@@ -7,6 +7,7 @@
   "utils.rkt"
   racket/list
   racket/set
+  racket/hash
   racket/match)
 (provide
   run-program
@@ -216,25 +217,32 @@
      (define expr (if (boolean-val-v val) true false))
      (run-eval expr env cont)]
     [(case-k clauses env cont)
-     (match val
-       [(variant-val variant-name _)
-        (define clause
-          (for/first ([clause (in-list clauses)]
-                      #:when (equal?
-                               (abstraction-pattern&-name (case-clause&-pattern clause))
-                               variant-name))
-            clause))
-        (unless clause
-          (error 'case "No match for ~a in ~a"
-                 variant-name (map case-clause&-pattern clauses)))
-        (define new-env
-          (for/fold ([env env]) ([arg-name (in-list (map variable-pattern&-v
-                                                         (abstraction-pattern&-patterns
-                                                           (case-clause&-pattern clause))))]
-                                 [field-val (in-list (variant-val-fields val))])
-            (hash-set env arg-name field-val)))
-
-        (run-eval (case-clause&-expr clause) new-env cont)])]
+     (define match-result
+       (for*/first ([clause (in-list clauses)]
+                    [res (in-value (match-pattern (case-clause&-pattern clause) val))]
+                    #:when res)
+         (list (case-clause&-expr clause) res)))
+     (unless match-result
+       (error 'case "No match for ~a in ~a"
+              val (map case-clause&-pattern clauses)))
+     (match-define (list expr value-map) match-result)
+     (run-eval expr (hash-union env value-map #:combine (λ (old new) new)) cont)]
     [(bind-k name body env cont)
      (run-eval body (hash-set env name val) cont)]))
+
+;; Returns either #f or (Hash Variable Value)
+(define (match-pattern p v)
+  (match p
+    [(bytes-pattern& bytes)
+     (match v
+       [(bytes-val v-bytes)
+        (and (equal? bytes v-bytes) (hash))])]
+    [(variable-pattern& var)
+     (hash var v)]
+    [(abstraction-pattern& pattern-name field-patterns)
+     (match v
+       [(variant-val name fields)
+        (and (equal? name pattern-name)
+             (for/fold ([acc (hash)]) ([res (map match-pattern field-patterns fields)])
+               (and acc res (hash-union acc res))))])]))
 

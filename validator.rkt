@@ -46,7 +46,7 @@
        (for ([clause (in-list clauses)])
          (define (pattern-binding-variables p acc)
            (match p
-             [(bytes-pattern&) acc]
+             [(bytes-pattern& _) acc]
              [(variable-pattern& v) (cons v acc)]
              [(abstraction-pattern& name patterns)
               (for/fold ([acc acc]) ([pattern (in-list patterns)])
@@ -477,7 +477,7 @@
 (define ((pattern->template-data/env env) pattern)
   (define pattern->template-data (pattern->template-data/env env))
   (match pattern
-    [(bytes-pattern&) (template-data empty (hash) empty (bytes-ty))]
+    [(bytes-pattern& _) (template-data empty (hash) empty (bytes-ty))]
     [(variable-pattern& v)
      (define tv (fresh-ty-var v))
      (template-data (list tv) (hash v (type-var-ty tv)) empty (type-var-ty tv))]
