@@ -94,16 +94,22 @@
      (begin& (parse first-expr) (map parse exprs))]
     [`(let ([,(? symbol? name) ,expr]) ,body)
      (let& name (parse expr) (parse body))]
-    [`(case ,expr . ,(list (list (list (? symbol? variant-names) (? symbol? field-namess) ...) bodies) ...))
+    [`(case ,expr . ,(list (list patterns bodies) ...))
      (case& (parse expr)
-            (for/list ([variant-name (in-list variant-names)]
-                       [field-names (in-list field-namess)]
+            (for/list ([pattern (in-list patterns)]
                        [body (in-list bodies)])
               (case-clause&
-                (abstraction-pattern& variant-name (map variable-pattern& field-names))
+                (parse-pattern pattern)
                 (parse body))))]
     [(list op args ...)
      (app& (parse op) (map parse args))]))
+
+(define (parse-pattern sexp)
+  (match sexp
+    [(? (and/c bytes? immutable?) v) (bytes-pattern& v)]
+    [(? symbol? v) (variable-pattern& v)]
+    [(list (? symbol? name) patterns ...)
+     (abstraction-pattern& name (map parse-pattern patterns))]))
 
 (define (parse-pre-type sexp)
   (match sexp
