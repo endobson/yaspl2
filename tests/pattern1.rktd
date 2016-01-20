@@ -16,7 +16,7 @@
            [foo 1])]
         [#"2"
          (case v
-           [(foo-c b1 _a (foo-c b2 _b _c))
+           [(foo-c b1 _ (foo-c b2 _ _))
             (begin
               (write-all-bytes b1 stdout)
               (write-all-bytes b2 stdout)

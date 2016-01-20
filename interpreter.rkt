@@ -239,6 +239,8 @@
         (and (equal? bytes v-bytes) (hash))])]
     [(variable-pattern& var)
      (hash var v)]
+    [(ignore-pattern&)
+     (hash)]
     [(abstraction-pattern& pattern-name field-patterns)
      (match v
        [(variant-val name fields)
