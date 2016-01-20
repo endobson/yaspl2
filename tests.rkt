@@ -100,7 +100,7 @@
       (test-suite name
         (test-begin
           (define file-contents (call-with-input-file* file port->bytes))
-          (yaspl-test #:module-name 'sexp-parser #:stdin file-contents))))))
+          (yaspl-test #:module-name 'source-language #:stdin file-contents))))))
 
 (define run-test-files-suite
   (make-test-suite "test directory"
