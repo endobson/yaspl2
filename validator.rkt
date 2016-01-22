@@ -295,10 +295,10 @@
 ;; its correspending type then all the pairs would be equal.
 (define (unify-types type-vars type-pairs-list)
   (define (check-type-map type-map)
-    (unless (andmap (λ (tv) (hash-has-key? type-map tv)) type-vars)
-      (error 'unify-types "Not all type variables were used.: ~s ~s ~s~n"
-             type-vars type-map type-pairs-list))
-    type-map)
+    (for/fold ([type-map type-map]) ([tv (in-list type-vars)])
+      (if (hash-has-key? type-map tv)
+          type-map
+          (hash-set type-map tv 'unused-type-var))))
 
 
   (define ((replace v new-t) t)
@@ -383,7 +383,11 @@
   (define sub (λ (t) (substitute type-map t)))
   (match t
     ;; TODO support the rest of the primitive types
-    [(type-var-ty v) (hash-ref type-map v t)]
+    [(type-var-ty v)
+     (define res (hash-ref type-map v t))
+     (when (equal? res 'unused-type-var)
+       (error 'substitute "Attempting to use a type variable that wasn't constrained: ~s" v))
+     res]
     [(void-ty) t]
     [(byte-ty) t]
     [(bytes-ty) t]
@@ -447,9 +451,14 @@
                    (unify-types type-vars (map list arg-types (map type-infer args)))
                    body-type))])]
           [else
-           (define substitution (unify-types type-vars (list (list body-type type))))
-           (for ([arg (in-list args)] [arg-type (in-list arg-types)])
-             (type-check arg (substitute substitution arg-type)))])])]
+           (define body-substitution (unify-types type-vars (list (list body-type type))))
+           (if (member 'unused-type-var (hash-values body-substitution))
+               (check
+                 (substitute
+                   (unify-types type-vars (map list arg-types (map type-infer args)))
+                   body-type))
+               (for ([arg (in-list args)] [arg-type (in-list arg-types)])
+                 (type-check arg (substitute body-substitution arg-type)))) ])])]
     [(let& name expr body)
      (let* ([expr-type (type-infer expr)]
             [type-env (binding-env-value-set env name expr-type)])
