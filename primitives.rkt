@@ -93,7 +93,7 @@
               (hash-union
                 (hash (?@ 'clauses.name clauses.ty) ...)
                 prim-types)
-              empty
+              (hash)
               (hash)))
          (define (run name args)
            (match (cons name args)

@@ -22,11 +22,11 @@
 (struct case& expression& (expr clauses) #:transparent)
 (struct case-clause& (pattern expr) #:transparent)
 
-(struct pattern& ())
-(struct bytes-pattern& pattern& (v))
-(struct variable-pattern& pattern& (v))
-(struct ignore-pattern& pattern& ())
-(struct abstraction-pattern& pattern& (name patterns))
+(struct pattern& () #:transparent)
+(struct bytes-pattern& pattern& (v) #:transparent)
+(struct variable-pattern& pattern& (v) #:transparent)
+(struct ignore-pattern& pattern& () #:transparent)
+(struct abstraction-pattern& pattern& (name patterns) #:transparent)
 
 (struct define-type& (type-name type-variables variants))
 (struct variant& (name fields))

@@ -214,7 +214,29 @@
            mut-pattern-env)))
 
 
+     ;; TODO add types for variants
+     (define module-algebraic-types
+       (for/list ([type-def (in-list type-defs)])
+         (match type-def
+           [(define-type& type-name type-vars variants)
+            (inductive-signature module-name type-name type-vars
+              (for/list ([variant (in-list variants)])
+                (variant-signature (variant&-name variant)
+                                   (map (λ (_) 'nyi) (variant&-fields variant)))))])))
 
+     ;; TODO remove hack to limit imports
+     (define imported-algebraic-types
+       (for/fold ([acc empty]) ([module-signature (in-hash-values module-signatures)])
+         (match-define (imports& (list (import& t-mods _) ...)
+                                 (list (import& v-mods _) ...)
+                                 (list (import& p-mods _) ...)) imports)
+         (if (member (module-signature-name module-signature)
+                     (append t-mods v-mods p-mods))
+             (append (hash-values (module-signature-types module-signature)) acc)
+             acc)))
+
+     (define algebraic-types
+       (append module-algebraic-types imported-algebraic-types))
 
 
      (for ([(def-name def) (in-hash defs)])
@@ -223,7 +245,7 @@
           (match (hash-ref type-env def-name)
             [(fun-ty type-vars arg-types result-type)
              (let ([values (foldl (λ (k v h) (hash-set h k v)) type-env args arg-types)])
-               ((type-check/env (binding-env values (hash) pattern-env)) body result-type))])]))
+               ((type-check/env (binding-env values algebraic-types pattern-env)) body result-type))])]))
 
      ;; TODO limit this to only exported values not types
      (define exported-value-bindings
@@ -231,15 +253,12 @@
          (define name (export&-name export))
          (values name (hash-ref type-env name (void-ty)))))
 
-     ;; TODO limit this to the exported types
-     ;; TODO add variants
+     ;; TODO define a mechanism for exporting types and limit this to the exported types
      (define exported-type-bindings
-       (for/hash ([type-def (in-list type-defs)])
-         (match type-def
-           [(define-type& type-name type-vars variants)
-            (values
-              type-name
-              (inductive-signature module-name type-name type-vars empty))])))
+       (for/hash ([ind-sig (in-list module-algebraic-types)])
+         (values (inductive-signature-name ind-sig) ind-sig)))
+
+
 
      ;; TODO limit this to the exported patterns
      (define exported-pattern-bindings
@@ -436,6 +455,9 @@
             [type-env (binding-env-value-set env name expr-type)])
        ((type-check/env type-env) body type))]
     [(case& expr clauses)
+     (check-patterns-complete/not-useless env (map case-clause&-pattern clauses))
+
+
      (define expr-type (type-infer expr))
 
      (define types
@@ -502,3 +524,114 @@
        (apply hash-union (hash) (map template-data-var-types templates))
        (append* constraints (map template-data-constraints templates))
        type)]))
+
+
+(struct any-abstract-value () #:transparent)
+;; This is some part of the space that isn't fully matched. Usually a literal.
+;; Should only be used in the return values on the matched side.
+(struct some-abstract-value () #:transparent)
+(struct abstract-variant (name fields) #:transparent)
+
+
+(define (check-patterns-complete/not-useless env patterns)
+
+  (define (lookup-variants variant)
+    (define ind-sigs
+      (for*/list ([ind-sig (in-list (binding-env-types env))]
+                  #:when (member variant (map variant-signature-name
+                                           (inductive-signature-variants ind-sig))))
+        ind-sig))
+    ;; TODO avoid this issue
+    (unless (= (length ind-sigs) 1)
+      (error 'lookup-other-variants "Bad variant ~s: ~s" variant ind-sigs))
+    (define abstract-values
+      (for/hash ([variant-sig (in-list (inductive-signature-variants (first ind-sigs)))])
+        (define name (variant-signature-name variant-sig))
+        (values
+          name
+          (abstract-variant name (map (λ (_) (any-abstract-value))
+                                      (variant-signature-types variant-sig))))))
+    (values
+      (hash-ref abstract-values variant)
+      (list->set
+        (hash-values (hash-remove abstract-values variant)))))
+
+  (define (abstract-match/many pattern abstract-values)
+    (for/fold ([leftovers-acc (set)] [matched-acc (set)])
+              ([abstract-value (in-set abstract-values)])
+      (define-values (leftovers matched)
+        (abstract-match pattern abstract-value))
+      (values
+        (set-union leftovers-acc leftovers)
+        (set-union matched-acc matched))))
+
+
+  (define (abstract-match/vec patterns abstract-values)
+    (match* (patterns abstract-values)
+      [((list) (list))
+       (values (set) (set (list)))]
+      [((cons pattern patterns) (cons abstract-value abstract-values))
+       (define-values (unmatched matched)
+         (abstract-match pattern abstract-value))
+
+       (define unmatched-unmatched
+         (for/set ([unmatched-value (in-set unmatched)])
+           (cons unmatched-value abstract-values)))
+
+       (define-values (matched-unmatched matched-matched)
+         (if (set-empty? matched)
+             (values (set) (set))
+             (let-values ([(rec-unmatched rec-matched)
+                           (abstract-match/vec patterns abstract-values)])
+               (values
+                 (for*/set ([matched-value (in-set matched)]
+                            [unmatched-value-list (in-set rec-unmatched)])
+                   (cons matched-value unmatched-value-list))
+                 (for*/set ([matched-value (in-set matched)]
+                            [matched-value-list (in-set rec-matched)])
+                   (cons matched-value matched-value-list))))))
+       (values
+         (set-union unmatched-unmatched matched-unmatched)
+         matched-matched)]))
+
+  (define (abstract-match pattern abstract-value)
+    (match pattern
+      [(bytes-pattern& _) (values (set abstract-value) (set (some-abstract-value)))]
+      [(or (variable-pattern& _) (ignore-pattern&))
+       (values (set) (set abstract-value))]
+      [(abstraction-pattern& pat-name patterns)
+       (match abstract-value
+        [(any-abstract-value)
+         ;; Compute all variants
+         (define-values (refined-value other-variant-values)
+           (lookup-variants pat-name))
+         (define-values (unmatched matched)
+           (abstract-match pattern refined-value))
+         (values
+           (set-union unmatched other-variant-values)
+           matched)]
+        [(abstract-variant val-name fields)
+         #:when (equal? pat-name val-name)
+         (define-values (unmatched-vecs matched-vecs)
+           (abstract-match/vec patterns fields))
+         (values
+           (for/set ([unmatched-vec (in-set unmatched-vecs)])
+              (abstract-variant val-name unmatched-vec))
+           (for/set ([matched-vec (in-set matched-vecs)])
+              (abstract-variant val-name matched-vec)))]
+        [(abstract-variant _ _)
+         (values (set abstract-value) (set))])]))
+
+  (define unmatched
+    (for/fold ([incoming-abstract-values (set (any-abstract-value))])
+              ([pattern (in-list patterns)])
+      (define-values (unmatched matched)
+        (abstract-match/many pattern incoming-abstract-values))
+      (when (set-empty? matched)
+        (error 'pattern-match "Unmatchable pattern: ~s" pattern))
+      unmatched))
+  (unless (set-empty? unmatched)
+    (error 'pattern-match "Unmatched values: ~s in ~s" unmatched patterns)))
+
+
+
