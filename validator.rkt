@@ -375,6 +375,9 @@
           (loop type-map pairs)]
          [((output-port-ty) (output-port-ty))
           (loop type-map pairs)]
+         [((fun-ty '() arg-tys-l result-ty-l) (fun-ty '() arg-tys-r result-ty-r))
+          (loop type-map (cons (list result-ty-l result-ty-r)
+                               (append (map list arg-tys-l arg-tys-r) pairs)))]
          [((data-ty mod-name-l name-l args-l) (data-ty mod-name-r name-r args-r))
           #:when (and (equal? mod-name-l mod-name-r) (equal? name-l name-r))
           (loop type-map (append (map list args-l args-r) pairs))])])))
@@ -395,6 +398,9 @@
     [(input-port-ty) t]
     [(output-port-ty) t]
 
+    ;; Handle polymorhpic functions
+    [(fun-ty '() arg-types result-type)
+     (fun-ty '() (map sub arg-types) (sub result-type))]
     [(data-ty module-name name types)
      (data-ty module-name name (map sub types))]))
 

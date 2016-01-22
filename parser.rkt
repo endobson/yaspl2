@@ -116,7 +116,7 @@
   (match sexp
     [(? symbol?) (var-pre-type sexp)]
     [(list arg-types ... '-> result-type)
-     (fun-pre-type empty (map parse-pre-type arg-types) (map parse-pre-type result-type))]
+     (fun-pre-type empty (map parse-pre-type arg-types) (parse-pre-type result-type))]
     [(list (? symbol? type-constructor) arg-types ...)
      (type-app-pre-type type-constructor (map parse-pre-type arg-types))]))
 
