@@ -7,7 +7,7 @@
     (sexp-parser
       #:types (Sexp)
       #:values (parse-sexp)
-      #:patterns (node symbol-sexp))
+      #:patterns (node symbol-sexp number-sexp bytes-sexp keyword-sexp boolean-sexp))
     (io write-all-bytes read-all-bytes)
     (either
       #:types (Either)
@@ -43,7 +43,7 @@
       (fun-pre-type [type-vars (List Bytes)] [args (List PreType)] [result PreType])
       (type-app-pre-type [constructor Bytes] [args (List PreType)]))
     (define-type FunctionDefinition
-      (function-definition [name Bytes] [type PreType] [args (List Bytes)] [body Sexp]))
+      (function-definition [name Bytes] [type PreType] [args (List Bytes)] [body Expression]))
 
     (define-type Expression
       (byte-literal [v Byte])
@@ -51,7 +51,7 @@
       (boolean-literal [v Boolean])
       (var-expr [v Bytes])
       (if-expr [cond Expression] [true Expression] [false Expression])
-      (begin-expr [first (List Expression)] [last Expression])
+      (begin-expr [first-expr Expression] [exprs (List Expression)])
       (app-expr [op Expression] [args (List Expression)])
       (let-expr [name Bytes] [expr Expression] [body Expression])
       (case-expr [expr Expression] [clauses (List CaseClause)]))
@@ -60,7 +60,10 @@
       (case-clause [pattern Pattern] [expr Expression]))
 
     (define-type Pattern
-      (unparsed-pattern [v Sexp])))
+      (bytes-pattern [v Bytes])
+      (variable-pattern [v Bytes])
+      (ignore-pattern)
+      (abstraction-pattern [name Bytes] [patterns (List Pattern)])))
 
 
   (define (parse-exports/top [sexp : Sexp]) : (List Bytes)
@@ -149,7 +152,7 @@
            (map parse-arg-type args)
            (parse-pre-type result-type))
          (map parse-arg-name args)
-         body)]
+         (parse-expression body))]
       [(node (cons (symbol-sexp #"define")
                    (cons (node (cons (symbol-sexp function-name) args))
                          (cons (symbol-sexp #":")
@@ -161,7 +164,7 @@
            (map parse-arg-type args)
            (parse-pre-type result-type))
          (map parse-arg-name args)
-         body)]
+         (parse-expression body))]
       [_ (panic #"Not a valid function definition")]))
 
   (define (parse-arg-type [sexp : Sexp]) : PreType
@@ -174,6 +177,45 @@
       [(node (cons (symbol-sexp name) (cons (symbol-sexp #":") (cons _ (empty)))))
        name]
       [_ (panic #"Not a valid argument")]))
+
+  (define (parse-expression [sexp : Sexp]) : Expression
+    (case sexp
+      [(number-sexp v) (byte-literal v)]
+      [(bytes-sexp v) (bytes-literal v)]
+      [(boolean-sexp v) (boolean-literal v)]
+      [(symbol-sexp v) (var-expr v)]
+      [(node (cons (symbol-sexp #"if") (cons cond (cons true (cons false (empty))))))
+       (if-expr (parse-expression cond) (parse-expression true) (parse-expression false))]
+      [(node (cons (symbol-sexp #"begin") (cons first-expr exprs)))
+       (begin-expr (parse-expression first-expr) (map parse-expression exprs))]
+      [(node (cons (symbol-sexp #"let")
+                   (cons (node (cons (node (cons (symbol-sexp name) (cons expr (empty)))) (empty)))
+                         (cons body (empty)))))
+       (let-expr name (parse-expression expr) (parse-expression body))]
+      [(node (cons (symbol-sexp #"case") (cons expr clauses)))
+       (case-expr (parse-expression expr) (map parse-case-clause clauses))]
+      [(node (cons op-expr arg-exprs))
+       (app-expr (parse-expression op-expr) (map parse-expression arg-exprs))]
+      [(node (empty))
+       (panic #"Application needs an operator")]
+      [(keyword-sexp _)
+       (panic #"Keywords are not valid expressions")]))
+
+  (define (parse-case-clause [sexp : Sexp]) : CaseClause
+    (case sexp
+      [(node (cons pattern (cons expr (empty))))
+       (case-clause (parse-pattern pattern) (parse-expression expr))]
+      [_ (panic #"Not a valid case clause")]))
+
+  (define (parse-pattern [sexp : Sexp]) : Pattern
+    (case sexp
+      [(symbol-sexp #"_") (ignore-pattern)]
+      [(symbol-sexp sym) (variable-pattern sym)]
+      [(bytes-sexp v) (bytes-pattern v)]
+      [(node (cons (symbol-sexp name) patterns))
+       (abstraction-pattern name (map parse-pattern patterns))]
+      [_ (panic #"Not a valid pattern")]))
+
 
   (define (parse-module [sexp : Sexp]) : (Either Bytes Module)
     (case sexp
