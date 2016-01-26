@@ -220,6 +220,10 @@
       #"(module test-mod (import) (export) (types)
           (define (main) : Byte 0))"
       #:exit-code 0)
+    (compiler-test #:mod 'compiler
+      #"(module test-mod (import) (export) (types)
+          (define (main) : Byte (let ([x 5]) x)))"
+      #:exit-code 5)
 
 
 
