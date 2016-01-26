@@ -312,6 +312,8 @@
         [(byte-ty) t]
         [(bytes-ty) t]
         [(boolean-ty) t]
+        [(fun-ty '() arg-tys result-ty)
+         (fun-ty '() (map replace arg-tys) (replace result-ty))]
         [(input-port-ty) t]
         [(output-port-ty) t]))
     (replace t))
@@ -327,6 +329,9 @@
            (error 'occurs-check))]
         [(data-ty mod-name name args)
          (for-each check args)]
+        [(fun-ty '() arg-tys result-ty)
+         (for-each check arg-tys)
+         (check result-ty)]
         [(void-ty) (void)]
         [(byte-ty) (void)]
         [(bytes-ty) (void)]
