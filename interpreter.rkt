@@ -107,10 +107,10 @@
            (function-val args local-env body)]))
       (hash-set! local-env name val))
     (for ([export (in-list (module&-exports module))])
-      (define name (export&-name export))
-      (define local-val (hash-ref local-env name #f))
+      (match-define (export& in-name out-name) export)
+      (define local-val (hash-ref local-env in-name #f))
       (when local-val
-        (hash-set! global-env (full-name (module&-name module) name) local-val))))
+        (hash-set! global-env (full-name (module&-name module) out-name) local-val))))
   global-env)
 
 (struct program-result (exit-code error-info stdout stderr))

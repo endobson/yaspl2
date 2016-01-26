@@ -250,8 +250,8 @@
      ;; TODO limit this to only exported values not types
      (define exported-value-bindings
        (for/hash ([export exports])
-         (define name (export&-name export))
-         (values name (hash-ref type-env name (void-ty)))))
+         (match-define (export& in-name out-name) export)
+         (values out-name (hash-ref type-env in-name (void-ty)))))
 
      ;; TODO define a mechanism for exporting types and limit this to the exported types
      (define exported-type-bindings

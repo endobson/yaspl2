@@ -47,10 +47,11 @@
   (let-values ([(types vals patterns) (parse-imports imports)])
     (imports& (append* types) (append* vals) (append* patterns))))
 
+;; TODO support renaming
 (define (parse-exports exports)
   (match exports
    [(list (? symbol? exports) ...)
-    (map export& exports)]))
+    (map export& exports exports)]))
 
 (define (parse-type-definitions types)
   (define (parse-variant variant)
