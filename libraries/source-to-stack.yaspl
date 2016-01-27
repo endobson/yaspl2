@@ -1,6 +1,6 @@
 (module source-to-stack
   (import
-    (prim 
+    (prim
       #:types (Bytes)
       #:values (panic)
       #:patterns ())
@@ -9,10 +9,14 @@
       #:values (cons empty length append map)
       #:patterns (cons empty))
     (bytes bytes=?)
-    (dict 
+    (dict
       #:types (Dict)
-      #:values (make-dict)
+      #:values (make-dict dict-ref dict-set)
       #:patterns ())
+    (maybe
+      #:types (Maybe)
+      #:values ()
+      #:patterns (just nothing))
     (join-list
       #:types ()
       #:values (jl->list empty-jl)
@@ -25,7 +29,7 @@
       #:patterns ())
     (source-language
       #:types (Module FunctionDefinition Expression)
-      #:values (module-definitions)
+      #:values (module-definitions function-definition-name)
       #:patterns (function-definition byte-literal let-expr var-expr)))
   (export compile-module)
   (types
@@ -41,7 +45,14 @@
         (compile-function-definitions mod env))))
 
   (define (make-global-env [mod : Module]) : (Dict Bytes VarReference)
-    (make-dict bytes=?))
+    (let ([names (map function-definition-name (module-definitions mod))])
+      (add-all-globals (make-dict bytes=?) names)))
+
+  (define (add-all-globals [env : (Dict Bytes VarReference)] [names : (List Bytes)])
+    : (Dict Bytes VarReference)
+    (case names
+      [(empty) env]
+      [(cons name names) (add-all-globals (dict-set env name (global-function name)) names)]))
 
 
 
@@ -50,10 +61,17 @@
     (empty))
 
   (define (compile-function-definitions [mod : Module] [env : (Dict Bytes VarReference)]) : (List StackFunction)
-    ;; TODO use the environment
-    (map compile-function-definition (module-definitions mod)))
+    (compile-function-definitions/list (module-definitions mod) env))
 
-  (define (compile-function-definition [fun : FunctionDefinition]) : StackFunction
+  (define (compile-function-definitions/list
+            [funs : (List FunctionDefinition)] [env : (Dict Bytes VarReference)]) : (List StackFunction)
+    (case funs
+      [(empty) (empty)]
+      [(cons fun funs)
+       (cons (compile-function-definition fun env)
+             (compile-function-definitions/list funs env))]))
+
+  (define (compile-function-definition [fun : FunctionDefinition] [env : (Dict Bytes VarReference)]) : StackFunction
     (case fun
       [(function-definition name pre-type arg-names body)
        (stack-function
@@ -63,18 +81,25 @@
            (stack-basic-block
              (jl->list
                (gen-state-cmds
-                 (compile-expression body (gen-state (initial-variables arg-names) (empty-jl)))))
+                 (compile-expression body env (gen-state (initial-variables arg-names) (empty-jl)))))
              (return (length arg-names)))
            (empty)))]))
 
-  (define (compile-expression [body : Expression] [state : GenState]) : GenState
+  (define (compile-expression
+            [body : Expression]
+            [env : (Dict Bytes VarReference)]
+            [state : GenState]) : GenState
     (case body
       [(byte-literal v) (add-literal v state)]
       [(let-expr name expr body)
        (unscope-variable name
-         (compile-expression body
+         (compile-expression body (dict-set env name (local-var))
            (name-temporary name
-             (compile-expression expr state))))]
+             (compile-expression expr env state))))]
       [(var-expr v)
-       (variable-ref v state)]
+       (case (dict-ref env v)
+         [(just (local-var)) (variable-ref v state)]
+         [(just (global-function n))
+          (panic #"Function pointers not yet implemented")]
+         [(nothing) (panic #"Unbound variable")])]
       [_ (panic #"Not yet supported expression")])))
