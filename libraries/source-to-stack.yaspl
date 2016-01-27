@@ -25,12 +25,12 @@
       #:types (StackFunction StackBasicBlock StackCmd StackTerminal GenState)
       #:values (stack-function stack-basic-block gen-state-cmds gen-state
                 initial-variables return add-literal name-temporary unscope-variable
-                variable-ref)
+                variable-ref function-ref call-function)
       #:patterns ())
     (source-language
       #:types (Module FunctionDefinition Expression)
       #:values (module-definitions function-definition-name)
-      #:patterns (function-definition byte-literal let-expr var-expr)))
+      #:patterns (function-definition byte-literal let-expr var-expr app-expr)))
   (export compile-module)
   (types
     (define-type VarReference
@@ -54,6 +54,11 @@
       [(empty) env]
       [(cons name names) (add-all-globals (dict-set env name (global-function name)) names)]))
 
+  (define (add-all-locals [env : (Dict Bytes VarReference)] [names : (List Bytes)])
+    : (Dict Bytes VarReference)
+    (case names
+      [(empty) env]
+      [(cons name names) (add-all-locals (dict-set env name (local-var)) names)]))
 
 
   ;; TODO implement this
@@ -81,15 +86,28 @@
            (stack-basic-block
              (jl->list
                (gen-state-cmds
-                 (compile-expression body env (gen-state (initial-variables arg-names) (empty-jl)))))
+                 (compile-expression
+                   body 
+                   (add-all-locals env arg-names)
+                   (gen-state (initial-variables arg-names) (empty-jl)))))
              (return (length arg-names)))
            (empty)))]))
 
-  (define (compile-expression
-            [body : Expression]
+  (define (compile-expressions
+            [exprs : (List Expression)]
             [env : (Dict Bytes VarReference)]
             [state : GenState]) : GenState
-    (case body
+    (case exprs
+      [(empty) state]
+      [(cons expr exprs)
+       (compile-expressions exprs env
+         (compile-expression expr env state))]))
+
+  (define (compile-expression
+            [expr : Expression]
+            [env : (Dict Bytes VarReference)]
+            [state : GenState]) : GenState
+    (case expr
       [(byte-literal v) (add-literal v state)]
       [(let-expr name expr body)
        (unscope-variable name
@@ -100,6 +118,11 @@
        (case (dict-ref env v)
          [(just (local-var)) (variable-ref v state)]
          [(just (global-function n))
-          (panic #"Function pointers not yet implemented")]
+          (function-ref n state)]
          [(nothing) (panic #"Unbound variable")])]
+      ;; TODO make effects of op go before arguments
+      [(app-expr op args)
+       (call-function (length args)
+         (compile-expression op env
+           (compile-expressions args env state)))]
       [_ (panic #"Not yet supported expression")])))

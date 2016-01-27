@@ -224,6 +224,11 @@
       #"(module test-mod (import) (export) (types)
           (define (main) : Byte (let ([x 5]) x)))"
       #:exit-code 5)
+    (compiler-test #:mod 'compiler
+      #"(module test-mod (import) (export) (types)
+          (define (main) : Byte (f 4))
+          (define (f [x : Byte]) : Byte x))"
+      #:exit-code 4)
 
 
 
