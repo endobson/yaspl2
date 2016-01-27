@@ -8,7 +8,7 @@
       #:types (List)
       #:values (cons empty length append map)
       #:patterns (cons empty))
-    (bytes bytes=?)
+    (bytes bytes=? bytes-append)
     (dict
       #:types (Dict)
       #:values (make-dict dict-ref dict-set)
@@ -29,7 +29,7 @@
       #:patterns ())
     (source-language
       #:types (Module FunctionDefinition Expression)
-      #:values (module-definitions function-definition-name)
+      #:values (module-name module-definitions function-definition-name)
       #:patterns (function-definition byte-literal let-expr var-expr app-expr)))
   (export compile-module)
   (types
@@ -45,14 +45,30 @@
         (compile-function-definitions mod env))))
 
   (define (make-global-env [mod : Module]) : (Dict Bytes VarReference)
-    (let ([names (map function-definition-name (module-definitions mod))])
-      (add-all-globals (make-dict bytes=?) names)))
+    (let ([var-names (map function-definition-name (module-definitions mod))])
+      (let ([fun-names (get-function-names (module-name mod) (module-definitions mod))])
+        (add-all-globals (make-dict bytes=?) var-names fun-names))))
 
-  (define (add-all-globals [env : (Dict Bytes VarReference)] [names : (List Bytes)])
+  (define (get-function-names [mod-name : Bytes] [funs : (List FunctionDefinition)]) : (List Bytes)
+    (case funs
+      [(empty) (empty)]
+      [(cons (function-definition name _ _ _) funs)
+       (cons
+         (bytes-append (cons mod-name (cons #"_" (cons name (empty)))))
+         (get-function-names mod-name funs))]))
+
+  (define (add-all-globals [env : (Dict Bytes VarReference)]
+                           [var-names : (List Bytes)]
+                           [fun-names : (List Bytes)])
     : (Dict Bytes VarReference)
-    (case names
+    (case var-names
       [(empty) env]
-      [(cons name names) (add-all-globals (dict-set env name (global-function name)) names)]))
+      [(cons var-name var-names)
+       (case fun-names
+         [(empty) (panic #"var-names not the same length as fun-names")]
+         [(cons fun-name fun-names)
+          (add-all-globals
+            (dict-set env var-name (global-function fun-name)) var-names fun-names)])]))
 
   (define (add-all-locals [env : (Dict Bytes VarReference)] [names : (List Bytes)])
     : (Dict Bytes VarReference)
@@ -66,21 +82,23 @@
     (empty))
 
   (define (compile-function-definitions [mod : Module] [env : (Dict Bytes VarReference)]) : (List StackFunction)
-    (compile-function-definitions/list (module-definitions mod) env))
+    (compile-function-definitions/list (module-name mod) (module-definitions mod) env))
 
   (define (compile-function-definitions/list
-            [funs : (List FunctionDefinition)] [env : (Dict Bytes VarReference)]) : (List StackFunction)
+            [mod-name : Bytes]
+            [funs : (List FunctionDefinition)]
+            [env : (Dict Bytes VarReference)]) : (List StackFunction)
     (case funs
       [(empty) (empty)]
       [(cons fun funs)
-       (cons (compile-function-definition fun env)
-             (compile-function-definitions/list funs env))]))
+       (cons (compile-function-definition mod-name fun env)
+             (compile-function-definitions/list mod-name funs env))]))
 
-  (define (compile-function-definition [fun : FunctionDefinition] [env : (Dict Bytes VarReference)]) : StackFunction
+  (define (compile-function-definition [mod-name : Bytes] [fun : FunctionDefinition] [env : (Dict Bytes VarReference)]) : StackFunction
     (case fun
       [(function-definition name pre-type arg-names body)
        (stack-function
-         name
+         (bytes-append (cons mod-name (cons #"_" (cons name (empty)))))
          (cons
            ;; TODO validate this has one temporary left in it, the return addr, and then the variables.
            (stack-basic-block

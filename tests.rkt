@@ -187,45 +187,45 @@
 
 
     (compiler-test #:mod 'x86-64-stack-machine
-      #"(module (define (main) 0))")
+      #"(module (define (main_main) 0))")
     (compiler-test #:mod 'x86-64-stack-machine
-      #"(module (define (main) (+ 1 1)))"
+      #"(module (define (main_main) (+ 1 1)))"
       #:exit-code 2)
     (compiler-test #:mod 'x86-64-stack-machine
-      #"(module (define (main) (* (- 117 113) (+ 10 2))))"
+      #"(module (define (main_main) (* (- 117 113) (+ 10 2))))"
       #:exit-code 48)
     (compiler-test #:mod 'x86-64-stack-machine
-      #"(module (define (main) 1) (define (foo) 2))"
+      #"(module (define (main_main) 1) (define (foo) 2))"
       #:exit-code 1)
     (compiler-test #:mod 'x86-64-stack-machine
-      #"(module (define (main) (foo)) (define (foo) 2))"
+      #"(module (define (main_main) (foo)) (define (foo) 2))"
       #:exit-code 2)
     (compiler-test #:mod 'x86-64-stack-machine
-      #"(module (define (main) (let ([x 1]) 0)))")
+      #"(module (define (main_main) (let ([x 1]) 0)))")
     (compiler-test #:mod 'x86-64-stack-machine
-      #"(module (define (main) (let ([x 1]) x)))"
+      #"(module (define (main_main) (let ([x 1]) x)))"
       #:exit-code 1)
     (compiler-test #:mod 'x86-64-stack-machine
-      #"(module (define (main) (let ([x 1]) (+ x (let ([y 2]) (* y x))))))"
+      #"(module (define (main_main) (let ([x 1]) (+ x (let ([y 2]) (* y x))))))"
       #:exit-code 3)
     (compiler-test #:mod 'x86-64-stack-machine
       #"(module
-          (define (main) (f 2))
+          (define (main_main) (f 2))
           (define (f x) (+ x (g 3 4)))
           (define (g y z) (* y z)))"
       #:exit-code 14)
 
 
     (compiler-test #:mod 'compiler
-      #"(module test-mod (import) (export) (types)
+      #"(module main (import) (export) (types)
           (define (main) : Byte 0))"
       #:exit-code 0)
     (compiler-test #:mod 'compiler
-      #"(module test-mod (import) (export) (types)
+      #"(module main (import) (export) (types)
           (define (main) : Byte (let ([x 5]) x)))"
       #:exit-code 5)
     (compiler-test #:mod 'compiler
-      #"(module test-mod (import) (export) (types)
+      #"(module main (import) (export) (types)
           (define (main) : Byte (f 4))
           (define (f [x : Byte]) : Byte x))"
       #:exit-code 4)
