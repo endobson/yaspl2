@@ -25,13 +25,14 @@
   (types
     (define-type Module
       (module [name Bytes]
-              [imports Imports]
+              [imports (List Imports)]
               [exports (List Bytes)]
               [types (List TypeDefinition)]
               [definitions (List FunctionDefinition)]))
-    ;; TODO make these have the right substructure
     (define-type Imports
-      (unparsed-imports [v Sexp]))
+      (imports [module-name Bytes] [types (List Import)] [values (List Import)] [patterns (List Import)]))
+    (define-type Import
+      (import [exported-name Bytes] [local-name Bytes]))
     (define-type TypeDefinition
       (type-definition [name Bytes] [vars (Maybe (List Bytes))] [variants (List VariantDefinition)]))
     (define-type VariantDefinition
@@ -64,6 +65,41 @@
       (variable-pattern [v Bytes])
       (ignore-pattern)
       (abstraction-pattern [name Bytes] [patterns (List Pattern)])))
+
+  (define (parse-imports/top [sexp : Sexp]) : (List Imports)
+    (case sexp
+      [(node (cons (symbol-sexp #"import") imports))
+       (map parse-imports imports)]
+      [_ (panic #"Not a valid imports section")]))
+
+  (define (parse-imports [sexp : Sexp]) : Imports
+    (case sexp
+      [(node (cons (symbol-sexp mod-name) inner))
+       (case inner
+         [(cons (keyword-sexp #"types")
+            (cons (node type-imports)
+              (cons (keyword-sexp #"values")
+               (cons (node value-imports)
+                  (cons (keyword-sexp #"patterns")
+                    (cons (node pattern-imports)
+                      (empty)))))))
+          (imports
+            mod-name
+            (map parse-import type-imports)
+            (map parse-import value-imports)
+            (map parse-import pattern-imports))]
+         [_
+          (imports
+            mod-name
+            (map parse-import inner)
+            (empty)
+            (empty))])]
+      [_ (panic #"Not a valid imports clause")]))
+
+  (define (parse-import [sexp : Sexp]) : Import
+    (case sexp
+      [(symbol-sexp v) (import v v)]
+      [_ (panic #"Not a valid import clause")]))
 
 
   (define (parse-exports/top [sexp : Sexp]) : (List Bytes)
@@ -227,7 +263,7 @@
                                            definitions))))))
        (right
          (module name
-                 (unparsed-imports imports)
+                 (parse-imports/top imports)
                  (parse-exports/top exports)
                  (parse-types/top types)
                  (map parse-function-definition definitions)))]
