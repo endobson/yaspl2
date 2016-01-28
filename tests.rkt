@@ -233,6 +233,10 @@
       #"(module main (import (prim +)) (export) (types)
           (define (main) : Byte (+ 4 5)))"
       #:exit-code 9)
+    (compiler-test #:mod 'compiler
+      #"(module main (import) (export) (types)
+          (define (main) : Byte (let ([x #t]) 1)))"
+      #:exit-code 1)
 
 
 
