@@ -28,9 +28,9 @@
                 variable-ref function-ref call-function)
       #:patterns ())
     (source-language
-      #:types (Module FunctionDefinition Expression)
+      #:types (Module FunctionDefinition Expression Imports Import)
       #:values (module-name module-definitions function-definition-name)
-      #:patterns (function-definition byte-literal let-expr var-expr app-expr)))
+      #:patterns (module imports import function-definition byte-literal let-expr var-expr app-expr)))
   (export compile-module module-signature)
   (types
     (define-type VarReference
@@ -60,7 +60,43 @@
             [env : (Dict Bytes VarReference)]
             [mod : Module]
             [sigs : (List ModuleSignature)]) : (Dict Bytes VarReference)
-    env)
+    (case mod
+      [(module _ imports _ _ _)
+       (add-all-imports env imports sigs)]))
+
+  (define (add-all-imports
+            [env : (Dict Bytes VarReference)]
+            [imps : (List Imports)]
+            [sigs : (List ModuleSignature)]) : (Dict Bytes VarReference)
+    (case imps
+      [(empty) env]
+      [(cons (imports mod-name _ values _) imps)
+       (add-all-imports
+         (add-imports env values (lookup-module-signature mod-name sigs))
+         imps sigs)]))
+
+  (define (add-imports
+            [env : (Dict Bytes VarReference)]
+            [imps : (List Import)]
+            [sig : ModuleSignature]) : (Dict Bytes VarReference)
+    (case imps
+      [(empty) env]
+      [(cons (import exported-name local-name) imps)
+       (case (dict-ref (module-signature-exports sig) exported-name)
+         [(nothing) (panic #"No corresponding export for import")]
+         [(just global-name)
+          (add-imports
+            (dict-set env local-name (global-function  global-name))
+            imps
+            sig)])]))
+
+  (define (lookup-module-signature [mod-name : Bytes] [sigs : (List ModuleSignature)]) : ModuleSignature
+    (case sigs
+      [(empty) (panic #"No module found for import")]
+      [(cons sig sigs)
+       (if (bytes=? (module-signature-name sig) mod-name)
+           sig
+           (lookup-module-signature mod-name sigs))]))
 
   (define (add-locally-defined-functions [env : (Dict Bytes VarReference)] [mod : Module])
     : (Dict Bytes VarReference)
@@ -124,7 +160,7 @@
              (jl->list
                (gen-state-cmds
                  (compile-expression
-                   body 
+                   body
                    (add-all-locals env arg-names)
                    (gen-state (initial-variables arg-names) (empty-jl)))))
              (return (length arg-names)))
