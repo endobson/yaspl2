@@ -229,6 +229,10 @@
           (define (main) : Byte (f 4))
           (define (f [x : Byte]) : Byte x))"
       #:exit-code 4)
+    (compiler-test #:mod 'compiler
+      #"(module main (import (prim +)) (export) (types)
+          (define (main) : Byte (+ 4 5)))"
+      #:exit-code 9)
 
 
 
