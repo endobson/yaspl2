@@ -2,7 +2,7 @@
   (import
     (prim
       #:types (Bytes Boolean)
-      #:values (panic)
+      #:values (panic +)
       #:patterns ())
     (list
       #:types (List)
@@ -19,19 +19,20 @@
       #:patterns (just nothing))
     (join-list
       #:types ()
-      #:values (jl->list empty-jl)
+      #:values (jl->list empty-jl append-jl snoc-jl)
       #:patterns ())
     (stack-machine
       #:types (StackFunction StackBasicBlock StackCmd StackTerminal GenState)
       #:values (stack-function stack-basic-block gen-state-cmds gen-state
                 initial-variables return add-byte-literal name-temporary unscope-variable
-                variable-ref function-ref call-function add-boolean-literal)
+                variable-ref function-ref call-function add-boolean-literal remove-temporaries
+                tmp-slot boolean-jmp uncond-jmp)
       #:patterns (gen-state))
     (source-language
       #:types (Module FunctionDefinition Expression Imports Import)
       #:values (module-name module-definitions function-definition-name)
       #:patterns (module imports import function-definition byte-literal boolean-literal let-expr
-                  var-expr app-expr)))
+                  var-expr app-expr if-expr)))
   (export compile-module module-signature)
   (types
     (define-type VarReference
@@ -160,11 +161,12 @@
          (case (compile-expression
                  body
                  (add-all-locals env arg-names)
-                 (gen-state (initial-variables arg-names) (empty-jl) 1 (empty-jl)))
-           [(gen-state _ cmds _ blocks)
-            (cons
-              (stack-basic-block (jl->list cmds) (return (length arg-names)))
-              (jl->list blocks))]))]))
+                 (gen-state (initial-variables arg-names) (empty-jl) 0 (empty-jl)))
+           [(gen-state _ cmds label blocks)
+            (jl->list 
+              (snoc-jl
+                blocks
+                (stack-basic-block (jl->list cmds) (return (length arg-names)))))]))]))
 
   (define (compile-expressions
             [exprs : (List Expression)]
@@ -199,4 +201,33 @@
        (call-function (length args)
          (compile-expression op env
            (compile-expressions args env state)))]
+      [(if-expr c t f)
+       (case (compile-expression c env state)
+         [(gen-state stack cmds-c label-c-end blocks)
+          (let ([stack-split (remove-temporaries 1 stack)])
+            (let ([label-t-begin (+ label-c-end 1)])
+              (case (compile-expression t env
+                      (gen-state stack-split (empty-jl) label-t-begin (empty-jl)))
+                [(gen-state stack-t cmds-t label-t-end blocks-t)
+                 (let ([label-f-begin (+ label-t-end 1)])
+                   (case (compile-expression f env
+                           (gen-state stack-split (empty-jl) label-f-begin (empty-jl)))
+                     [(gen-state stack-f cmds-f label-f-end blocks-f)
+                      ;; TODO Check that stack-f = stack-t = (tmp-slot stack-split)
+                      (let ([new-label (+ label-f-end 1)])
+                        (gen-state
+                          (tmp-slot stack-split)
+                          (empty-jl)
+                          new-label
+                          (append-jl
+                            (snoc-jl
+                              blocks
+                              (stack-basic-block (jl->list cmds-c) (boolean-jmp label-t-begin label-f-begin)))
+                            (append-jl
+                              (snoc-jl
+                                blocks-t
+                                (stack-basic-block (jl->list cmds-t) (uncond-jmp new-label)))
+                              (snoc-jl
+                                blocks-f
+                                (stack-basic-block (jl->list cmds-f) (uncond-jmp new-label)))))))]))])))])]
       [_ (panic #"Not yet supported expression")])))
