@@ -237,6 +237,10 @@
       #"(module main (import) (export) (types)
           (define (main) : Byte (let ([x #t]) 1)))"
       #:exit-code 1)
+    (compiler-test #:mod 'compiler
+      #"(module main (import) (export) (types)
+          (define (main) : Byte (if #t 1 0)))"
+      #:exit-code 1)
 
 
 

@@ -6,7 +6,7 @@
   "libraries.rkt"
   racket/port)
 (define stdin (port->bytes (current-input-port)))
-(let ([result (run-program modules 'x86-64-stack-machine 'main #:stdin stdin)])
+(let ([result (run-program modules 'compiler 'main #:stdin stdin)])
   (write-bytes (program-result-stdout result) (current-output-port))
   (write-bytes (program-result-stderr result) (current-error-port))
   (exit (program-result-exit-code result)))
