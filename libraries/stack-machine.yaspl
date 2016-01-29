@@ -50,7 +50,10 @@
       (stack-function [name Bytes] [blocks (List StackBasicBlock)]))
 
     (define-type GenState
-      (gen-state [stack AbstractStack] [cmds (JoinList StackCmd)])))
+      (gen-state [stack AbstractStack]
+                 [cmds (JoinList StackCmd)]
+                 [label-counter Byte]
+                 [blocks (JoinList StackBasicBlock)])))
 
   (define (compile-module [mod : Module]) : (List StackFunction)
     (case mod
@@ -62,14 +65,14 @@
       [(function name arg-names body)
        (stack-function
          name
-         (cons
-           (stack-basic-block
-             ;; TODO validate this has one temporary left in it, the return addr, and then the variables.
-             (jl->list
-               (gen-state-cmds
-                 (compile-arith-expr body (gen-state (initial-variables arg-names) (empty-jl)))))
-             (return (length arg-names)))
-           (empty)))]))
+         ;; TODO validate the genstate has one temporary left in it, the return addr, and then the
+         ;; variables.
+         (case (compile-arith-expr body
+                 (gen-state (initial-variables arg-names) (empty-jl) 1 (empty-jl)))
+           [(gen-state _ cmds _ blocks)
+            (cons
+              (stack-basic-block (jl->list cmds) (return (length arg-names)))
+              (jl->list blocks))]))]))
 
   (define (compile-arith-expr [expr : ArithExpr] [state : GenState]) : GenState
     (case expr
@@ -101,26 +104,32 @@
 
   (define (unscope-variable [var : Bytes] [state : GenState]) : GenState
     (case state
-      [(gen-state stack cmds)
+      [(gen-state stack cmds label blocks)
        (gen-state
          (tmp-slot (remove-variable var (remove-temporaries 1 stack)))
-         (snoc-jl (snoc-jl cmds (swap-cmd)) (pop-cmd)))]))
+         (snoc-jl (snoc-jl cmds (swap-cmd)) (pop-cmd))
+         label
+         blocks)]))
   (define (name-temporary [var : Bytes] [state : GenState]) : GenState
     (case state
-      [(gen-state stack cmds)
+      [(gen-state stack cmds label blocks)
        (gen-state
          (var-slot var (remove-temporaries 1 stack))
-         cmds)]))
+         cmds
+         label
+         blocks)]))
   (define (variable-ref [var : Bytes] [state : GenState]) : GenState
     (case state
-      [(gen-state stack cmds)
+      [(gen-state stack cmds label blocks)
        (gen-state
          (tmp-slot stack)
-         (snoc-jl cmds (dup-cmd (stack-index var stack))))]))
+         (snoc-jl cmds (dup-cmd (stack-index var stack)))
+         label
+         blocks)]))
 
   (define (add-op [v : NumOp] [state : GenState]) : GenState
     (case state
-      [(gen-state stack cmds)
+      [(gen-state stack cmds label blocks)
        (gen-state
          (tmp-slot (remove-temporaries 2 stack))
          (snoc-jl
@@ -130,36 +139,46 @@
                [(plus-op) (fun-ref-cmd #"prim_add")]
                [(times-op) (fun-ref-cmd #"prim_mult")]
                [(minus-op) (fun-ref-cmd #"prim_sub")]))
-           (fun-call-cmd 2)))]))
+           (fun-call-cmd 2))
+         label
+         blocks)]))
 
   (define (function-ref [name : Bytes] [state : GenState]) : GenState
     (case state
-      [(gen-state stack cmds)
+      [(gen-state stack cmds label blocks)
        (gen-state
          (tmp-slot stack)
-         (snoc-jl cmds (fun-ref-cmd name)))]))
+         (snoc-jl cmds (fun-ref-cmd name))
+         label
+         blocks)]))
 
   (define (call-function [num-args : Byte] [state : GenState]) : GenState
     (case state
-      [(gen-state stack cmds)
+      [(gen-state stack cmds label blocks)
        (gen-state
          (tmp-slot (remove-temporaries (+ 1 num-args) stack))
-         (snoc-jl cmds (fun-call-cmd num-args)))]))
+         (snoc-jl cmds (fun-call-cmd num-args))
+         label
+         blocks)]))
 
 
   (define (add-byte-literal [v : Byte] [state : GenState]) : GenState
     (case state
-      [(gen-state stack cmds)
+      [(gen-state stack cmds label blocks)
        (gen-state
          (tmp-slot stack)
-         (snoc-jl cmds (num-lit-cmd v)))]))
+         (snoc-jl cmds (num-lit-cmd v))
+         label
+         blocks)]))
 
   (define (add-boolean-literal [v : Boolean] [state : GenState]) : GenState
     (case state
-      [(gen-state stack cmds)
+      [(gen-state stack cmds label blocks)
        (gen-state
          (tmp-slot stack)
-         (snoc-jl cmds (boolean-lit-cmd v)))]))
+         (snoc-jl cmds (boolean-lit-cmd v))
+         label
+         blocks)]))
 
 
 
