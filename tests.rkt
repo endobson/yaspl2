@@ -249,6 +249,13 @@
       #"(module main (import (prim bytes-ref make-bytes)) (export) (types)
           (define (main) : Byte (let ([x (make-bytes 4 16)]) (bytes-ref x 1))))"
       #:exit-code 16)
+    (compiler-test #:mod 'compiler
+      #"(module main (import (prim bytes-ref make-bytes bytes-set!)) (export) (types)
+          (define (main) : Byte
+            (let ([x (make-bytes 4 16)])
+              (let ([y (bytes-set! x 6 3)])
+                (bytes-ref x 6)))))"
+      #:exit-code 3)
 
 
     (when all-tests
