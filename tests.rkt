@@ -253,7 +253,8 @@
       #"(module main (import (prim bytes-ref make-bytes bytes-set!)) (export) (types)
           (define (main) : Byte
             (let ([x (make-bytes 4 16)])
-              (let ([y (bytes-set! x 6 3)])
+              (begin
+                (bytes-set! x 6 3)
                 (bytes-ref x 6)))))"
       #:exit-code 3)
 
