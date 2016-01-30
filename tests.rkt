@@ -257,6 +257,10 @@
                 (bytes-set! x 6 3)
                 (bytes-ref x 6)))))"
       #:exit-code 3)
+    (compiler-test #:mod 'compiler
+      #"(module main (import (prim bytes-length make-bytes)) (export) (types)
+          (define (main) : Byte (let ([x (make-bytes 4 0)]) (bytes-length x))))"
+      #:exit-code 4)
 
 
     (when all-tests
