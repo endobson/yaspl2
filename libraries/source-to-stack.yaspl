@@ -27,17 +27,17 @@
                 initial-variables return add-byte-literal name-temporary unscope-variable
                 variable-ref function-ref call-function add-boolean-literal remove-temporaries
                 tmp-slot boolean-jmp uncond-jmp add-bytes-literal ignore-value
-                alloc-variant-cmd dup-cmd variant-ref-cmd)
+                alloc-variant-cmd dup-cmd variant-ref-cmd variant-switch no-catch-all-case)
       #:patterns (gen-state))
     (source-language
       #:types (Module FunctionDefinition Expression Imports Import TypeDefinition VariantDefinition
-                      VariantField)
+               VariantField CaseClause Pattern)
       #:values (module-name module-definitions module-types
                 function-definition-name
                 type-definition-variants)
       #:patterns (module imports import function-definition bytes-literal byte-literal boolean-literal
                   let-expr var-expr app-expr if-expr begin-expr variant-definition type-definition
-                  variant-field case-expr
+                  variant-field case-expr case-clause
                   )))
   (export compile-module module-signature)
   (types
@@ -428,7 +428,91 @@
       [(begin-expr expr exprs)
        (compile-begin-exprs exprs env (compile-expression expr env state))]
       [(case-expr expr clauses)
-       (panic #"Not yet supported expression")]))
+       (let ([state (compile-expression expr env state)])
+         (compile-case-clauses clauses env state))]))
+
+  (define (compile-case-clauses
+            [clauses : (List CaseClause)]
+            [env : (Dict Bytes VarReference)]
+            [state : GenState]) : GenState
+    (case clauses
+      [(empty) 
+       (case state
+         [(gen-state stack cmds label blocks)
+          (gen-state
+            (tmp-slot (remove-temporaries 1 stack))
+            (empty-jl)
+            (+ 1 label)
+            (snoc-jl
+              blocks
+              (stack-basic-block
+                (jl->list cmds)
+                (variant-switch (no-catch-all-case)))))])]
+      [(cons clause clauses)
+       (compile-case-clause clause clauses env state)]))
+
+  (define (compile-case-clause
+            [clause : CaseClause]
+            [clauses : (List CaseClause)]
+            [env : (Dict Bytes VarReference)]
+            [state : GenState]) : GenState
+    (case clause
+      [(case-clause pattern expr)
+       (case (compile-pattern/match pattern env state)
+         [(gen-state match-stack match-cmds match-end-label match-blocks)
+          (let ([stack-split (remove-temporaries 1 match-stack)])
+            (let ([extract-start-label (+ 1 match-end-label)])
+              (case (compile-pattern/extract pattern expr env
+                      (gen-state stack-split
+                                 (empty-jl)
+                                 extract-start-label
+                                 (empty-jl)))
+                [(gen-state extract-stack extract-cmds extract-end-label extract-blocks)
+                 (let ([other-start-label (+ 1 extract-end-label)])
+                   (case (compile-case-clauses clauses env
+                           (gen-state stack-split
+                                      (empty-jl)
+                                      other-start-label
+                                      (empty-jl)))
+                     [(gen-state other-stack other-cmds other-end-label other-blocks)
+                      (let ([join-label (+ other-end-label 1)])
+                        (gen-state
+                          stack-split ;; TODO check that split-stack = other-stack = extract-stack
+                          (empty-jl)
+                          join-label
+                          (append-jl
+                            (snoc-jl
+                              match-blocks
+                              (stack-basic-block
+                                (jl->list match-cmds)
+                                (boolean-jmp extract-start-label other-start-label)))
+                            (append-jl
+                              (snoc-jl
+                                extract-blocks
+                                (stack-basic-block
+                                  (jl->list extract-cmds)
+                                  (uncond-jmp join-label)))
+                              (snoc-jl
+                                other-blocks
+                                (stack-basic-block
+                                  (jl->list other-cmds)
+                                  (uncond-jmp join-label)))))))]))])))])]))
+
+  (define (compile-pattern/match
+            [pattern : Pattern]
+            [env : (Dict Bytes VarReference)]
+            [state : GenState]) : GenState
+    (panic #"nyi"))
+
+
+  (define (compile-pattern/extract
+            [pattern : Pattern]
+            [expr : Expression]
+            [env : (Dict Bytes VarReference)]
+            [state : GenState]) : GenState
+    (panic #"nyi"))
+
+
 
   (define (compile-begin-exprs
             [exprs : (List Expression)]
