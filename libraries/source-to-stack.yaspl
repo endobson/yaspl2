@@ -27,15 +27,17 @@
                 initial-variables return add-byte-literal name-temporary unscope-variable
                 variable-ref function-ref call-function add-boolean-literal remove-temporaries
                 tmp-slot boolean-jmp uncond-jmp add-bytes-literal ignore-value
-                alloc-variant-cmd dup-cmd)
+                alloc-variant-cmd dup-cmd variant-ref-cmd)
       #:patterns (gen-state))
     (source-language
-      #:types (Module FunctionDefinition Expression Imports Import TypeDefinition VariantDefinition)
+      #:types (Module FunctionDefinition Expression Imports Import TypeDefinition VariantDefinition
+                      VariantField)
       #:values (module-name module-definitions module-types
                 function-definition-name
                 type-definition-variants)
       #:patterns (module imports import function-definition bytes-literal byte-literal boolean-literal
                   let-expr var-expr app-expr if-expr begin-expr variant-definition type-definition
+                  variant-field
                   )))
   (export compile-module module-signature)
   (types
@@ -231,26 +233,67 @@
          type-name
          variant-index
          variants
-         (cons (compile-variant-definition mod-name type-name variant-index variant) acc))]))
+         (compile-variant-definition mod-name type-name variant-index variant acc))]))
 
   (define (compile-variant-definition
             [mod-name : Bytes]
             [type-name : Bytes]
             [variant-index : Byte]
-            [def : VariantDefinition]) : StackFunction
+            [def : VariantDefinition]
+            [acc : (List StackFunction)]) : (List StackFunction)
     (case def
       [(variant-definition name fields)
-       (stack-function
-         (bytes-append (cons mod-name (cons #"_" (cons type-name (cons #"_" (cons name (empty)))))))
+       (cons
+         (stack-function
+           (bytes-append (cons mod-name (cons #"_" (cons type-name (cons #"_" (cons name (empty)))))))
+           (cons
+             (stack-basic-block
+               (add-reversed-args
+                 (length fields)
+                 (cons
+                   (alloc-variant-cmd variant-index (length fields))
+                   (empty)))
+               (return (length fields)))
+             (empty)))
+         (compile-variant-definition/accessors
+           mod-name
+           type-name
+           name
+           variant-index
+           0
+           fields
+           acc))]))
+
+  (define (compile-variant-definition/accessors
+            [mod-name : Bytes]
+            [type-name : Bytes]
+            [variant-name : Bytes]
+            [variant-index : Byte]
+            [field-index : Byte]
+            [fields : (List VariantField)]
+            [acc : (List StackFunction)]) : (List StackFunction)
+    (case fields
+      [(empty) acc]
+      [(cons (variant-field name _) fields)
+       (compile-variant-definition/accessors
+         mod-name
+         type-name
+         variant-name
+         variant-index
+         field-index
+         fields
          (cons
-           (stack-basic-block
-             (add-reversed-args
-               (length fields)
-               (cons
-                 (alloc-variant-cmd variant-index (length fields))
-                 (empty)))
-             (return (length fields)))
-           (empty)))]))
+           (stack-function
+             (bytes-append
+               (cons mod-name (cons #"_"
+                 (cons type-name (cons #"_"
+                   (cons variant-name (cons #"_" (cons name (empty)))))))))
+             (cons
+               (stack-basic-block
+                 (add-reversed-args 1 (cons (variant-ref-cmd variant-index field-index) (empty)))
+                 (return 1))
+               (empty)))
+           acc))]))
 
   (define (add-reversed-args [args : Byte] [cmds : (List StackCmd)]) : (List StackCmd)
     (if (= 0 args)
@@ -285,7 +328,7 @@
                  (add-all-locals env arg-names)
                  (gen-state (initial-variables arg-names) (empty-jl) 0 (empty-jl)))
            [(gen-state _ cmds label blocks)
-            (jl->list 
+            (jl->list
               (snoc-jl
                 blocks
                 (stack-basic-block (jl->list cmds) (return (length arg-names)))))]))]))
