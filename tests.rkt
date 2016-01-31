@@ -74,7 +74,7 @@
     (λ () (delete-file file))))
 
 
-(define (compiler-test program #:mod compiler-mod #:exit-code [exit-code 0])
+(define (compiler-test program #:mod compiler-mod #:exit-code [exit-code 0] #:stdout [stdout #""])
   (test-suite ""
     (let ([result (run-program modules compiler-mod 'main #:stdin program)])
       (test-begin
@@ -87,7 +87,18 @@
             (system* "/usr/bin/env" "as" asm "-o" object)
             (system* "/usr/bin/env" "ld" "-arch" "x86_64" "-macosx_version_min" "10.11"
                      "-e" "_start" "-static" object "-o" binary)
-            (check-equal? (system*/exit-code binary) exit-code)))))))
+            (define input (open-input-bytes #""))
+            (define output-port (open-output-bytes))
+            (define error-output-port (open-output-bytes))
+
+            (check-equal?
+              (parameterize ([current-input-port input]
+                             [current-output-port output-port]
+                             [current-error-port error-output-port])
+                (system*/exit-code binary))
+              exit-code)
+            (check-equal? (get-output-bytes output-port) stdout)
+            (check-equal? (get-output-bytes error-output-port) #"")))))))
 
 
 (define parse-libraries-suite
@@ -261,6 +272,11 @@
       #"(module main (import (prim bytes-length make-bytes)) (export) (types)
           (define (main) : Byte (let ([x (make-bytes 4 0)]) (bytes-length x))))"
       #:exit-code 4)
+    (compiler-test #:mod 'compiler
+      #"(module main (import (prim write-bytes)) (export) (types)
+          (define (main) : Byte (write-bytes #\"abc\" 1 0 3)))"
+      #:stdout #"abc"
+      #:exit-code 3)
 
 
     (when all-tests
