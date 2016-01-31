@@ -41,6 +41,8 @@
                   )))
   (export compile-module module-signature)
   (types
+    (define-type Environment
+      (environment (value-bindings (Dict Bytes VarReference))))
     (define-type VarReference
       (local-var)
       (global-function [name Bytes]))
@@ -54,13 +56,14 @@
         (compile-type-definitions mod)
         (compile-function-definitions mod env))))
 
-  (define (make-global-env [mod : Module] [sigs : (List ModuleSignature)]) : (Dict Bytes VarReference)
-    (add-type-definitions-functions/top
-      (add-locally-defined-functions
-        (add-all-imported-functions
-          (initial-env) mod sigs)
-        mod)
-      mod))
+  (define (make-global-env [mod : Module] [sigs : (List ModuleSignature)]) : Environment
+    (environment
+      (add-type-definitions-functions/top
+        (add-locally-defined-functions
+          (add-all-imported-functions
+            (initial-env) mod sigs)
+          mod)
+        mod)))
 
   (define (initial-env) : (Dict Bytes VarReference)
     (make-dict bytes=?))
@@ -216,11 +219,11 @@
          fields)]))
 
 
-  (define (add-all-locals [env : (Dict Bytes VarReference)] [names : (List Bytes)])
-    : (Dict Bytes VarReference)
+  (define (add-all-locals [env : Environment] [names : (List Bytes)])
+    : Environment
     (case names
       [(empty) env]
-      [(cons name names) (add-all-locals (dict-set env name (local-var)) names)]))
+      [(cons name names) (add-all-locals (environment-value-set env name (local-var)) names)]))
 
 
   (define (compile-type-definitions [mod : Module]) : (List StackFunction)
@@ -332,20 +335,23 @@
           (cons (dup-cmd (- (* 2 args) 1)) cmds))))
 
 
-  (define (compile-function-definitions [mod : Module] [env : (Dict Bytes VarReference)]) : (List StackFunction)
+  (define (compile-function-definitions [mod : Module] [env : Environment]) : (List StackFunction)
     (compile-function-definitions/list (module-name mod) (module-definitions mod) env))
 
   (define (compile-function-definitions/list
             [mod-name : Bytes]
             [funs : (List FunctionDefinition)]
-            [env : (Dict Bytes VarReference)]) : (List StackFunction)
+            [env : Environment]) : (List StackFunction)
     (case funs
       [(empty) (empty)]
       [(cons fun funs)
        (cons (compile-function-definition mod-name fun env)
              (compile-function-definitions/list mod-name funs env))]))
 
-  (define (compile-function-definition [mod-name : Bytes] [fun : FunctionDefinition] [env : (Dict Bytes VarReference)]) : StackFunction
+  (define (compile-function-definition
+            [mod-name : Bytes]
+            [fun : FunctionDefinition]
+            [env : Environment]) : StackFunction
     (case fun
       [(function-definition name pre-type arg-names body)
        (stack-function
@@ -364,7 +370,7 @@
 
   (define (compile-expressions
             [exprs : (List Expression)]
-            [env : (Dict Bytes VarReference)]
+            [env : Environment]
             [state : GenState]) : GenState
     (case exprs
       [(empty) state]
@@ -374,7 +380,7 @@
 
   (define (compile-expression
             [expr : Expression]
-            [env : (Dict Bytes VarReference)]
+            [env : Environment]
             [state : GenState]) : GenState
     (case expr
       [(byte-literal v) (add-byte-literal v state)]
@@ -382,11 +388,13 @@
       [(bytes-literal v) (add-bytes-literal v state)]
       [(let-expr name expr body)
        (unscope-variable name
-         (compile-expression body (dict-set env name (local-var))
+         (compile-expression
+           body
+           (environment-value-set env name (local-var))
            (name-temporary name
              (compile-expression expr env state))))]
       [(var-expr v)
-       (case (dict-ref env v)
+       (case (environment-value-ref env v)
          [(just (local-var)) (variable-ref v state)]
          [(just (global-function n))
           (function-ref n state)]
@@ -433,7 +441,7 @@
 
   (define (compile-case-clauses
             [clauses : (List CaseClause)]
-            [env : (Dict Bytes VarReference)]
+            [env : Environment]
             [state : GenState]) : GenState
     (case clauses
       [(empty) 
@@ -454,7 +462,7 @@
   (define (compile-case-clause
             [clause : CaseClause]
             [clauses : (List CaseClause)]
-            [env : (Dict Bytes VarReference)]
+            [env : Environment]
             [state : GenState]) : GenState
     (case clause
       [(case-clause pattern expr)
@@ -500,7 +508,7 @@
 
   (define (compile-pattern/match
             [pattern : Pattern]
-            [env : (Dict Bytes VarReference)]
+            [env : Environment]
             [state : GenState]) : GenState
     (panic #"nyi"))
 
@@ -508,7 +516,7 @@
   (define (compile-pattern/extract
             [pattern : Pattern]
             [expr : Expression]
-            [env : (Dict Bytes VarReference)]
+            [env : Environment]
             [state : GenState]) : GenState
     (panic #"nyi"))
 
@@ -516,11 +524,21 @@
 
   (define (compile-begin-exprs
             [exprs : (List Expression)]
-            [env : (Dict Bytes VarReference)]
+            [env : Environment]
             [state : GenState]) : GenState
     (case exprs
       [(empty) state]
       [(cons expr exprs)
-       (compile-begin-exprs exprs env (compile-expression expr env (ignore-value state)))])))
+       (compile-begin-exprs exprs env (compile-expression expr env (ignore-value state)))]))
+
+  (define (environment-value-ref [env : Environment] [name : Bytes]) : (Maybe VarReference)
+    (dict-ref (environment-value-bindings env) name))
+  (define (environment-value-set [env : Environment] [name : Bytes] [val : VarReference])
+    : Environment
+    (case env
+      [(environment vals)
+       (environment (dict-set vals name val))]))
+
+  )
 
 
