@@ -1,8 +1,8 @@
 (module source-to-stack
   (import
     (prim
-      #:types (Bytes Boolean)
-      #:values (panic +)
+      #:types (Bytes Boolean Byte)
+      #:values (panic + * - =)
       #:patterns ())
     (list
       #:types (List)
@@ -26,14 +26,17 @@
       #:values (stack-function stack-basic-block gen-state-cmds gen-state
                 initial-variables return add-byte-literal name-temporary unscope-variable
                 variable-ref function-ref call-function add-boolean-literal remove-temporaries
-                tmp-slot boolean-jmp uncond-jmp add-bytes-literal ignore-value)
+                tmp-slot boolean-jmp uncond-jmp add-bytes-literal ignore-value
+                alloc-variant-cmd dup-cmd)
       #:patterns (gen-state))
     (source-language
-      #:types (Module FunctionDefinition Expression Imports Import TypeDefinition)
+      #:types (Module FunctionDefinition Expression Imports Import TypeDefinition VariantDefinition)
       #:values (module-name module-definitions module-types
-                function-definition-name)
+                function-definition-name
+                type-definition-variants)
       #:patterns (module imports import function-definition bytes-literal byte-literal boolean-literal
-                  let-expr var-expr app-expr if-expr begin-expr)))
+                  let-expr var-expr app-expr if-expr begin-expr variant-definition type-definition
+                  )))
   (export compile-module module-signature)
   (types
     (define-type VarReference
@@ -46,7 +49,7 @@
     ;; TODO add imports to global env
     (let ([env (make-global-env mod sigs)])
       (append
-        (compile-data-type-functions/module mod)
+        (compile-type-definitions mod)
         (compile-function-definitions mod env))))
 
   (define (make-global-env [mod : Module] [sigs : (List ModuleSignature)]) : (Dict Bytes VarReference)
@@ -135,12 +138,73 @@
       [(cons name names) (add-all-locals (dict-set env name (local-var)) names)]))
 
 
-  ;; TODO implement this
-  (define (compile-data-type-functions/module [mod : Module]) : (List StackFunction)
-    (append* (map compile-data-type-functions/type-definition (module-types mod))))
+  (define (compile-type-definitions [mod : Module]) : (List StackFunction)
+    (case mod
+      [(module name _ _ types _)
+       (compile-type-definitions/list name types (empty))]))
 
-  (define (compile-data-type-functions/type-definition [def : TypeDefinition]) : (List StackFunction)
-    (empty))
+  (define (compile-type-definitions/list
+            [mod-name : Bytes]
+            [defs : (List TypeDefinition)]
+            [acc : (List StackFunction)]) : (List StackFunction)
+    (case defs
+      [(empty) acc]
+      [(cons def defs)
+       (compile-type-definitions/list
+         mod-name
+         defs
+         (compile-type-definition mod-name def acc))]))
+
+  (define (compile-type-definition
+            [mod-name : Bytes]
+            [def : TypeDefinition]
+            [acc : (List StackFunction)]) : (List StackFunction)
+    (case def
+      [(type-definition name _ variants)
+       (compile-type-definition/variants mod-name name 0 variants acc)]))
+
+  (define (compile-type-definition/variants
+            [mod-name : Bytes]
+            [type-name : Bytes]
+            [variant-index : Byte]
+            [variants : (List VariantDefinition)]
+            [acc : (List StackFunction)]) : (List StackFunction)
+    (case variants
+      [(empty) acc]
+      [(cons variant variants)
+       (compile-type-definition/variants
+         mod-name
+         type-name
+         variant-index
+         variants
+         (cons (compile-variant-definition mod-name type-name variant-index variant) acc))]))
+
+  (define (compile-variant-definition
+            [mod-name : Bytes]
+            [type-name : Bytes]
+            [variant-index : Byte]
+            [def : VariantDefinition]) : StackFunction
+    (case def
+      [(variant-definition name fields)
+       (stack-function
+         (bytes-append (cons mod-name (cons #"_" (cons type-name (cons #"_" (cons name (empty)))))))
+         (cons
+           (stack-basic-block
+             (add-reversed-args
+               (length fields)
+               (cons
+                 (alloc-variant-cmd variant-index (length fields))
+                 (empty)))
+             (return (length fields)))
+           (empty)))]))
+
+  (define (add-reversed-args [args : Byte] [cmds : (List StackCmd)]) : (List StackCmd)
+    (if (= 0 args)
+        cmds
+        (add-reversed-args
+          (- args 1)
+          (cons (dup-cmd (- (* 2 args) 1)) cmds))))
+
 
   (define (compile-function-definitions [mod : Module] [env : (Dict Bytes VarReference)]) : (List StackFunction)
     (compile-function-definitions/list (module-name mod) (module-definitions mod) env))
