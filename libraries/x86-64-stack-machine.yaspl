@@ -20,12 +20,13 @@
       #:patterns ())
     (bytes bytes-copy! subbytes)
     (stack-machine
-      #:types (StackFunction StackBasicBlock StackCmd StackTerminal)
+      #:types (StackFunction StackBasicBlock StackCmd StackTerminal VariantCases)
       #:values (compile-module stack-function-blocks stack-basic-block-cmds)
       #:patterns (stack-function stack-basic-block return
                   swap-cmd dup-cmd pop-cmd num-lit-cmd fun-ref-cmd fun-call-cmd
                   bytes-lit-cmd boolean-lit-cmd uncond-jmp boolean-jmp alloc-variant-cmd
-                  variant-ref-cmd))
+                  variant-ref-cmd variant-switch
+                  no-catch-all-case catch-all-case variant-case))
     (either
       #:types (Either)
       #:values ()
@@ -168,7 +169,13 @@
       ;; variant-panic
       (write-all-bytes #"prim_variant_panic:\n" output)
       (write-all-bytes #"mov $255, %rdi\n" output)
-      (write-all-bytes #"movq $0x2000001, %rax\n" output)))
+      (write-all-bytes #"movq $0x2000001, %rax\n" output)
+      (write-all-bytes #"syscall\n" output)
+      ;; case-panic
+      (write-all-bytes #"prim_case_panic:\n" output)
+      (write-all-bytes #"mov $255, %rdi\n" output)
+      (write-all-bytes #"movq $0x2000001, %rax\n" output)
+      (write-all-bytes #"syscall\n" output)))
 
 
   (define (write-functions [funs : (List StackFunction)] [output : OutputPort]) : Void
@@ -237,7 +244,36 @@
          (write-all-bytes fun-name output)
          (write-all-bytes #"_" output)
          (write-all-bytes (integer->decimal-bytes false-index) output)
-         (write-all-bytes #"\n" output)) ]))
+         (write-all-bytes #"\n" output))]
+      [(variant-switch cases)
+       (write-variant-switch fun-name cases output)]))
+
+  (define (write-variant-switch
+            [fun-name : Bytes]
+            [cases : VariantCases]
+            [output : OutputPort]) : Void
+    (case cases
+      [(no-catch-all-case)
+       (write-all-bytes #"jmp prim_case_panic\n" output)]
+      [(catch-all-case block)
+       (begin
+         (write-all-bytes #"jmp " output)
+         (write-all-bytes fun-name output)
+         (write-all-bytes #"_" output)
+         (write-all-bytes (integer->decimal-bytes block) output)
+         (write-all-bytes #"\n" output))]
+      [(variant-case tag block cases)
+       (begin
+         (write-all-bytes #"cmpq $" output)
+         (write-all-bytes (integer->decimal-bytes tag) output)
+         (write-all-bytes #", (%rsp)\n$" output)
+         (write-all-bytes #"je " output)
+         (write-all-bytes fun-name output)
+         (write-all-bytes #"_" output)
+         (write-all-bytes (integer->decimal-bytes block) output)
+         (write-all-bytes #"\n" output)
+         (write-variant-switch fun-name cases output))]))
+
 
   (define (write-pop-function-arguments [num-args : Byte] [output : OutputPort]) : Void
     (if (= 0 num-args)
