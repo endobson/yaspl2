@@ -318,6 +318,17 @@
               (let ([f2 (foo 4 5 6)])
                 (* (foo-y f2) (foo-z f1))))))"
       #:exit-code 15)
+    (compiler-test #:mod 'compiler
+      #"(module main
+          (import)
+          (export)
+          (types
+            (define-type Foo
+              (foo [x Byte] [y Byte] [z Byte])))
+          (define (main) : Byte
+            (case (foo 1 2 3)
+              [_ 5])))"
+      #:exit-code 5)
 
 
     (when all-tests
