@@ -289,13 +289,35 @@
       #:exit-code 3)
     (compiler-test #:mod 'compiler
       #"(module main
-          (import (prim write-bytes))
+          (import)
           (export)
           (types
             (define-type Foo
               (foo [v Byte])))
           (define (main) : Byte (let ([f (foo 4)]) 0)))"
       #:exit-code 0)
+    (compiler-test #:mod 'compiler
+      #"(module main
+          (import)
+          (export)
+          (types
+            (define-type Foo
+              (foo [v Byte])))
+          (define (main) : Byte
+            (foo-v (foo 7))))"
+      #:exit-code 7)
+    (compiler-test #:mod 'compiler
+      #"(module main
+          (import (prim *))
+          (export)
+          (types
+            (define-type Foo
+              (foo [x Byte] [y Byte] [z Byte])))
+          (define (main) : Byte
+            (let ([f1 (foo 1 2 3)])
+              (let ([f2 (foo 4 5 6)])
+                (* (foo-y f2) (foo-z f1))))))"
+      #:exit-code 15)
 
 
     (when all-tests
