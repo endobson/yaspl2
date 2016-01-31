@@ -265,9 +265,19 @@
           (define (main) : Byte
             (let ([x (make-bytes 4 16)])
               (begin
-                (bytes-set! x 6 3)
-                (bytes-ref x 6)))))"
+                (bytes-set! x 2 3)
+                (bytes-ref x 2)))))"
       #:exit-code 3)
+    (compiler-test #:mod 'compiler
+      #"(module main (import (prim + bytes-ref make-bytes bytes-set!)) (export) (types)
+          (define (main) : Byte
+            (let ([x (make-bytes 4 16)])
+              (begin
+                (bytes-set! x 2 0)
+                (+
+                  (bytes-ref x 1)
+                  (bytes-ref x 3))))))"
+      #:exit-code 32)
     (compiler-test #:mod 'compiler
       #"(module main (import (prim bytes-length make-bytes)) (export) (types)
           (define (main) : Byte (let ([x (make-bytes 4 0)]) (bytes-length x))))"
