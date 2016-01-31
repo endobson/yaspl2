@@ -277,6 +277,15 @@
           (define (main) : Byte (write-bytes #\"abc\" 1 0 3)))"
       #:stdout #"abc"
       #:exit-code 3)
+    (compiler-test #:mod 'compiler
+      #"(module main
+          (import (prim write-bytes))
+          (export)
+          (types
+            (define-type Foo
+              (foo [v Byte])))
+          (define (main) : Byte (let ([f (foo 4)]) 0)))"
+      #:exit-code 0)
 
 
     (when all-tests
