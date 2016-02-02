@@ -340,7 +340,27 @@
             (case (foo 1 2 3)
               [x (foo-y x)])))"
       #:exit-code 2)
-
+    (compiler-test #:mod 'compiler
+      #"(module main
+          (import)
+          (export)
+          (types
+            (define-type Foo
+              (foo)
+              (bar)))
+          (define (main) : Byte
+            (let ([a (foo)])
+              (let ([b (bar)])
+                (case a
+                  [(foo)
+                   (case b
+                     [(foo) 1]
+                     [(bar) 2])]
+                  [(bar)
+                   (case b
+                     [(foo) 3]
+                     [(bar) 4])])))))"
+      #:exit-code 2)
 
     (when all-tests
       parse-libraries-suite)

@@ -15,7 +15,7 @@
       #:patterns ())
     (maybe
       #:types (Maybe)
-      #:values ()
+      #:values (just-v)
       #:patterns (just nothing))
     (join-list
       #:types ()
@@ -28,7 +28,7 @@
                 variable-ref function-ref call-function add-boolean-literal remove-temporaries
                 tmp-slot boolean-jmp uncond-jmp add-bytes-literal ignore-value
                 alloc-variant-cmd dup-cmd variant-ref-cmd variant-switch no-catch-all-case
-                dup-temporary)
+                dup-temporary catch-all-case variant-case pop-cmd boolean-lit-cmd)
       #:patterns (gen-state))
     (source-language
       #:types (Module FunctionDefinition Expression Imports Import TypeDefinition VariantDefinition
@@ -39,6 +39,7 @@
       #:patterns (module imports import function-definition bytes-literal byte-literal boolean-literal
                   let-expr var-expr app-expr if-expr begin-expr variant-definition type-definition
                   variant-field case-expr case-clause ignore-pattern variable-pattern
+                  abstraction-pattern
                   )))
   (export compile-module module-signature)
   (types
@@ -69,7 +70,8 @@
             (initial-value-bindings) mod sigs)
           mod)
         mod)
-      (initial-variant-bindings)))
+      (add-type-definitions-variant-infos/top
+        (initial-variant-bindings) mod)))
 
   (define (initial-value-bindings) : (Dict Bytes VarReference)
     (make-dict bytes=?))
@@ -226,6 +228,33 @@
          variant-name
          fields)]))
 
+  (define (add-type-definitions-variant-infos/top [env : (Dict Bytes VariantInfo)] [mod : Module])
+    : (Dict Bytes VariantInfo)
+    (add-type-definitions-variant-infos env (module-types mod)))
+
+  (define (add-type-definitions-variant-infos
+            [env : (Dict Bytes VariantInfo)]
+            [defs : (List TypeDefinition)])
+    : (Dict Bytes VariantInfo)
+    (case defs
+      [(empty) env]
+      [(cons (type-definition _ _ variants) defs)
+       (add-type-definitions-variant-infos
+         (add-variant-definitions-variant-infos env 0 variants)
+         defs)]))
+
+  (define (add-variant-definitions-variant-infos
+            [env : (Dict Bytes VariantInfo)]
+            [index : Byte]
+            [defs : (List VariantDefinition)])
+    : (Dict Bytes VariantInfo)
+    (case defs
+      [(empty) env]
+      [(cons (variant-definition name _) defs)
+       (add-variant-definitions-variant-infos 
+         (dict-set env name (variant-info index))
+         (+ index 1)
+         defs)]))
 
   (define (add-all-locals [env : Environment] [names : (List Bytes)])
     : Environment
@@ -271,7 +300,7 @@
        (compile-type-definition/variants
          mod-name
          type-name
-         variant-index
+         (+ variant-index 1)
          variants
          (compile-variant-definition mod-name type-name variant-index variant acc))]))
 
@@ -523,7 +552,51 @@
     (case pattern
       [(ignore-pattern) (add-boolean-literal #t (ignore-value state))]
       [(variable-pattern _) (add-boolean-literal #t (ignore-value state))]
-      [_ (panic #"nyi")]))
+      [(abstraction-pattern name patterns)
+       (let ([tag (environment-tag-ref env name)])
+         (case state
+           [(gen-state stack cmds old-label blocks)
+            (let ([non-matching-label (+ 1 old-label)])
+              (let ([matching-label (+ 1 non-matching-label)])
+                (case (compile-variant-patterns/match tag 0 patterns env 
+                        (gen-state stack (empty-jl) matching-label (empty-jl)))
+                  [(gen-state matching-stack matching-cmds matching-end-label matching-blocks)
+                   (let ([join-label (+ 1 matching-end-label)])
+                     (gen-state
+                       matching-stack
+                       (empty-jl)
+                       join-label
+                       (append-jl
+                         (snoc-jl
+                           (snoc-jl
+                             blocks
+                             (stack-basic-block
+                               (jl->list cmds)
+                               (variant-switch
+                                 (variant-case tag matching-label
+                                   (catch-all-case non-matching-label)))))
+                           (stack-basic-block
+                             (cons (pop-cmd) (cons (boolean-lit-cmd #f) (empty)))
+                             (uncond-jmp join-label)))
+                         (snoc-jl
+                           matching-blocks
+                           (stack-basic-block
+                             (jl->list matching-cmds)
+                             (uncond-jmp join-label))))))])))]))]
+      [_ (panic #"Unimplemented Pattern")]))
+
+  ;; Takes a stack of the form A :: Rest and turns it into the state Boolean :: Rest
+  ;; where the top of the stack is true if the value matched all the patterns
+  (define (compile-variant-patterns/match
+            [tag : Byte]
+            [field : Byte]
+            [patterns : (List Pattern)]
+            [env : Environment]
+            [state : GenState]) : GenState
+    (case patterns
+      [(empty) (add-boolean-literal #t (ignore-value state))]
+      [_ (panic #"Unimplemented Patterns")]))
+
 
 
   (define (compile-pattern/extract
@@ -540,6 +613,8 @@
            expr
            (environment-value-set env v (local-var))
            (name-temporary v state)))]
+      [(abstraction-pattern _ (empty))
+       (compile-expression expr env (ignore-value state))]
       [_ (panic #"nyi")]))
 
 
@@ -560,6 +635,8 @@
     (case env
       [(environment vals variants)
        (environment (dict-set vals name val) variants)]))
+  (define (environment-tag-ref [env : Environment] [name : Bytes]) : Byte
+    (variant-info-tag (just-v (dict-ref (environment-variant-bindings env) name))))
 
   )
 
