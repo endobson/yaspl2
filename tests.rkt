@@ -361,6 +361,21 @@
                      [(foo) 3]
                      [(bar) 4])])))))"
       #:exit-code 2)
+    (compiler-test #:mod 'compiler
+      #"(module main
+          (import)
+          (export)
+          (types
+            (define-type Tree
+              (branch [left Tree] [right Tree])
+              (leaf)))
+          (define (main) : Byte
+            (case (branch (leaf) (leaf))
+              [(branch (branch _ _) _) 1]
+              [(branch _ (branch _ _)) 2]
+              [(branch _ _) 3])))"
+      #:exit-code 3)
+
 
     (when all-tests
       parse-libraries-suite)

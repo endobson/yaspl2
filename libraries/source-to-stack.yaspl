@@ -28,7 +28,8 @@
                 variable-ref function-ref call-function add-boolean-literal remove-temporaries
                 tmp-slot boolean-jmp uncond-jmp add-bytes-literal ignore-value
                 alloc-variant-cmd dup-cmd variant-ref-cmd variant-switch no-catch-all-case
-                dup-temporary catch-all-case variant-case pop-cmd boolean-lit-cmd)
+                dup-temporary catch-all-case variant-case pop-cmd boolean-lit-cmd
+                variant-ref)
       #:patterns (gen-state))
     (source-language
       #:types (Module FunctionDefinition Expression Imports Import TypeDefinition VariantDefinition
@@ -595,7 +596,40 @@
             [state : GenState]) : GenState
     (case patterns
       [(empty) (add-boolean-literal #t (ignore-value state))]
-      [_ (panic #"Unimplemented Patterns")]))
+      [(cons pattern patterns)
+       (let ([state (variant-ref tag field (dup-temporary state))])
+         (case (compile-pattern/match pattern env state)
+           [(gen-state stack cmds label blocks)
+            (let ([non-matching-label (+ label 1)])
+              (let ([matching-label (+ non-matching-label 1)])
+                (case (compile-variant-patterns/match tag (+ field 1) patterns env 
+                        (gen-state stack (empty-jl) matching-label (empty-jl)))
+                  [(gen-state matching-stack matching-cmds matching-end-label matching-blocks)
+                   (let ([join-label (+ matching-end-label 1)])
+                     (gen-state
+                       matching-stack
+                       (empty-jl)
+                       join-label
+                       (append-jl
+                         (snoc-jl
+                           (snoc-jl
+                             blocks
+                             (stack-basic-block
+                               (jl->list cmds)
+                               (boolean-jmp matching-label non-matching-label)))
+                           (stack-basic-block
+                             (cons (pop-cmd) (cons (boolean-lit-cmd #f) (empty)))
+                             (uncond-jmp join-label)))
+                         (snoc-jl
+                           matching-blocks
+                           (stack-basic-block
+                             (jl->list matching-cmds)
+                             (uncond-jmp join-label))))))])))]))]))
+
+
+
+
+
 
 
 
@@ -613,7 +647,8 @@
            expr
            (environment-value-set env v (local-var))
            (name-temporary v state)))]
-      [(abstraction-pattern _ (empty))
+      ;; TODO handle this correctly
+      [(abstraction-pattern _ _)
        (compile-expression expr env (ignore-value state))]
       [_ (panic #"nyi")]))
 
