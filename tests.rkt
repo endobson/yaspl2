@@ -376,6 +376,26 @@
               [(branch _ _) 3])))"
       #:exit-code 3)
 
+    (compiler-test #:mod 'compiler
+      #"(module main
+          (import (prim * - +))
+          (export)
+          (types
+            (define-type Tree
+              (branch [left Tree] [right Tree])
+              (leaf [v Byte])))
+          (define (main) : Byte
+            (+
+              (* 100 (foo (branch (leaf 1) (branch (leaf 1) (leaf 0)))))
+              (+ (* 10 (foo (branch (branch (leaf 1) (leaf 2)) (leaf 2))))
+                 (foo (branch (leaf 4) (leaf 3))))))
+          (define (foo [x : Tree]) : Byte
+            (case x
+              [(branch (branch (leaf a) (leaf b)) (leaf c)) (* a (* b c))]
+              [(branch (leaf a) (branch (leaf b) (leaf c))) (+ a (+ b c))]
+              [(branch (leaf a) (leaf b)) (- a b)])))"
+      #:exit-code 241)
+
 
     (when all-tests
       parse-libraries-suite)

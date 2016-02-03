@@ -6,7 +6,7 @@
       #:patterns ())
     (list
       #:types (List)
-      #:values (cons empty length append map append*)
+      #:values (cons empty length append map append* reverse)
       #:patterns (cons empty))
     (bytes bytes=? bytes-append)
     (dict
@@ -17,6 +17,10 @@
       #:types (Maybe)
       #:values (just-v)
       #:patterns (just nothing))
+    (tuples
+      #:types (Tuple2)
+      #:values (tuple2)
+      #:patterns (tuple2))
     (join-list
       #:types ()
       #:values (jl->list empty-jl append-jl snoc-jl)
@@ -29,8 +33,8 @@
                 tmp-slot boolean-jmp uncond-jmp add-bytes-literal ignore-value
                 alloc-variant-cmd dup-cmd variant-ref-cmd variant-switch no-catch-all-case
                 dup-temporary catch-all-case variant-case pop-cmd boolean-lit-cmd
-                variant-ref)
-      #:patterns (gen-state))
+                variant-ref var-slot swap-cmd)
+      #:patterns (gen-state tmp-slot var-slot))
     (source-language
       #:types (Module FunctionDefinition Expression Imports Import TypeDefinition VariantDefinition
                VariantField CaseClause Pattern)
@@ -40,7 +44,7 @@
       #:patterns (module imports import function-definition bytes-literal byte-literal boolean-literal
                   let-expr var-expr app-expr if-expr begin-expr variant-definition type-definition
                   variant-field case-expr case-clause ignore-pattern variable-pattern
-                  abstraction-pattern
+                  abstraction-pattern bytes-pattern
                   )))
   (export compile-module module-signature)
   (types
@@ -252,7 +256,7 @@
     (case defs
       [(empty) env]
       [(cons (variant-definition name _) defs)
-       (add-variant-definitions-variant-infos 
+       (add-variant-definitions-variant-infos
          (dict-set env name (variant-info index))
          (+ index 1)
          defs)]))
@@ -482,7 +486,7 @@
             [env : Environment]
             [state : GenState]) : GenState
     (case clauses
-      [(empty) 
+      [(empty)
        (case state
          [(gen-state stack cmds label blocks)
           (gen-state
@@ -559,7 +563,7 @@
            [(gen-state stack cmds old-label blocks)
             (let ([non-matching-label (+ 1 old-label)])
               (let ([matching-label (+ 1 non-matching-label)])
-                (case (compile-variant-patterns/match tag 0 patterns env 
+                (case (compile-variant-patterns/match tag 0 patterns env
                         (gen-state stack (empty-jl) matching-label (empty-jl)))
                   [(gen-state matching-stack matching-cmds matching-end-label matching-blocks)
                    (let ([join-label (+ 1 matching-end-label)])
@@ -602,7 +606,7 @@
            [(gen-state stack cmds label blocks)
             (let ([non-matching-label (+ label 1)])
               (let ([matching-label (+ non-matching-label 1)])
-                (case (compile-variant-patterns/match tag (+ field 1) patterns env 
+                (case (compile-variant-patterns/match tag (+ field 1) patterns env
                         (gen-state stack (empty-jl) matching-label (empty-jl)))
                   [(gen-state matching-stack matching-cmds matching-end-label matching-blocks)
                    (let ([join-label (+ matching-end-label 1)])
@@ -626,32 +630,109 @@
                              (jl->list matching-cmds)
                              (uncond-jmp join-label))))))])))]))]))
 
-
-
-
-
-
-
-
+  ;; Takes a stack of the form A :: Rest and sets it up with some variables
+  ;; on top of Rest before evaluating expr, and then cleans up all those variables.
   (define (compile-pattern/extract
             [pattern : Pattern]
             [expr : Expression]
             [env : Environment]
             [state : GenState]) : GenState
-    (case pattern
-      [(ignore-pattern)
-       (compile-expression expr env (ignore-value state))]
-      [(variable-pattern v)
-       (unscope-variable v
-         (compile-expression
-           expr
-           (environment-value-set env v (local-var))
-           (name-temporary v state)))]
-      ;; TODO handle this correctly
-      [(abstraction-pattern _ _)
-       (compile-expression expr env (ignore-value state))]
-      [_ (panic #"nyi")]))
+    (let ([extractions (compute-extractions (cons (tuple2 pattern (empty)) (empty)) env (empty))])
+      (cleanup-extractions/state
+        (reverse extractions)
+        (compile-expression
+          expr
+          (run-extractions/env extractions env)
+          (run-extractions/state extractions state)))))
 
+  (define (run-extractions/state
+            [extractions : (List (Tuple2 Bytes (List (Tuple2 Byte Byte))))]
+            [state : GenState]) : GenState
+    (case extractions
+      [(empty) (ignore-value state)]
+      [(cons (tuple2 name path) extractions)
+       (run-extractions/state
+         extractions
+         (swap-var
+           (name-temporary name
+             (extract-path (reverse path) (dup-temporary state)))))]))
+
+  (define (cleanup-extractions/state
+            [extractions : (List (Tuple2 Bytes (List (Tuple2 Byte Byte))))]
+            [state : GenState]) : GenState
+    (case extractions
+      [(empty) state]
+      [(cons (tuple2 name _) extractions)
+       (cleanup-extractions/state
+         extractions
+         (unscope-variable name state))]))
+
+  (define (extract-path [path : (List (Tuple2 Byte Byte))] [state : GenState]) : GenState
+    (case path
+      [(empty) state]
+      [(cons (tuple2 tag field) path)
+       (extract-path
+         path
+         (variant-ref tag field state))]))
+
+  (define (swap-var [state : GenState]) : GenState
+    (case state
+      [(gen-state stack cmds label blocks)
+       (case stack
+         [(var-slot v (tmp-slot stack))
+          (gen-state
+            (tmp-slot (var-slot v stack))
+            (snoc-jl cmds (swap-cmd))
+            label
+            blocks)]
+         [_ (panic #"swap-var: Not a valid state")])]))
+
+  (define (run-extractions/env
+            [extractions : (List (Tuple2 Bytes (List (Tuple2 Byte Byte))))]
+            [env : Environment]) : Environment
+    (case extractions
+      [(empty) env]
+      [(cons (tuple2 name _) extractions)
+       (run-extractions/env
+         extractions
+         (environment-value-set env name (local-var)))]))
+
+  (define (compute-extractions
+            [patterns : (List (Tuple2 Pattern (List (Tuple2 Byte Byte))))]
+            [env : Environment]
+            [acc-extractions : (List (Tuple2 Bytes (List (Tuple2 Byte Byte))))])
+    : (List (Tuple2 Bytes (List (Tuple2 Byte Byte))))
+    (case patterns
+      [(empty) acc-extractions]
+      [(cons (tuple2 pattern path) patterns)
+       (case pattern
+         [(ignore-pattern) (compute-extractions patterns env acc-extractions)]
+         [(bytes-pattern _) (compute-extractions patterns env acc-extractions)]
+         [(variable-pattern v)
+          (compute-extractions patterns env (cons (tuple2 v path) acc-extractions))]
+         [(abstraction-pattern name inner-patterns)
+          (let ([tag (environment-tag-ref env name)])
+            (compute-extractions
+              (compute-extraction-paths inner-patterns path tag 0 patterns)
+              env
+              acc-extractions))])]))
+
+  (define (compute-extraction-paths
+            [patterns : (List Pattern)]
+            [path : (List (Tuple2 Byte Byte))]
+            [tag : Byte]
+            [field : Byte]
+            [acc : (List (Tuple2 Pattern (List (Tuple2 Byte Byte))))])
+    : (List (Tuple2 Pattern (List (Tuple2 Byte Byte))))
+    (case patterns
+      [(empty) acc]
+      [(cons pattern patterns)
+       (compute-extraction-paths
+         patterns
+         path
+         tag
+         (+ field 1)
+         (cons (tuple2 pattern (cons (tuple2 tag field) path)) acc))]))
 
 
   (define (compile-begin-exprs
