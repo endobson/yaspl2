@@ -415,6 +415,20 @@
       #:exit-code 241)
 
 
+    (compiler-test #:mod 'compiler
+      #"(module main
+          (import)
+          (export)
+          (types)
+          (define (main) : Byte 3))
+        (module other
+          (import)
+          (export)
+          (types)
+          (define (foo) : Byte 5))"
+      #:exit-code 3)
+
+
     (when all-tests
       compile-libraries-suite)
   )
