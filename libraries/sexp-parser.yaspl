@@ -18,11 +18,15 @@
       #:types (Either)
       #:values (left right)
       #:patterns (left right))
+    (maybe
+      #:types (Maybe)
+      #:values (just nothing)
+      #:patterns (just nothing))
     (list
       #:types (List)
       #:values (cons empty reverse)
       #:patterns ()))
-  (export Sexp parse-sexp main)
+  (export Sexp parse-sexp parse-sexps main)
   (types
     (define-type Sexp
       (node [list (List Sexp)])
@@ -40,35 +44,47 @@
       (sexp-result-error)))
 
 
+  (define (parse-sexps [bytes : Bytes]) : (Either Bytes (List Sexp))
+    (parse-sexps/acc (make-lexer bytes) (empty)))
+
+  (define (parse-sexps/acc [lexer : Lexer] [acc : (List Sexp)]) : (Either Bytes (List Sexp))
+    (let ([val (loop lexer)])
+      (case val
+        [(nothing) (right (reverse acc))]
+        [(just (sexp-result v lexer))
+         (parse-sexps/acc lexer (cons v acc))]
+        [(just (sexp-result-error)) (left #"Sexp result error")])))
+
 
   (define (parse-sexp [bytes : Bytes]) : (Either Bytes Sexp)
     (let ([lexer (make-lexer bytes)])
       (let ([val (loop lexer)])
         (case val
-          [(sexp-result v lexer)
+          [(nothing) (left #"End of input")]
+          [(just (sexp-result-error)) (left #"Sexp result error")]
+          [(just (sexp-result v lexer))
             (case (run-lexer lexer)
               [(lex-result v lexer) (left #"Leftovers")]
               [(bad-input) (left #"Bad input")]
-              [(end-of-input) (right v)])]
-          [(sexp-result-error) (left #"Sexp result error")]))))
+              [(end-of-input) (right v)])]))))
 
-  (define (loop [lexer : Lexer]) : SexpResult
+  (define (loop [lexer : Lexer]) : (Maybe SexpResult)
     (let ([val (run-lexer lexer)])
       (case val
-        [(end-of-input) (sexp-result-error)]
-        [(bad-input) (sexp-result-error)]
+        [(end-of-input) (nothing)]
+        [(bad-input) (just (sexp-result-error))]
         [(lex-result v lexer)
-          (case v
-            [(number-lexeme bytes) (sexp-result (number-sexp (decimal-bytes->integer bytes)) lexer)]
-            [(symbol-lexeme bytes) (sexp-result (symbol-sexp bytes) lexer)]
-            [(bytes-lexeme bytes) (sexp-result (bytes-sexp bytes) lexer)]
-            [(keyword-lexeme bytes) (sexp-result (keyword-sexp bytes) lexer)]
-            [(boolean-lexeme bool) (sexp-result (boolean-sexp bool) lexer)]
-            [(left-paren-lexeme) (node-loop (empty) (paren) lexer)]
-            [(left-bracket-lexeme) (node-loop (empty) (bracket) lexer)]
-            [(comment-lexeme) (loop lexer)]
-            [(right-bracket-lexeme) (sexp-result-error)]
-            [(right-paren-lexeme) (sexp-result-error)])])))
+         (case v
+           [(number-lexeme bytes) (just (sexp-result (number-sexp (decimal-bytes->integer bytes)) lexer))]
+           [(symbol-lexeme bytes) (just (sexp-result (symbol-sexp bytes) lexer))]
+           [(bytes-lexeme bytes) (just (sexp-result (bytes-sexp bytes) lexer))]
+           [(keyword-lexeme bytes) (just (sexp-result (keyword-sexp bytes) lexer))]
+           [(boolean-lexeme bool) (just (sexp-result (boolean-sexp bool) lexer))]
+           [(left-paren-lexeme) (just (node-loop (empty) (paren) lexer))]
+           [(left-bracket-lexeme) (just (node-loop (empty) (bracket) lexer))]
+           [(comment-lexeme) (loop lexer)]
+           [(right-bracket-lexeme) (just (sexp-result-error))]
+           [(right-paren-lexeme) (just (sexp-result-error))])])))
 
   (define (node-loop [vals : (List Sexp)] [paren-style : ParenStyle] [lexer : Lexer]) : SexpResult
     (let ([val (run-lexer lexer)])

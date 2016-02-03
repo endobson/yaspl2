@@ -171,7 +171,7 @@
     (yaspl-test #:module-name 'lexer #:stdin #"a;.&\na" #:exit-code 0)
 
 
-    (yaspl-test #:module-name 'sexp-parser #:stdin #"" #:exit-code 255 #:error #"Sexp result error")
+    (yaspl-test #:module-name 'sexp-parser #:stdin #"" #:exit-code 255 #:error #"End of input")
     (yaspl-test #:module-name 'sexp-parser #:stdin #"(" #:exit-code 255 #:error #"Sexp result error")
     (yaspl-test #:module-name 'sexp-parser #:stdin #")" #:exit-code 255 #:error #"Sexp result error")
     (yaspl-test #:module-name 'sexp-parser #:stdin #"()" #:exit-code 0)
