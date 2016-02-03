@@ -101,8 +101,8 @@
             (check-equal? (get-output-bytes error-output-port) #"")))))))
 
 
-(define parse-libraries-suite
-  (make-test-suite "parse libraries"
+(define compile-libraries-suite
+  (make-test-suite "compile libraries"
     (for/list ([file (in-directory library-dir)])
       (define-values (dir name-path is-dir) (split-path file))
       (when (symbol? name-path)
@@ -111,7 +111,24 @@
       (test-suite name
         (test-begin
           (define file-contents (call-with-input-file* file port->bytes))
-          (yaspl-test #:module-name 'source-language #:stdin file-contents))))))
+          (define module-name
+            (case name
+              [["arithmetic-expr.yaspl"
+                "bytes.yaspl"
+                "compiler.yaspl"
+                "dict.yaspl"
+                "io.yaspl"
+                "join-list.yaspl"
+                "lexer.yaspl"
+                "list.yaspl"
+                "numbers.yaspl"
+                "sexp-parser.yaspl"
+                "source-language.yaspl"
+                "source-to-stack.yaspl"
+                "stack-machine.yaspl"
+                "x86-64-stack-machine.yaspl"] 'source-language]
+              [else 'compiler]))
+          (yaspl-test #:module-name module-name #:stdin file-contents #:stdout #f))))))
 
 (define run-test-files-suite
   (make-test-suite "test directory"
@@ -128,6 +145,7 @@
               (test-suite (format "~a" i)
                 (keyword-apply yaspl-test kws vals null
                                #:modules (map parse-module new-modules)))))]))))
+
 
 
 (define all-tests #f)
@@ -398,6 +416,6 @@
 
 
     (when all-tests
-      parse-libraries-suite)
+      compile-libraries-suite)
   )
   'verbose))
