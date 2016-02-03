@@ -416,17 +416,17 @@
 
 
     (compiler-test #:mod 'compiler
-      #"(module main
+      #"(module other
           (import)
+          (export foo)
+          (types)
+          (define (foo) : Byte 5))
+        (module main
+          (import (other foo))
           (export)
           (types)
-          (define (main) : Byte 3))
-        (module other
-          (import)
-          (export)
-          (types)
-          (define (foo) : Byte 5))"
-      #:exit-code 3)
+          (define (main) : Byte (foo)))"
+      #:exit-code 5)
 
 
     (when all-tests
