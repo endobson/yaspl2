@@ -10,5 +10,6 @@
   (write-bytes (program-result-stdout result) (current-output-port))
   (write-bytes (program-result-stderr result) (current-error-port))
   (when (program-result-error-info result) 
-    (write-bytes (program-result-error-info result) (current-error-port)))
+    (write-bytes (program-result-error-info result) (current-error-port))
+    (newline (current-error-port)))
   (exit (program-result-exit-code result)))

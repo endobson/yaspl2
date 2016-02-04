@@ -163,8 +163,10 @@
      (match args
        [(list (variant-val (== variant-name equal?) fields))
         (run-cont (list-ref fields index) cont)]
-       [_
-         (error-sentinal #"Wrong variant")])]
+       [(list (variant-val value-name _))
+        (error-sentinal
+          (string->bytes/utf-8
+            (format "Wrong variant: Expected ~a, got ~a" variant-name value-name)))])]
     [(prim-function-val name)
      (match (run-primitive name args)
        [(? value? val) (run-cont val cont)]
