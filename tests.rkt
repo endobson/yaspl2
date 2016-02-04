@@ -441,6 +441,46 @@
       #:exit-code 5)
 
 
+    (compiler-test #:mod 'compiler
+      #"(module main
+          (import (prim =))
+          (export)
+          (types)
+          (define (main) : Byte (if (= 5 5) 2 3)))"
+      #:exit-code 2)
+    (compiler-test #:mod 'compiler
+      #"(module main
+          (import (prim <))
+          (export)
+          (types)
+          (define (main) : Byte (if (< 3 5) 2 3)))"
+      #:exit-code 2)
+    (compiler-test #:mod 'compiler
+      #"(module main
+          (import (prim >))
+          (export main)
+          (types)
+          (define (main) : Byte (if (> 3 5) 2 3)))"
+      #:exit-code 3)
+    (compiler-test #:mod 'compiler
+      #"(module main
+          (import (prim <=))
+          (export)
+          (types)
+          (define (main) : Byte (if (<= 3 5) 2 3)))"
+      #:exit-code 2)
+    (compiler-test #:mod 'compiler
+      #"(module main
+          (import (prim >=))
+          (export main)
+          (types)
+          (define (main) : Byte (if (>= 3 5) 2 3)))"
+      #:exit-code 3)
+
+
+
+
+
     (when all-tests
       compile-libraries-suite)
   )
