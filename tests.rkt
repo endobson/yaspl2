@@ -6,6 +6,7 @@
   "parser.rkt"
   racket/system
   racket/cmdline
+  racket/list
   racket/file
   racket/runtime-path
   racket/set
@@ -101,34 +102,45 @@
             (check-equal? (get-output-bytes error-output-port) #"")))))))
 
 
+
 (define compile-libraries-suite
-  (make-test-suite "compile libraries"
-    (for/list ([file (in-directory library-dir)])
-      (define-values (dir name-path is-dir) (split-path file))
-      (when (symbol? name-path)
-        (error 'tests "Bad path"))
-      (define name (path->string name-path))
-      (test-suite name
-        (test-begin
-          (define file-contents (call-with-input-file* file port->bytes))
-          (define module-name
-            (case name
-              [["arithmetic-expr.yaspl"
-                "bytes.yaspl"
-                "compiler.yaspl"
-                "dict.yaspl"
-                "io.yaspl"
-                "join-list.yaspl"
-                "lexer.yaspl"
-                "list.yaspl"
-                "numbers.yaspl"
-                "sexp-parser.yaspl"
-                "source-language.yaspl"
-                "source-to-stack.yaspl"
-                "stack-machine.yaspl"
-                "x86-64-stack-machine.yaspl"] 'source-language]
-              [else 'compiler]))
-          (yaspl-test #:module-name module-name #:stdin file-contents #:stdout #f))))))
+  (let ()
+    (define libraries
+      (for/hash ([file (in-directory library-dir)])
+        (define-values (dir name-path is-dir) (split-path file))
+        (when (symbol? name-path)
+          (error 'tests "Bad path"))
+        (values
+          (path->string name-path)
+          (call-with-input-file* file port->bytes))))
+    (make-test-suite "compile libraries"
+      (for/list ([name (in-hash-keys libraries)])
+        (test-suite name
+          (test-begin
+            (define deps
+              (case name
+                [("list.yaspl") (list "maybe.yaspl")]
+                [else empty]))
+            (define module-name
+              (case name
+                [("arithmetic-expr.yaspl"
+                  "bytes.yaspl"
+                  "compiler.yaspl"
+                  "dict.yaspl"
+                  "io.yaspl"
+                  "join-list.yaspl"
+                  "lexer.yaspl"
+                  "numbers.yaspl"
+                  "sexp-parser.yaspl"
+                  "source-language.yaspl"
+                  "source-to-stack.yaspl"
+                  "stack-machine.yaspl"
+                  "x86-64-stack-machine.yaspl") 'source-language]
+                [else 'compiler]))
+            (define all-files (append deps (list name)))
+            (define full-contents (apply bytes-append (map (λ (k) (hash-ref libraries k)) all-files)))
+
+            (yaspl-test #:module-name module-name #:stdin full-contents #:stdout #f)))))))
 
 (define run-test-files-suite
   (make-test-suite "test directory"
