@@ -472,10 +472,18 @@
     (compiler-test #:mod 'compiler
       #"(module main
           (import (prim >=))
-          (export main)
+          (export)
           (types)
           (define (main) : Byte (if (>= 3 5) 2 3)))"
       #:exit-code 3)
+
+    (compiler-test #:mod 'compiler
+      #"(module main
+          (import (prim void))
+          (export)
+          (types)
+          (define (main) : Byte (begin (void) 0)))"
+      #:exit-code 0)
 
 
 
