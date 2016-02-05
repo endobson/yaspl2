@@ -76,7 +76,11 @@
     (λ () (delete-file file))))
 
 
-(define (compiler-test program #:mod compiler-mod #:exit-code [exit-code 0] #:stdout [stdout #""])
+(define (compiler-test program
+                       #:mod compiler-mod
+                       #:exit-code [exit-code 0]
+                       #:stdout [stdout #""]
+                       #:stdin [stdin #""])
   (make-test-case "compiler test"
     (lambda ()
       (let ([result (run-program modules compiler-mod 'main #:stdin program)])
@@ -89,7 +93,7 @@
             (system* "/usr/bin/env" "as" asm "-o" object)
             (system* "/usr/bin/env" "ld" "-arch" "x86_64" "-macosx_version_min" "10.11"
                      "-e" "_start" "-static" object "-o" binary)
-            (define input (open-input-bytes #""))
+            (define input (open-input-bytes stdin))
             (define output-port (open-output-bytes))
             (define error-output-port (open-output-bytes))
 
@@ -125,12 +129,12 @@
                   [("bytes.yaspl") (list "maybe.yaspl" "list.yaspl")]
                   [("dict.yaspl") (list "maybe.yaspl" "list.yaspl" "tuples.yaspl")]
                   [("join-list.yaspl") (list "maybe.yaspl" "list.yaspl")]
+                  [("io.yaspl") (list "maybe.yaspl" "list.yaspl" "bytes.yaspl")]
                   [else empty]))
               (define module-name
                 (case name
                   [("arithmetic-expr.yaspl"
                     "compiler.yaspl"
-                    "io.yaspl"
                     "lexer.yaspl"
                     "sexp-parser.yaspl"
                     "source-language.yaspl"
@@ -486,6 +490,15 @@
             (types)
             (define (main) : Byte (begin (void) 0)))"
         #:exit-code 0)
+
+      (compiler-test #:mod 'compiler
+        #"(module main (import (prim read-bytes make-bytes)) (export) (types)
+            (define (main) : Byte
+              (let ([buf (make-bytes 4 0)])
+                (read-bytes buf 0 0 3))))"
+        #:stdin #"abc"
+        #:exit-code 3)
+
 
       (if run-all-tests
           compile-libraries-suite
