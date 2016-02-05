@@ -25,19 +25,21 @@
                     #:error [error-info #f]
                     #:stdout [stdout #""]
                     #:stderr [stderr #""])
-  (test-case (format "~a" module-name)
-    (define full-modules (set-union (list->set extra-modules) modules))
-    (define result (run-program full-modules module-name 'main #:stdin stdin))
-    (with-check-info
-      (['exit-code (program-result-exit-code result)]
-       ['error-info (program-result-error-info result)]
-       ['stdout (program-result-stdout result)]
-       ['stderr (program-result-stderr result)])
-      (check-equal? (program-result-exit-code result) exit-code)
-      (check-equal? (program-result-error-info result) error-info)
-      (when stdout
-        (check-equal? (program-result-stdout result) stdout))
-      (check-equal? (program-result-stderr result) stderr))))
+  (define full-modules (set-union (list->set extra-modules) modules))
+  (make-test-case
+    (format "~a" module-name)
+    (lambda ()
+      (define result (run-program full-modules module-name 'main #:stdin stdin))
+      (with-check-info
+        (['exit-code (program-result-exit-code result)]
+         ['error-info (program-result-error-info result)]
+         ['stdout (program-result-stdout result)]
+         ['stderr (program-result-stderr result)])
+        (check-equal? (program-result-exit-code result) exit-code)
+        (check-equal? (program-result-error-info result) error-info)
+        (when stdout
+          (check-equal? (program-result-stdout result) stdout))
+        (check-equal? (program-result-stderr result) stderr)))))
 
 
 
@@ -76,30 +78,32 @@
 
 
 (define (compiler-test program #:mod compiler-mod #:exit-code [exit-code 0] #:stdout [stdout #""])
-  (test-suite ""
-    (let ([result (run-program modules compiler-mod 'main #:stdin program)])
-      (test-begin
-        (check-equal? (program-result-error-info result) #F)
-        (check-equal? (program-result-exit-code result) 0)
-        (call-with-temporary-files 3
-          (λ (asm object binary)
-            (call-with-output-file asm #:exists 'truncate
-                (λ (p) (write-bytes (program-result-stdout result) p)))
-            (system* "/usr/bin/env" "as" asm "-o" object)
-            (system* "/usr/bin/env" "ld" "-arch" "x86_64" "-macosx_version_min" "10.11"
-                     "-e" "_start" "-static" object "-o" binary)
-            (define input (open-input-bytes #""))
-            (define output-port (open-output-bytes))
-            (define error-output-port (open-output-bytes))
+  (make-test-suite ""
+    (list
+      (let ([result (run-program modules compiler-mod 'main #:stdin program)])
+        (make-test-case #f
+          (lambda ()
+            (check-equal? (program-result-error-info result) #F)
+            (check-equal? (program-result-exit-code result) 0)
+            (call-with-temporary-files 3
+              (λ (asm object binary)
+                (call-with-output-file asm #:exists 'truncate
+                    (λ (p) (write-bytes (program-result-stdout result) p)))
+                (system* "/usr/bin/env" "as" asm "-o" object)
+                (system* "/usr/bin/env" "ld" "-arch" "x86_64" "-macosx_version_min" "10.11"
+                         "-e" "_start" "-static" object "-o" binary)
+                (define input (open-input-bytes #""))
+                (define output-port (open-output-bytes))
+                (define error-output-port (open-output-bytes))
 
-            (check-equal?
-              (parameterize ([current-input-port input]
-                             [current-output-port output-port]
-                             [current-error-port error-output-port])
-                (system*/exit-code binary))
-              exit-code)
-            (check-equal? (get-output-bytes output-port) stdout)
-            (check-equal? (get-output-bytes error-output-port) #"")))))))
+                (check-equal?
+                  (parameterize ([current-input-port input]
+                                 [current-output-port output-port]
+                                 [current-error-port error-output-port])
+                    (system*/exit-code binary))
+                  exit-code)
+                (check-equal? (get-output-bytes output-port) stdout)
+                (check-equal? (get-output-bytes error-output-port) #"")))))))))
 
 
 
@@ -115,32 +119,33 @@
           (call-with-input-file* file port->bytes))))
     (make-test-suite "compile libraries"
       (for/list ([name (in-hash-keys libraries)])
-        (test-suite name
-          (test-begin
-            (define deps
-              (case name
-                [("list.yaspl") (list "maybe.yaspl")]
-                [("bytes.yaspl") (list "maybe.yaspl" "list.yaspl")]
-                [("dict.yaspl") (list "maybe.yaspl" "list.yaspl" "tuples.yaspl")]
-                [("join-list.yaspl") (list "maybe.yaspl" "list.yaspl")]
-                [else empty]))
-            (define module-name
-              (case name
-                [("arithmetic-expr.yaspl"
-                  "compiler.yaspl"
-                  "io.yaspl"
-                  "lexer.yaspl"
-                  "numbers.yaspl"
-                  "sexp-parser.yaspl"
-                  "source-language.yaspl"
-                  "source-to-stack.yaspl"
-                  "stack-machine.yaspl"
-                  "x86-64-stack-machine.yaspl") 'source-language]
-                [else 'compiler]))
-            (define all-files (append deps (list name)))
-            (define full-contents (apply bytes-append (map (λ (k) (hash-ref libraries k)) all-files)))
+        (make-test-suite name
+          (list
+            (let ()
+              (define deps
+                (case name
+                  [("list.yaspl") (list "maybe.yaspl")]
+                  [("bytes.yaspl") (list "maybe.yaspl" "list.yaspl")]
+                  [("dict.yaspl") (list "maybe.yaspl" "list.yaspl" "tuples.yaspl")]
+                  [("join-list.yaspl") (list "maybe.yaspl" "list.yaspl")]
+                  [else empty]))
+              (define module-name
+                (case name
+                  [("arithmetic-expr.yaspl"
+                    "compiler.yaspl"
+                    "io.yaspl"
+                    "lexer.yaspl"
+                    "numbers.yaspl"
+                    "sexp-parser.yaspl"
+                    "source-language.yaspl"
+                    "source-to-stack.yaspl"
+                    "stack-machine.yaspl"
+                    "x86-64-stack-machine.yaspl") 'source-language]
+                  [else 'compiler]))
+              (define all-files (append deps (list name)))
+              (define full-contents (apply bytes-append (map (λ (k) (hash-ref libraries k)) all-files)))
 
-            (yaspl-test #:module-name module-name #:stdin full-contents #:stdout #f)))))))
+              (yaspl-test #:module-name module-name #:stdin full-contents #:stdout #f))))))))
 
 (define run-test-files-suite
   (make-test-suite "test directory"
@@ -154,342 +159,338 @@
          (make-test-suite name
             (for/list ([tc (in-list test-cases)] [i (in-naturals)])
               (define-values (kws vals) (kw-split tc))
-              (test-suite (format "~a" i)
-                (keyword-apply yaspl-test kws vals null
-                               #:modules (map parse-module new-modules)))))]))))
+              (make-test-suite (format "~a" i)
+                (list
+                  (keyword-apply yaspl-test kws vals null
+                                 #:modules (map parse-module new-modules))))))]))))
 
 
 
-(define all-tests #f)
+(define run-all-tests #f)
 (command-line
   #:once-any
-    ("--full" "Whether to run the full test suite or not" (set! all-tests #t)))
+    ("--full" "Whether to run the full test suite or not" (set! run-all-tests #t)))
+
+(define all-tests
+  (make-test-suite "Yaspl tests"
+    (list
+      run-test-files-suite
+
+      (yaspl-test #:module-name 'lexer #:stdin #"((((" #:exit-code 0)
+      (yaspl-test #:module-name 'lexer #:stdin #"()()()" #:exit-code 0)
+      (yaspl-test #:module-name 'lexer #:stdin #"(()" #:exit-code 0)
+      (yaspl-test #:module-name 'lexer #:stdin #"aaaa" #:exit-code 0)
+      (yaspl-test #:module-name 'lexer #:stdin #"#" #:exit-code 1)
+      (yaspl-test #:module-name 'lexer #:stdin #"#:foo" #:exit-code 0)
+      (yaspl-test #:module-name 'lexer #:stdin #"#\"foo" #:exit-code 1)
+      (yaspl-test #:module-name 'lexer #:stdin #"#\"foo\"" #:exit-code 0)
+      (yaspl-test #:module-name 'lexer #:stdin #"a;.&\na" #:exit-code 0)
 
 
-(void (run-tests
-  (test-suite "Yaspl tests"
-
-    run-test-files-suite
-
-
-    (yaspl-test #:module-name 'lexer #:stdin #"((((" #:exit-code 0)
-    (yaspl-test #:module-name 'lexer #:stdin #"()()()" #:exit-code 0)
-    (yaspl-test #:module-name 'lexer #:stdin #"(()" #:exit-code 0)
-    (yaspl-test #:module-name 'lexer #:stdin #"aaaa" #:exit-code 0)
-    (yaspl-test #:module-name 'lexer #:stdin #"#" #:exit-code 1)
-    (yaspl-test #:module-name 'lexer #:stdin #"#:foo" #:exit-code 0)
-    (yaspl-test #:module-name 'lexer #:stdin #"#\"foo" #:exit-code 1)
-    (yaspl-test #:module-name 'lexer #:stdin #"#\"foo\"" #:exit-code 0)
-    (yaspl-test #:module-name 'lexer #:stdin #"a;.&\na" #:exit-code 0)
-
-
-    (yaspl-test #:module-name 'sexp-parser #:stdin #"" #:exit-code 255 #:error #"End of input")
-    (yaspl-test #:module-name 'sexp-parser #:stdin #"(" #:exit-code 255 #:error #"Sexp result error")
-    (yaspl-test #:module-name 'sexp-parser #:stdin #")" #:exit-code 255 #:error #"Sexp result error")
-    (yaspl-test #:module-name 'sexp-parser #:stdin #"()" #:exit-code 0)
-    (yaspl-test #:module-name 'sexp-parser #:stdin #"(()" #:exit-code 255 #:error #"Sexp result error")
-    (yaspl-test #:module-name 'sexp-parser #:stdin #"(()())" #:exit-code 0)
-    (yaspl-test #:module-name 'sexp-parser #:stdin #"( ( ()(( )  )\n )( ))" #:exit-code 0)
-    (yaspl-test #:module-name 'sexp-parser #:stdin #"+" #:exit-code 0)
-    (yaspl-test #:module-name 'sexp-parser #:stdin #"(+ (+))" #:exit-code 0)
-    (yaspl-test #:module-name 'sexp-parser #:stdin #"2" #:exit-code 0)
-    (yaspl-test #:module-name 'sexp-parser #:stdin #"23" #:exit-code 0)
-    (yaspl-test #:module-name 'sexp-parser #:stdin #"456" #:exit-code 0)
-    (yaspl-test #:module-name 'sexp-parser #:stdin #"(+ 2 3)" #:exit-code 0)
-    (yaspl-test #:module-name 'sexp-parser #:stdin #"#:foo" #:exit-code 0)
-    (yaspl-test #:module-name 'sexp-parser #:stdin #"#\"foo\"" #:exit-code 0)
-    (yaspl-test #:module-name 'sexp-parser #:stdin #";.&\na" #:exit-code 0)
-    (yaspl-test #:module-name 'sexp-parser #:stdin #"(a;.&\na)" #:exit-code 0)
-    (yaspl-test #:module-name 'sexp-parser #:stdin #"#t" #:exit-code 0)
-    (yaspl-test #:module-name 'sexp-parser #:stdin #"(#t)" #:exit-code 0)
+      (yaspl-test #:module-name 'sexp-parser #:stdin #"" #:exit-code 255 #:error #"End of input")
+      (yaspl-test #:module-name 'sexp-parser #:stdin #"(" #:exit-code 255 #:error #"Sexp result error")
+      (yaspl-test #:module-name 'sexp-parser #:stdin #")" #:exit-code 255 #:error #"Sexp result error")
+      (yaspl-test #:module-name 'sexp-parser #:stdin #"()" #:exit-code 0)
+      (yaspl-test #:module-name 'sexp-parser #:stdin #"(()" #:exit-code 255 #:error #"Sexp result error")
+      (yaspl-test #:module-name 'sexp-parser #:stdin #"(()())" #:exit-code 0)
+      (yaspl-test #:module-name 'sexp-parser #:stdin #"( ( ()(( )  )\n )( ))" #:exit-code 0)
+      (yaspl-test #:module-name 'sexp-parser #:stdin #"+" #:exit-code 0)
+      (yaspl-test #:module-name 'sexp-parser #:stdin #"(+ (+))" #:exit-code 0)
+      (yaspl-test #:module-name 'sexp-parser #:stdin #"2" #:exit-code 0)
+      (yaspl-test #:module-name 'sexp-parser #:stdin #"23" #:exit-code 0)
+      (yaspl-test #:module-name 'sexp-parser #:stdin #"456" #:exit-code 0)
+      (yaspl-test #:module-name 'sexp-parser #:stdin #"(+ 2 3)" #:exit-code 0)
+      (yaspl-test #:module-name 'sexp-parser #:stdin #"#:foo" #:exit-code 0)
+      (yaspl-test #:module-name 'sexp-parser #:stdin #"#\"foo\"" #:exit-code 0)
+      (yaspl-test #:module-name 'sexp-parser #:stdin #";.&\na" #:exit-code 0)
+      (yaspl-test #:module-name 'sexp-parser #:stdin #"(a;.&\na)" #:exit-code 0)
+      (yaspl-test #:module-name 'sexp-parser #:stdin #"#t" #:exit-code 0)
+      (yaspl-test #:module-name 'sexp-parser #:stdin #"(#t)" #:exit-code 0)
 
 
-    (yaspl-test #:module-name 'sexp-parser #:stdin #"[]" #:exit-code 0)
-    (yaspl-test #:module-name 'sexp-parser #:stdin #"[[]()]" #:exit-code 0)
-    (yaspl-test #:module-name 'sexp-parser #:stdin #"[)" #:exit-code 255 #:error #"Sexp result error")
-    (yaspl-test #:module-name 'sexp-parser #:stdin #"(]" #:exit-code 255 #:error #"Sexp result error")
+      (yaspl-test #:module-name 'sexp-parser #:stdin #"[]" #:exit-code 0)
+      (yaspl-test #:module-name 'sexp-parser #:stdin #"[[]()]" #:exit-code 0)
+      (yaspl-test #:module-name 'sexp-parser #:stdin #"[)" #:exit-code 255 #:error #"Sexp result error")
+      (yaspl-test #:module-name 'sexp-parser #:stdin #"(]" #:exit-code 255 #:error #"Sexp result error")
 
-    (yaspl-test #:module-name 'arithmetic-expr #:stdin #"(module (define (f) 2))" #:exit-code 0)
-    (yaspl-test #:module-name 'arithmetic-expr #:stdin #"(module (define (f x) (+ 2 3)))" #:exit-code 0)
-    (yaspl-test #:module-name 'arithmetic-expr
-                #:stdin #"(module (define (f x y) 2) (define (g z) (+ (* 1 2) (- 4 3))))" #:exit-code 0)
-    (yaspl-test #:module-name 'arithmetic-expr
-                #:stdin #"(module (define (f) 2) (define (g) (f)))" #:exit-code 0)
+      (yaspl-test #:module-name 'arithmetic-expr #:stdin #"(module (define (f) 2))" #:exit-code 0)
+      (yaspl-test #:module-name 'arithmetic-expr #:stdin #"(module (define (f x) (+ 2 3)))" #:exit-code 0)
+      (yaspl-test #:module-name 'arithmetic-expr
+                  #:stdin #"(module (define (f x y) 2) (define (g z) (+ (* 1 2) (- 4 3))))" #:exit-code 0)
+      (yaspl-test #:module-name 'arithmetic-expr
+                  #:stdin #"(module (define (f) 2) (define (g) (f)))" #:exit-code 0)
 
-    (yaspl-test #:module-name 'arithmetic-expr
-                #:stdin #"(module (define (f) (let ([x 3]) 2)))" #:exit-code 0)
-    (yaspl-test #:module-name 'arithmetic-expr
-                #:stdin #"(module (define (f) (let ([x 3]) x)))" #:exit-code 0)
+      (yaspl-test #:module-name 'arithmetic-expr
+                  #:stdin #"(module (define (f) (let ([x 3]) 2)))" #:exit-code 0)
+      (yaspl-test #:module-name 'arithmetic-expr
+                  #:stdin #"(module (define (f) (let ([x 3]) x)))" #:exit-code 0)
 
-    (yaspl-test #:module-name 'x86-64-stack-machine
-                #:stdin #"(module (define (main) 1))" #:exit-code 0 #:stdout #f)
-    (yaspl-test #:module-name 'x86-64-stack-machine
-                #:stdin #"(module (define (main) (+ 1 2)))" #:exit-code 0 #:stdout #f)
-
-
-    (compiler-test #:mod 'x86-64-stack-machine
-      #"(module (define (main_main) 0))")
-    (compiler-test #:mod 'x86-64-stack-machine
-      #"(module (define (main_main) (+ 1 1)))"
-      #:exit-code 2)
-    (compiler-test #:mod 'x86-64-stack-machine
-      #"(module (define (main_main) (* (- 117 113) (+ 10 2))))"
-      #:exit-code 48)
-    (compiler-test #:mod 'x86-64-stack-machine
-      #"(module (define (main_main) 1) (define (foo) 2))"
-      #:exit-code 1)
-    (compiler-test #:mod 'x86-64-stack-machine
-      #"(module (define (main_main) (foo)) (define (foo) 2))"
-      #:exit-code 2)
-    (compiler-test #:mod 'x86-64-stack-machine
-      #"(module (define (main_main) (let ([x 1]) 0)))")
-    (compiler-test #:mod 'x86-64-stack-machine
-      #"(module (define (main_main) (let ([x 1]) x)))"
-      #:exit-code 1)
-    (compiler-test #:mod 'x86-64-stack-machine
-      #"(module (define (main_main) (let ([x 1]) (+ x (let ([y 2]) (* y x))))))"
-      #:exit-code 3)
-    (compiler-test #:mod 'x86-64-stack-machine
-      #"(module
-          (define (main_main) (f 2))
-          (define (f x) (+ x (g 3 4)))
-          (define (g y z) (* y z)))"
-      #:exit-code 14)
+      (yaspl-test #:module-name 'x86-64-stack-machine
+                  #:stdin #"(module (define (main) 1))" #:exit-code 0 #:stdout #f)
+      (yaspl-test #:module-name 'x86-64-stack-machine
+                  #:stdin #"(module (define (main) (+ 1 2)))" #:exit-code 0 #:stdout #f)
 
 
-    (compiler-test #:mod 'compiler
-      #"(module main (import) (export) (types)
-          (define (main) : Byte 0))"
-      #:exit-code 0)
-    (compiler-test #:mod 'compiler
-      #"(module main (import) (export) (types)
-          (define (main) : Byte (let ([x 5]) x)))"
-      #:exit-code 5)
-    (compiler-test #:mod 'compiler
-      #"(module main (import) (export) (types)
-          (define (main) : Byte (f 4))
-          (define (f [x : Byte]) : Byte x))"
-      #:exit-code 4)
-    (compiler-test #:mod 'compiler
-      #"(module main (import (prim +)) (export) (types)
-          (define (main) : Byte (+ 4 5)))"
-      #:exit-code 9)
-    (compiler-test #:mod 'compiler
-      #"(module main (import) (export) (types)
-          (define (main) : Byte (let ([x #t]) 1)))"
-      #:exit-code 1)
-    (compiler-test #:mod 'compiler
-      #"(module main (import) (export) (types)
-          (define (main) : Byte (if #t 1 0)))"
-      #:exit-code 1)
-    (compiler-test #:mod 'compiler
-      #"(module main (import (prim bytes-ref)) (export) (types)
-          (define (main) : Byte (let ([x #\"abc\"]) (bytes-ref x 1))))"
-      #:exit-code 98)
-    (compiler-test #:mod 'compiler
-      #"(module main (import (prim bytes-ref make-bytes)) (export) (types)
-          (define (main) : Byte (let ([x (make-bytes 4 16)]) (bytes-ref x 1))))"
-      #:exit-code 16)
-    (compiler-test #:mod 'compiler
-      #"(module main (import (prim bytes-ref make-bytes bytes-set!)) (export) (types)
-          (define (main) : Byte
-            (let ([x (make-bytes 4 16)])
-              (begin
-                (bytes-set! x 2 3)
-                (bytes-ref x 2)))))"
-      #:exit-code 3)
-    (compiler-test #:mod 'compiler
-      #"(module main (import (prim + bytes-ref make-bytes bytes-set!)) (export) (types)
-          (define (main) : Byte
-            (let ([x (make-bytes 4 16)])
-              (begin
-                (bytes-set! x 2 0)
-                (+
-                  (bytes-ref x 1)
-                  (bytes-ref x 3))))))"
-      #:exit-code 32)
-    (compiler-test #:mod 'compiler
-      #"(module main (import (prim bytes-length make-bytes)) (export) (types)
-          (define (main) : Byte (let ([x (make-bytes 4 0)]) (bytes-length x))))"
-      #:exit-code 4)
-    (compiler-test #:mod 'compiler
-      #"(module main (import (prim write-bytes)) (export) (types)
-          (define (main) : Byte (write-bytes #\"abc\" 1 0 3)))"
-      #:stdout #"abc"
-      #:exit-code 3)
-    (compiler-test #:mod 'compiler
-      #"(module main
-          (import)
-          (export)
-          (types
-            (define-type Foo
-              (foo [v Byte])))
-          (define (main) : Byte (let ([f (foo 4)]) 0)))"
-      #:exit-code 0)
-    (compiler-test #:mod 'compiler
-      #"(module main
-          (import)
-          (export)
-          (types
-            (define-type Foo
-              (foo [v Byte])))
-          (define (main) : Byte
-            (foo-v (foo 7))))"
-      #:exit-code 7)
-    (compiler-test #:mod 'compiler
-      #"(module main
-          (import (prim *))
-          (export)
-          (types
-            (define-type Foo
-              (foo [x Byte] [y Byte] [z Byte])))
-          (define (main) : Byte
-            (let ([f1 (foo 1 2 3)])
-              (let ([f2 (foo 4 5 6)])
-                (* (foo-y f2) (foo-z f1))))))"
-      #:exit-code 15)
-    (compiler-test #:mod 'compiler
-      #"(module main
-          (import)
-          (export)
-          (types
-            (define-type Foo
-              (foo [x Byte] [y Byte] [z Byte])))
-          (define (main) : Byte
-            (case (foo 1 2 3)
-              [_ 5])))"
-      #:exit-code 5)
-    (compiler-test #:mod 'compiler
-      #"(module main
-          (import)
-          (export)
-          (types
-            (define-type Foo
-              (foo [x Byte] [y Byte] [z Byte])))
-          (define (main) : Byte
-            (case (foo 1 2 3)
-              [x (foo-y x)])))"
-      #:exit-code 2)
-    (compiler-test #:mod 'compiler
-      #"(module main
-          (import)
-          (export)
-          (types
-            (define-type Foo
-              (foo)
-              (bar)))
-          (define (main) : Byte
-            (let ([a (foo)])
-              (let ([b (bar)])
-                (case a
-                  [(foo)
-                   (case b
-                     [(foo) 1]
-                     [(bar) 2])]
-                  [(bar)
-                   (case b
-                     [(foo) 3]
-                     [(bar) 4])])))))"
-      #:exit-code 2)
-    (compiler-test #:mod 'compiler
-      #"(module main
-          (import)
-          (export)
-          (types
-            (define-type Tree
-              (branch [left Tree] [right Tree])
-              (leaf)))
-          (define (main) : Byte
-            (case (branch (leaf) (leaf))
-              [(branch (branch _ _) _) 1]
-              [(branch _ (branch _ _)) 2]
-              [(branch _ _) 3])))"
-      #:exit-code 3)
-
-    (compiler-test #:mod 'compiler
-      #"(module main
-          (import (prim * - +))
-          (export)
-          (types
-            (define-type Tree
-              (branch [left Tree] [right Tree])
-              (leaf [v Byte])))
-          (define (main) : Byte
-            (+
-              (* 100 (foo (branch (leaf 1) (branch (leaf 1) (leaf 0)))))
-              (+ (* 10 (foo (branch (branch (leaf 1) (leaf 2)) (leaf 2))))
-                 (foo (branch (leaf 4) (leaf 3))))))
-          (define (foo [x : Tree]) : Byte
-            (case x
-              [(branch (branch (leaf a) (leaf b)) (leaf c)) (* a (* b c))]
-              [(branch (leaf a) (branch (leaf b) (leaf c))) (+ a (+ b c))]
-              [(branch (leaf a) (leaf b)) (- a b)])))"
-      #:exit-code 241)
+      (compiler-test #:mod 'x86-64-stack-machine
+        #"(module (define (main_main) 0))")
+      (compiler-test #:mod 'x86-64-stack-machine
+        #"(module (define (main_main) (+ 1 1)))"
+        #:exit-code 2)
+      (compiler-test #:mod 'x86-64-stack-machine
+        #"(module (define (main_main) (* (- 117 113) (+ 10 2))))"
+        #:exit-code 48)
+      (compiler-test #:mod 'x86-64-stack-machine
+        #"(module (define (main_main) 1) (define (foo) 2))"
+        #:exit-code 1)
+      (compiler-test #:mod 'x86-64-stack-machine
+        #"(module (define (main_main) (foo)) (define (foo) 2))"
+        #:exit-code 2)
+      (compiler-test #:mod 'x86-64-stack-machine
+        #"(module (define (main_main) (let ([x 1]) 0)))")
+      (compiler-test #:mod 'x86-64-stack-machine
+        #"(module (define (main_main) (let ([x 1]) x)))"
+        #:exit-code 1)
+      (compiler-test #:mod 'x86-64-stack-machine
+        #"(module (define (main_main) (let ([x 1]) (+ x (let ([y 2]) (* y x))))))"
+        #:exit-code 3)
+      (compiler-test #:mod 'x86-64-stack-machine
+        #"(module
+            (define (main_main) (f 2))
+            (define (f x) (+ x (g 3 4)))
+            (define (g y z) (* y z)))"
+        #:exit-code 14)
 
 
-    (compiler-test #:mod 'compiler
-      #"(module other
-          (import)
-          (export foo)
-          (types)
-          (define (foo) : Byte 5))
-        (module main
-          (import (other foo))
-          (export)
-          (types)
-          (define (main) : Byte (foo)))"
-      #:exit-code 5)
+      (compiler-test #:mod 'compiler
+        #"(module main (import) (export) (types)
+            (define (main) : Byte 0))"
+        #:exit-code 0)
+      (compiler-test #:mod 'compiler
+        #"(module main (import) (export) (types)
+            (define (main) : Byte (let ([x 5]) x)))"
+        #:exit-code 5)
+      (compiler-test #:mod 'compiler
+        #"(module main (import) (export) (types)
+            (define (main) : Byte (f 4))
+            (define (f [x : Byte]) : Byte x))"
+        #:exit-code 4)
+      (compiler-test #:mod 'compiler
+        #"(module main (import (prim +)) (export) (types)
+            (define (main) : Byte (+ 4 5)))"
+        #:exit-code 9)
+      (compiler-test #:mod 'compiler
+        #"(module main (import) (export) (types)
+            (define (main) : Byte (let ([x #t]) 1)))"
+        #:exit-code 1)
+      (compiler-test #:mod 'compiler
+        #"(module main (import) (export) (types)
+            (define (main) : Byte (if #t 1 0)))"
+        #:exit-code 1)
+      (compiler-test #:mod 'compiler
+        #"(module main (import (prim bytes-ref)) (export) (types)
+            (define (main) : Byte (let ([x #\"abc\"]) (bytes-ref x 1))))"
+        #:exit-code 98)
+      (compiler-test #:mod 'compiler
+        #"(module main (import (prim bytes-ref make-bytes)) (export) (types)
+            (define (main) : Byte (let ([x (make-bytes 4 16)]) (bytes-ref x 1))))"
+        #:exit-code 16)
+      (compiler-test #:mod 'compiler
+        #"(module main (import (prim bytes-ref make-bytes bytes-set!)) (export) (types)
+            (define (main) : Byte
+              (let ([x (make-bytes 4 16)])
+                (begin
+                  (bytes-set! x 2 3)
+                  (bytes-ref x 2)))))"
+        #:exit-code 3)
+      (compiler-test #:mod 'compiler
+        #"(module main (import (prim + bytes-ref make-bytes bytes-set!)) (export) (types)
+            (define (main) : Byte
+              (let ([x (make-bytes 4 16)])
+                (begin
+                  (bytes-set! x 2 0)
+                  (+
+                    (bytes-ref x 1)
+                    (bytes-ref x 3))))))"
+        #:exit-code 32)
+      (compiler-test #:mod 'compiler
+        #"(module main (import (prim bytes-length make-bytes)) (export) (types)
+            (define (main) : Byte (let ([x (make-bytes 4 0)]) (bytes-length x))))"
+        #:exit-code 4)
+      (compiler-test #:mod 'compiler
+        #"(module main (import (prim write-bytes)) (export) (types)
+            (define (main) : Byte (write-bytes #\"abc\" 1 0 3)))"
+        #:stdout #"abc"
+        #:exit-code 3)
+      (compiler-test #:mod 'compiler
+        #"(module main
+            (import)
+            (export)
+            (types
+              (define-type Foo
+                (foo [v Byte])))
+            (define (main) : Byte (let ([f (foo 4)]) 0)))"
+        #:exit-code 0)
+      (compiler-test #:mod 'compiler
+        #"(module main
+            (import)
+            (export)
+            (types
+              (define-type Foo
+                (foo [v Byte])))
+            (define (main) : Byte
+              (foo-v (foo 7))))"
+        #:exit-code 7)
+      (compiler-test #:mod 'compiler
+        #"(module main
+            (import (prim *))
+            (export)
+            (types
+              (define-type Foo
+                (foo [x Byte] [y Byte] [z Byte])))
+            (define (main) : Byte
+              (let ([f1 (foo 1 2 3)])
+                (let ([f2 (foo 4 5 6)])
+                  (* (foo-y f2) (foo-z f1))))))"
+        #:exit-code 15)
+      (compiler-test #:mod 'compiler
+        #"(module main
+            (import)
+            (export)
+            (types
+              (define-type Foo
+                (foo [x Byte] [y Byte] [z Byte])))
+            (define (main) : Byte
+              (case (foo 1 2 3)
+                [_ 5])))"
+        #:exit-code 5)
+      (compiler-test #:mod 'compiler
+        #"(module main
+            (import)
+            (export)
+            (types
+              (define-type Foo
+                (foo [x Byte] [y Byte] [z Byte])))
+            (define (main) : Byte
+              (case (foo 1 2 3)
+                [x (foo-y x)])))"
+        #:exit-code 2)
+      (compiler-test #:mod 'compiler
+        #"(module main
+            (import)
+            (export)
+            (types
+              (define-type Foo
+                (foo)
+                (bar)))
+            (define (main) : Byte
+              (let ([a (foo)])
+                (let ([b (bar)])
+                  (case a
+                    [(foo)
+                     (case b
+                       [(foo) 1]
+                       [(bar) 2])]
+                    [(bar)
+                     (case b
+                       [(foo) 3]
+                       [(bar) 4])])))))"
+        #:exit-code 2)
+      (compiler-test #:mod 'compiler
+        #"(module main
+            (import)
+            (export)
+            (types
+              (define-type Tree
+                (branch [left Tree] [right Tree])
+                (leaf)))
+            (define (main) : Byte
+              (case (branch (leaf) (leaf))
+                [(branch (branch _ _) _) 1]
+                [(branch _ (branch _ _)) 2]
+                [(branch _ _) 3])))"
+        #:exit-code 3)
+
+      (compiler-test #:mod 'compiler
+        #"(module main
+            (import (prim * - +))
+            (export)
+            (types
+              (define-type Tree
+                (branch [left Tree] [right Tree])
+                (leaf [v Byte])))
+            (define (main) : Byte
+              (+
+                (* 100 (foo (branch (leaf 1) (branch (leaf 1) (leaf 0)))))
+                (+ (* 10 (foo (branch (branch (leaf 1) (leaf 2)) (leaf 2))))
+                   (foo (branch (leaf 4) (leaf 3))))))
+            (define (foo [x : Tree]) : Byte
+              (case x
+                [(branch (branch (leaf a) (leaf b)) (leaf c)) (* a (* b c))]
+                [(branch (leaf a) (branch (leaf b) (leaf c))) (+ a (+ b c))]
+                [(branch (leaf a) (leaf b)) (- a b)])))"
+        #:exit-code 241)
 
 
-    (compiler-test #:mod 'compiler
-      #"(module main
-          (import (prim =))
-          (export)
-          (types)
-          (define (main) : Byte (if (= 5 5) 2 3)))"
-      #:exit-code 2)
-    (compiler-test #:mod 'compiler
-      #"(module main
-          (import (prim <))
-          (export)
-          (types)
-          (define (main) : Byte (if (< 3 5) 2 3)))"
-      #:exit-code 2)
-    (compiler-test #:mod 'compiler
-      #"(module main
-          (import (prim >))
-          (export main)
-          (types)
-          (define (main) : Byte (if (> 3 5) 2 3)))"
-      #:exit-code 3)
-    (compiler-test #:mod 'compiler
-      #"(module main
-          (import (prim <=))
-          (export)
-          (types)
-          (define (main) : Byte (if (<= 3 5) 2 3)))"
-      #:exit-code 2)
-    (compiler-test #:mod 'compiler
-      #"(module main
-          (import (prim >=))
-          (export)
-          (types)
-          (define (main) : Byte (if (>= 3 5) 2 3)))"
-      #:exit-code 3)
-
-    (compiler-test #:mod 'compiler
-      #"(module main
-          (import (prim void))
-          (export)
-          (types)
-          (define (main) : Byte (begin (void) 0)))"
-      #:exit-code 0)
+      (compiler-test #:mod 'compiler
+        #"(module other
+            (import)
+            (export foo)
+            (types)
+            (define (foo) : Byte 5))
+          (module main
+            (import (other foo))
+            (export)
+            (types)
+            (define (main) : Byte (foo)))"
+        #:exit-code 5)
 
 
+      (compiler-test #:mod 'compiler
+        #"(module main
+            (import (prim =))
+            (export)
+            (types)
+            (define (main) : Byte (if (= 5 5) 2 3)))"
+        #:exit-code 2)
+      (compiler-test #:mod 'compiler
+        #"(module main
+            (import (prim <))
+            (export)
+            (types)
+            (define (main) : Byte (if (< 3 5) 2 3)))"
+        #:exit-code 2)
+      (compiler-test #:mod 'compiler
+        #"(module main
+            (import (prim >))
+            (export main)
+            (types)
+            (define (main) : Byte (if (> 3 5) 2 3)))"
+        #:exit-code 3)
+      (compiler-test #:mod 'compiler
+        #"(module main
+            (import (prim <=))
+            (export)
+            (types)
+            (define (main) : Byte (if (<= 3 5) 2 3)))"
+        #:exit-code 2)
+      (compiler-test #:mod 'compiler
+        #"(module main
+            (import (prim >=))
+            (export)
+            (types)
+            (define (main) : Byte (if (>= 3 5) 2 3)))"
+        #:exit-code 3)
 
+      (compiler-test #:mod 'compiler
+        #"(module main
+            (import (prim void))
+            (export)
+            (types)
+            (define (main) : Byte (begin (void) 0)))"
+        #:exit-code 0)
 
+      (if run-all-tests
+          compile-libraries-suite
+          (make-test-suite "No compile-libraries" empty)))))
 
-    (when all-tests
-      compile-libraries-suite)
-  )
-  'verbose))
+(void (run-tests all-tests 'verbose))
