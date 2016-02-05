@@ -60,7 +60,10 @@
     (define-type CompiledModule
       (compiled-module [code (List StackFunction)] [sig ModuleSignature]))
     (define-type ModuleSignature
-      (module-signature [name Bytes] [exports (Dict Bytes Bytes)])))
+      (module-signature
+        [name Bytes]
+        [value-exports (Dict Bytes Bytes)]
+        [pattern-exports (Dict Bytes Byte)])))
 
   (define (compile-module [mod : Module] [sigs : (List ModuleSignature)]) : CompiledModule
     ;; TODO add imports to global env
@@ -77,7 +80,8 @@
       [(module name _ exports types _)
        (module-signature
          name
-         (make-exports exports env (make-dict bytes=?)))]))
+         (make-exports exports env (make-dict bytes=?))
+         (make-exported-patterns types env (make-dict bytes=?)))]))
 
   (define (make-exports [exports : (List Bytes)] [env : Environment] [acc : (Dict Bytes Bytes)])
     : (Dict Bytes Bytes)
@@ -97,6 +101,32 @@
               export
               (global-function-name exported-name)))])]))
 
+
+  (define (make-exported-patterns
+            [types : (List TypeDefinition)]
+            [env : Environment]
+            [acc : (Dict Bytes Byte)]) : (Dict Bytes Byte)
+    (case types
+      [(empty) acc]
+      [(cons (type-definition _ _ variants) types)
+       (make-exported-patterns
+         types
+         env
+         (make-exported-patterns/variants variants env acc))]))
+
+  (define (make-exported-patterns/variants
+            [variants : (List VariantDefinition)]
+            [env : Environment]
+            [acc : (Dict Bytes Byte)]) : (Dict Bytes Byte)
+    (case variants
+      [(empty) acc]
+      [(cons (variant-definition name _) variants)
+       (make-exported-patterns/variants
+         variants
+         env
+         (dict-set acc name (environment-tag-ref env name)))]))
+
+
   (define (make-global-env [mod : Module] [sigs : (List ModuleSignature)]) : Environment
     (environment
       (add-type-definitions-functions/top
@@ -105,14 +135,62 @@
             (initial-value-bindings) mod sigs)
           mod)
         mod)
-      (add-type-definitions-variant-infos/top
-        (initial-variant-bindings) mod)))
+      (add-all-imported-patterns
+        (add-type-definitions-variant-infos/top
+          (initial-variant-bindings) mod)
+        mod sigs)))
 
   (define (initial-value-bindings) : (Dict Bytes VarReference)
     (make-dict bytes=?))
 
   (define (initial-variant-bindings) : (Dict Bytes VariantInfo)
     (make-dict bytes=?))
+
+
+  (define (add-all-imported-patterns
+            [env : (Dict Bytes VariantInfo)]
+            [mod : Module]
+            [sigs : (List ModuleSignature)]) : (Dict Bytes VariantInfo)
+    (case mod
+      [(module _ imports _ _ _)
+       (add-all-imports/patterns env imports sigs)]))
+
+  (define (add-all-imports/patterns
+            [env : (Dict Bytes VariantInfo)]
+            [imports : (List Imports)]
+            [sigs : (List ModuleSignature)]) : (Dict Bytes VariantInfo)
+    (case imports
+      [(empty) env]
+      [(cons (imports mod-name _ _ patterns) imports)
+       (add-all-imports/patterns
+         (add-imports/patterns
+           env
+           patterns
+           (lookup-module-signature mod-name sigs))
+         imports
+         sigs)]))
+
+  (define (add-imports/patterns
+            [env : (Dict Bytes VariantInfo)]
+            [imports : (List Import)]
+            [sig : ModuleSignature]) : (Dict Bytes VariantInfo)
+    (case imports
+      [(empty) env]
+      [(cons (import exported-name local-name) imports)
+       (case (dict-ref (module-signature-pattern-exports sig) exported-name)
+         [(nothing)
+          (panic
+            (bytes-append
+              (cons #"No corresponding export for pattern import of "
+                (cons exported-name (empty)))))]
+         [(just tag)
+          (add-imports/patterns
+            (dict-set env local-name (variant-info tag))
+            imports
+            sig)])]))
+
+
+
 
   (define (add-all-imported-functions
             [env : (Dict Bytes VarReference)]
@@ -140,7 +218,7 @@
     (case imps
       [(empty) env]
       [(cons (import exported-name local-name) imps)
-       (case (dict-ref (module-signature-exports sig) exported-name)
+       (case (dict-ref (module-signature-value-exports sig) exported-name)
          [(nothing)
           (panic
             (bytes-append

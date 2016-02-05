@@ -120,15 +120,15 @@
             (define deps
               (case name
                 [("list.yaspl") (list "maybe.yaspl")]
+                [("bytes.yaspl") (list "maybe.yaspl" "list.yaspl")]
+                [("dict.yaspl") (list "maybe.yaspl" "list.yaspl" "tuples.yaspl")]
+                [("join-list.yaspl") (list "maybe.yaspl" "list.yaspl")]
                 [else empty]))
             (define module-name
               (case name
                 [("arithmetic-expr.yaspl"
-                  "bytes.yaspl"
                   "compiler.yaspl"
-                  "dict.yaspl"
                   "io.yaspl"
-                  "join-list.yaspl"
                   "lexer.yaspl"
                   "numbers.yaspl"
                   "sexp-parser.yaspl"
