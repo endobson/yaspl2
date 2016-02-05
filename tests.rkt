@@ -17,7 +17,6 @@
 
 
 
-
 (define (yaspl-test #:module-name module-name
                     #:modules [extra-modules null]
                     #:exit-code [exit-code 0]
@@ -78,32 +77,30 @@
 
 
 (define (compiler-test program #:mod compiler-mod #:exit-code [exit-code 0] #:stdout [stdout #""])
-  (make-test-suite ""
-    (list
+  (make-test-case "compiler test"
+    (lambda ()
       (let ([result (run-program modules compiler-mod 'main #:stdin program)])
-        (make-test-case #f
-          (lambda ()
-            (check-equal? (program-result-error-info result) #F)
-            (check-equal? (program-result-exit-code result) 0)
-            (call-with-temporary-files 3
-              (λ (asm object binary)
-                (call-with-output-file asm #:exists 'truncate
-                    (λ (p) (write-bytes (program-result-stdout result) p)))
-                (system* "/usr/bin/env" "as" asm "-o" object)
-                (system* "/usr/bin/env" "ld" "-arch" "x86_64" "-macosx_version_min" "10.11"
-                         "-e" "_start" "-static" object "-o" binary)
-                (define input (open-input-bytes #""))
-                (define output-port (open-output-bytes))
-                (define error-output-port (open-output-bytes))
+        (check-equal? (program-result-error-info result) #f)
+        (check-equal? (program-result-exit-code result) 0)
+        (call-with-temporary-files 3
+          (λ (asm object binary)
+            (call-with-output-file asm #:exists 'truncate
+                (λ (p) (write-bytes (program-result-stdout result) p)))
+            (system* "/usr/bin/env" "as" asm "-o" object)
+            (system* "/usr/bin/env" "ld" "-arch" "x86_64" "-macosx_version_min" "10.11"
+                     "-e" "_start" "-static" object "-o" binary)
+            (define input (open-input-bytes #""))
+            (define output-port (open-output-bytes))
+            (define error-output-port (open-output-bytes))
 
-                (check-equal?
-                  (parameterize ([current-input-port input]
-                                 [current-output-port output-port]
-                                 [current-error-port error-output-port])
-                    (system*/exit-code binary))
-                  exit-code)
-                (check-equal? (get-output-bytes output-port) stdout)
-                (check-equal? (get-output-bytes error-output-port) #"")))))))))
+            (check-equal?
+              (parameterize ([current-input-port input]
+                             [current-output-port output-port]
+                             [current-error-port error-output-port])
+                (system*/exit-code binary))
+              exit-code)
+            (check-equal? (get-output-bytes output-port) stdout)
+            (check-equal? (get-output-bytes error-output-port) #"")))))))
 
 
 
@@ -167,9 +164,11 @@
 
 
 (define run-all-tests #f)
+(define run-with-timing #f)
 (command-line
-  #:once-any
-    ("--full" "Whether to run the full test suite or not" (set! run-all-tests #t)))
+  #:once-each
+    ("--full" "Whether to run the full test suite or not" (set! run-all-tests #t))
+    ("--timing" "Whether to run with timing information or not" (set! run-with-timing #t)))
 
 (define all-tests
   (make-test-suite "Yaspl tests"
@@ -493,4 +492,16 @@
           compile-libraries-suite
           (make-test-suite "No compile-libraries" empty)))))
 
-(void (run-tests all-tests 'verbose))
+(if run-with-timing
+    (void
+      (foldts-test-suite
+        (λ (suite name before after acc) (cons name acc))
+        (λ (suite name before after acc child-acc) acc)
+        (λ (case name action acc)
+           (write (reverse (cons name acc)))
+           (newline)
+           (time (run-test-case name action))
+           acc)
+        empty
+        all-tests))
+    (void (run-tests all-tests 'verbose)))
