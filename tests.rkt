@@ -132,7 +132,6 @@
                     "compiler.yaspl"
                     "io.yaspl"
                     "lexer.yaspl"
-                    "numbers.yaspl"
                     "sexp-parser.yaspl"
                     "source-language.yaspl"
                     "source-to-stack.yaspl"
