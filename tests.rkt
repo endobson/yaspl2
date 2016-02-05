@@ -130,12 +130,16 @@
                   [("dict.yaspl") (list "maybe.yaspl" "list.yaspl" "tuples.yaspl")]
                   [("join-list.yaspl") (list "maybe.yaspl" "list.yaspl")]
                   [("io.yaspl") (list "maybe.yaspl" "list.yaspl" "bytes.yaspl")]
+                  [("lexer.yaspl") (list "maybe.yaspl" "list.yaspl" "bytes.yaspl" "io.yaspl" "numbers.yaspl")]
+                  #;
+                  [("sexp-parser.yaspl")
+                   (list "either.yaspl" "maybe.yaspl" "list.yaspl" "bytes.yaspl" "io.yaspl" "numbers.yaspl"
+                         "lexer.yaspl")]
                   [else empty]))
               (define module-name
                 (case name
                   [("arithmetic-expr.yaspl"
                     "compiler.yaspl"
-                    "lexer.yaspl"
                     "sexp-parser.yaspl"
                     "source-language.yaspl"
                     "source-to-stack.yaspl"
