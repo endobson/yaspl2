@@ -33,7 +33,7 @@
                 tmp-slot boolean-jmp uncond-jmp add-bytes-literal ignore-value
                 alloc-variant-cmd dup-cmd variant-ref-cmd variant-switch no-catch-all-case
                 dup-temporary catch-all-case variant-case pop-cmd boolean-lit-cmd
-                variant-ref var-slot swap-cmd)
+                variant-ref var-slot swap-cmd assert-stack-equal?)
       #:patterns (gen-state tmp-slot var-slot))
     (source-language
       #:types (Module FunctionDefinition Expression Imports Import TypeDefinition VariantDefinition
@@ -552,7 +552,7 @@
          [(just (local-var)) (variable-ref v state)]
          [(just (global-function n))
           (function-ref n state)]
-         [(nothing) (panic #"Unbound variable")])]
+         [(nothing) (panic (bytes-append (cons #"Unbound variable: " (cons v (empty)))))])]
       ;; TODO make effects of op go before arguments
       [(app-expr op args)
        (call-function (length args)
@@ -570,29 +570,33 @@
                    (case (compile-expression f env
                            (gen-state stack-split (empty-jl) label-f-begin (empty-jl)))
                      [(gen-state stack-f cmds-f label-f-end blocks-f)
-                      ;; TODO Check that stack-f = stack-t = (tmp-slot stack-split)
                       (let ([new-label (+ label-f-end 1)])
-                        (gen-state
-                          (tmp-slot stack-split)
-                          (empty-jl)
-                          new-label
-                          (append-jl
-                            (snoc-jl
-                              blocks
-                              (stack-basic-block (jl->list cmds-c) (boolean-jmp label-t-begin label-f-begin)))
+                        (begin
+                          ; (assert-stack-equal? stack-f stack-t)
+                          ; (assert-stack-equal? stack-f (tmp-slot stack-split))
+                          (gen-state
+                            (tmp-slot stack-split)
+                            (empty-jl)
+                            new-label
                             (append-jl
                               (snoc-jl
-                                blocks-t
-                                (stack-basic-block (jl->list cmds-t) (uncond-jmp new-label)))
-                              (snoc-jl
-                                blocks-f
-                                (stack-basic-block (jl->list cmds-f) (uncond-jmp new-label)))))))]))])))])]
+                                blocks
+                                (stack-basic-block (jl->list cmds-c) (boolean-jmp label-t-begin label-f-begin)))
+                              (append-jl
+                                (snoc-jl
+                                  blocks-t
+                                  (stack-basic-block (jl->list cmds-t) (uncond-jmp new-label)))
+                                (snoc-jl
+                                  blocks-f
+                                  (stack-basic-block (jl->list cmds-f) (uncond-jmp new-label))))))))]))])))])]
       [(begin-expr expr exprs)
        (compile-begin-exprs exprs env (compile-expression expr env state))]
       [(case-expr expr clauses)
        (let ([state (compile-expression expr env state)])
          (compile-case-clauses clauses env state))]))
 
+  ;; This should take a stack of A :: Rest to B :: Rest.
+  ;; Where A is the type being cased on and B is the return type
   (define (compile-case-clauses
             [clauses : (List CaseClause)]
             [env : Environment]
@@ -638,27 +642,30 @@
                                       (empty-jl)))
                      [(gen-state other-stack other-cmds other-end-label other-blocks)
                       (let ([join-label (+ other-end-label 1)])
-                        (gen-state
-                          stack-split ;; TODO check that split-stack = other-stack = extract-stack
-                          (empty-jl)
-                          join-label
-                          (append-jl
-                            (snoc-jl
-                              match-blocks
-                              (stack-basic-block
-                                (jl->list match-cmds)
-                                (boolean-jmp extract-start-label other-start-label)))
+                        (begin
+                          ; (assert-stack-equal? other-stack extract-stack)
+                          ; (assert-stack-equal? extract-stack stack-split)
+                          (gen-state
+                            stack-split
+                            (empty-jl)
+                            join-label
                             (append-jl
                               (snoc-jl
-                                extract-blocks
+                                match-blocks
                                 (stack-basic-block
-                                  (jl->list extract-cmds)
-                                  (uncond-jmp join-label)))
-                              (snoc-jl
-                                other-blocks
-                                (stack-basic-block
-                                  (jl->list other-cmds)
-                                  (uncond-jmp join-label)))))))]))])))])]))
+                                  (jl->list match-cmds)
+                                  (boolean-jmp extract-start-label other-start-label)))
+                              (append-jl
+                                (snoc-jl
+                                  extract-blocks
+                                  (stack-basic-block
+                                    (jl->list extract-cmds)
+                                    (uncond-jmp join-label)))
+                                (snoc-jl
+                                  other-blocks
+                                  (stack-basic-block
+                                    (jl->list other-cmds)
+                                    (uncond-jmp join-label))))))))]))])))])]))
 
   ;; Takes a stack of the form A :: Rest and turns it into the state Boolean :: Rest
   ;; where the top of the stack is true if the value matched the pattern.
@@ -679,27 +686,29 @@
                         (gen-state stack (empty-jl) matching-label (empty-jl)))
                   [(gen-state matching-stack matching-cmds matching-end-label matching-blocks)
                    (let ([join-label (+ 1 matching-end-label)])
-                     (gen-state
-                       matching-stack
-                       (empty-jl)
-                       join-label
-                       (append-jl
-                         (snoc-jl
+                     (begin
+                       ; (assert-stack-equal? matching-stack stack)
+                       (gen-state
+                         (tmp-slot (remove-temporaries 1 stack))
+                         (empty-jl)
+                         join-label
+                         (append-jl
                            (snoc-jl
-                             blocks
+                             (snoc-jl
+                               blocks
+                               (stack-basic-block
+                                 (jl->list cmds)
+                                 (variant-switch
+                                   (variant-case tag matching-label
+                                     (catch-all-case non-matching-label)))))
                              (stack-basic-block
-                               (jl->list cmds)
-                               (variant-switch
-                                 (variant-case tag matching-label
-                                   (catch-all-case non-matching-label)))))
-                           (stack-basic-block
-                             (cons (pop-cmd) (cons (boolean-lit-cmd #f) (empty)))
-                             (uncond-jmp join-label)))
-                         (snoc-jl
-                           matching-blocks
-                           (stack-basic-block
-                             (jl->list matching-cmds)
-                             (uncond-jmp join-label))))))])))]))]
+                               (cons (pop-cmd) (cons (boolean-lit-cmd #f) (empty)))
+                               (uncond-jmp join-label)))
+                           (snoc-jl
+                             matching-blocks
+                             (stack-basic-block
+                               (jl->list matching-cmds)
+                               (uncond-jmp join-label)))))))])))]))]
       [_ (panic #"Unimplemented Pattern")]))
 
   ;; Takes a stack of the form A :: Rest and turns it into the state Boolean :: Rest
@@ -719,28 +728,30 @@
             (let ([non-matching-label (+ label 1)])
               (let ([matching-label (+ non-matching-label 1)])
                 (case (compile-variant-patterns/match tag (+ field 1) patterns env
-                        (gen-state stack (empty-jl) matching-label (empty-jl)))
+                        (gen-state (remove-temporaries 1 stack) (empty-jl) matching-label (empty-jl)))
                   [(gen-state matching-stack matching-cmds matching-end-label matching-blocks)
                    (let ([join-label (+ matching-end-label 1)])
-                     (gen-state
-                       matching-stack
-                       (empty-jl)
-                       join-label
-                       (append-jl
-                         (snoc-jl
+                     (begin
+                       ; (assert-stack-equal? matching-stack (remove-temporaries 1 stack))
+                       (gen-state
+                         matching-stack
+                         (empty-jl)
+                         join-label
+                         (append-jl
                            (snoc-jl
-                             blocks
+                             (snoc-jl
+                               blocks
+                               (stack-basic-block
+                                 (jl->list cmds)
+                                 (boolean-jmp matching-label non-matching-label)))
                              (stack-basic-block
-                               (jl->list cmds)
-                               (boolean-jmp matching-label non-matching-label)))
-                           (stack-basic-block
-                             (cons (pop-cmd) (cons (boolean-lit-cmd #f) (empty)))
-                             (uncond-jmp join-label)))
-                         (snoc-jl
-                           matching-blocks
-                           (stack-basic-block
-                             (jl->list matching-cmds)
-                             (uncond-jmp join-label))))))])))]))]))
+                               (cons (pop-cmd) (cons (boolean-lit-cmd #f) (empty)))
+                               (uncond-jmp join-label)))
+                           (snoc-jl
+                             matching-blocks
+                             (stack-basic-block
+                               (jl->list matching-cmds)
+                               (uncond-jmp join-label)))))))])))]))]))
 
   ;; Takes a stack of the form A :: Rest and sets it up with some variables
   ;; on top of Rest before evaluating expr, and then cleans up all those variables.

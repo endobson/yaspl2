@@ -14,11 +14,15 @@
       #:types (List)
       #:values (map cons empty length)
       #:patterns (cons empty))
+    (tuples
+      #:types ()
+      #:values (tuple2)
+      #:patterns (tuple2))
     (join-list
       #:types (JoinList)
-      #:values (empty-jl jl->list snoc-jl)
+      #:values (empty-jl jl->list snoc-jl cons-jl append-jl)
       #:patterns ())
-    (bytes bytes=?)
+    (bytes bytes=? bytes-append)
     (sexp-parser parse-sexp)
     (io read-all-bytes write-all-bytes write-newline)
     (numbers integer->decimal-bytes))
@@ -31,7 +35,7 @@
           tmp-slot ignore-value alloc-variant-cmd dup-cmd
           variant-ref-cmd variant-switch no-catch-all-case
           dup-temporary pop-cmd boolean-lit-cmd catch-all-case variant-case
-          variant-ref var-slot swap-cmd)
+          variant-ref var-slot swap-cmd assert-stack-equal?)
   (types
     (define-type StackCmd
       (num-lit-cmd [v Byte])
@@ -237,8 +241,11 @@
       [(var-slot v stack)
        (if (bytes=? v var)
            stack
-           (panic #"Unexpected variable on stack"))]
-      [(tmp-slot stack) (panic #"Unexpected temporary on stack")]
+           (panic (bytes-append (cons #"Unexpected variable on stack when removing: "
+                                      (cons var (empty))))))]
+      [(tmp-slot stack)
+       (panic (bytes-append (cons #"Unexpected temporary on stack when removing: "
+                                      (cons var (empty)))))]
       [(return-address-slot stack) (panic #"Unexpected return address on stack")]
       [(empty-abstract-stack) (panic #"Unexpected end of stack")]))
 
@@ -277,4 +284,35 @@
     (case op
       [(plus-op) #"+"]
       [(minus-op) #"-"]
-      [(times-op) #"*"])))
+      [(times-op) #"*"]))
+
+  (define (assert-stack-equal? [stack1 : AbstractStack] [stack2 : AbstractStack]) : Void
+    (if (stack-equal? stack1 stack2)
+        (void)
+        (panic
+          (bytes-append
+            (jl->list
+              (append-jl
+                (cons-jl #"Unmatched stacks:\n" (stack->bytes-jl stack1))
+                (cons-jl #"\n" (stack->bytes-jl stack2))))))))
+
+  (define (stack-equal? [stack1 : AbstractStack] [stack2 : AbstractStack]) : Boolean
+    (case (tuple2 stack1 stack2)
+      [(tuple2 (tmp-slot stack1) (tmp-slot stack2)) (stack-equal? stack1 stack2)]
+      [(tuple2 (return-address-slot stack1) (return-address-slot stack2)) (stack-equal? stack1 stack2)]
+      [(tuple2 (var-slot v1 stack1) (var-slot v2 stack2))
+       (if (bytes=? v1 v2)
+           (stack-equal? stack1 stack2)
+           #f)]
+      [(tuple2 (empty-abstract-stack) (empty-abstract-stack)) #t]
+      [(tuple2 stack1 stack2) #f]))
+
+
+  (define (stack->bytes-jl [stack : AbstractStack]) : (JoinList Bytes)
+    (case stack
+      [(tmp-slot stack)
+       (cons-jl #"_ " (stack->bytes-jl stack))]
+      [(return-address-slot stack) (cons-jl #"<ret> " (stack->bytes-jl stack))]
+      [(var-slot v stack)
+       (cons-jl v (cons-jl #" " (stack->bytes-jl stack)))]
+      [(empty-abstract-stack) (empty-jl)])))
