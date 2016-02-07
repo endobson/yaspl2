@@ -8,6 +8,7 @@
   racket/cmdline
   racket/list
   racket/file
+  racket/promise
   racket/runtime-path
   racket/set
   racket/port
@@ -531,18 +532,23 @@
           compile-libraries-suite
           (make-test-suite "No compile-libraries" empty)))))
 
-(if run-with-timing
-    (void
-      (foldts-test-suite
-        (λ (suite name before after acc) (cons name acc))
-        (λ (suite name before after acc child-acc) acc)
-        (λ (case name action acc)
-           (write (reverse (cons name acc)))
-           (newline)
-           (define result (time (run-test-case name action)))
-           (display-result result)
-           (display-context result)
-           acc)
-        empty
-        all-tests))
-    (void (run-tests all-tests 'verbose)))
+(break-enabled #f)
+(define results
+  (delay/thread
+    (if run-with-timing
+        (foldts-test-suite
+          (λ (suite name before after acc) (cons name acc))
+          (λ (suite name before after acc child-acc) acc)
+          (λ (case name action acc)
+             (write (reverse (cons name acc)))
+             (newline)
+             (define result (time (run-test-case name action)))
+             (display-result result)
+             (display-context result)
+             acc)
+          empty
+          all-tests)
+        (run-tests all-tests 'verbose))))
+
+(with-handlers ([exn:break? (λ (e) (exit 1))])
+  (void (sync/enable-break results)))
