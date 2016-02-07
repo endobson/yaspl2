@@ -221,32 +221,34 @@
     [(case-k clauses env cont)
      (define match-result
        (for*/first ([clause (in-list clauses)]
-                    [res (in-value (match-pattern (case-clause&-pattern clause) val))]
+                    [res (in-value (match-pattern (case-clause&-pattern clause) val env))]
                     #:when res)
          (list (case-clause&-expr clause) res)))
      (unless match-result
        (error 'case "No match for ~a in ~a"
               val (map case-clause&-pattern clauses)))
      (match-define (list expr value-map) match-result)
-     (run-eval expr (hash-union env value-map #:combine (λ (old new) new)) cont)]
+     (run-eval expr value-map cont)]
     [(bind-k name body env cont)
      (run-eval body (hash-set env name val) cont)]))
 
 ;; Returns either #f or (Hash Variable Value)
-(define (match-pattern p v)
-  (match p
-    [(bytes-pattern& bytes)
-     (match v
-       [(bytes-val v-bytes)
-        (and (equal? bytes v-bytes) (hash))])]
-    [(variable-pattern& var)
-     (hash var v)]
-    [(ignore-pattern&)
-     (hash)]
-    [(abstraction-pattern& pattern-name field-patterns)
-     (match v
-       [(variant-val name fields)
-        (and (equal? name pattern-name)
-             (for/fold ([acc (hash)]) ([res (map match-pattern field-patterns fields)])
-               (and acc res (hash-union acc res))))])]))
+(define (match-pattern p v env)
+  (define (recur pvs acc)
+    (match pvs
+      [(list) acc]
+      [(cons (list (bytes-pattern& bytes) v) pvs)
+       (match v
+         [(bytes-val v-bytes)
+          (and (equal? bytes v-bytes) (recur pvs acc))])]
+      [(cons (list (variable-pattern& var) v) pvs)
+       (recur pvs (hash-set acc var v))]
+      [(cons (list (ignore-pattern&) _) pvs)
+       (recur pvs acc)]
+      [(cons (list (abstraction-pattern& pattern-name field-patterns) v) pvs)
+       (match v
+         [(variant-val name fields)
+          (and (equal? name pattern-name)
+               (recur (append (map list field-patterns fields) pvs) acc))])]))
+  (recur (list (list p v)) env))
 
