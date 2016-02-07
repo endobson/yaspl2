@@ -160,15 +160,37 @@
                   [("sexp-parser.yaspl")
                    (list "either.yaspl" "maybe.yaspl" "list.yaspl" "bytes.yaspl" "io.yaspl" "numbers.yaspl"
                          "lexer.yaspl")]
+                  [("arithmetic-expr.yaspl")
+                   (list "either.yaspl" "maybe.yaspl" "list.yaspl" "bytes.yaspl" "io.yaspl" "numbers.yaspl"
+                         "lexer.yaspl" "sexp-parser.yaspl")]
+                  #;
+                  [("source-language.yaspl")
+                   (list "either.yaspl" "maybe.yaspl" "list.yaspl" "bytes.yaspl" "io.yaspl" "numbers.yaspl"
+                         "lexer.yaspl" "sexp-parser.yaspl")]
+                  [("stack-machine.yaspl")
+                   (list "either.yaspl" "maybe.yaspl" "list.yaspl" "bytes.yaspl" "io.yaspl" "numbers.yaspl"
+                         "lexer.yaspl" "sexp-parser.yaspl" "arithmetic-expr.yaspl" "tuples.yaspl"
+                         "join-list.yaspl")]
+                  #;
+                  [("source-to-stack.yaspl")
+                   (list "either.yaspl" "maybe.yaspl" "list.yaspl" "bytes.yaspl" "io.yaspl" "numbers.yaspl"
+                         "lexer.yaspl" "sexp-parser.yaspl" "arithmetic-expr.yaspl" "tuples.yaspl"
+                         "join-list.yaspl" "dict.yaspl" "stack-machine.yaspl" "source-language.yaspl")]
+                  [("x86-64-stack-machine.yaspl")
+                   (list "either.yaspl" "maybe.yaspl" "list.yaspl" "bytes.yaspl" "io.yaspl" "numbers.yaspl"
+                         "lexer.yaspl" "sexp-parser.yaspl" "arithmetic-expr.yaspl" "tuples.yaspl"
+                         "join-list.yaspl" "stack-machine.yaspl")]
+                  #;
+                  [("compiler.yaspl")
+                   (list "either.yaspl" "maybe.yaspl" "list.yaspl" "bytes.yaspl" "io.yaspl" "numbers.yaspl"
+                         "lexer.yaspl" "sexp-parser.yaspl" "arithmetic-expr.yaspl" "tuples.yaspl"
+                         "join-list.yaspl" "dict.yaspl" "stack-machine.yaspl" "x86-64-stack-machine.yaspl"
+                         "source-language.yaspl")]
                   [else empty]))
               (define module-name
                 (case name
-                  [("arithmetic-expr.yaspl"
-                    "compiler.yaspl"
-                    "source-language.yaspl"
-                    "source-to-stack.yaspl"
-                    "stack-machine.yaspl"
-                    "x86-64-stack-machine.yaspl") 'source-language]
+                  [("source-language.yaspl" "source-to-stack.yaspl" "compiler.yaspl")
+                   'source-language]
                   [else 'compiler]))
               (define all-files (append deps (list name)))
               (define full-contents (apply bytes-append (map (λ (k) (hash-ref libraries k)) all-files)))
