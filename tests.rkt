@@ -13,7 +13,10 @@
   racket/port
   rackunit
   racket/match
-  rackunit/text-ui)
+  rackunit/text-ui
+  (for-syntax
+    racket/base
+    syntax/parse))
 
 
 
@@ -25,20 +28,18 @@
                     #:stdout [stdout #""]
                     #:stderr [stderr #""])
   (define full-modules (set-union (list->set extra-modules) modules))
-  (make-test-case
-    (format "~a" module-name)
-    (lambda ()
-      (define result (run-program full-modules module-name 'main #:stdin stdin))
-      (with-check-info
-        (['exit-code (program-result-exit-code result)]
-         ['error-info (program-result-error-info result)]
-         ['stdout (program-result-stdout result)]
-         ['stderr (program-result-stderr result)])
-        (check-equal? (program-result-exit-code result) exit-code)
-        (check-equal? (program-result-error-info result) error-info)
-        (when stdout
-          (check-equal? (program-result-stdout result) stdout))
-        (check-equal? (program-result-stderr result) stderr)))))
+  (test-case* (format "~a" module-name)
+    (define result (run-program full-modules module-name 'main #:stdin stdin))
+    (with-check-info
+      (['exit-code (program-result-exit-code result)]
+       ['error-info (program-result-error-info result)]
+       ['stdout (program-result-stdout result)]
+       ['stderr (program-result-stderr result)])
+      (check-equal? (program-result-exit-code result) exit-code)
+      (check-equal? (program-result-error-info result) error-info)
+      (when stdout
+        (check-equal? (program-result-stdout result) stdout))
+      (check-equal? (program-result-stderr result) stderr))))
 
 
 
@@ -73,7 +74,29 @@
   (dynamic-wind
     void
     (λ () (f file))
-    (λ () (delete-file file))))
+    (λ () (when (file-exists? file)
+            (delete-file file)))))
+
+(define-syntax test-case*
+  (syntax-parser 
+    [(_ name:expr bodies:expr ...)
+     #'(parameterize ([current-test-case-around (lambda (t) (make-test-case name t))])
+         (test-begin bodies ...))]))
+
+
+(define (check-subprocess* #:error-message error-msg . args)
+  (let ([stdout (open-output-bytes 'as-stdout)]
+        [stderr (open-output-bytes 'as-stdout)]
+        [stdin (open-input-bytes #"")])
+    (match-define (list _ _ _ _ proc)
+      (apply process*/ports stdout stdin stderr args))
+    (proc 'wait)
+
+    (unless (= 0 (proc 'exit-code))
+     (with-check-info
+        (['stdout (get-output-bytes stdout)]
+         ['stderr (get-output-bytes stderr)])
+       (fail-check error-msg)))))
 
 
 (define (compiler-test program
@@ -81,30 +104,32 @@
                        #:exit-code [exit-code 0]
                        #:stdout [stdout #""]
                        #:stdin [stdin #""])
-  (make-test-case "compiler test"
-    (lambda ()
-      (let ([result (run-program modules compiler-mod 'main #:stdin program)])
-        (check-equal? (program-result-error-info result) #f)
-        (check-equal? (program-result-exit-code result) 0)
-        (call-with-temporary-files 3
-          (λ (asm object binary)
-            (call-with-output-file asm #:exists 'truncate
-                (λ (p) (write-bytes (program-result-stdout result) p)))
-            (system* "/usr/bin/env" "as" asm "-o" object)
-            (system* "/usr/bin/env" "ld" "-arch" "x86_64" "-macosx_version_min" "10.11"
-                     "-e" "_start" "-static" object "-o" binary)
-            (define input (open-input-bytes stdin))
-            (define output-port (open-output-bytes))
-            (define error-output-port (open-output-bytes))
+  (test-case* "compiler test"
+    (let ([result (run-program modules compiler-mod 'main #:stdin program)])
+      (check-equal? (program-result-error-info result) #f)
+      (check-equal? (program-result-exit-code result) 0)
+      (call-with-temporary-files 3
+        (λ (asm object binary)
+          (call-with-output-file asm #:exists 'truncate
+              (λ (p) (write-bytes (program-result-stdout result) p)))
+          (check-subprocess* #:error-message "Assembler failed."
+            "/usr/bin/env" "as" asm "-o" object)
+          (check-subprocess* #:error-message "Linker failed."
+            "/usr/bin/env" "ld" "-arch" "x86_64" "-macosx_version_min" "10.11"
+            "-e" "_start" "-static" object "-o" binary)
 
-            (check-equal?
-              (parameterize ([current-input-port input]
-                             [current-output-port output-port]
-                             [current-error-port error-output-port])
-                (system*/exit-code binary))
-              exit-code)
-            (check-equal? (get-output-bytes output-port) stdout)
-            (check-equal? (get-output-bytes error-output-port) #"")))))))
+          (define input (open-input-bytes stdin))
+          (define output-port (open-output-bytes))
+          (define error-output-port (open-output-bytes))
+  
+          (check-equal?
+            (parameterize ([current-input-port input]
+                           [current-output-port output-port]
+                           [current-error-port error-output-port])
+              (system*/exit-code binary))
+            exit-code)
+          (check-equal? (get-output-bytes output-port) stdout)
+          (check-equal? (get-output-bytes error-output-port) #""))))))
 
 
 
@@ -514,7 +539,9 @@
         (λ (case name action acc)
            (write (reverse (cons name acc)))
            (newline)
-           (time (run-test-case name action))
+           (define result (time (run-test-case name action)))
+           (display-result result)
+           (display-context result)
            acc)
         empty
         all-tests))
