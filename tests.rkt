@@ -163,7 +163,6 @@
                   [("arithmetic-expr.yaspl")
                    (list "either.yaspl" "maybe.yaspl" "list.yaspl" "bytes.yaspl" "io.yaspl" "numbers.yaspl"
                          "lexer.yaspl" "sexp-parser.yaspl")]
-                  #;
                   [("source-language.yaspl")
                    (list "either.yaspl" "maybe.yaspl" "list.yaspl" "bytes.yaspl" "io.yaspl" "numbers.yaspl"
                          "lexer.yaspl" "sexp-parser.yaspl")]
@@ -171,7 +170,6 @@
                    (list "either.yaspl" "maybe.yaspl" "list.yaspl" "bytes.yaspl" "io.yaspl" "numbers.yaspl"
                          "lexer.yaspl" "sexp-parser.yaspl" "arithmetic-expr.yaspl" "tuples.yaspl"
                          "join-list.yaspl")]
-                  #;
                   [("source-to-stack.yaspl")
                    (list "either.yaspl" "maybe.yaspl" "list.yaspl" "bytes.yaspl" "io.yaspl" "numbers.yaspl"
                          "lexer.yaspl" "sexp-parser.yaspl" "arithmetic-expr.yaspl" "tuples.yaspl"
@@ -180,17 +178,14 @@
                    (list "either.yaspl" "maybe.yaspl" "list.yaspl" "bytes.yaspl" "io.yaspl" "numbers.yaspl"
                          "lexer.yaspl" "sexp-parser.yaspl" "arithmetic-expr.yaspl" "tuples.yaspl"
                          "join-list.yaspl" "stack-machine.yaspl")]
-                  #;
                   [("compiler.yaspl")
                    (list "either.yaspl" "maybe.yaspl" "list.yaspl" "bytes.yaspl" "io.yaspl" "numbers.yaspl"
                          "lexer.yaspl" "sexp-parser.yaspl" "arithmetic-expr.yaspl" "tuples.yaspl"
                          "join-list.yaspl" "dict.yaspl" "stack-machine.yaspl" "x86-64-stack-machine.yaspl"
-                         "source-language.yaspl")]
+                         "source-language.yaspl" "source-to-stack.yaspl")]
                   [else empty]))
               (define module-name
                 (case name
-                  [("source-language.yaspl" "source-to-stack.yaspl" "compiler.yaspl")
-                   'source-language]
                   [else 'compiler]))
               (define all-files (append deps (list name)))
               (define full-contents (apply bytes-append (map (λ (k) (hash-ref libraries k)) all-files)))
@@ -548,6 +543,15 @@
                 (read-bytes buf 0 0 3))))"
         #:stdin #"abc"
         #:exit-code 3)
+      (compiler-test #:mod 'compiler
+        #"(module main (import (prim)) (export) (types)
+            (define (main) : Byte
+              (case #\"abc\"
+                [#\"abd\" 0]
+                [#\"zbc\" 1]
+                [#\"abc\" 2]
+                [_ 3])))"
+        #:exit-code 2)
 
 
       (if run-all-tests
