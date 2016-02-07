@@ -3,7 +3,7 @@
 (provide (all-defined-out))
 
 (struct value () #:transparent)
-(struct function-val value (args env body) #:transparent)
+(struct function-val value (args env-box body) #:transparent)
 (struct void-val value () #:transparent)
 (struct byte-val value (v) #:transparent)
 (struct boolean-val value (v) #:transparent)

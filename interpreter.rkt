@@ -100,12 +100,15 @@
             (string->symbol (format "~a-~a" variant-name field-name))
             (field-accessor-val variant-name index)))))
 
+    (define env-box (box #f))
     (for ([(name def) (in-hash (module&-definitions module))])
       (define val
         (match def
           [(definition& _ args body)
-           (function-val args local-env body)]))
+           (function-val args env-box body)]))
       (hash-set! local-env name val))
+    (set-box! env-box (hash-copy/immutable local-env))
+
     (for ([export (in-list (module&-exports module))])
       (match-define (export& in-name out-name) export)
       (define local-val (hash-ref local-env in-name #f))
@@ -143,10 +146,10 @@
 
 (define (call-function fun args cont)
   (match fun
-    [(function-val arg-names env body)
+    [(function-val arg-names env-box body)
      (if (= (length args) (length arg-names))
          (let ([new-env
-                 (for/fold ([env (hash-copy/immutable env)])
+                 (for/fold ([env (unbox env-box)])
                            ([v (in-list args)] [name (in-list arg-names)])
                    (hash-set env name v))])
            (run-eval body new-env cont))
