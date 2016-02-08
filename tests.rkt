@@ -132,6 +132,18 @@
           (check-equal? (get-output-bytes output-port) stdout)
           (check-equal? (get-output-bytes error-output-port) #""))))))
 
+(define (as-test program)
+  (test-case* "as test"
+    (let ([result (run-program modules 'compiler 'main #:stdin program)])
+      (check-equal? (program-result-error-info result) #f)
+      (check-equal? (program-result-exit-code result) 0)
+      (call-with-temporary-files 2
+        (λ (asm object)
+          (call-with-output-file asm #:exists 'truncate
+              (λ (p) (write-bytes (program-result-stdout result) p)))
+          (check-subprocess* #:error-message "Assembler failed."
+            "/usr/bin/env" "as" asm "-o" object))))))
+
 
 
 (define compile-libraries-suite
@@ -184,13 +196,9 @@
                          "join-list.yaspl" "dict.yaspl" "stack-machine.yaspl" "x86-64-stack-machine.yaspl"
                          "source-language.yaspl" "source-to-stack.yaspl")]
                   [else empty]))
-              (define module-name
-                (case name
-                  [else 'compiler]))
               (define all-files (append deps (list name)))
               (define full-contents (apply bytes-append (map (λ (k) (hash-ref libraries k)) all-files)))
-
-              (yaspl-test #:module-name module-name #:stdin full-contents #:stdout #f))))))))
+              (as-test full-contents))))))))
 
 (define run-test-files-suite
   (make-test-suite "test directory"

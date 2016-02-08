@@ -2,7 +2,7 @@
   (import
     (prim
       #:types (Bytes Boolean Byte)
-      #:values (panic + * - =)
+      #:values (panic + * - = > bytes-length bytes-ref bytes-set! make-bytes or)
       #:patterns ())
     (list
       #:types (List)
@@ -249,7 +249,7 @@
       [(empty) (empty)]
       [(cons (function-definition name _ _ _) funs)
        (cons
-         (bytes-append (cons mod-name (cons #"_" (cons name (empty)))))
+         (mangle-name (bytes-append (cons mod-name (cons #"_" (cons name (empty))))))
          (get-function-names mod-name funs))]))
 
   (define (add-all-globals [env : (Dict Bytes VarReference)]
@@ -315,8 +315,9 @@
            env
            name
            (global-function
-             (bytes-append
-               (cons mod-name (cons #"_" (cons type-name (cons #"_" (cons name (empty)))))))))
+             (mangle-name
+               (bytes-append
+                 (cons mod-name (cons #"_" (cons type-name (cons #"_" (cons name (empty))))))))))
          mod-name
          type-name
          name
@@ -336,10 +337,11 @@
            env
            (bytes-append (cons variant-name (cons #"-" (cons name (empty)))))
            (global-function
-             (bytes-append
-               (cons mod-name (cons #"_"
-                  (cons type-name (cons #"_"
-                    (cons variant-name (cons #"_" (cons name (empty)))))))))))
+             (mangle-name
+               (bytes-append
+                 (cons mod-name (cons #"_"
+                    (cons type-name (cons #"_"
+                      (cons variant-name (cons #"_" (cons name (empty))))))))))))
          mod-name
          type-name
          variant-name
@@ -431,7 +433,9 @@
       [(variant-definition name fields)
        (cons
          (stack-function
-           (bytes-append (cons mod-name (cons #"_" (cons type-name (cons #"_" (cons name (empty)))))))
+           (mangle-name
+             (bytes-append (cons mod-name (cons #"_" (cons type-name (cons #"_"
+                                                                           (cons name (empty))))))))
            (cons
              (stack-basic-block
                (add-reversed-args
@@ -470,10 +474,11 @@
          fields
          (cons
            (stack-function
-             (bytes-append
-               (cons mod-name (cons #"_"
-                 (cons type-name (cons #"_"
-                   (cons variant-name (cons #"_" (cons name (empty)))))))))
+             (mangle-name
+               (bytes-append
+                 (cons mod-name (cons #"_"
+                   (cons type-name (cons #"_"
+                     (cons variant-name (cons #"_" (cons name (empty))))))))))
              (cons
                (stack-basic-block
                  (add-reversed-args 1 (cons (variant-ref-cmd variant-index field-index) (empty)))
@@ -509,7 +514,7 @@
     (case fun
       [(function-definition name pre-type arg-names body)
        (stack-function
-         (bytes-append (cons mod-name (cons #"_" (cons name (empty)))))
+         (mangle-name (bytes-append (cons mod-name (cons #"_" (cons name (empty))))))
          ;; TODO validate the genstate has one temporary left in it, the return addr, and then the
          ;; variables.
          (case (compile-expression
@@ -879,6 +884,29 @@
     (case (dict-ref (environment-variant-bindings env) name)
       [(nothing) (panic (bytes-append (cons #"No variant-information for: " (cons name (empty)))))]
       [(just tag) (variant-info-tag tag)]))
+
+
+  (define (mangle-name [name : Bytes]) : Bytes
+    (let ([len (bytes-length name)])
+      (mangle-name/helper name (make-bytes len) (- len 1))))
+
+  (define (mangle-name/helper [orig-name : Bytes] [buf : Bytes] [index : Byte]) : Bytes
+    (if (> 0 index)
+        buf
+        (let ([byte (bytes-ref orig-name index)])
+          (let ([new-byte
+                 (if (or (= byte 45)
+                         (or (= byte 42) 
+                             (or (= byte 62)
+                                 (or (= byte 47)
+                                     (or (= byte 61)
+                                         (or (= byte 63)
+                                             (= byte 33)))))))
+                     95
+                     byte)])
+            (begin
+              (bytes-set! buf index new-byte)
+              (mangle-name/helper orig-name buf (- index 1)))))))
 
   )
 
