@@ -79,7 +79,7 @@
             (delete-file file)))))
 
 (define-syntax test-case*
-  (syntax-parser 
+  (syntax-parser
     [(_ name:expr bodies:expr ...)
      #'(parameterize ([current-test-case-around (lambda (t) (make-test-case name t))])
          (test-begin bodies ...))]))
@@ -122,7 +122,7 @@
           (define input (open-input-bytes stdin))
           (define output-port (open-output-bytes))
           (define error-output-port (open-output-bytes))
-  
+
           (check-equal?
             (parameterize ([current-input-port input]
                            [current-output-port output-port]
@@ -131,19 +131,6 @@
             exit-code)
           (check-equal? (get-output-bytes output-port) stdout)
           (check-equal? (get-output-bytes error-output-port) #""))))))
-
-(define (as-test program)
-  (test-case* "as test"
-    (let ([result (run-program modules 'compiler 'main #:stdin program)])
-      (check-equal? (program-result-error-info result) #f)
-      (check-equal? (program-result-exit-code result) 0)
-      (call-with-temporary-files 2
-        (λ (asm object)
-          (call-with-output-file asm #:exists 'truncate
-              (λ (p) (write-bytes (program-result-stdout result) p)))
-          (check-subprocess* #:error-message "Assembler failed."
-            "/usr/bin/env" "as" asm "-o" object))))))
-
 
 
 (define compile-libraries-suite
@@ -157,7 +144,8 @@
           (path->string name-path)
           (call-with-input-file* file port->bytes))))
     (make-test-suite "compile libraries"
-      (for/list ([name (in-hash-keys libraries)])
+      (for/list ([name (in-hash-keys libraries)]
+                 #:unless (equal? name "main.yaspl"))
         (make-test-suite name
           (list
             (let ()
@@ -197,8 +185,14 @@
                          "source-language.yaspl" "source-to-stack.yaspl")]
                   [else empty]))
               (define all-files (append deps (list name)))
-              (define full-contents (apply bytes-append (map (λ (k) (hash-ref libraries k)) all-files)))
-              (as-test full-contents))))))))
+              (define all-libraries (map (λ (k) (hash-ref libraries k)) all-files))
+              (define main-module
+                #"(module main (import) (export) (types)
+                    (define (main) : Byte
+                      0))")
+              (compiler-test
+                #:mod 'compiler
+                (apply bytes-append (append all-libraries (list main-module)))))))))))
 
 (define run-test-files-suite
   (make-test-suite "test directory"
@@ -347,12 +341,12 @@
         #:exit-code 98)
       (compiler-test #:mod 'compiler
         #"(module main (import (prim bytes-ref make-bytes)) (export) (types)
-            (define (main) : Byte (let ([x (make-bytes 4 16)]) (bytes-ref x 1))))"
-        #:exit-code 16)
+            (define (main) : Byte (let ([x (make-bytes 4)]) (bytes-ref x 1))))"
+        #:exit-code 0)
       (compiler-test #:mod 'compiler
         #"(module main (import (prim bytes-ref make-bytes bytes-set!)) (export) (types)
             (define (main) : Byte
-              (let ([x (make-bytes 4 16)])
+              (let ([x (make-bytes 4)])
                 (begin
                   (bytes-set! x 2 3)
                   (bytes-ref x 2)))))"
@@ -360,8 +354,12 @@
       (compiler-test #:mod 'compiler
         #"(module main (import (prim + bytes-ref make-bytes bytes-set!)) (export) (types)
             (define (main) : Byte
-              (let ([x (make-bytes 4 16)])
+              (let ([x (make-bytes 4)])
                 (begin
+                  (bytes-set! x 0 16)
+                  (bytes-set! x 1 16)
+                  (bytes-set! x 2 16)
+                  (bytes-set! x 3 16)
                   (bytes-set! x 2 0)
                   (+
                     (bytes-ref x 1)
@@ -369,7 +367,7 @@
         #:exit-code 32)
       (compiler-test #:mod 'compiler
         #"(module main (import (prim bytes-length make-bytes)) (export) (types)
-            (define (main) : Byte (let ([x (make-bytes 4 0)]) (bytes-length x))))"
+            (define (main) : Byte (let ([x (make-bytes 4)]) (bytes-length x))))"
         #:exit-code 4)
       (compiler-test #:mod 'compiler
         #"(module main (import (prim write-bytes)) (export) (types)
@@ -547,7 +545,7 @@
       (compiler-test #:mod 'compiler
         #"(module main (import (prim read-bytes make-bytes)) (export) (types)
             (define (main) : Byte
-              (let ([buf (make-bytes 4 0)])
+              (let ([buf (make-bytes 4)])
                 (read-bytes buf 0 0 3))))"
         #:stdin #"abc"
         #:exit-code 3)

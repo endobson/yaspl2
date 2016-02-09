@@ -2,9 +2,9 @@
   (import
     (prim
       #:types (Bytes Byte InputPort OutputPort )
-      #:values (panic)
+      #:values (panic make-bytes read-bytes)
       #:patterns ())
-    (io read-all-bytes)
+    (io read-all-bytes write-all-bytes)
     (list
       #:types (List)
       #:values (empty cons append map)
@@ -33,7 +33,7 @@
       #:types (Either)
       #:values ()
       #:patterns (left right)))
-  (export main)
+  (export main cmain)
   (types)
 
   (define (prim-signature) : ModuleSignature
@@ -72,16 +72,22 @@
          [(compiled-module code sig)
           (append code (compile-modules mods (cons sig sigs)))])]))
 
-  (define (extract-modules [vals : (List (Either Bytes Module))]) : (List Module)
+  (define (extract-modules [vals : (List (Either Bytes Module))] [stderr : OutputPort]) : (List Module)
     (case vals
       [(empty) (empty)]
-      [(cons (right v) vals) (cons v (extract-modules vals))]
-      [(cons (left v) _) (panic v)]))
+      [(cons (right v) vals) (cons v (extract-modules vals stderr))]
+      [(cons (left v) _)
+       (begin
+         (write-all-bytes v stderr)
+         (panic #""))]))
 
-  (define (extract-sexps [either : (Either Bytes (List Sexp))]) : (List Sexp)
+  (define (extract-sexps [either : (Either Bytes (List Sexp))] [stderr : OutputPort]) : (List Sexp)
     (case either
       [(left v) (panic v)]
-      [(right (empty)) (panic #"No provided modules")]
+      [(right (empty))
+       (begin
+         (write-all-bytes #"No provided modules" stderr)
+         (panic #""))]
       [(right sexps) sexps]))
 
   (define (main [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Byte
@@ -90,8 +96,18 @@
         (compile-modules
           (extract-modules
             (map parse-module
-              (extract-sexps (parse-sexps (read-all-bytes stdin)))))
+              (extract-sexps
+                (parse-sexps (read-all-bytes stdin))
+                stderr))
+            stderr)
           (cons (prim-signature) (empty)))
         stdout)
-      0)))
+      0))
+
+  ;; Make this not necessary
+  (define (cmain [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Byte
+    (main stdin stdout stderr)))
+ 
+
+
 
