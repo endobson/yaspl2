@@ -13,7 +13,7 @@
 (struct error-sentinal (info) #:transparent)
 
 (struct prim-port-val value (port) #:transparent)
-(struct prim-function-val value (name) #:transparent)
+(struct compiled-function-val value (impl) #:transparent)
 
 (struct variant-val (variant-name fields) #:transparent)
 (struct variant-constructor-val (variant-name fields) #:transparent)

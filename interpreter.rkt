@@ -71,8 +71,8 @@
 (define (make-global-env modules)
   (define (make-primitive-environment)
     (hash-copy
-      (for/hash ([prim (in-list supported-primitives)])
-        (values (full-name 'prim prim) (prim-function-val prim)))))
+      (for/hash ([(prim-name prim-val) (in-hash supported-primitives)])
+        (values (full-name 'prim prim-name) prim-val))))
 
 
   (define global-env (make-primitive-environment))
@@ -170,10 +170,8 @@
         (error-sentinal
           (string->bytes/utf-8
             (format "Wrong variant: Expected ~a, got ~a" variant-name value-name)))])]
-    [(prim-function-val name)
-     (match (run-primitive name args)
-       [(? value? val) (run-cont val cont)]
-       [(error-sentinal info) (error-sentinal info)])]))
+    [(compiled-function-val f)
+     (f args (λ (v) (run-cont v cont)))]))
 
 
 (define (run-eval expr env cont)

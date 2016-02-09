@@ -15,7 +15,6 @@
 
 (provide
   supported-primitives
-  run-primitive
   primitive-module-signature)
 
 (begin-for-syntax
@@ -53,15 +52,29 @@
 
 
   (define-syntax-class primitive-clause
-    #:attributes (name match-clause ty)
-    (pattern ((name:id (args:id (~datum :) types:prim-ty) ...) (~datum :) result-type:prim-ty body ...+)
-      #:with match-clause #'[(list 'name (types.constructor args) ...)
-                             (result-type.constructor (let () body ...))]
+    #:attributes (name impl ty)
+    (pattern ((name:id (args:id (~datum :) types:prim-ty) ...)
+              (~datum :) result-type:prim-ty body:expr ...+)
+      #:with impl #'(lambda (args-v continue)
+                      (match args-v
+                        [(list (types.constructor args) ...)
+                         (continue (result-type.constructor (let () body ...)))]))
       #:with ty #'(fun-ty empty (list types.ty ...) result-type.ty))
-    (pattern ((type-vars:id ...) (name:id (args:id (~datum :) types:prim-ty) ...)
-                                 (~datum :) result-type:prim-ty body ...+)
-      #:with match-clause #'[(list 'name (types.constructor args) ...)
-                             (result-type.constructor (let () body ...))]
+    (pattern ((type-vars:id ...)
+              (name:id (args:id (~datum :) types:prim-ty) ...)
+              (~datum :) result-type:prim-ty body:expr ...+)
+      #:with impl #'(lambda (args-v continue)
+                      (match args-v
+                        [(list (types.constructor args) ...)
+                         (continue (result-type.constructor (let () body ...)))]))
+      #:with ty #'(fun-ty (list 'type-vars ...) (list types.ty ...) result-type.ty))
+    (pattern ((type-vars:id ...)
+              (name:id (args:id (~datum :) types:prim-ty) ...)
+              (~datum :) result-type:prim-ty #:error message:expr)
+      #:with impl #'(lambda (args-v continue)
+                      (match args-v
+                        [(list (types.constructor args) ...)
+                         (error-sentinal message)]))
       #:with ty #'(fun-ty (list 'type-vars ...) (list types.ty ...) result-type.ty))))
 
 (define-match-expander
@@ -83,24 +96,24 @@
 
 (define-syntax define-primitives
   (syntax-parser
-    [(_ (supported:id run:id module-sig:id)
+    [(_ (supported:id module-sig:id)
         clauses:primitive-clause ...)
      (template
        (begin
-         (define supported (list 'clauses.name ...))
+         (define supported
+           (hash
+             (?@ 'clauses.name (compiled-function-val clauses.impl))
+             ...))
          (define module-sig
            (module-signature 'prim
               (hash-union
                 (hash (?@ 'clauses.name clauses.ty) ...)
                 prim-types)
               (hash)
-              (hash)))
-         (define (run name args)
-           (match (cons name args)
-             clauses.match-clause ...))))]))
+              (hash)))))]))
 
 (define-primitives
-  (supported-primitives run-primitive primitive-module-signature)
+  (supported-primitives primitive-module-signature)
 
   [(or [x : Boolean] (y : Boolean)) : Boolean (or x y)]
   [(and [x : Boolean] (y : Boolean)) : Boolean (and x y)]
@@ -119,7 +132,7 @@
 
   [(void) : Void (void)]
 
-  [(a) (panic [bytes : Bytes]) : (type-var a) (error-sentinal bytes)]
+  [(a) (panic [bytes : Bytes]) : (type-var a) #:error bytes]
 
   [(make-bytes [size : Byte]) : Bytes (make-bytes size)]
   [(bytes-ref [b : Bytes] [index : Byte]) : Byte (bytes-ref b index)]
