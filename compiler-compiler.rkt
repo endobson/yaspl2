@@ -16,6 +16,9 @@
         "join-list.yaspl" "dict.yaspl" "stack-machine.yaspl" "x86-64-stack-machine.yaspl"
         "source-language.yaspl" "source-to-stack.yaspl" "compiler.yaspl" "main.yaspl"))
 
+(define libraries
+  (for/list ([library-file (in-list library-files)])
+    (call-with-input-file* (build-path library-dir library-file) port->bytes)))
 
 
 (define stdin (apply bytes-append libraries))

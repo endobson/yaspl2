@@ -56,27 +56,36 @@ def _bin_impl(ctx):
   return struct(runfiles=runfiles)
 
 
+_base_racket_attrs = {
+  "srcs": attr.label_list(
+    allow_files=racket_src_file_type,
+    mandatory=True,
+    non_empty=True
+  ),
+  "data": attr.label_list(
+    allow_files=True,
+    cfg=DATA_CFG
+  ),
+  "deps": attr.label_list(allow_files=racket_src_file_type),
+  "_lib_deps": attr.label(default=Label("@minimal_racket//osx/v6.4:racket-src-osx")),
+  "_rackunit_deps": attr.label(default=Label("@minimal_racket//osx/v6.4:rackunit")),
+  "_racket_deps": attr.label(
+    default=Label("@minimal_racket//osx/v6.4:bin/racket"),
+    executable=True,
+    allow_files=True
+  ),
+}
+
 
 racket_test = rule(
   implementation=_bin_impl,
   test=True,
-  attrs = {
-    "srcs": attr.label_list(
-      allow_files=racket_src_file_type,
-      mandatory=True,
-      non_empty=True
-    ),
-    "data": attr.label_list(
-      allow_files=True,
-      cfg=DATA_CFG
-    ),
-    "deps": attr.label_list(allow_files=racket_src_file_type),
-    "_lib_deps": attr.label(default=Label("@minimal_racket//osx/v6.4:racket-src-osx")),
-    "_rackunit_deps": attr.label(default=Label("@minimal_racket//osx/v6.4:rackunit")),
-    "_racket_deps": attr.label(
-      default=Label("@minimal_racket//osx/v6.4:bin/racket"),
-      executable=True,
-      allow_files=True
-    ),
-  }
+  executable=True,
+  attrs = _base_racket_attrs
+)
+
+racket_binary = rule(
+  implementation=_bin_impl,
+  executable=True,
+  attrs = _base_racket_attrs
 )
