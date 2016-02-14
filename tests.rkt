@@ -133,67 +133,6 @@
           (check-equal? (get-output-bytes error-output-port) #""))))))
 
 
-(define compile-libraries-suite
-  (let ()
-    (define libraries
-      (for/hash ([file (in-directory library-dir)])
-        (define-values (dir name-path is-dir) (split-path file))
-        (when (symbol? name-path)
-          (error 'tests "Bad path"))
-        (values
-          (path->string name-path)
-          (call-with-input-file* file port->bytes))))
-    (make-test-suite "compile libraries"
-      (for/list ([name (in-hash-keys libraries)]
-                 #:unless (equal? name "main.yaspl"))
-        (make-test-suite name
-          (list
-            (let ()
-              (define deps
-                (case name
-                  [("list.yaspl") (list "maybe.yaspl")]
-                  [("bytes.yaspl") (list "maybe.yaspl" "list.yaspl")]
-                  [("dict.yaspl") (list "maybe.yaspl" "list.yaspl" "tuples.yaspl")]
-                  [("join-list.yaspl") (list "maybe.yaspl" "list.yaspl")]
-                  [("io.yaspl") (list "maybe.yaspl" "list.yaspl" "bytes.yaspl")]
-                  [("lexer.yaspl") (list "maybe.yaspl" "list.yaspl" "bytes.yaspl" "io.yaspl" "numbers.yaspl")]
-                  [("sexp-parser.yaspl")
-                   (list "either.yaspl" "maybe.yaspl" "list.yaspl" "bytes.yaspl" "io.yaspl" "numbers.yaspl"
-                         "lexer.yaspl")]
-                  [("arithmetic-expr.yaspl")
-                   (list "either.yaspl" "maybe.yaspl" "list.yaspl" "bytes.yaspl" "io.yaspl" "numbers.yaspl"
-                         "lexer.yaspl" "sexp-parser.yaspl")]
-                  [("source-language.yaspl")
-                   (list "either.yaspl" "maybe.yaspl" "list.yaspl" "bytes.yaspl" "io.yaspl" "numbers.yaspl"
-                         "lexer.yaspl" "sexp-parser.yaspl")]
-                  [("stack-machine.yaspl")
-                   (list "either.yaspl" "maybe.yaspl" "list.yaspl" "bytes.yaspl" "io.yaspl" "numbers.yaspl"
-                         "lexer.yaspl" "sexp-parser.yaspl" "arithmetic-expr.yaspl" "tuples.yaspl"
-                         "join-list.yaspl")]
-                  [("source-to-stack.yaspl")
-                   (list "either.yaspl" "maybe.yaspl" "list.yaspl" "bytes.yaspl" "io.yaspl" "numbers.yaspl"
-                         "lexer.yaspl" "sexp-parser.yaspl" "arithmetic-expr.yaspl" "tuples.yaspl"
-                         "join-list.yaspl" "dict.yaspl" "stack-machine.yaspl" "source-language.yaspl")]
-                  [("x86-64-stack-machine.yaspl")
-                   (list "either.yaspl" "maybe.yaspl" "list.yaspl" "bytes.yaspl" "io.yaspl" "numbers.yaspl"
-                         "lexer.yaspl" "sexp-parser.yaspl" "arithmetic-expr.yaspl" "tuples.yaspl"
-                         "join-list.yaspl" "stack-machine.yaspl")]
-                  [("compiler.yaspl")
-                   (list "either.yaspl" "maybe.yaspl" "list.yaspl" "bytes.yaspl" "io.yaspl" "numbers.yaspl"
-                         "lexer.yaspl" "sexp-parser.yaspl" "arithmetic-expr.yaspl" "tuples.yaspl"
-                         "join-list.yaspl" "dict.yaspl" "stack-machine.yaspl" "x86-64-stack-machine.yaspl"
-                         "source-language.yaspl" "source-to-stack.yaspl")]
-                  [else empty]))
-              (define all-files (append deps (list name)))
-              (define all-libraries (map (λ (k) (hash-ref libraries k)) all-files))
-              (define main-module
-                #"(module main (import) (export) (types)
-                    (define (main) : Byte
-                      0))")
-              (compiler-test
-                #:mod 'compiler
-                (apply bytes-append (append all-libraries (list main-module)))))))))))
-
 (define run-test-files-suite
   (make-test-suite "test directory"
     (for/list ([file (in-directory test-dir)])
@@ -213,11 +152,9 @@
 
 
 
-(define run-all-tests #f)
 (define run-with-timing #f)
 (command-line
   #:once-each
-    ("--full" "Whether to run the full test suite or not" (set! run-all-tests #t))
     ("--timing" "Whether to run with timing information or not" (set! run-with-timing #t)))
 
 (define all-tests
@@ -560,9 +497,7 @@
         #:exit-code 2)
 
 
-      (if run-all-tests
-          compile-libraries-suite
-          (make-test-suite "No compile-libraries" empty)))))
+      )))
 
 (break-enabled #f)
 (define results
