@@ -6,7 +6,19 @@ http_file(
 
 git_repository(
   name = "minimal_racket",
-  commit = "c7b51269deb45d3b517cd8a66eaa085989862642",
+  commit = "7d1ebbbb8f759ce48a0ba0cd3a3a67f6c7d7bc9c",
   remote = "https://github.com/endobson/minimal-racket.git"
+)
+
+http_file(
+  name = "racket_minimal_x86_64_6_4_osx",
+  url = "http://mirror.racket-lang.org/installers/6.4/racket-minimal-6.4-x86_64-macosx.dmg",
+  sha256 = "0301c5c70ac7363f00e7e90bb55bc7d772eb0b668e013631c46a6bbe73445730"
+)
+
+http_file(
+  name = "racket_rackunit_lib",
+  url = "http://mirror.racket-lang.org/releases/6.4/pkgs/rackunit-lib.zip",
+  sha256 = "3b08ca933d00a6602985d9d90721f9c035b46236ad53e1adda46082ba04bd344"
 )
 
