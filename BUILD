@@ -44,3 +44,9 @@ genrule(
     "-e _start -static " +
     "$(location compiler.o) -o $(location compiler)"
 )
+
+sh_test(
+  name = "compile-compiler-test",
+  srcs = ["compile-compiler-test.sh"],
+  data = [":compiler", "compiler.s"] + glob(["libraries/*.yaspl"])
+)
