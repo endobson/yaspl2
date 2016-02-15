@@ -93,6 +93,8 @@
      (if& (parse cond) (parse true) (parse false))]
     [(list 'begin first-expr exprs ...)
      (begin& (parse first-expr) (map parse exprs))]
+    [(list 'varargs first-expr exprs ...)
+     (varargs-app& (parse first-expr) (map parse exprs))]
     [`(let ([,(? symbol? name) ,expr]) ,body)
      (let& name (parse expr) (parse body))]
     [`(case ,expr . ,(list (list patterns bodies) ...))

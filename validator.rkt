@@ -39,6 +39,8 @@
        (for-each recur (cons first-expr exprs))]
       [(app& op exprs)
        (for-each recur (cons op exprs))]
+      [(varargs-app& op exprs)
+       (for-each recur (cons op exprs))]
       [(let& name expr body)
        (recur expr)
        ((recur/env (set-add env name)) body)]
@@ -374,8 +376,6 @@
           (occurs-check v l)
           (loop (add-to-type-map v l)
                 (map (replace-pair v l) pairs))]
-         ;; TODO support for function types
-         ;; TODO support for inductive types
          [((void-ty) (void-ty))
           (loop type-map pairs)]
          [((byte-ty) (byte-ty))
@@ -388,6 +388,8 @@
           (loop type-map pairs)]
          [((output-port-ty) (output-port-ty))
           (loop type-map pairs)]
+         [((array-ty l) (array-ty r))
+          (loop type-map (cons (list l r) pairs))]
          [((fun-ty '() arg-tys-l result-ty-l) (fun-ty '() arg-tys-r result-ty-r))
           (loop type-map (cons (list result-ty-l result-ty-r)
                                (append (map list arg-tys-l arg-tys-r) pairs)))]
@@ -480,6 +482,40 @@
                    body-type))
                (for ([arg (in-list args)] [arg-type (in-list arg-types)])
                  (type-check arg (substitute body-substitution arg-type)))) ])])]
+    [(varargs-app& op args)
+     ;; TODO make this use the type information on the op instead
+     (match (type-infer op)
+       [(fun-ty stale-type-vars stale-arg-types stale-body-type)
+        (match-define-values (type-vars (cons body-type arg-types))
+          (freshen-types stale-type-vars (cons stale-body-type stale-arg-types)))
+        (unless (equal? (length arg-types) 1)
+          (error 'type-check "Cannot varags apply function: It has ~s arguments."
+                 (length arg-types)))
+        (unless (array-ty? (first arg-types))
+          (error 'type-check "Cannot varags apply function: Its argument (~s) isn't an array."
+                 (first arg-types)))
+        (match-define (array-ty element-ty) (first arg-types))
+        (cond
+          [(unknown-ty? type)
+           (cond
+             [(empty? type-vars)
+              (for ([arg (in-list args)])
+                (type-check arg element-ty))
+              (check body-type)]
+             [else
+               (check
+                 (substitute
+                   (unify-types type-vars (map (λ (t) (list element-ty t)) (map type-infer args)))
+                   body-type))])]
+          [else
+           (define body-substitution (unify-types type-vars (list (list body-type type))))
+           (if (member 'unused-type-var (hash-values body-substitution))
+               (check
+                 (substitute
+                   (unify-types type-vars (map (λ (t) (list element-ty t)) (map type-infer args)))
+                   body-type))
+               (for ([arg (in-list args)])
+                 (type-check arg (substitute body-substitution element-ty))))])])]
     [(let& name expr body)
      (let* ([expr-type (type-infer expr)]
             [type-env (binding-env-value-set env name expr-type)])

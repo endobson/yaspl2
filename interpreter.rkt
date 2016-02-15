@@ -189,6 +189,8 @@
          (error-sentinal (string->bytes/utf-8 (format "No binding for ~a available" v))))]
     [(app& op vs)
      (run-apply empty (cons op vs) env cont)]
+    [(varargs-app& op vs)
+     (run-varargs-apply empty (cons op vs) env cont)]
     [(if& cond true false)
      (run-eval cond env (if-k true false env cont))]
     [(begin& first-expr exprs)
@@ -209,6 +211,16 @@
         env
         (apply-k vals (rest exprs) env cont))))
 
+(define (run-varargs-apply vals exprs env cont)
+  (if (empty? exprs)
+      (let ([vals (reverse vals)])
+        (call-function (first vals) (list (array-val (list->vector (rest vals)))) cont))
+      (run-eval
+        (first exprs)
+        env
+        (varargs-apply-k vals (rest exprs) env cont))))
+
+
 (define (run-cont val cont)
   (match cont
     [(halt-k) val]
@@ -216,6 +228,8 @@
      (run-eval expr env cont)]
     [(apply-k vals args env cont)
      (run-apply (cons val vals) args env cont)]
+    [(varargs-apply-k vals args env cont)
+     (run-varargs-apply (cons val vals) args env cont)]
     [(if-k true false env cont)
      (define expr (if (boolean-val-v val) true false))
      (run-eval expr env cont)]

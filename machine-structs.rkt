@@ -22,6 +22,7 @@
 
 (struct halt-k () #:transparent)
 (struct apply-k (vals args env cont) #:transparent)
+(struct varargs-apply-k (vals args env cont) #:transparent)
 (struct if-k (true false env cont) #:transparent)
 (struct ignore-k (expr env cont) #:transparent)
 (struct bind-k (name expr env cont) #:transparent)
