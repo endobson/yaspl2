@@ -40,6 +40,9 @@
     (pattern ((~datum Box) v:id)
       #:with constructor #'box-val
       #:with ty #'(box-ty (type-var-ty 'v)))
+    (pattern ((~datum Array) v:id)
+      #:with constructor #'array-val
+      #:with ty #'(array-ty (type-var-ty 'v)))
     (pattern ((~datum type-var) v:id)
       #:with constructor #'identity*
       #:with ty #'(type-var-ty 'v))
@@ -91,7 +94,8 @@
     'InputPort (input-port-ty)
     'OutputPort (output-port-ty)
     'Void (void-ty)
-    'Box (box-ty-constructor)))
+    'Box (box-ty-constructor)
+    'Array (array-ty-constructor)))
 
 
 (define-syntax define-primitives
@@ -138,6 +142,13 @@
   [(bytes-ref [b : Bytes] [index : Byte]) : Byte (bytes-ref b index)]
   [(bytes-set! [b : Bytes] [index : Byte] [v : Byte]) : Void (bytes-set! b index v)]
   [(bytes-length [b : Bytes]) : Byte (bytes-length b)]
+
+
+  [(a) (make-array [size : Byte] [v : (type-var a)]) : (Array a) (make-vector size v)]
+  [(a) (array-ref [arr : (Array a)] [index : Byte]) : (type-var a) (vector-ref arr index)]
+  [(a) (array-set! [arr : (Array a)] [index : Byte] [v : (type-var a)]) : Void (vector-set! arr index v)]
+  [(a) (array-length [arr : (Array a)]) : Byte (vector-length arr)]
+
 
   [(write-bytes [b : Bytes] [p : OutputPort] [start-pos : Byte] [end-pos : Byte]) : Byte
    (write-bytes b p start-pos end-pos)]

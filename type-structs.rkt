@@ -18,6 +18,8 @@
 
 (struct box-ty-constructor type () #:transparent)
 (struct box-ty type (v) #:transparent)
+(struct array-ty-constructor type () #:transparent)
+(struct array-ty type (v) #:transparent)
 
 (struct fun-ty type (type-vars args result) #:transparent)
 

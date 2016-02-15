@@ -9,6 +9,7 @@
 (struct boolean-val value (v) #:transparent)
 (struct bytes-val value (v) #:transparent)
 (struct box-val value (v) #:transparent)
+(struct array-val value (v) #:transparent)
 
 (struct error-sentinal (info) #:transparent)
 

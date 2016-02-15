@@ -102,7 +102,11 @@
        [(data-ty-constructor mod-name ty-name arg-kinds)
         (unless (= (length args) (length arg-kinds))
           (error 'parse-type "Type constructor applied to wrong number of arguments"))
-        (data-ty mod-name ty-name (map parse-type args))])]))
+        (data-ty mod-name ty-name (map parse-type args))]
+       [(array-ty-constructor)
+        (unless (= (length args) 1)
+          (error 'parse-type "Array type constructor applied to wrong number of arguments"))
+        (array-ty (parse-type (first args)))])]))
 
 (define (construct-module-signature module module-signatures)
   (match module
@@ -308,6 +312,8 @@
          (if (equal? v v2) new-t t)]
         [(data-ty mod-name name args)
          (data-ty mod-name name (map replace args))]
+        [(array-ty e)
+         (array-ty (replace e))]
         [(void-ty) t]
         [(byte-ty) t]
         [(bytes-ty) t]
@@ -332,6 +338,8 @@
         [(fun-ty '() arg-tys result-ty)
          (for-each check arg-tys)
          (check result-ty)]
+        [(array-ty e)
+         (check  e)]
         [(void-ty) (void)]
         [(byte-ty) (void)]
         [(bytes-ty) (void)]
@@ -406,6 +414,8 @@
     ;; Handle polymorhpic functions
     [(fun-ty '() arg-types result-type)
      (fun-ty '() (map sub arg-types) (sub result-type))]
+    [(array-ty type)
+     (array-ty (sub type))]
     [(data-ty module-name name types)
      (data-ty module-name name (map sub types))]))
 
