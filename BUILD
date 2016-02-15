@@ -41,7 +41,7 @@ genrule(
   output_to_bindir = 1,
   cmd = "ld -arch x86_64 " +
     "-macosx_version_min 10.11 " +
-    "-e _start -static " +
+    "-static " +
     "$(location compiler.o) -o $(location compiler)"
 )
 
