@@ -505,6 +505,17 @@
                   (+ (+ (array-ref arr 1) (array-ref arr 3)) (array-length arr))))))"
         #:exit-code 11)
 
+      (compiler-test #:mod 'compiler
+        #"(module main
+            (import (prim + array-length array-ref))
+            (export)
+            (types)
+            (define (foo [x : (Array Byte)]) : Byte
+              (+ (array-length x) (array-ref x 0)))
+            (define (main) : Byte
+              (varargs foo 4 1 6)))"
+        #:exit-code 7)
+
 
 
       )))
