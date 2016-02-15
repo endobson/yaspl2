@@ -2,7 +2,7 @@
   (import)
   (export main helper)
   (types)
-  (define (main [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Byte
+  (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Byte
     (helper))
   (define (helper) : Byte
     2))

@@ -3,7 +3,7 @@
   (export main)
   (types)
 
-  (define (main [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Byte
+  (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Byte
     (let ([bytes (make-bytes 5)])
       (begin
         (read-bytes bytes stdin 0 5)

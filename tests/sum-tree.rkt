@@ -11,7 +11,7 @@
       [(node v left right) (+ v (+ (sum-tree left) (sum-tree right)))]
       [(leaf) 0]))
 
-  (define (main [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Byte
+  (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Byte
     (sum-tree (node 4
                     (node 3 (node 1 (leaf) (node 2 (leaf) (leaf))) (leaf))
                     (node 5 (leaf) (leaf))))))

@@ -2,7 +2,7 @@
   (import (exit-code6-helper times2))
   (export main)
   (types)
-  (define (main [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Byte
+  (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Byte
     (times2 3)))
 (module exit-code6-helper
   (import (prim +))

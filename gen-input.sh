@@ -14,6 +14,7 @@ cat \
 "libraries/join-list.yaspl" \
 "libraries/dict.yaspl" \
 "libraries/stack-machine.yaspl" \
+"libraries/prim-implementation.yaspl" \
 "libraries/x86-64-stack-machine.yaspl" \
 "libraries/source-language.yaspl" \
 "libraries/source-to-stack.yaspl" \

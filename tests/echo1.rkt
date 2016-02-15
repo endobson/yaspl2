@@ -14,7 +14,7 @@
               (loop in out (if (= amount-read size) (+ size size) size)))))))
 
 
-  (define (main [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Byte
+  (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Byte
     (begin
       (loop stdin stdout 1)
       0)))

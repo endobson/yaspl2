@@ -4,7 +4,7 @@
   (export main)
   (types)
 
-  (define (main [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Byte
+  (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Byte
     (let ([b (box 5)])
       (+ (unbox b)
          (begin

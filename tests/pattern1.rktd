@@ -8,7 +8,7 @@
       (foo-a)
       (foo-b [b1 Byte])
       (foo-c [c1 Bytes] [c2 Foo] [c3 Foo])))
-  (define (main [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Byte
+  (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Byte
     (let ([v (foo-c #"b1" (foo-b 3) (foo-c #"b2" (foo-a) (foo-b 5)))])
       (case (read-all-bytes stdin)
         [#"1"

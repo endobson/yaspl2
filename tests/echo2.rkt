@@ -5,7 +5,7 @@
   (export main)
   (types)
 
-  (define (main [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Byte
+  (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Byte
     (begin
       (let ([bytes (read-all-bytes stdin)])
         (write-bytes bytes stdout 0 (bytes-length bytes)))

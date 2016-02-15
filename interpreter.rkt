@@ -126,13 +126,14 @@
     (error 'run-program "Main function is not exported: ~s in ~s" full-main-name module-name))
   (unless (function-val? main-fun)
     (error 'run-program "Main function is not a function value: ~s" main-fun))
-  (unless (equal? (length (function-val-args main-fun)) 3)
+  (unless (equal? (length (function-val-args main-fun)) 4)
     (error 'run-program "Main function does not have correct arity: ~s" main-fun))
 
   (define stdout (open-output-bytes 'stdout))
   (define stderr (open-output-bytes 'stderr))
   (define stdin (open-input-bytes stdin-bytes 'stderr))
-  (define args (list (prim-port-val stdin) (prim-port-val stdout) (prim-port-val stderr)))
+  (define process-args (array-val (vector)))
+  (define args (list process-args (prim-port-val stdin) (prim-port-val stdout) (prim-port-val stderr)))
 
   (define return-val (call-function main-fun args (halt-k)))
   (program-result
