@@ -495,6 +495,16 @@
                 [#\"abc\" 2]
                 [_ 3])))"
         #:exit-code 2)
+      (compiler-test #:mod 'compiler
+        #"(module main
+            (import (prim + array-length make-array array-ref array-set!)) (export) (types)
+            (define (main) : Byte
+              (let ([arr (make-array 5 2)])
+                (begin
+                  (array-set! arr 3 4)
+                  (+ (+ (array-ref arr 1) (array-ref arr 3)) (array-length arr))))))"
+        #:exit-code 11)
+
 
 
       )))
