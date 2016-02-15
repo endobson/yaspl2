@@ -118,7 +118,7 @@
 
 (struct program-result (exit-code error-info stdout stderr))
 
-(define (run-program modules module-name main-name #:stdin stdin-bytes)
+(define (run-program modules module-name main-name #:stdin stdin-bytes #:args [supplied-args empty])
   (define env (make-global-env modules))
   (define full-main-name (full-name module-name main-name))
   (define main-fun (hash-ref env full-main-name #f))
@@ -132,7 +132,7 @@
   (define stdout (open-output-bytes 'stdout))
   (define stderr (open-output-bytes 'stderr))
   (define stdin (open-input-bytes stdin-bytes 'stderr))
-  (define process-args (array-val (vector)))
+  (define process-args (array-val (list->vector (map bytes-val (cons #"/path" supplied-args)))))
   (define args (list process-args (prim-port-val stdin) (prim-port-val stdout) (prim-port-val stderr)))
 
   (define return-val (call-function main-fun args (halt-k)))

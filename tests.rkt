@@ -23,6 +23,7 @@
 
 (define (yaspl-test #:module-name module-name
                     #:modules [extra-modules null]
+                    #:args [args null]
                     #:exit-code [exit-code 0]
                     #:stdin [stdin #""]
                     #:error [error-info #f]
@@ -30,7 +31,7 @@
                     #:stderr [stderr #""])
   (define full-modules (set-union (list->set extra-modules) modules))
   (test-case* (format "~a" module-name)
-    (define result (run-program full-modules module-name 'main #:stdin stdin))
+    (define result (run-program full-modules module-name 'main #:stdin stdin #:args args))
     (with-check-info
       (['exit-code (program-result-exit-code result)]
        ['error-info (program-result-error-info result)]
@@ -106,7 +107,8 @@
                        #:stdout [stdout #""]
                        #:stdin [stdin #""])
   (test-case* "compiler test"
-    (let ([result (run-program modules compiler-mod 'main #:stdin program)])
+    (let ([result (run-program modules compiler-mod 'main #:stdin program
+                               #:args (list #"main"))])
       (check-equal? (program-result-error-info result) #f)
       (check-equal? (program-result-exit-code result) 0)
       (call-with-temporary-files 3
