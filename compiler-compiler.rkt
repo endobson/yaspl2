@@ -13,8 +13,10 @@
 (define library-files
   (list "either.yaspl" "maybe.yaspl" "list.yaspl" "bytes.yaspl" "io.yaspl" "numbers.yaspl"
         "lexer.yaspl" "sexp-parser.yaspl" "arithmetic-expr.yaspl" "tuples.yaspl"
-        "join-list.yaspl" "dict.yaspl" "stack-machine.yaspl" "x86-64-stack-machine.yaspl"
-        "source-language.yaspl" "source-to-stack.yaspl" "compiler.yaspl" "main.yaspl"))
+        "join-list.yaspl" "dict.yaspl" "stack-machine.yaspl"
+        "prim-implementation.yaspl" "x86-64-stack-machine.yaspl"
+        "source-language.yaspl" "source-to-stack.yaspl"
+        "compiler.yaspl" "main.yaspl"))
 
 (define libraries
   (for/list ([library-file (in-list library-files)])

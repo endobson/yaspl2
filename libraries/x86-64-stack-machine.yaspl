@@ -4,9 +4,10 @@
       #:types (Bytes Byte InputPort OutputPort Void)
       #:values (bytes-length make-bytes * + - = panic void > bytes-set!)
       #:patterns ())
+    (prim-implementation prim-implementation)
     (list
       #:types (List)
-      #:values (cons-head)
+      #:values (cons-head append)
       #:patterns (empty cons))
     (numbers integer->decimal-bytes)
     (io read-all-bytes write-all-bytes newline write-line)
@@ -26,7 +27,8 @@
                   swap-cmd dup-cmd pop-cmd num-lit-cmd fun-ref-cmd fun-call-cmd
                   bytes-lit-cmd boolean-lit-cmd uncond-jmp boolean-jmp alloc-variant-cmd
                   variant-ref-cmd variant-switch bytes-cmp-cmd
-                  no-catch-all-case catch-all-case variant-case))
+                  no-catch-all-case catch-all-case variant-case
+                  bin-math-cmd bin-add-op bin-sub-op bin-mult-op bin-quotient-op bin-remainder-op))
     (either
       #:types (Either)
       #:values ()
@@ -101,7 +103,7 @@
       (write-line #"movq $0x2000001, %rax" output)
       (write-line #"syscall" output)
 
-      ;; write_bytes
+      ;; read_bytes
       (write-line #"prim_read_bytes:" output)
       (write-line #"pop %rbx" output) ;; Return address
       (write-line #"pop %rdx" output) ;; Argument 4
@@ -124,51 +126,6 @@
       (write-line #"mov $255, %rdi" output)
       (write-line #"movq $0x2000001, %rax" output)
       (write-line #"syscall" output)
-
-
-      ;; +
-      (write-line #"prim_add:" output)
-      (write-line #"pop %rbx" output) ;; Return address
-      (write-line #"pop %rax" output) ;; Argument 2
-      (write-line #"pop %rcx" output) ;; Argument 1
-      (write-line #"addq %rcx, %rax" output)
-      (write-line #"push %rbx" output)
-      (write-line #"ret" output)
-      ;; *
-      (write-line #"prim_mult:" output)
-      (write-line #"pop %rbx" output) ;; Return address
-      (write-line #"pop %rax" output) ;; Argument 2
-      (write-line #"pop %rcx" output) ;; Argument 1
-      (write-line #"imulq %rcx" output)
-      (write-line #"push %rbx" output)
-      (write-line #"ret" output)
-      ;; -
-      (write-line #"prim_sub:" output)
-      (write-line #"pop %rbx" output) ;; Return address
-      (write-line #"pop %rcx" output) ;; Argument 2
-      (write-line #"pop %rax" output) ;; Argument 1
-      (write-line #"subq %rcx, %rax" output)
-      (write-line #"push %rbx" output)
-      (write-line #"ret" output)
-      ;; quotient
-      (write-line #"prim_quotient:" output)
-      (write-line #"pop %rbx" output) ;; Return address
-      (write-line #"pop %rcx" output) ;; Argument 2
-      (write-line #"pop %rax" output) ;; Argument 1
-      (write-line #"movq $0, %rdx" output)
-      (write-line #"idiv %rcx" output)
-      (write-line #"push %rbx" output)
-      (write-line #"ret" output)
-      ;; remainder
-      (write-line #"prim_remainder:" output)
-      (write-line #"pop %rbx" output) ;; Return address
-      (write-line #"pop %rcx" output) ;; Argument 2
-      (write-line #"pop %rax" output) ;; Argument 1
-      (write-line #"movq $0, %rdx" output)
-      (write-line #"idiv %rcx" output)
-      (write-line #"movq %rdx, %rax" output)
-      (write-line #"push %rbx" output)
-      (write-line #"ret" output)
 
       ;; and
       (write-line #"prim_and:" output)
@@ -510,6 +467,44 @@
             (write-line #"callq *%rax" output)
             (write-line #"push %rax" output)
             (write-commands cmds output))]
+         [(bin-math-cmd (bin-add-op))
+          (begin
+            (write-line #"pop %rax" output) ;; Argument 2
+            (write-line #"pop %rcx" output) ;; Argument 1
+            (write-line #"addq %rcx, %rax" output)
+            (write-line #"pushq %rax" output)
+            (write-commands cmds output))]
+         [(bin-math-cmd (bin-sub-op))
+          (begin
+            (write-line #"pop %rcx" output) ;; Argument 2
+            (write-line #"pop %rax" output) ;; Argument 1
+            (write-line #"subq %rcx, %rax" output)
+            (write-line #"push %rax" output)
+            (write-commands cmds output))]
+         [(bin-math-cmd (bin-mult-op))
+          (begin
+            (write-line #"pop %rax" output) ;; Argument 2
+            (write-line #"pop %rcx" output) ;; Argument 1
+            (write-line #"imulq %rcx" output)
+            (write-line #"push %rax" output)
+            (write-commands cmds output))]
+         [(bin-math-cmd (bin-quotient-op))
+          (begin
+            (write-line #"pop %rcx" output) ;; Argument 2
+            (write-line #"pop %rax" output) ;; Argument 1
+            (write-line #"movq $0, %rdx" output)
+            (write-line #"idiv %rcx" output)
+            (write-line #"push %rax" output)
+            (write-commands cmds output))]
+         [(bin-math-cmd (bin-remainder-op))
+          (begin
+            (write-line #"pop %rcx" output) ;; Argument 2
+            (write-line #"pop %rax" output) ;; Argument 1
+            (write-line #"movq $0, %rdx" output)
+            (write-line #"idiv %rcx" output)
+            (write-line #"movq %rdx, %rax" output)
+            (write-line #"push %rax" output)
+            (write-commands cmds output))]
          [(alloc-variant-cmd tag fields)
           (begin
             (write-line #"mov %rbp, %rax" output)
@@ -554,8 +549,10 @@
   (define (main [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Byte
     (begin
       (compile-stack-machine
-        (compile-module
-          (parse-module
-            (extract-either (parse-sexp (read-all-bytes stdin)))))
+        (append
+          (compile-module
+            (parse-module
+              (extract-either (parse-sexp (read-all-bytes stdin)))))
+          (prim-implementation))
         stdout)
       0)))

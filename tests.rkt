@@ -518,4 +518,6 @@
         (run-tests all-tests 'verbose))))
 
 (with-handlers ([exn:break? (λ (e) (exit 1))])
-  (void (sync/enable-break results)))
+  (sync/enable-break results)
+  (unless (zero? (force results))
+    (exit 1)))
