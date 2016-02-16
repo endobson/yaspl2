@@ -8,23 +8,30 @@
   racket/runtime-path)
 
 
-(define-runtime-path library-dir "libraries")
-
 (define library-files
-  (list "either.yaspl" "maybe.yaspl" "list.yaspl" "bytes.yaspl" "io.yaspl" "numbers.yaspl"
-        "lexer.yaspl" "sexp-parser.yaspl" "arithmetic-expr.yaspl" "tuples.yaspl"
-        "join-list.yaspl" "dict.yaspl" "stack-machine.yaspl"
-        "prim-implementation.yaspl" "x86-64-stack-machine.yaspl"
-        "source-language.yaspl" "source-to-stack.yaspl"
-        "compiler.yaspl"))
+  (list
+    #"libraries/either.yaspl"
+    #"libraries/maybe.yaspl"
+    #"libraries/list.yaspl"
+    #"libraries/bytes.yaspl"
+    #"libraries/io.yaspl"
+    #"libraries/numbers.yaspl"
+    #"libraries/lexer.yaspl"
+    #"libraries/sexp-parser.yaspl"
+    #"libraries/arithmetic-expr.yaspl"
+    #"libraries/tuples.yaspl"
+    #"libraries/join-list.yaspl"
+    #"libraries/dict.yaspl"
+    #"libraries/stack-machine.yaspl"
+    #"libraries/prim-implementation.yaspl"
+    #"libraries/x86-64-stack-machine.yaspl"
+    #"libraries/source-language.yaspl"
+    #"libraries/source-to-stack.yaspl"
+    #"libraries/compiler.yaspl"))
 
-(define libraries
-  (for/list ([library-file (in-list library-files)])
-    (call-with-input-file* (build-path library-dir library-file) port->bytes)))
 
-
-(define stdin (apply bytes-append libraries))
-(let ([result (run-program modules 'compiler 'main #:stdin stdin #:args (list #"compiler"))])
+(let ([result (run-program modules 'compiler 'main #:stdin #""
+                           #:args (cons #"compiler" library-files))])
   (write-bytes (program-result-stdout result) (current-output-port))
   (write-bytes (program-result-stderr result) (current-error-port))
   (when (program-result-error-info result) 

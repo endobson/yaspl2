@@ -103,36 +103,51 @@
 
 (define (compiler-test program
                        #:mod compiler-mod
+                       #:old-style [old-style #f]
                        #:exit-code [exit-code 0]
                        #:stdout [stdout #""]
                        #:stdin [stdin #""])
   (test-case* "compiler test"
-    (let ([result (run-program modules compiler-mod 'main #:stdin program
-                               #:args (list #"main"))])
-      (check-equal? (program-result-error-info result) #f)
-      (check-equal? (program-result-exit-code result) 0)
-      (call-with-temporary-files 3
-        (λ (asm object binary)
-          (call-with-output-file asm #:exists 'truncate
-              (λ (p) (write-bytes (program-result-stdout result) p)))
-          (check-subprocess* #:error-message "Assembler failed."
-            "/usr/bin/env" "as" asm "-o" object)
-          (check-subprocess* #:error-message "Linker failed."
-            "/usr/bin/env" "ld" "-arch" "x86_64" "-macosx_version_min" "10.11"
-            "-static" object "-o" binary)
+    (call-with-temporary-file
+      (λ (program-file)
+        (call-with-output-file program-file #:exists 'truncate
+          (λ (p) (write-bytes program p)))
 
-          (define input (open-input-bytes stdin))
-          (define output-port (open-output-bytes))
-          (define error-output-port (open-output-bytes))
+        (let ([result
+                (if old-style
+                    (run-program modules compiler-mod 'main #:stdin program
+                                       #:args (list #"main"))
+                    (run-program modules compiler-mod 'main #:stdin #""
+                                       #:args (list #"main" (path->bytes program-file))))])
+          (with-check-info
+            (['exit-code (program-result-exit-code result)]
+             ['error-info (program-result-error-info result)]
+             ['stdout (program-result-stdout result)]
+             ['stderr (program-result-stderr result)])
+            (check-equal? (program-result-error-info result) #f)
+            (check-equal? (program-result-exit-code result) 0))
+          (call-with-temporary-files 3
+            (λ (asm object binary)
+              (call-with-output-file asm #:exists 'truncate
+                  (λ (p) (write-bytes (program-result-stdout result) p)))
+              (check-subprocess* #:error-message "Assembler failed."
+                "/usr/bin/env" "as" asm "-o" object)
+              (check-subprocess* #:error-message "Linker failed."
+                "/usr/bin/env" "ld" "-arch" "x86_64" "-macosx_version_min" "10.11"
+                "-static" object "-o" binary)
 
-          (check-equal?
-            (parameterize ([current-input-port input]
-                           [current-output-port output-port]
-                           [current-error-port error-output-port])
-              (system*/exit-code binary))
-            exit-code)
-          (check-equal? (get-output-bytes output-port) stdout)
-          (check-equal? (get-output-bytes error-output-port) #""))))))
+              (define input (open-input-bytes stdin))
+              (define output-port (open-output-bytes))
+              (define error-output-port (open-output-bytes))
+
+              (check-equal?
+                (parameterize ([current-input-port input]
+                               [current-output-port output-port]
+                               [current-error-port error-output-port])
+                  (system*/exit-code binary))
+                exit-code)
+              (check-equal? (get-output-bytes output-port) stdout)
+              (check-equal? (get-output-bytes error-output-port) #""))))))))
 
 
 (define run-test-files-suite
@@ -219,29 +234,29 @@
                   #:stdin #"(module (define (main) (+ 1 2)))" #:exit-code 0 #:stdout #f)
 
 
-      (compiler-test #:mod 'x86-64-stack-machine
+      (compiler-test #:mod 'x86-64-stack-machine #:old-style #t
         #"(module (define (main_main) 0))")
-      (compiler-test #:mod 'x86-64-stack-machine
+      (compiler-test #:mod 'x86-64-stack-machine #:old-style #t
         #"(module (define (main_main) (+ 1 1)))"
         #:exit-code 2)
-      (compiler-test #:mod 'x86-64-stack-machine
+      (compiler-test #:mod 'x86-64-stack-machine #:old-style #t
         #"(module (define (main_main) (* (- 117 113) (+ 10 2))))"
         #:exit-code 48)
-      (compiler-test #:mod 'x86-64-stack-machine
+      (compiler-test #:mod 'x86-64-stack-machine #:old-style #t
         #"(module (define (main_main) 1) (define (foo) 2))"
         #:exit-code 1)
-      (compiler-test #:mod 'x86-64-stack-machine
+      (compiler-test #:mod 'x86-64-stack-machine #:old-style #t
         #"(module (define (main_main) (foo)) (define (foo) 2))"
         #:exit-code 2)
-      (compiler-test #:mod 'x86-64-stack-machine
+      (compiler-test #:mod 'x86-64-stack-machine #:old-style #t
         #"(module (define (main_main) (let ([x 1]) 0)))")
-      (compiler-test #:mod 'x86-64-stack-machine
+      (compiler-test #:mod 'x86-64-stack-machine #:old-style #t
         #"(module (define (main_main) (let ([x 1]) x)))"
         #:exit-code 1)
-      (compiler-test #:mod 'x86-64-stack-machine
+      (compiler-test #:mod 'x86-64-stack-machine #:old-style #t
         #"(module (define (main_main) (let ([x 1]) (+ x (let ([y 2]) (* y x))))))"
         #:exit-code 3)
-      (compiler-test #:mod 'x86-64-stack-machine
+      (compiler-test #:mod 'x86-64-stack-machine #:old-style #t
         #"(module
             (define (main_main) (f 2))
             (define (f x) (+ x (g 3 4)))

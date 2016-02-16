@@ -3,7 +3,7 @@ set -e
 set -u
 
 OUTPUT="$TEST_TMPDIR/compiler"
-cat \
+./compiler "compiler" \
 "libraries/either.yaspl" \
 "libraries/maybe.yaspl" \
 "libraries/list.yaspl" \
@@ -22,6 +22,6 @@ cat \
 "libraries/source-language.yaspl" \
 "libraries/source-to-stack.yaspl" \
 "libraries/compiler.yaspl" \
-| ./compiler "compiler" > "$OUTPUT"  || exit 1
+> "$OUTPUT"  || exit 1
 
 diff -u ./compiler.s "$OUTPUT"
