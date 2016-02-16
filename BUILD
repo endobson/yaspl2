@@ -1,4 +1,7 @@
 load(":racket.bzl", "racket_test", "racket_binary")
+package(
+  default_visibility = ["//visibility:public"]
+)
 
 racket_test(
   name = "tests_rkt",
