@@ -149,6 +149,8 @@
   [(a) (array-set! [arr : (Array a)] [index : Byte] [v : (type-var a)]) : Void (vector-set! arr index v)]
   [(a) (array-length [arr : (Array a)]) : Byte (vector-length arr)]
 
+  [(open-input-file [name : Bytes]) : InputPort
+   (open-input-file (bytes->path (subbytes name 0 (sub1 (bytes-length name)))))]
 
   [(write-bytes [b : Bytes] [p : OutputPort] [start-pos : Byte] [end-pos : Byte]) : Byte
    (write-bytes b p start-pos end-pos)]

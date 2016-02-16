@@ -19,4 +19,3 @@ cat \
 "libraries/source-language.yaspl" \
 "libraries/source-to-stack.yaspl" \
 "libraries/compiler.yaspl" \
-"libraries/main.yaspl"
