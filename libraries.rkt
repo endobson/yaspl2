@@ -46,7 +46,7 @@
 (define-runtime-path libraries-dir "libraries")
 (add-modules!
   (for/list ([file (in-directory libraries-dir)]
-             #:unless (regexp-match? #rx"main.yaspl$" file))
+             #:when (regexp-match? #rx".*\\.yaspl$" file))
     (define-values (dir name-path is-dir) (split-path file))
     (when (symbol? name-path)
       (error 'tests "Bad path"))

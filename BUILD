@@ -5,7 +5,9 @@ racket_test(
   srcs = [
     "tests.rkt",
   ],
-  data = glob(["libraries/*.yaspl", "tests/*"]),
+  data = glob(["tests/*"]) + [
+    "//libraries:compiler_library_files"
+  ],
   deps = glob(["*.rkt"]),
 )
 
@@ -14,7 +16,9 @@ racket_binary(
   srcs = [
     "compiler-compiler.rkt"
   ],
-  data = glob(["libraries/*.yaspl", "tests/*"]),
+  data = glob(["tests/*"]) + [
+    "//libraries:compiler_library_files"
+  ],
   deps = glob(["*.rkt"]),
 )
 
@@ -48,5 +52,9 @@ genrule(
 sh_test(
   name = "compile-compiler-test",
   srcs = ["compile-compiler-test.sh"],
-  data = [":compiler", "compiler.s"] + glob(["libraries/*.yaspl"])
+  data = [
+    ":compiler",
+    "compiler.s",
+    "//libraries:compiler_library_files"
+  ],
 )
