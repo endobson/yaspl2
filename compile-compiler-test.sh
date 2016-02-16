@@ -23,6 +23,6 @@ cat \
 "libraries/source-to-stack.yaspl" \
 "libraries/compiler.yaspl" \
 "libraries/main.yaspl" \
-| ./compiler "main" > "$OUTPUT"  || exit 1
+| ./compiler "compiler" > "$OUTPUT"  || exit 1
 
 diff -u ./compiler.s "$OUTPUT"

@@ -16,7 +16,7 @@
         "join-list.yaspl" "dict.yaspl" "stack-machine.yaspl"
         "prim-implementation.yaspl" "x86-64-stack-machine.yaspl"
         "source-language.yaspl" "source-to-stack.yaspl"
-        "compiler.yaspl" "main.yaspl"))
+        "compiler.yaspl"))
 
 (define libraries
   (for/list ([library-file (in-list library-files)])
@@ -24,7 +24,7 @@
 
 
 (define stdin (apply bytes-append libraries))
-(let ([result (run-program modules 'compiler 'main #:stdin stdin #:args (list #"main"))])
+(let ([result (run-program modules 'compiler 'main #:stdin stdin #:args (list #"compiler"))])
   (write-bytes (program-result-stdout result) (current-output-port))
   (write-bytes (program-result-stderr result) (current-error-port))
   (when (program-result-error-info result) 
