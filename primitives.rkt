@@ -151,6 +151,12 @@
 
   [(open-input-file [name : Bytes]) : InputPort
    (open-input-file (bytes->path (subbytes name 0 (sub1 (bytes-length name)))))]
+  [(open-output-file [name : Bytes]) : OutputPort
+   (open-output-file (bytes->path (subbytes name 0 (sub1 (bytes-length name)))))]
+  [(close-input-port [port : InputPort]) : Void
+   (close-input-port port)]
+  [(close-output-port [port : OutputPort]) : Void
+   (close-output-port port)]
 
   [(write-bytes [b : Bytes] [p : OutputPort] [start-pos : Byte] [end-pos : Byte]) : Byte
    (write-bytes b p start-pos end-pos)]

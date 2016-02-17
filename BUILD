@@ -29,7 +29,7 @@ genrule(
   name = "gen_compiler",
   tools = [":compiler-compiler"],
   outs = ["compiler.s"],
-  cmd = "$(location :compiler-compiler) > $@"
+  cmd = "$(location :compiler-compiler) $@"
 )
 
 genrule(

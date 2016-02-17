@@ -2,10 +2,10 @@ def _lib_impl(ctx):
   ctx.action(
     outputs = [ctx.outputs.asm],
     command = 
-      "%s unknown < %s > %s" % (
+      "%s %s unknown %s" % (
         ctx.executable._compiler.path,
-        ctx.files.srcs[0].path,
-        ctx.outputs.asm.path
+        ctx.outputs.asm.path,
+        ctx.files.srcs[0].path
       )
   )
 

@@ -30,8 +30,13 @@
     #"libraries/compiler.yaspl"))
 
 
+(define output-file
+  (string->bytes/utf-8
+    (vector-ref (current-command-line-arguments) 0)))
+
+
 (let ([result (run-program modules 'compiler 'main #:stdin #""
-                           #:args (cons #"compiler" library-files))])
+                           #:args (list* output-file #"compiler" library-files))])
   (write-bytes (program-result-stdout result) (current-output-port))
   (write-bytes (program-result-stderr result) (current-error-port))
   (when (program-result-error-info result) 

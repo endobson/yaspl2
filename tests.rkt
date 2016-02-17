@@ -108,17 +108,19 @@
                        #:stdout [stdout #""]
                        #:stdin [stdin #""])
   (test-case* "compiler test"
-    (call-with-temporary-file
-      (λ (program-file)
+    (call-with-temporary-files 2
+      (λ (program-file asm)
         (call-with-output-file program-file #:exists 'truncate
           (λ (p) (write-bytes program p)))
-
+        (delete-file asm)
         (let ([result
                 (if old-style
                     (run-program modules compiler-mod 'main #:stdin program
-                                       #:args (list #"main"))
+                                         #:args (list #"main"))
                     (run-program modules compiler-mod 'main #:stdin #""
-                                       #:args (list #"main" (path->bytes program-file))))])
+                                       #:args (list (path->bytes asm)
+                                                    #"main"
+                                                    (path->bytes program-file))))])
           (with-check-info
             (['exit-code (program-result-exit-code result)]
              ['error-info (program-result-error-info result)]
@@ -126,10 +128,11 @@
              ['stderr (program-result-stderr result)])
             (check-equal? (program-result-error-info result) #f)
             (check-equal? (program-result-exit-code result) 0))
-          (call-with-temporary-files 3
-            (λ (asm object binary)
-              (call-with-output-file asm #:exists 'truncate
-                  (λ (p) (write-bytes (program-result-stdout result) p)))
+          (call-with-temporary-files 2
+            (λ (object binary)
+              (when old-style
+                (call-with-output-file asm #:exists 'truncate
+                  (λ (p) (write-bytes (program-result-stdout result) p))))
               (check-subprocess* #:error-message "Assembler failed."
                 "/usr/bin/env" "as" asm "-o" object)
               (check-subprocess* #:error-message "Linker failed."
