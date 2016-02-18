@@ -15,3 +15,9 @@ yaspl_library(
   name = "either",
   srcs = ["either.yaspl"],
 )
+
+yaspl_library(
+  name = "list",
+  srcs = ["list.yaspl"],
+  deps = [":maybe"]
+)
