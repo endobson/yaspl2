@@ -56,8 +56,7 @@ sh_test(
   name = "compile-compiler-test",
   srcs = ["compile-compiler-test.sh"],
   data = [
-    ":compiler",
-    "compiler.s",
-    "//libraries:compiler_library_files"
+    ":compiler.s",
+    "//libraries:compiler.s"
   ],
 )

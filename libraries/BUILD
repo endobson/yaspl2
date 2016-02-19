@@ -1,4 +1,8 @@
 load(":yaspl.bzl", "yaspl_library", "yaspl_binary")
+package(
+  default_visibility = ["//visibility:public"]
+)
+
 
 filegroup(
   name = "compiler_library_files",
@@ -17,11 +21,11 @@ yaspl_library(
   name = "arithmetic-expr",
   srcs = ["arithmetic-expr.yaspl"],
   deps = [
-    ":sexp-parser",
-    ":io",
+    ":bytes",
     ":either",
+    ":io",
     ":list",
-    ":bytes"
+    ":sexp-parser",
   ]
 )
 
@@ -38,18 +42,18 @@ yaspl_library(
   name = "compiler_lib",
   srcs = ["compiler.yaspl"],
   deps = [
+    ":bytes",
+    ":dict",
+    ":either",
     ":io",
     ":list",
-    ":dict",
-    ":tuples",
-    ":bytes",
-    ":source-language",
+    ":prim-implementation",
     ":sexp-parser",
+    ":source-language",
     ":source-to-stack",
     ":stack-machine",
+    ":tuples",
     ":x86-64-stack-machine",
-    ":prim-implementation",
-    ":either"
  ]
 )
 
@@ -57,9 +61,9 @@ yaspl_library(
   name = "dict",
   srcs = ["dict.yaspl"],
   deps = [
+    ":list",
     ":maybe",
     ":tuples",
-    ":list"
   ]
 )
 
@@ -86,9 +90,9 @@ yaspl_library(
   name = "lexer",
   srcs = ["lexer.yaspl"],
   deps = [
-    ":numbers",
     ":bytes",
-    ":io"
+    ":io",
+    ":numbers",
   ]
 )
 
@@ -113,7 +117,7 @@ yaspl_library(
   srcs = ["prim-implementation.yaspl"],
   deps = [
     ":list",
-    ":stack-machine"
+    ":stack-machine",
   ]
 )
 
@@ -121,12 +125,12 @@ yaspl_library(
   name = "sexp-parser",
   srcs = ["sexp-parser.yaspl"],
   deps = [
-    ":lexer",
-    ":numbers",
-    ":io",
     ":either",
+    ":io",
+    ":lexer",
+    ":list",
     ":maybe",
-    ":list"
+    ":numbers",
   ]
 )
 
@@ -134,11 +138,11 @@ yaspl_library(
   name = "source-language",
   srcs = ["source-language.yaspl"],
   deps = [
-   ":sexp-parser",
-   ":io",
    ":either",
+   ":io",
+   ":list",
    ":maybe",
-   ":list"
+   ":sexp-parser",
   ]
 )
 
@@ -146,15 +150,15 @@ yaspl_library(
   name = "source-to-stack",
   srcs = ["source-to-stack.yaspl"],
   deps = [
-    ":list",
     ":bytes",
-    ":either",
     ":dict",
-    ":maybe",
-    ":tuples",
+    ":either",
     ":join-list",
+    ":list",
+    ":maybe",
+    ":source-language",
     ":stack-machine",
-    ":source-language"
+    ":tuples",
   ]
 )
 
@@ -163,13 +167,13 @@ yaspl_library(
   srcs = ["stack-machine.yaspl"],
   deps = [
     ":arithmetic-expr",
-    ":list",
-    ":tuples",
-    ":join-list",
     ":bytes",
-    ":sexp-parser",
     ":io",
-    ":numbers"
+    ":join-list",
+    ":list",
+    ":numbers",
+    ":sexp-parser",
+    ":tuples",
   ],
 )
 
@@ -184,14 +188,14 @@ yaspl_library(
   name = "x86-64-stack-machine",
   srcs = ["x86-64-stack-machine.yaspl"],
   deps = [
-    ":prim-implementation",
+    ":arithmetic-expr",
+    ":bytes",
+    ":either",
+    ":io",
     ":list",
     ":numbers",
-    ":io",
-    ":arithmetic-expr",
+    ":prim-implementation",
     ":sexp-parser",
-    ":bytes",
     ":stack-machine",
-    ":either"
   ]
 )
