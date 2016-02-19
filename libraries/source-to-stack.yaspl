@@ -9,6 +9,10 @@
       #:values (cons empty length append map append* reverse)
       #:patterns (cons empty))
     (bytes bytes=? bytes-append)
+    (either
+      #:types (Either)
+      #:values (right left)
+      #:patterns (right left))
     (dict
       #:types (Dict)
       #:values (make-dict dict-ref dict-set)
@@ -67,14 +71,17 @@
         [value-exports (Dict Bytes Bytes)]
         [pattern-exports (Dict Bytes Byte)])))
 
-  (define (compile-module [mod : Module] [sigs : (List ModuleSignature)]) : CompiledModule
-    ;; TODO add imports to global env
-    (let ([env (make-global-env mod sigs)])
-      (compiled-module
-        (append
-          (compile-type-definitions mod)
-          (compile-function-definitions mod env))
-        (module->module-signature mod env))))
+  (define (compile-module [mod : Module] [sigs : (List ModuleSignature)]) :
+    (Either Bytes CompiledModule)
+    (case (make-global-env mod sigs)
+      [(left v) (left v)]
+      [(right env)
+       (right
+         (compiled-module
+           (append
+             (compile-type-definitions mod)
+             (compile-function-definitions mod env))
+           (module->module-signature mod env)))]))
 
 
   (define (module->module-signature [mod : Module] [env : Environment]) : ModuleSignature
@@ -129,18 +136,23 @@
          (dict-set acc name (environment-tag-ref env name)))]))
 
 
-  (define (make-global-env [mod : Module] [sigs : (List ModuleSignature)]) : Environment
-    (environment
-      (add-type-definitions-functions/top
-        (add-locally-defined-functions
-          (add-all-imported-functions
-            (initial-value-bindings) mod sigs)
-          mod)
-        mod)
-      (add-all-imported-patterns
-        (add-type-definitions-variant-infos/top
-          (initial-variant-bindings) mod)
-        mod sigs)))
+  (define (make-global-env [mod : Module] [sigs : (List ModuleSignature)])
+    : (Either Bytes Environment)
+    (case (add-all-imported-patterns
+            (add-type-definitions-variant-infos/top
+              (initial-variant-bindings) mod)
+            mod sigs)
+      [(left v) (left v)]
+      [(right pattern-env)
+       (right
+         (environment
+           (add-type-definitions-functions/top
+             (add-locally-defined-functions
+               (add-all-imported-functions
+                 (initial-value-bindings) mod sigs)
+               mod)
+             mod)
+           pattern-env))]))
 
   (define (initial-value-bindings) : (Dict Bytes VarReference)
     (make-dict bytes=?))
@@ -152,7 +164,7 @@
   (define (add-all-imported-patterns
             [env : (Dict Bytes VariantInfo)]
             [mod : Module]
-            [sigs : (List ModuleSignature)]) : (Dict Bytes VariantInfo)
+            [sigs : (List ModuleSignature)]) : (Either Bytes (Dict Bytes VariantInfo))
     (case mod
       [(module _ imports _ _ _)
        (add-all-imports/patterns env imports sigs)]))
@@ -160,28 +172,28 @@
   (define (add-all-imports/patterns
             [env : (Dict Bytes VariantInfo)]
             [imports : (List Imports)]
-            [sigs : (List ModuleSignature)]) : (Dict Bytes VariantInfo)
+            [sigs : (List ModuleSignature)]) : (Either Bytes (Dict Bytes VariantInfo))
     (case imports
-      [(empty) env]
+      [(empty) (right env)]
       [(cons (imports mod-name _ _ patterns) imports)
-       (add-all-imports/patterns
-         (add-imports/patterns
-           env
-           patterns
-           (lookup-module-signature mod-name sigs))
-         imports
-         sigs)]))
+       (case (add-imports/patterns
+               env
+               patterns
+               (lookup-module-signature mod-name sigs))
+         [(left v) (left v)]
+         [(right env)
+          (add-all-imports/patterns env imports sigs)])]))
 
   (define (add-imports/patterns
             [env : (Dict Bytes VariantInfo)]
             [imports : (List Import)]
-            [sig : ModuleSignature]) : (Dict Bytes VariantInfo)
+            [sig : ModuleSignature]) : (Either Bytes (Dict Bytes VariantInfo))
     (case imports
-      [(empty) env]
+      [(empty) (right env)]
       [(cons (import exported-name local-name) imports)
        (case (dict-ref (module-signature-pattern-exports sig) exported-name)
          [(nothing)
-          (panic
+          (left
             (bytes-append
               (cons #"No corresponding export for pattern import of "
                 (cons exported-name (empty)))))]

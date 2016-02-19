@@ -33,7 +33,7 @@
     (prim-implementation prim-implementation)
     (either
       #:types (Either)
-      #:values ()
+      #:values (left right)
       #:patterns (left right)))
   (export main cmain)
   (types)
@@ -74,14 +74,18 @@
       (make-dict bytes=?)))
 
 
-  (define (compile-modules [mods : (List Module)] [sigs : (List ModuleSignature)])
-    : (List StackFunction)
+  (define (compile-modules
+            [mods : (List Module)]
+            [sigs : (List ModuleSignature)]
+            [funcs : (List StackFunction)])
+    : (Either Bytes (List StackFunction))
     (case mods
-      [(empty) (prim-implementation)]
+      [(empty) (right funcs)]
       [(cons mod mods)
        (case (compile-module mod sigs)
-         [(compiled-module code sig)
-          (append code (compile-modules mods (cons sig sigs)))])]))
+         [(left v) (left v)]
+         [(right (compiled-module new-funcs sig))
+          (compile-modules mods (cons sig sigs) (append new-funcs funcs))])]))
 
   (define (extract-modules [vals : (List (Either Bytes Module))] [stderr : OutputPort]) : (List Module)
     (case vals
@@ -121,16 +125,23 @@
         (begin
           (let ([output (open-output-file (make-null-terminated (array-ref args 1)))])
             (begin
-              (compile-stack-machine
-                (bytes-append (varargs list (array-ref args 2) #"_main"))
-                (compile-modules
-                  (extract-modules
-                    (map parse-module
-                      (extract-sexps
-                        (parse-sexps (bytes-append (read-module-files 3 args)))
-                        stderr))
-                    stderr)
-                  (cons (prim-signature) (empty)))
-                output)
+              (case (compile-modules
+                      (extract-modules
+                        (map parse-module
+                          (extract-sexps
+                            (parse-sexps (bytes-append (read-module-files 3 args)))
+                            stderr))
+                        stderr)
+                      (cons (prim-signature) (empty))
+                      (prim-implementation))
+                [(left v)
+                 (begin
+                   (write-line v stderr)
+                   (panic #""))]
+                [(right code)
+                 (compile-stack-machine
+                   (bytes-append (varargs list (array-ref args 2) #"_main"))
+                   code
+                   output)])
               (close-output-port output)))
           0))))
