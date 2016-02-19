@@ -144,15 +144,24 @@
             mod sigs)
       [(left v) (left v)]
       [(right pattern-env)
-       (right
-         (environment
-           (add-type-definitions-functions/top
-             (add-locally-defined-functions
-               (add-all-imported-functions
-                 (initial-value-bindings) mod sigs)
-               mod)
-             mod)
-           pattern-env))]))
+       (case (setup-value-environment mod sigs)
+         [(left v) (left v)]
+         [(right value-env)
+          (right
+            (environment
+              value-env
+              pattern-env))])]))
+
+  (define (setup-value-environment [mod : Module] [sigs : (List ModuleSignature)])
+    : (Either Bytes (Dict Bytes VarReference))
+    (add-all-imported-functions
+      (add-type-definitions-functions/top
+        (add-locally-defined-functions
+          (initial-value-bindings)
+          mod)
+        mod)
+      mod sigs))
+
 
   (define (initial-value-bindings) : (Dict Bytes VarReference)
     (make-dict bytes=?))
@@ -209,7 +218,7 @@
   (define (add-all-imported-functions
             [env : (Dict Bytes VarReference)]
             [mod : Module]
-            [sigs : (List ModuleSignature)]) : (Dict Bytes VarReference)
+            [sigs : (List ModuleSignature)]) : (Either Bytes (Dict Bytes VarReference))
     (case mod
       [(module _ imports _ _ _)
        (add-all-imports env imports sigs)]))
@@ -217,24 +226,24 @@
   (define (add-all-imports
             [env : (Dict Bytes VarReference)]
             [imps : (List Imports)]
-            [sigs : (List ModuleSignature)]) : (Dict Bytes VarReference)
+            [sigs : (List ModuleSignature)]) : (Either Bytes (Dict Bytes VarReference))
     (case imps
-      [(empty) env]
+      [(empty) (right env)]
       [(cons (imports mod-name _ values _) imps)
-       (add-all-imports
-         (add-imports env values (lookup-module-signature mod-name sigs))
-         imps sigs)]))
+       (case (add-imports env values (lookup-module-signature mod-name sigs))
+         [(left v) (left v)]
+         [(right env) (add-all-imports env imps sigs)])]))
 
   (define (add-imports
             [env : (Dict Bytes VarReference)]
             [imps : (List Import)]
-            [sig : ModuleSignature]) : (Dict Bytes VarReference)
+            [sig : ModuleSignature]) : (Either Bytes (Dict Bytes VarReference))
     (case imps
-      [(empty) env]
+      [(empty) (right env)]
       [(cons (import exported-name local-name) imps)
        (case (dict-ref (module-signature-value-exports sig) exported-name)
          [(nothing)
-          (panic
+          (left
             (bytes-append
               (cons #"No corresponding export for import of "
                 (cons exported-name (empty)))))]
