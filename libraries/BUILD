@@ -1,4 +1,4 @@
-load(":yaspl.bzl", "yaspl_library")
+load(":yaspl.bzl", "yaspl_library", "yaspl_binary")
 
 filegroup(
   name = "compiler_library_files",
@@ -6,8 +6,11 @@ filegroup(
   srcs = glob(["*.yaspl"])
 )
 
-
-
+yaspl_binary(
+  name = "compiler",
+  main_module = "compiler",
+  deps = [":compiler_lib"]
+)
 
 
 yaspl_library(
@@ -32,7 +35,7 @@ yaspl_library(
 )
 
 yaspl_library(
-  name = "compiler",
+  name = "compiler_lib",
   srcs = ["compiler.yaspl"],
   deps = [
     ":io",
