@@ -31,10 +31,18 @@
       #:values (compile-module module-signature)
       #:patterns (compiled-module))
     (stack-machine
-      #:types (StackFunction StackBasicBlock StackCmd StackTerminal VariantCases)
+      #:types (StackFunction StackBasicBlock StackCmd StackTerminal VariantCases BinMathOp
+               BinLogicMathOp)
       #:values ()
-      #:patterns (stack-function stack-basic-block boolean-jmp uncond-jmp variant-switch return
-                  no-catch-all-case catch-all-case variant-case))
+      #:patterns (
+          stack-function stack-basic-block boolean-jmp uncond-jmp variant-switch return
+          no-catch-all-case catch-all-case variant-case num-lit-cmd boolean-lit-cmd
+          bytes-lit-cmd bytes-cmp-cmd fun-ref-cmd dup-cmd alloc-variant-cmd variant-ref-cmd
+          bin-math-cmd bin-logic-math-cmd make-array-from-stack-cmd make-array-cmd
+          array-length-cmd array-ref-cmd array-set!-cmd pop-cmd swap-cmd fun-call-cmd
+          bin-math-cmd bin-add-op bin-sub-op bin-mult-op bin-quotient-op bin-remainder-op
+          bin-logic-math-cmd less-than-op less-than-or-equal-op equal-op greater-than-or-equal-op
+          greater-than-op))
     (x86-64-stack-machine compile-stack-machine)
     (prim-implementation prim-implementation)
     (either
@@ -77,32 +85,114 @@
   (define (print-commands [commands : (List StackCmd)] [output : OutputPort]) : Void
     (case commands
      [(empty) (void)]
-     [(cons _ commands)
+     [(cons command commands)
       (begin
-        (write-line #"Command" output)
+        (write-all-bytes #"  " output)
+        (case command
+          [(num-lit-cmd v)
+           (begin
+             (write-all-bytes #"numeric-literal: " output)
+             (write-all-bytes (integer->decimal-bytes v) output)
+             (newline output))]
+          [(boolean-lit-cmd v)
+           (begin
+             (write-all-bytes #"boolean-literal: " output)
+             (write-all-bytes (if v #"true" #"false") output)
+             (newline output))]
+          [(bytes-lit-cmd v)
+           (begin
+             (write-all-bytes #"bytes-literal: " output)
+             (write-all-bytes v output)
+             (newline output))]
+          [(bytes-cmp-cmd)
+           (write-line #"bytes-cmp" output)]
+          [(fun-ref-cmd name)
+           (begin
+             (write-all-bytes #"fun-ref: " output)
+             (write-all-bytes name output)
+             (newline output))]
+          [(dup-cmd offset)
+           (begin
+             (write-all-bytes #"dup: " output)
+             (write-all-bytes (integer->decimal-bytes offset) output)
+             (newline output))]
+          [(alloc-variant-cmd tag _)
+           (begin
+             (write-all-bytes #"alloc-variant: " output)
+             (write-all-bytes (integer->decimal-bytes tag) output)
+             (newline output))]
+          [(variant-ref-cmd tag field)
+           (begin
+             (write-all-bytes #"variant-ref: " output)
+             (write-all-bytes (integer->decimal-bytes tag) output)
+             (write-all-bytes #" " output)
+             (write-all-bytes (integer->decimal-bytes field) output)
+             (newline output))]
+          [(bin-math-cmd op)
+           (write-line
+             (case op
+               [(bin-add-op) #"add"]
+               [(bin-sub-op) #"sub"]
+               [(bin-mult-op) #"mult"]
+               [(bin-quotient-op) #"quotient"]
+               [(bin-remainder-op) #"remainder"])
+             output)]
+          [(bin-logic-math-cmd op)
+           (write-line
+             (case op
+               [(less-than-op) #"<"]
+               [(less-than-or-equal-op) #"<="]
+               [(equal-op) #"="]
+               [(greater-than-or-equal-op) #">="]
+               [(greater-than-op) #">"])
+             output)]
+          [(make-array-from-stack-cmd num-args)
+           (begin
+             (write-all-bytes #"make-array-from-stack: " output)
+             (write-all-bytes (integer->decimal-bytes num-args) output)
+             (newline output))]
+          [(make-array-cmd)
+           (write-line #"make-array" output)]
+          [(array-length-cmd)
+           (write-line #"array-length" output)]
+          [(array-ref-cmd)
+           (write-line #"array-ref" output)]
+          [(array-set!-cmd)
+           (write-line #"array-set!" output)]
+          [(pop-cmd)
+           (write-line #"pop" output)]
+          [(swap-cmd)
+           (write-line #"swap" output)]
+          [(fun-call-cmd num-args)
+           (begin
+             (write-all-bytes #"fun-call: " output)
+             (write-all-bytes (integer->decimal-bytes num-args) output)
+             (newline output))])
         (print-commands commands output))]))
 
   (define (print-terminal [terminal : StackTerminal] [output : OutputPort]) : Void
-    (case terminal
-      [(boolean-jmp true false)
-       (begin
-         (write-all-bytes #"cond-jmp " output)
-         (write-all-bytes (integer->decimal-bytes true) output)
-         (write-all-bytes #" " output)
-         (write-all-bytes (integer->decimal-bytes false) output)
-         (newline output))]
-      [(uncond-jmp index)
-       (begin
-         (write-all-bytes #"jmp " output)
-         (write-all-bytes (integer->decimal-bytes index) output)
-         (newline output))]
-      [(variant-switch cases)
-       (begin
-         (write-all-bytes #"switch" output)
-         (print-cases cases output))]
-      [(return _)
-       (begin
-         (write-line #"ret" output))]))
+    (begin
+      (write-all-bytes #"  " output)
+      (case terminal
+        [(boolean-jmp true false)
+         (begin
+           (write-all-bytes #"cond-jmp " output)
+           (write-all-bytes (integer->decimal-bytes true) output)
+           (write-all-bytes #" " output)
+           (write-all-bytes (integer->decimal-bytes false) output)
+           (newline output))]
+        [(uncond-jmp index)
+         (begin
+           (write-all-bytes #"jmp " output)
+           (write-all-bytes (integer->decimal-bytes index) output)
+           (newline output))]
+        [(variant-switch cases)
+         (begin
+           (write-all-bytes #"switch" output)
+           (print-cases cases output))]
+        [(return _)
+         (begin
+           (write-line #"ret" output))])))
 
   (define (print-cases [cases : VariantCases] [output : OutputPort]) : Void
     (case cases
