@@ -17,6 +17,13 @@ yaspl_binary(
 )
 
 
+yaspl_binary(
+  name = "print-stack-function",
+  main_module = "print_stack_function",
+  deps = [":print-stack-function_lib"]
+)
+
+
 yaspl_library(
   name = "arithmetic-expr",
   srcs = ["arithmetic-expr.yaspl"],
@@ -120,6 +127,27 @@ yaspl_library(
     ":stack-machine",
   ]
 )
+
+yaspl_library(
+  name = "print-stack-function_lib",
+  srcs = ["print-stack-function.yaspl"],
+  deps = [
+    ":bytes",
+    ":compiler",
+    ":dict",
+    ":either",
+    ":io",
+    ":list",
+    ":prim-implementation",
+    ":sexp-parser",
+    ":source-language",
+    ":source-to-stack",
+    ":stack-machine",
+    ":tuples",
+    ":x86-64-stack-machine",
+ ]
+)
+
 
 yaspl_library(
   name = "sexp-parser",
