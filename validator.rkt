@@ -6,6 +6,7 @@
   "signature-structs.rkt"
   "utils.rkt"
   racket/set
+  racket/string
   racket/hash
   racket/list
   racket/match)
@@ -24,6 +25,7 @@
 ;; TODO make this work over types and not conflate type bindings and value bindings
 ;; TODO also support patterns
 (define (ensure-no-free-variables module)
+  (define unbound (mutable-set))
   (define ((recur/env env) expr)
     (define recur (recur/env env))
     (match expr
@@ -32,7 +34,7 @@
       [(? boolean&?) (void)]
       [(variable& sym)
        (unless (set-member? env sym)
-         (error 'ensure-no-free-variables "Unbound symbol '~a' in ~a" sym (module&-name module)))]
+         (set-add! unbound sym))]
       [(if& cond true false)
        (for-each recur (list cond true false))]
       [(begin& first-expr exprs)
@@ -85,7 +87,11 @@
        (match definition
          [(definition& _ args body)
           (let ([env (set-union env (list->set args))])
-            ((recur/env env) body))]))]))
+            ((recur/env env) body))]))])
+  (unless (set-empty? unbound)
+    (raise-user-error
+      'ensure-no-free-variables "The following symbols are unbound in ~a:\n~a"
+      (module&-name module) (string-join (map (λ (sym) (format "  ~a" sym)) (set->list unbound)) "\n"))))
 
 
 (define ((parse-type/env type-env) pre-type)
