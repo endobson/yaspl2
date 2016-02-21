@@ -1,0 +1,214 @@
+(module stack-machine-optimizer
+  (import
+    (prim
+      #:types (Bytes Byte InputPort OutputPort Array Void Boolean)
+      #:values (panic make-bytes read-bytes < + = array-length array-ref open-input-file
+                open-output-file close-output-port void)
+      #:patterns ())
+    (io read-all-bytes write-all-bytes write-line newline)
+    (list
+      #:types (List)
+      #:values (empty cons append map list length)
+      #:patterns (empty cons))
+    (numbers integer->decimal-bytes)
+    (maybe
+      #:types (Maybe)
+      #:values ()
+      #:patterns (just nothing))
+    (dict
+      #:types (Dict)
+      #:values (make-dict dict-set dict-add-all dict-ref)
+      #:patterns ())
+    (tuples tuple2)
+    (bytes bytes=? bytes-append make-null-terminated)
+    (source-language
+      #:types (Module)
+      #:values (parse-module)
+      #:patterns ())
+    (sexp-parser
+      #:types (Sexp)
+      #:values (parse-sexps)
+      #:patterns ())
+    (source-to-stack
+      #:types (ModuleSignature)
+      #:values (compile-module module-signature)
+      #:patterns (compiled-module))
+    (stack-machine
+      #:types (StackFunction StackBasicBlock StackCmd StackTerminal VariantCases BinMathOp
+               BinLogicMathOp)
+      #:values (stack-function stack-basic-block boolean-jmp uncond-jmp variant-switch
+                catch-all-case variant-case)
+      #:patterns (
+          stack-function stack-basic-block boolean-jmp uncond-jmp variant-switch return
+          no-catch-all-case catch-all-case variant-case num-lit-cmd boolean-lit-cmd
+          bytes-lit-cmd bytes-cmp-cmd fun-ref-cmd dup-cmd alloc-variant-cmd variant-ref-cmd
+          bin-math-cmd bin-logic-math-cmd make-array-from-stack-cmd make-array-cmd
+          array-length-cmd array-ref-cmd array-set!-cmd pop-cmd swap-cmd fun-call-cmd
+          bin-math-cmd bin-add-op bin-sub-op bin-mult-op bin-quotient-op bin-remainder-op
+          bin-logic-math-cmd less-than-op less-than-or-equal-op equal-op greater-than-or-equal-op
+          greater-than-op uncond-jmp))
+    (x86-64-stack-machine compile-stack-machine)
+    (prim-implementation prim-implementation)
+    (either
+      #:types (Either)
+      #:values (left right)
+      #:patterns (left right)))
+  (export optimize-stack-function)
+  (types)
+
+
+  (define (optimize-stack-function [fun : StackFunction]) : StackFunction
+    (case fun
+      [(stack-function name blocks)
+       (stack-function name
+          (remove-unreachable-blocks
+            (optimize-trivial-blocks blocks)))]))
+
+  (define (optimize-trivial-blocks [blocks : (List StackBasicBlock)]) : (List StackBasicBlock)
+    (let ([trivial-block-dict (compute-trivial-blocks blocks 0 (make-dict =))])
+      (replace-trivial-blocks blocks trivial-block-dict)))
+
+  (define (compute-trivial-blocks
+            [blocks : (List StackBasicBlock)]
+            [index : Byte]
+            [dict : (Dict Byte StackTerminal)]) : (Dict Byte StackTerminal)
+    (case blocks
+      [(empty) dict]
+      [(cons (stack-basic-block (empty) term) blocks)
+       (compute-trivial-blocks
+         blocks
+         (+ 1 index)
+         (dict-set dict index term))]
+      [(cons _ blocks)
+       (compute-trivial-blocks blocks (+ 1 index) dict)]))
+
+  (define (replace-trivial-blocks
+            [blocks : (List StackBasicBlock)]
+            [dict : (Dict Byte StackTerminal)]) : (List StackBasicBlock)
+    (case blocks
+      [(empty) (empty)]
+      [(cons (stack-basic-block cmds (uncond-jmp target)) blocks)
+       (case (dict-ref dict target)
+         [(just term)
+          (replace-trivial-blocks (cons (stack-basic-block cmds term) blocks) dict)]
+         [(nothing)
+          (cons (stack-basic-block cmds (uncond-jmp target)) (replace-trivial-blocks blocks dict))])]
+      [(cons block blocks)
+       (cons block (replace-trivial-blocks blocks dict))]))
+
+  (define (remove-unreachable-blocks [blocks : (List StackBasicBlock)]) : (List StackBasicBlock)
+    (let ([dict (compute-reachable-block-dict blocks 0 (make-dict =))])
+      (let ([reachable-dict (follow-reachable-block-dict (cons 0 (empty)) (make-dict =) dict)])
+        (let ([new-number-dict (compute-new-number-dict 0 (length blocks) 0 reachable-dict (make-dict =))])
+          (restructure-blocks blocks 0 new-number-dict)))))
+
+  (define (follow-reachable-block-dict
+            [to-visit : (List Byte)]
+            [reachable : (Dict Byte Boolean)]
+            [dict : (Dict Byte (List Byte))]) : (Dict Byte Boolean)
+    (case to-visit
+      [(empty) reachable]
+      [(cons index to-visit)
+       (case (dict-ref reachable index)
+         [(just _)
+          (follow-reachable-block-dict
+            to-visit
+            reachable
+            dict)]
+         [(nothing)
+          (case (dict-ref dict index)
+            [(nothing) (panic #"Bad block index")]
+            [(just nodes)
+             (follow-reachable-block-dict
+               (append nodes to-visit)
+               (dict-set reachable index #t)
+               dict)])])]))
+
+
+  (define (compute-reachable-block-dict
+            [blocks : (List StackBasicBlock)]
+            [index : Byte]
+            [dict : (Dict Byte (List Byte))]) : (Dict Byte (List Byte))
+    (case blocks
+      [(empty) dict]
+      [(cons (stack-basic-block _ term) blocks)
+       (compute-reachable-block-dict
+         blocks
+         (+ 1 index)
+         (dict-set
+           dict
+           index
+           (case term
+             [(boolean-jmp true false) (cons true (cons false (empty)))]
+             [(uncond-jmp index) (cons index (empty))]
+             [(return _) (empty)]
+             [(variant-switch cases) (cases->indices cases)])))]))
+
+
+  (define (compute-new-number-dict
+            [old-index : Byte]
+            [limit : Byte]
+            [new-index : Byte]
+            [reachable-dict : (Dict Byte Boolean)]
+            [dict : (Dict Byte Byte)]) : (Dict Byte Byte)
+    (if (= old-index limit)
+        dict
+        (case (dict-ref reachable-dict old-index)
+          [(nothing)
+           (compute-new-number-dict
+             (+ 1 old-index)
+             limit
+             new-index
+             reachable-dict
+             dict)]
+          [(just _)
+           (compute-new-number-dict
+             (+ 1 old-index)
+             limit
+             (+ 1 new-index)
+             reachable-dict
+             (dict-set dict old-index new-index))])))
+
+
+  (define (restructure-blocks
+            [blocks : (List StackBasicBlock)] [index : Byte] [dict : (Dict Byte Byte)])
+    : (List StackBasicBlock)
+    (case blocks
+      [(empty) (empty)]
+      [(cons (stack-basic-block code term) blocks)
+       (case (dict-ref dict index)
+         [(nothing) (restructure-blocks blocks (+ 1 index) dict)]
+         [(just _)
+          (cons (stack-basic-block code (restructure-term term dict))
+                (restructure-blocks blocks (+ 1 index) dict))])]))
+
+  (define (restructure-term [term : StackTerminal] [dict : (Dict Byte Byte)]) : StackTerminal
+    (case term
+      [(boolean-jmp true false)
+       (boolean-jmp (restructure-index true dict) (restructure-index false dict))]
+      [(uncond-jmp index) (uncond-jmp (restructure-index index dict))]
+      [(return _) term]
+      [(variant-switch cases) (variant-switch (restructure-cases cases dict))]))
+
+  (define (restructure-cases [cases : VariantCases] [dict : (Dict Byte Byte)]) : VariantCases
+    (case cases
+      [(no-catch-all-case) cases]
+      [(catch-all-case index) (catch-all-case (restructure-index index dict))]
+      [(variant-case tag index cases)
+       (variant-case
+         tag
+         (restructure-index index dict)
+         (restructure-cases cases dict))]))
+
+  (define (restructure-index [index : Byte] [dict : (Dict Byte Byte)]) : Byte
+    (case (dict-ref dict index)
+      [(nothing) (panic #"bad index")]
+      [(just new-index) new-index]))
+
+  (define (cases->indices [cases : VariantCases]) : (List Byte)
+    (case cases
+      [(no-catch-all-case) (empty)]
+      [(catch-all-case index) (cons index (empty))]
+      [(variant-case _ index cases) (cons index (cases->indices cases))])))
+
+

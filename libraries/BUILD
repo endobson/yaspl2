@@ -120,6 +120,26 @@ yaspl_library(
 )
 
 yaspl_library(
+  name = "stack-machine-optimizer",
+  srcs = ["stack-machine-optimizer.yaspl"],
+  deps = [
+    ":bytes",
+    ":compiler",
+    ":dict",
+    ":either",
+    ":io",
+    ":list",
+    ":prim-implementation",
+    ":sexp-parser",
+    ":source-language",
+    ":source-to-stack",
+    ":stack-machine",
+    ":tuples",
+ ]
+)
+
+
+yaspl_library(
   name = "prim-implementation",
   srcs = ["prim-implementation.yaspl"],
   deps = [
@@ -142,9 +162,9 @@ yaspl_library(
     ":sexp-parser",
     ":source-language",
     ":source-to-stack",
+    ":stack-machine-optimizer",
     ":stack-machine",
     ":tuples",
-    ":x86-64-stack-machine",
  ]
 )
 
