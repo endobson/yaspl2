@@ -8,7 +8,7 @@
     (io read-all-bytes write-all-bytes write-line newline)
     (list
       #:types (List)
-      #:values (empty cons append map list length)
+      #:values (empty cons append map list length reverse)
       #:patterns (empty cons))
     (numbers integer->decimal-bytes)
     (maybe
@@ -46,7 +46,7 @@
           array-length-cmd array-ref-cmd array-set!-cmd pop-cmd swap-cmd fun-call-cmd
           bin-math-cmd bin-add-op bin-sub-op bin-mult-op bin-quotient-op bin-remainder-op
           bin-logic-math-cmd less-than-op less-than-or-equal-op equal-op greater-than-or-equal-op
-          greater-than-op uncond-jmp))
+          greater-than-op uncond-jmp boolean-jmp))
     (x86-64-stack-machine compile-stack-machine)
     (prim-implementation prim-implementation)
     (either
@@ -61,8 +61,10 @@
     (case fun
       [(stack-function name blocks)
        (stack-function name
-          (remove-unreachable-blocks
-            (optimize-trivial-blocks blocks)))]))
+         (remove-unreachable-blocks
+           (optimize-trivial-blocks
+             (optimize-known-boolean-jumps
+               (optimize-trivial-blocks blocks)))))]))
 
   (define (optimize-trivial-blocks [blocks : (List StackBasicBlock)]) : (List StackBasicBlock)
     (let ([trivial-block-dict (compute-trivial-blocks blocks 0 (make-dict =))])
@@ -95,6 +97,21 @@
           (cons (stack-basic-block cmds (uncond-jmp target)) (replace-trivial-blocks blocks dict))])]
       [(cons block blocks)
        (cons block (replace-trivial-blocks blocks dict))]))
+
+  (define (optimize-known-boolean-jumps [blocks : (List StackBasicBlock)]) : (List StackBasicBlock)
+    (map optimize-known-boolean-jumps/block blocks))
+
+
+  (define (optimize-known-boolean-jumps/block [block : StackBasicBlock]) : StackBasicBlock
+    (case block
+      [(stack-basic-block cmds (boolean-jmp t-index f-index))
+       (let ([reversed-cmds (reverse cmds)])
+         (case reversed-cmds
+           [(cons (boolean-lit-cmd v) cmds)
+            (stack-basic-block (reverse cmds) (uncond-jmp (if v t-index f-index)))]
+           [_ block]))]
+      [_ block]))
+
 
   (define (remove-unreachable-blocks [blocks : (List StackBasicBlock)]) : (List StackBasicBlock)
     (let ([dict (compute-reachable-block-dict blocks 0 (make-dict =))])
