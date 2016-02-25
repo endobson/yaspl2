@@ -8,7 +8,7 @@
     (io read-all-bytes write-all-bytes write-line newline)
     (list
       #:types (List)
-      #:values (empty cons append map list length reverse)
+      #:values (empty cons append map list length reverse list-ref)
       #:patterns (empty cons))
     (numbers integer->decimal-bytes)
     (maybe
@@ -62,9 +62,10 @@
       [(stack-function name blocks)
        (stack-function name
          (remove-unreachable-blocks
-           (optimize-trivial-blocks
-             (optimize-known-boolean-jumps
-               (optimize-trivial-blocks blocks)))))]))
+           (inline-singlely-used-blocks
+             (optimize-trivial-blocks
+               (optimize-known-boolean-jumps
+                 (optimize-trivial-blocks blocks))))))]))
 
   (define (optimize-trivial-blocks [blocks : (List StackBasicBlock)]) : (List StackBasicBlock)
     (let ([trivial-block-dict (compute-trivial-blocks blocks 0 (make-dict =))])
@@ -113,6 +114,43 @@
       [_ block]))
 
 
+  (define (inline-singlely-used-blocks [blocks : (List StackBasicBlock)]) : (List StackBasicBlock)
+    (let ([dict (compute-reachable-block-dict blocks 0 (make-dict =))])
+      (let ([reachable-dict (follow-reachable-block-dict (cons 0 (empty)) (make-dict =) dict)])
+        (inline-singlely-used-blocks/blocks blocks reachable-dict blocks))))
+
+  (define (inline-singlely-used-blocks/blocks
+            [loop-blocks : (List StackBasicBlock)]
+            [dict : (Dict Byte Byte)]
+            [blocks : (List StackBasicBlock)]) : (List StackBasicBlock)
+    (case loop-blocks
+      [(empty) (empty)]
+      [(cons block loop-blocks)
+       (cons
+         (inline-singlely-used-blocks/block block dict blocks)
+         (inline-singlely-used-blocks/blocks loop-blocks dict blocks))]))
+
+
+  (define (inline-singlely-used-blocks/block
+            [block : StackBasicBlock]
+            [dict : (Dict Byte Byte)]
+            [blocks : (List StackBasicBlock)]) : StackBasicBlock
+    (case block
+      [(stack-basic-block cmds (uncond-jmp index))
+       (case (dict-ref dict index)
+         [(just n)
+          (if (= n 1)
+              (case (list-ref blocks index)
+                [(nothing) (panic #"Bad index")]
+                [(just (stack-basic-block new-cmds new-term))
+                 (inline-singlely-used-blocks/block
+                   (stack-basic-block (append cmds new-cmds) new-term)
+                   dict
+                   blocks)])
+              block)]
+         [(nothing) (panic #"Bad index")])]
+      [_ block]))
+
   (define (remove-unreachable-blocks [blocks : (List StackBasicBlock)]) : (List StackBasicBlock)
     (let ([dict (compute-reachable-block-dict blocks 0 (make-dict =))])
       (let ([reachable-dict (follow-reachable-block-dict (cons 0 (empty)) (make-dict =) dict)])
@@ -121,16 +159,16 @@
 
   (define (follow-reachable-block-dict
             [to-visit : (List Byte)]
-            [reachable : (Dict Byte Boolean)]
-            [dict : (Dict Byte (List Byte))]) : (Dict Byte Boolean)
+            [reachable : (Dict Byte Byte)]
+            [dict : (Dict Byte (List Byte))]) : (Dict Byte Byte)
     (case to-visit
       [(empty) reachable]
       [(cons index to-visit)
        (case (dict-ref reachable index)
-         [(just _)
+         [(just n)
           (follow-reachable-block-dict
             to-visit
-            reachable
+            (dict-set reachable index (+ 1 n))
             dict)]
          [(nothing)
           (case (dict-ref dict index)
@@ -138,7 +176,7 @@
             [(just nodes)
              (follow-reachable-block-dict
                (append nodes to-visit)
-               (dict-set reachable index #t)
+               (dict-set reachable index 1)
                dict)])])]))
 
 
@@ -166,7 +204,7 @@
             [old-index : Byte]
             [limit : Byte]
             [new-index : Byte]
-            [reachable-dict : (Dict Byte Boolean)]
+            [reachable-dict : (Dict Byte Byte)]
             [dict : (Dict Byte Byte)]) : (Dict Byte Byte)
     (if (= old-index limit)
         dict
