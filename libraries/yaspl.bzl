@@ -79,7 +79,7 @@ _deps_attr = attr.label_list(
 )
 
 _bootstrap_compiler = attr.label(
- default=Label("//:compiler"),
+ default=Label("//bootstrap:compiler"),
  executable=True,
  allow_files=True
 )

@@ -43,7 +43,7 @@
   (for-each add-module!/internal mods))
 
 
-(define-runtime-path libraries-dir "libraries")
+(define-runtime-path libraries-dir "../libraries")
 (add-modules!
   (for/list ([file (in-directory libraries-dir)]
              #:when (regexp-match? #rx".*\\.yaspl$" file))

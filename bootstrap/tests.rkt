@@ -59,8 +59,8 @@
   (for/lists (kws vals) ([kw (in-list (sort (hash-keys kw-hash) keyword<?))])
     (values kw (hash-ref kw-hash kw))))
 
-(define-runtime-path test-dir "tests")
-(define-runtime-path library-dir "libraries")
+(define-runtime-path test-dir "../tests")
+(define-runtime-path library-dir "../libraries")
 
 (define (call-with-temporary-files n f)
   (if (= n 0)
