@@ -29,3 +29,6 @@
 (struct case-k (clauses env cont) #:transparent)
 
 (struct full-name (module-name main-name) #:transparent)
+
+;; Used in the compiled code to implement panic
+(define exit-parameter (make-parameter #f))

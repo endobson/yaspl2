@@ -2,7 +2,7 @@
 #lang racket/base
 
 (require
-  "interpreter.rkt"
+  "compiler.rkt"
   "libraries.rkt"
   racket/port
   racket/runtime-path)

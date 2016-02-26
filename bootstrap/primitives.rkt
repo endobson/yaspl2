@@ -15,6 +15,7 @@
 
 (provide
   supported-primitives
+  supported-compiled-primitives
   primitive-module-signature)
 
 (begin-for-syntax
@@ -55,13 +56,19 @@
 
 
   (define-syntax-class primitive-clause
-    #:attributes (name impl ty)
+    #:attributes (name impl compiled-impl ty)
     (pattern ((name:id (args:id (~datum :) types:prim-ty) ...)
               (~datum :) result-type:prim-ty body:expr ...+)
       #:with impl #'(lambda (args-v continue)
                       (match args-v
                         [(list (types.constructor args) ...)
                          (continue (result-type.constructor (let () body ...)))]))
+      #:with compiled-impl
+        #'(lambda args-v
+             (match args-v
+               [(list (types.constructor args) ...)
+                (result-type.constructor (let () body ...))]))
+
       #:with ty #'(fun-ty empty (list types.ty ...) result-type.ty))
     (pattern ((type-vars:id ...)
               (name:id (args:id (~datum :) types:prim-ty) ...)
@@ -70,6 +77,11 @@
                       (match args-v
                         [(list (types.constructor args) ...)
                          (continue (result-type.constructor (let () body ...)))]))
+      #:with compiled-impl
+        #'(lambda args-v
+            (match args-v
+              [(list (types.constructor args) ...)
+               (result-type.constructor (let () body ...))]))
       #:with ty #'(fun-ty (list 'type-vars ...) (list types.ty ...) result-type.ty))
     (pattern ((type-vars:id ...)
               (name:id (args:id (~datum :) types:prim-ty) ...)
@@ -78,6 +90,12 @@
                       (match args-v
                         [(list (types.constructor args) ...)
                          (error-sentinal message)]))
+      #:with compiled-impl
+        #'(lambda args-v
+            (match args-v
+              [(list (types.constructor args) ...)
+               ((exit-parameter)
+                (error-sentinal message))]))
       #:with ty #'(fun-ty (list 'type-vars ...) (list types.ty ...) result-type.ty))))
 
 (define-match-expander
@@ -100,13 +118,17 @@
 
 (define-syntax define-primitives
   (syntax-parser
-    [(_ (supported:id module-sig:id)
+    [(_ (supported:id compiled:id module-sig:id)
         clauses:primitive-clause ...)
      (template
        (begin
          (define supported
            (hash
              (?@ 'clauses.name (compiled-function-val clauses.impl))
+             ...))
+         (define compiled
+           (hash
+             (?@ 'clauses.name clauses.compiled-impl)
              ...))
          (define module-sig
            (module-signature 'prim
@@ -117,7 +139,7 @@
               (hash)))))]))
 
 (define-primitives
-  (supported-primitives primitive-module-signature)
+  (supported-primitives supported-compiled-primitives primitive-module-signature)
 
   [(or [x : Boolean] (y : Boolean)) : Boolean (or x y)]
   [(and [x : Boolean] (y : Boolean)) : Boolean (and x y)]

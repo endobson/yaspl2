@@ -1,15 +1,216 @@
-#!/usr/bin/env racket
 #lang racket/base
 
 (require
-  "interpreter.rkt"
-  "libraries.rkt"
-  racket/port)
-(define stdin (port->bytes (current-input-port)))
-(let ([result (run-program modules 'compiler 'main #:stdin stdin)])
-  (write-bytes (program-result-stdout result) (current-output-port))
-  (write-bytes (program-result-stderr result) (current-error-port))
-  (when (program-result-error-info result) 
-    (write-bytes (program-result-error-info result) (current-error-port))
-    (newline (current-error-port)))
-  (exit (program-result-exit-code result)))
+  "machine-structs.rkt"
+  "parser-structs.rkt"
+  "primitives.rkt"
+  "utils.rkt"
+  "topo-sort.rkt"
+  racket/list
+  racket/syntax
+  racket/set
+  syntax/stx
+  racket/hash
+  racket/match)
+(provide
+  run-program
+  module&-name
+  topo-sort
+  (struct-out program-result))
+
+
+(struct program-result (exit-code error-info stdout stderr))
+(define-namespace-anchor anchor)
+
+(define (run-program modules module-name main-name #:stdin stdin-bytes
+                     #:args [supplied-args empty])
+  (define-values (definitions env) (compile-modules modules))
+  (define full-main-name (full-name module-name main-name))
+  (define main-fun-id (hash-ref env full-main-name #f))
+  (unless main-fun-id
+    (error 'run-program "Main function is not exported: ~s in ~s" full-main-name module-name))
+
+  (define ns (namespace-anchor->empty-namespace anchor))
+  (parameterize ([current-namespace ns])
+    (namespace-require 'racket/base))
+  (define main-fun
+    (eval
+      `(let ()
+          ,@definitions
+          ,main-fun-id)
+      ns))
+
+  (define process-args (array-val (list->vector (map bytes-val (cons #"/binary-path" supplied-args)))))
+  (define stdin (open-input-bytes stdin-bytes 'stderr))
+  (define stdout (open-output-bytes 'stdout))
+  (define stderr (open-output-bytes 'stderr))
+
+  (define return-val
+    (let/ec exit-k
+      (parameterize ([exit-parameter exit-k])
+        (main-fun process-args (prim-port-val stdin) (prim-port-val stdout) (prim-port-val stderr)))))
+
+  (program-result
+    (if (error-sentinal? return-val) 255 (byte-val-v return-val))
+    (and (error-sentinal? return-val) (error-sentinal-info return-val))
+    (get-output-bytes stdout)
+    (get-output-bytes stderr)))
+
+(define (compile-modules modules)
+  (define (make-primitive-environment)
+    (hash-copy
+      (for/hash ([(prim-name prim-val) (in-hash supported-compiled-primitives)])
+        (values (full-name 'prim prim-name) prim-val))))
+
+  ;; Mapping to identifiers
+  (define global-env (make-primitive-environment))
+
+  (define definitions
+    (for/list ([module (topo-sort (set->list modules))])
+      ;;mapping to identifiers
+      (define local-env (make-hash))
+
+      (for ([import (in-list (imports&-values (module&-imports module)))])
+        (hash-set! local-env (import&-name import)
+                   (hash-ref global-env
+                     (full-name (import&-module-name import) (import&-name import)))))
+
+      (define variant-defs
+        (for/list ([type (in-list (module&-types module))])
+          (for/list ([variant (in-list (define-type&-variants type))])
+            (define variant-name (variant&-name variant))
+            (define constructor-id (generate-temporary variant-name))
+            (hash-set! local-env variant-name constructor-id)
+
+            (cons
+              #`(define (#,constructor-id . vs) (variant-val '#,variant-name vs))
+              (for/list ([field (variant&-fields variant)] [index (in-naturals)])
+                (define field-name (variant-field&-name field))
+                (define field-id (generate-temporary field-name))
+                (hash-set! local-env
+                  (string->symbol (format "~a-~a" variant-name field-name))
+                  field-id)
+                #`(define (#,field-id v) (list-ref (variant-val-fields v) '#,index)))))))
+
+
+      (for ([(name _) (in-hash (module&-definitions module))])
+        (define temporary (generate-temporary name))
+        (hash-set! local-env name temporary))
+
+      (define immutable-local-env (hash-copy/immutable local-env))
+
+      (define function-defs
+        (for/list ([(name def) (in-hash (module&-definitions module))])
+          (match def
+            [(definition& _ args body)
+             (define temporaries (generate-temporaries args))
+             `(,#'define (,(hash-ref local-env name) ,@temporaries)
+                 ,(compile-expr
+                      (for/fold ([env immutable-local-env])
+                                ([a (in-list args)] [t (in-list temporaries)])
+                        (hash-set env a t))
+                      body))])))
+
+      (for ([export (in-list (module&-exports module))])
+        (match-define (export& in-name out-name) export)
+        (define local-val (hash-ref local-env in-name #f))
+        (when local-val
+          (hash-set! global-env (full-name (module&-name module) out-name) local-val)))
+      (append (flatten variant-defs) function-defs)))
+  (values
+    (append* definitions)
+    global-env))
+
+
+;; env is hash table to expressions which evaluate to the value
+(define (compile-expr env expr)
+  (match expr
+    [(byte& v)
+     `(,#'byte-val ',v)]
+    [(bytes& v)
+     `(,#'bytes-val ',v)]
+    [(boolean& v)
+     `(,#'boolean-val ',v)]
+    [(variable& v)
+     (hash-ref env v)]
+    [(app& op args)
+     (match-define (cons op-id arg-ids) (generate-temporaries (cons op args)))
+
+     (define-values (bindings ids)
+       (for/lists (bindings ids)
+                  ([v (in-list (cons op args))]
+                   [v-id (in-list (cons op-id arg-ids))])
+         (define compiled-expr (compile-expr env v))
+         (if (identifier? compiled-expr)
+             (values empty compiled-expr)
+             (values
+               (list `[,v-id ,compiled-expr])
+               v-id))))
+     (define flattened-bindings (append* bindings))
+
+     (if (empty? flattened-bindings)
+         `(,@ids)
+         `(,#'let (,@flattened-bindings) (,#'#%app ,@ids)))]
+    [(varargs-app& op args)
+     (match-define (cons op-id arg-ids) (generate-temporaries (cons op args)))
+
+     (define-values (bindings ids)
+       (for/lists (bindings ids)
+                  ([v (in-list (cons op args))]
+                   [v-id (in-list (cons op-id arg-ids))])
+         (define compiled-expr (compile-expr env v))
+         (if (identifier? compiled-expr)
+             (values empty compiled-expr)
+             (values
+               (list `[,v-id ,compiled-expr])
+               v-id))))
+     (define flattened-bindings (append* bindings))
+
+     (if (empty? flattened-bindings)
+         `(,@ids)
+         `(,#'let (,@flattened-bindings)
+            (,#'#%app ,(first ids) (,#'#%app ,#'array-val (,#'#%app ,#'vector ,@(rest ids))))))]
+
+    [(if& cond true false)
+     `(,#'if ,#`(boolean-val-v #,(compile-expr env cond))
+           ,(compile-expr env true)
+           ,(compile-expr env false))]
+    [(begin& first-expr exprs)
+     `(,#'begin ,@(map (λ (e) (compile-expr env e)) (cons first-expr exprs)))]
+    [(let& name expr body)
+     (define compiled-expr (compile-expr env expr))
+     (cond
+       [(identifier? compiled-expr)
+        (compile-expr (hash-set env name compiled-expr) body)]
+       [else
+        (define temp (generate-temporary name))
+        `(,#'let ([,temp ,compiled-expr])
+            ,(compile-expr (hash-set env name temp) body))])]
+    [(case& expr clauses)
+     (define match-clauses
+       (for/list ([clause (in-list clauses)])
+         (match-define (case-clause& pattern expr) clause)
+         (let-values ([(match-pat env) (compile-pattern pattern env)])
+           (define body (compile-expr env expr))
+           `[,match-pat ,body])))
+     `(,#'match ,(compile-expr env expr) ,@match-clauses)]))
+
+;; Pattern -> (Values Syntax (Hash Symbol Identifier))
+(define (compile-pattern p env)
+  (define (recur p env)
+    (match p
+      [(bytes-pattern& bytes)
+       (values `(,#'bytes-val ,bytes) env)]
+      [(variable-pattern& var)
+       (define id (generate-temporary var))
+       (values id (hash-set env var id))]
+      [(ignore-pattern&)
+       (values #'_ env)]
+      [(abstraction-pattern& pattern-name pats)
+       (let-values
+         ([(vs env)
+           (for/fold ([vs empty] [env env]) ([pat (in-list (reverse pats))])
+             (let-values ([(v env) (recur pat env)])
+                (values (cons v vs) env)))])
+         (values `(,#'variant-val ',pattern-name (list ,@vs)) env))]))
+  (recur p env))
