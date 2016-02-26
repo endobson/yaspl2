@@ -59,6 +59,7 @@ yaspl_library(
     ":source-language",
     ":source-to-stack",
     ":stack-machine",
+    ":stack-machine-optimizer",
     ":tuples",
     ":x86-64-stack-machine",
  ]
@@ -124,7 +125,6 @@ yaspl_library(
   srcs = ["stack-machine-optimizer.yaspl"],
   deps = [
     ":bytes",
-    ":compiler",
     ":dict",
     ":either",
     ":io",
