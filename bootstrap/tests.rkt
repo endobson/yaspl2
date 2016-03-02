@@ -124,6 +124,7 @@
           (with-check-info
             (['exit-code (program-result-exit-code result)]
              ['error-info (program-result-error-info result)]
+             ['program program]
              ['stdout (program-result-stdout result)]
              ['stderr (program-result-stderr result)])
             (check-equal? (program-result-error-info result) #f)
@@ -143,14 +144,17 @@
               (define output-port (open-output-bytes))
               (define error-output-port (open-output-bytes))
 
-              (check-equal?
-                (parameterize ([current-input-port input]
-                               [current-output-port output-port]
-                               [current-error-port error-output-port])
-                  (system*/exit-code binary))
-                exit-code)
-              (check-equal? (get-output-bytes output-port) stdout)
-              (check-equal? (get-output-bytes error-output-port) #""))))))))
+              (with-check-info
+                (['program program])
+
+                (check-equal?
+                  (parameterize ([current-input-port input]
+                                 [current-output-port output-port]
+                                 [current-error-port error-output-port])
+                    (system*/exit-code binary))
+                  exit-code)
+                (check-equal? (get-output-bytes output-port) stdout)
+                (check-equal? (get-output-bytes error-output-port) #"")))))))))
 
 
 (define run-test-files-suite
@@ -537,6 +541,29 @@
         #:exit-code 7)
 
 
+      (compiler-test #:mod 'compiler
+        #"(module main
+            (import (prim or +))
+            (export)
+            (types)
+            (define (main) : Byte
+              (+ (if (or #f #f) 1 0)
+                (+ (if (or #f #t) 2 0)
+                  (+ (if (or #t #f) 4 0)
+                     (if (or #t #t) 8 0))))))"
+        #:exit-code 14)
+
+      (compiler-test #:mod 'compiler
+        #"(module main
+            (import (prim and +))
+            (export)
+            (types)
+            (define (main) : Byte
+              (+ (if (and #f #f) 1 0)
+                (+ (if (and #f #t) 2 0)
+                  (+ (if (and #t #f) 4 0)
+                     (if (and #t #t) 8 0))))))"
+        #:exit-code 8)
 
       )))
 
