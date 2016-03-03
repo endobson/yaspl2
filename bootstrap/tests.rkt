@@ -565,6 +565,18 @@
                      (if (and #t #t) 8 0))))))"
         #:exit-code 8)
 
+      (compiler-test #:mod 'compiler
+        #"(module main
+            (import)
+            (export)
+            (types)
+            (define (main) : Byte
+              (case 9
+                [8 1]
+                [9 2]
+                [_ 3])))"
+        #:exit-code 2)
+
       )))
 
 (break-enabled #f)
