@@ -112,6 +112,7 @@
     [(? (and/c bytes? immutable?) v) (bytes-pattern& v)]
     ['_ (ignore-pattern&)]
     [(? symbol? v) (variable-pattern& v)]
+    [(? integer? v) (byte-pattern& v)]
     [(list (? symbol? name) patterns ...)
      (abstraction-pattern& name (map parse-pattern patterns))]))
 

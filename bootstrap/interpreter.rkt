@@ -209,6 +209,10 @@
        (match v
          [(bytes-val v-bytes)
           (and (equal? bytes v-bytes) (recur pvs acc))])]
+      [(cons (list (byte-pattern& byte) v) pvs)
+       (match v
+         [(byte-val v-val)
+          (and (equal? byte v-val) (recur pvs acc))])]
       [(cons (list (variable-pattern& var) v) pvs)
        (recur pvs (hash-set acc var v))]
       [(cons (list (ignore-pattern&) _) pvs)

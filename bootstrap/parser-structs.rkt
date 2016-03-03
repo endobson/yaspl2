@@ -25,6 +25,7 @@
 
 (struct pattern& () #:transparent)
 (struct bytes-pattern& pattern& (v) #:transparent)
+(struct byte-pattern& pattern& (v) #:transparent)
 (struct variable-pattern& pattern& (v) #:transparent)
 (struct ignore-pattern& pattern& () #:transparent)
 (struct abstraction-pattern& pattern& (name patterns) #:transparent)

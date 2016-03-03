@@ -201,6 +201,8 @@
     (match p
       [(bytes-pattern& bytes)
        (values `(,#'bytes-val ,bytes) env)]
+      [(byte-pattern& byte)
+       (values `(,#'byte-val ,byte) env)]
       [(variable-pattern& var)
        (define id (generate-temporary var))
        (values id (hash-set env var id))]
