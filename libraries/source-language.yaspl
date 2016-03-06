@@ -19,7 +19,7 @@
       #:patterns ())
     (list
       #:types (List)
-      #:values (cons empty map)
+      #:values (cons empty map reverse)
       #:patterns (cons empty)))
   (export main module-name module-types module-definitions parse-module function-definition-name
           type-definition-variants)
@@ -69,13 +69,23 @@
       (ignore-pattern)
       (abstraction-pattern [name Bytes] [patterns (List Pattern)])))
 
+  (define (a b) (leftmost-error [eithers : (List (Either a b))]) : (Either a (List b))
+    (leftmost-error/helper eithers (empty)))
+
+  (define (a b) (leftmost-error/helper [eithers : (List (Either a b))] [acc : (List b)]) : (Either a (List b))
+    (case eithers
+      [(empty) (right (reverse acc))]
+      [(cons (left v) _) (left v)]
+      [(cons (right v) es)
+       (leftmost-error/helper es (cons v acc))]))
+
   (define (parse-imports/top [sexp : Sexp]) : (Either Bytes (List Imports))
     (case sexp
       [(node (cons (symbol-sexp #"import") imports))
-       (right (map parse-imports imports))]
+       (leftmost-error (map parse-imports imports))]
       [_ (left #"Not a valid imports section")]))
 
-  (define (parse-imports [sexp : Sexp]) : Imports
+  (define (parse-imports [sexp : Sexp]) : (Either Bytes Imports)
     (case sexp
       [(node (cons (symbol-sexp mod-name) inner))
        (case inner
@@ -86,18 +96,20 @@
                   (cons (keyword-sexp #"patterns")
                     (cons (node pattern-imports)
                       (empty)))))))
-          (imports
-            mod-name
-            (map parse-import type-imports)
-            (map parse-import value-imports)
-            (map parse-import pattern-imports))]
+          (right
+            (imports
+              mod-name
+              (map parse-import type-imports)
+              (map parse-import value-imports)
+              (map parse-import pattern-imports)))]
          [_
-          (imports
-            mod-name
-            (empty)
-            (map parse-import inner)
-            (empty))])]
-      [_ (panic #"Not a valid imports clause")]))
+          (right
+            (imports
+              mod-name
+              (empty)
+              (map parse-import inner)
+              (empty)))])]
+      [_ (left #"Not a valid imports clause")]))
 
   (define (parse-import [sexp : Sexp]) : Import
     (case sexp
