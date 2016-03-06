@@ -30,6 +30,7 @@
     #"libraries/x86-64-stack-machine.yaspl"
     #"libraries/compiler.yaspl"))
 
+(define modules (load-modules (map bytes->path library-files)))
 
 (define output-file
   (string->bytes/utf-8

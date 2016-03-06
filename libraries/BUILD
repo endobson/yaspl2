@@ -7,7 +7,27 @@ package(
 filegroup(
   name = "compiler_library_files",
   visibility = ["//visibility:public"],
-  srcs = glob(["*.yaspl"])
+  srcs = [
+    ":arithmetic-expr.yaspl",
+    ":bytes.yaspl",
+    ":compiler.yaspl",
+    ":dict.yaspl",
+    ":either.yaspl",
+    ":io.yaspl",
+    ":join-list.yaspl",
+    ":lexer.yaspl",
+    ":list.yaspl",
+    ":maybe.yaspl",
+    ":numbers.yaspl",
+    ":prim-implementation.yaspl",
+    ":sexp-parser.yaspl",
+    ":source-language.yaspl",
+    ":source-to-stack.yaspl",
+    ":stack-machine.yaspl",
+    ":stack-machine-optimizer.yaspl",
+    ":tuples.yaspl",
+    ":x86-64-stack-machine.yaspl",
+  ]
 )
 
 yaspl_binary(
