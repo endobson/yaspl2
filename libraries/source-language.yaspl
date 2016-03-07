@@ -2,7 +2,7 @@
   (import
     (prim
       #:types (Bytes InputPort OutputPort Byte Boolean Array)
-      #:values (panic)
+      #:values ()
       #:patterns ())
     (sexp-parser
       #:types (Sexp)
@@ -275,12 +275,15 @@
                 (case (parse-pre-type result-type)
                   [(left v) (left v)]
                   [(right result-type)
-                   (right
-                     (function-definition
-                       function-name
-                       (fun-pre-type type-vars arg-types result-type)
-                       arg-names 
-                       (extract-either (parse-expression body))))])])])])]
+                   (case (parse-expression body)
+                     [(left v) (left v)]
+                     [(right expression)
+                      (right
+                        (function-definition
+                          function-name
+                          (fun-pre-type type-vars arg-types result-type)
+                          arg-names 
+                          expression))])])])])])]
       [(node (cons (symbol-sexp #"define")
                    (cons (node (cons (symbol-sexp function-name) args))
                          (cons (symbol-sexp #":")
@@ -294,12 +297,15 @@
              (case (parse-pre-type result-type)
                [(left v) (left v)]
                [(right result-type)
-                (right
-                  (function-definition
-                    function-name
-                    (fun-pre-type (empty) arg-types result-type)
-                    arg-names
-                    (extract-either (parse-expression body))))])])])]
+                (case (parse-expression body)
+                  [(left v) (left v)]
+                  [(right expression)
+                   (right
+                     (function-definition
+                       function-name
+                       (fun-pre-type (empty) arg-types result-type)
+                       arg-names
+                       expression))])])])])]
       [_ (left #"Not a valid function definition")]))
 
   (define (parse-arg-type [sexp : Sexp]) : (Either Bytes PreType)
@@ -333,7 +339,7 @@
        (either-app3 let-expr
          (right/bytes name) (parse-expression expr) (parse-expression body))]
       [(node (cons (symbol-sexp #"case") (cons expr clauses)))
-       (either-app2 case-expr (parse-expression expr) (right/bytes (map parse-case-clause clauses)))]
+       (either-app2 case-expr (parse-expression expr) (leftmost-error (map parse-case-clause clauses)))]
       [(node (cons op-expr arg-exprs))
        (either-app2 app-expr
          (parse-expression op-expr)
@@ -343,21 +349,23 @@
       [(keyword-sexp _)
        (left #"Keywords are not valid expressions")]))
 
-  (define (parse-case-clause [sexp : Sexp]) : CaseClause
+  (define (parse-case-clause [sexp : Sexp]) : (Either Bytes CaseClause)
     (case sexp
       [(node (cons pattern (cons expr (empty))))
-       (case-clause (parse-pattern pattern) (extract-either (parse-expression expr)))]
-      [_ (panic #"Not a valid case clause")]))
+       (either-app2 case-clause (parse-pattern pattern) (parse-expression expr))]
+      [_ (left #"Not a valid case clause")]))
 
-  (define (parse-pattern [sexp : Sexp]) : Pattern
+  (define (parse-pattern [sexp : Sexp]) : (Either Bytes Pattern)
     (case sexp
-      [(symbol-sexp #"_") (ignore-pattern)]
-      [(symbol-sexp sym) (variable-pattern sym)]
-      [(bytes-sexp v) (bytes-pattern v)]
-      [(number-sexp v) (byte-pattern v)]
+      [(symbol-sexp #"_") (right (ignore-pattern))]
+      [(symbol-sexp sym) (right (variable-pattern sym))]
+      [(bytes-sexp v) (right (bytes-pattern v))]
+      [(number-sexp v) (right (byte-pattern v))]
       [(node (cons (symbol-sexp name) patterns))
-       (abstraction-pattern name (map parse-pattern patterns))]
-      [_ (panic #"Not a valid pattern")]))
+       (either-app2 abstraction-pattern
+         (right/bytes name)
+         (leftmost-error (map parse-pattern patterns)))]
+      [_ (left #"Not a valid pattern")]))
 
 
   (define (parse-module [sexp : Sexp]) : (Either Bytes Module)
@@ -384,16 +392,16 @@
       [_ (left #"Bad module form")]))
 
 
-  (define (a) (extract-either [either : (Either Bytes a)]) : a
-    (case either
-      [(right v) v]
-      [(left b) (panic b)]))
-
   (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Byte
-    (case (parse-module (extract-either (parse-sexp (read-all-bytes stdin))))
-      [(right _) 0]
+    (case (parse-sexp (read-all-bytes stdin))
       [(left bytes)
        (begin
          (write-all-bytes bytes stderr)
-         1)])))
-
+         1)]
+      [(right sexp)
+       (case (parse-module sexp)
+         [(right _) 0]
+         [(left bytes)
+          (begin
+            (write-all-bytes bytes stderr)
+            1)])])))
