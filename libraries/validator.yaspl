@@ -8,21 +8,23 @@
       #:types (Maybe)
       #:values (nothing)
       #:patterns (nothing just))
-    (bytes bytes=?)
+    (bytes bytes=? bytes-append)
     (dict
       #:types (Dict)
       #:values (dict-set dict-ref make-dict)
       #:patterns ())
     (list
       #:types (List)
-      #:values (cons empty)
+      #:values (cons empty list)
       #:patterns (cons empty))
     (source-language
-      #:types (Module Expression CaseClause Pattern FunctionDefinition)
+      #:types (Module Expression CaseClause Pattern FunctionDefinition TypeDefinition
+                      VariantDefinition VariantField Imports Import)
       #:values (module-definitions)
       #:patterns (byte-literal bytes-literal boolean-literal var-expr if-expr begin-expr app-expr
                   varargs-app-expr let-expr case-expr case-clause bytes-pattern byte-pattern
-                  variable-pattern ignore-pattern abstraction-pattern function-definition))
+                  variable-pattern ignore-pattern abstraction-pattern function-definition
+                  module imports import variant-definition variant-field type-definition))
     (source-to-stack
       #:types (ModuleSignature)
       #:values ()
@@ -31,8 +33,60 @@
   (types)
 
   (define (validate-module [mod : Module] [sig : (List ModuleSignature)]) : (Maybe Bytes)
-    (let ([free (free-variables/definitions (module-definitions mod) (make-dict bytes=?) (make-dict bytes=?))])
+    (let ([free (free-variables/definitions
+                  (module-definitions mod) (module-environment mod) (make-dict bytes=?))])
       (nothing)))
+
+  (define (module-environment [mod : Module]) : (Dict Bytes Void)
+    (case mod
+      [(module _ imports _ types definitions)
+       (add-importss-bindings imports
+         (add-types-bindings types
+           (add-definitions-bindings definitions
+             (make-dict bytes=?))))]))
+
+  (define (add-definitions-bindings [defs : (List FunctionDefinition)] [env : (Dict Bytes Void)])
+    : (Dict Bytes Void)
+    (case defs
+      [(empty) env]
+      [(cons (function-definition name _ _ _) defs)
+       (add-definitions-bindings defs (dict-set env name (void)))]))
+
+  (define (add-types-bindings [types : (List TypeDefinition)] [env : (Dict Bytes Void)])
+    : (Dict Bytes Void)
+    (case types
+      [(empty) env]
+      [(cons (type-definition name _ variants) types)
+       (add-types-bindings types (add-variants-bindings variants env))]))
+
+  (define (add-variants-bindings [variants : (List VariantDefinition)] [env : (Dict Bytes Void)])
+    : (Dict Bytes Void)
+    (case variants
+      [(empty) env]
+      [(cons (variant-definition name fields) variants)
+       (add-variants-bindings variants (add-variant-field-bindings name fields (dict-set env name (void))))]))
+
+  (define (add-variant-field-bindings [variant : Bytes] [fields : (List VariantField)] [env : (Dict Bytes Void)])
+    : (Dict Bytes Void)
+    (case fields
+      [(empty) env]
+      [(cons (variant-field name _) fields)
+       (let ([acc-name (bytes-append (varargs list variant #"-" name))])
+         (add-variant-field-bindings variant fields (dict-set env acc-name (void))))]))
+
+  (define (add-importss-bindings [importss : (List Imports)] [env : (Dict Bytes Void)])
+    : (Dict Bytes Void)
+    (case importss
+      [(empty) env]
+      [(cons (imports _ _ values _) importss)
+       (add-importss-bindings importss (add-imports-bindings values env))]))
+
+  (define (add-imports-bindings [imports : (List Import)] [env : (Dict Bytes Void)])
+    : (Dict Bytes Void)
+    (case imports
+      [(empty) env]
+      [(cons (import _ name) imports)
+       (add-imports-bindings imports (dict-set env name (void)))]))
 
   (define (free-variables/definitions
             [defs : (List FunctionDefinition)]
