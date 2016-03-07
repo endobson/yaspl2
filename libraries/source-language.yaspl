@@ -69,6 +69,9 @@
       (ignore-pattern)
       (abstraction-pattern [name Bytes] [patterns (List Pattern)])))
 
+  (define (a) (right/bytes [v : a]) : (Either Bytes a)
+    (right v))
+
   (define (a b) (leftmost-error [eithers : (List (Either a b))]) : (Either a (List b))
     (leftmost-error/helper eithers (empty)))
 
@@ -78,6 +81,43 @@
       [(cons (left v) _) (left v)]
       [(cons (right v) es)
        (leftmost-error/helper es (cons v acc))]))
+
+  (define (a r) (either-app1 [f : (a -> r)] [e1 : (Either Bytes a)]) : (Either Bytes r)
+    (case e1
+      [(left v) (left v)]
+      [(right v1)
+       (right (f v1))]))
+
+  (define (a b r)
+    (either-app2
+      [f : (a b -> r)]
+      [e1 : (Either Bytes a)]
+      [e2 : (Either Bytes b)]) : (Either Bytes r)
+    (case e1
+      [(left v) (left v)]
+      [(right v1)
+       (case e2
+         [(left v) (left v)]
+         [(right v2)
+          (right (f v1 v2))])]))
+
+  (define (a b c r)
+    (either-app3
+      [f : (a b c -> r)]
+      [e1 : (Either Bytes a)]
+      [e2 : (Either Bytes b)]
+      [e3 : (Either Bytes c)]) : (Either Bytes r)
+    (case e1
+      [(left v) (left v)]
+      [(right v1)
+       (case e2
+         [(left v) (left v)]
+         [(right v2)
+          (case e3
+            [(left v) (left v)]
+            [(right v3)
+             (right (f v1 v2 v3))])])]))
+
 
   (define (parse-imports/top [sexp : Sexp]) : (Either Bytes (List Imports))
     (case sexp
@@ -240,7 +280,7 @@
                        function-name
                        (fun-pre-type type-vars arg-types result-type)
                        arg-names 
-                       (parse-expression body)))])])])])]
+                       (extract-either (parse-expression body))))])])])])]
       [(node (cons (symbol-sexp #"define")
                    (cons (node (cons (symbol-sexp function-name) args))
                          (cons (symbol-sexp #":")
@@ -259,7 +299,7 @@
                     function-name
                     (fun-pre-type (empty) arg-types result-type)
                     arg-names
-                    (parse-expression body)))])])])]
+                    (extract-either (parse-expression body))))])])])]
       [_ (left #"Not a valid function definition")]))
 
   (define (parse-arg-type [sexp : Sexp]) : (Either Bytes PreType)
@@ -273,35 +313,40 @@
        (right name)]
       [_ (left #"Not a valid argument")]))
 
-  (define (parse-expression [sexp : Sexp]) : Expression
+  (define (parse-expression [sexp : Sexp]) : (Either Bytes Expression)
     (case sexp
-      [(number-sexp v) (byte-literal v)]
-      [(bytes-sexp v) (bytes-literal v)]
-      [(boolean-sexp v) (boolean-literal v)]
-      [(symbol-sexp v) (var-expr v)]
+      [(number-sexp v) (right (byte-literal v))]
+      [(bytes-sexp v) (right (bytes-literal v))]
+      [(boolean-sexp v) (right (boolean-literal v))]
+      [(symbol-sexp v) (right (var-expr v))]
       [(node (cons (symbol-sexp #"if") (cons cond (cons true (cons false (empty))))))
-       (if-expr (parse-expression cond) (parse-expression true) (parse-expression false))]
+       (either-app3 if-expr (parse-expression cond) (parse-expression true) (parse-expression false))]
       [(node (cons (symbol-sexp #"begin") (cons first-expr exprs)))
-       (begin-expr (parse-expression first-expr) (map parse-expression exprs))]
+       (either-app2 begin-expr
+         (parse-expression first-expr)
+         (leftmost-error (map parse-expression exprs)))]
       [(node (cons (symbol-sexp #"varargs") (cons op-expr exprs)))
-       (varargs-app-expr (parse-expression op-expr) (map parse-expression exprs))]
+       (either-app2 varargs-app-expr (parse-expression op-expr) (leftmost-error (map parse-expression exprs)))]
       [(node (cons (symbol-sexp #"let")
                    (cons (node (cons (node (cons (symbol-sexp name) (cons expr (empty)))) (empty)))
                          (cons body (empty)))))
-       (let-expr name (parse-expression expr) (parse-expression body))]
+       (either-app3 let-expr
+         (right/bytes name) (parse-expression expr) (parse-expression body))]
       [(node (cons (symbol-sexp #"case") (cons expr clauses)))
-       (case-expr (parse-expression expr) (map parse-case-clause clauses))]
+       (either-app2 case-expr (parse-expression expr) (right/bytes (map parse-case-clause clauses)))]
       [(node (cons op-expr arg-exprs))
-       (app-expr (parse-expression op-expr) (map parse-expression arg-exprs))]
+       (either-app2 app-expr
+         (parse-expression op-expr)
+         (leftmost-error (map parse-expression arg-exprs)))]
       [(node (empty))
-       (panic #"Application needs an operator")]
+       (left #"Application needs an operator")]
       [(keyword-sexp _)
-       (panic #"Keywords are not valid expressions")]))
+       (left #"Keywords are not valid expressions")]))
 
   (define (parse-case-clause [sexp : Sexp]) : CaseClause
     (case sexp
       [(node (cons pattern (cons expr (empty))))
-       (case-clause (parse-pattern pattern) (parse-expression expr))]
+       (case-clause (parse-pattern pattern) (extract-either (parse-expression expr)))]
       [_ (panic #"Not a valid case clause")]))
 
   (define (parse-pattern [sexp : Sexp]) : Pattern
