@@ -96,140 +96,182 @@
                   (cons (keyword-sexp #"patterns")
                     (cons (node pattern-imports)
                       (empty)))))))
-          (right
-            (imports
-              mod-name
-              (map parse-import type-imports)
-              (map parse-import value-imports)
-              (map parse-import pattern-imports)))]
+          (case (leftmost-error (map parse-import type-imports))
+            [(left v) (left v)]
+            [(right types)
+             (case (leftmost-error (map parse-import value-imports))
+               [(left v) (left v)]
+               [(right values)
+                (case (leftmost-error (map parse-import pattern-imports))
+                  [(left v) (left v)]
+                  [(right patterns)
+                   (right (imports mod-name types values patterns))])])])]
          [_
-          (right
-            (imports
-              mod-name
-              (empty)
-              (map parse-import inner)
-              (empty)))])]
+          (case (leftmost-error (map parse-import inner))
+            [(left v) (left v)]
+            [(right values)
+             (right (imports mod-name (empty) values (empty)))])])]
       [_ (left #"Not a valid imports clause")]))
 
-  (define (parse-import [sexp : Sexp]) : Import
+  (define (parse-import [sexp : Sexp]) : (Either Bytes Import)
     (case sexp
-      [(symbol-sexp v) (import v v)]
+      [(symbol-sexp v) (right (import v v))]
       [(node (cons (symbol-sexp external-name) (cons (symbol-sexp local-name) (empty))))
-       (import external-name local-name)]
-      [_ (panic #"Not a valid import clause")]))
+       (right (import external-name local-name))]
+      [_ (left #"Not a valid import clause")]))
 
 
-  (define (parse-exports/top [sexp : Sexp]) : (List Bytes)
+  (define (parse-exports/top [sexp : Sexp]) : (Either Bytes (List Bytes))
     (case sexp
       [(node (cons (symbol-sexp #"export") exported-symbols))
-       (map parse-exported-symbol exported-symbols)]
-      [_ (panic #"Bad exports")]))
+       (leftmost-error (map parse-exported-symbol exported-symbols))]
+      [_ (left #"Bad exports")]))
 
-  (define (parse-exported-symbol [sexp : Sexp]) : Bytes
+  (define (parse-exported-symbol [sexp : Sexp]) : (Either Bytes Bytes)
     (case sexp
-      [(symbol-sexp bytes) bytes]
-      [_ (panic #"Not a valid export")]))
+      [(symbol-sexp bytes) (right bytes)]
+      [_ (left #"Not a valid export")]))
 
 
-
-  (define (parse-types/top [sexp : Sexp]) : (List TypeDefinition)
+  (define (parse-types/top [sexp : Sexp]) : (Either Bytes (List TypeDefinition))
     (case sexp
       [(node (cons (symbol-sexp #"types") type-definitions))
-       (map parse-type-definition type-definitions)]
-      [_ (panic #"Bad types")]))
+       (leftmost-error (map parse-type-definition type-definitions))]
+      [_ (left #"Bad types")]))
 
-  (define (parse-type-definition [sexp : Sexp]) : TypeDefinition
+  (define (parse-type-definition [sexp : Sexp]) : (Either Bytes TypeDefinition)
     (case sexp
       [(node (cons (symbol-sexp #"define-type") (cons type-name/vars variants)))
-       (type-definition
-         (extract-type-name type-name/vars)
-         (extract-type-vars type-name/vars)
-         (map parse-variant variants))]
-      [_ (panic #"Bad type definition")]))
+       (case (extract-type-name type-name/vars)
+         [(left v) (left v)]
+         [(right type-name)
+          (case (extract-type-vars type-name/vars)
+            [(left v) (left v)]
+            [(right type-vars)
+             (case (leftmost-error (map parse-variant variants))
+               [(left v) (left v)]
+               [(right variants)
+                (right (type-definition type-name type-vars variants))])])])]
+      [_ (left #"Bad type definition")]))
 
-  (define (parse-variant [sexp : Sexp]) : VariantDefinition
+  (define (parse-variant [sexp : Sexp]) : (Either Bytes VariantDefinition)
     (case sexp
       [(node (cons (symbol-sexp variant-name) fields))
-       (variant-definition variant-name (map parse-variant-field fields))]
-      [_ (panic #"Bad variant definition")]))
+       (case (leftmost-error (map parse-variant-field fields))
+         [(left v) (left v)]
+         [(right fields)
+          (right (variant-definition variant-name fields))])]
+      [_ (left #"Bad variant definition")]))
 
-  (define (parse-variant-field [sexp : Sexp]) : VariantField
+  (define (parse-variant-field [sexp : Sexp]) : (Either Bytes VariantField)
     (case sexp
       [(node (cons (symbol-sexp field-name) (cons type (empty))))
-       (variant-field field-name (parse-pre-type type))]
-      [_ (panic #"Bad variant field")]))
+       (case (parse-pre-type type)
+         [(left v) (left v)]
+         [(right type)
+          (right (variant-field field-name type))])]
+      [_ (left #"Bad variant field")]))
 
-  (define (extract-type-name [sexp : Sexp]) : Bytes
+  (define (extract-type-name [sexp : Sexp]) : (Either Bytes Bytes)
     (case sexp
       [(symbol-sexp type-name)
-       type-name]
+       (right type-name)]
       [(node (cons (symbol-sexp type-name) _))
-       type-name]
-      [_ (panic #"Bad type-name/vars")]))
+       (right type-name)]
+      [_ (left #"Bad type-name/vars")]))
 
-  (define (extract-type-vars [sexp : Sexp]) : (Maybe (List Bytes))
+  (define (extract-type-vars [sexp : Sexp]) : (Either Bytes (Maybe (List Bytes)))
     (case sexp
       [(symbol-sexp _)
-       (nothing)]
+       (right (nothing))]
       [(node (cons _ type-var-sexps))
-       (just (map parse-type-var-symbol type-var-sexps))]
-      [_ (panic #"Bad type-name/vars")]))
+       (case (leftmost-error (map parse-type-var-symbol type-var-sexps))
+         [(left v) (left v)]
+         [(right type-vars)
+          (right (just type-vars))])]
+      [_ (left #"Bad type-name/vars")]))
 
-  (define (parse-type-var-symbol [sexp : Sexp]) : Bytes
+  (define (parse-type-var-symbol [sexp : Sexp]) : (Either Bytes Bytes)
     (case sexp
-      [(symbol-sexp bytes) bytes]
-      [_ (panic #"Not a valid type variable")]))
+      [(symbol-sexp bytes) (right bytes)]
+      [_ (left #"Not a valid type variable")]))
 
 
-  (define (parse-pre-type [sexp : Sexp]) : PreType
+  (define (parse-pre-type [sexp : Sexp]) : (Either Bytes PreType)
     (case sexp
-      [(symbol-sexp v) (var-pre-type v)]
+      [(symbol-sexp v) (right (var-pre-type v))]
       ;; TODO Make function parsing better
       [(node (cons arg (cons (symbol-sexp #"->") (cons result (empty)))))
-       (fun-pre-type (empty) (cons (parse-pre-type arg) (empty)) (parse-pre-type result))]
+       (case (parse-pre-type arg)
+         [(left v) (left v)]
+         [(right arg)
+          (case (parse-pre-type result)
+            [(left v) (left v)]
+            [(right result)
+             (right (fun-pre-type (empty) (cons arg (empty)) result))])])]
       [(node (cons (symbol-sexp constructor) args))
-       (type-app-pre-type constructor (map parse-pre-type args))]
-      [_ (panic #"Not a valid Type")]))
+       (case (leftmost-error (map parse-pre-type args))
+         [(left v) (left v)]
+         [(right args)
+          (right (type-app-pre-type constructor args))])]
+      [_ (left #"Not a valid Type")]))
 
-  (define (parse-function-definition [sexp : Sexp]) : FunctionDefinition
+  (define (parse-function-definition [sexp : Sexp]) : (Either Bytes FunctionDefinition)
     (case sexp
       [(node (cons (symbol-sexp #"define")
                    (cons (node type-vars)
                          (cons (node (cons (symbol-sexp function-name) args))
                                (cons (symbol-sexp #":")
                                      (cons result-type (cons body (empty))))))))
-       (function-definition
-         function-name
-         (fun-pre-type
-           (map parse-type-var-symbol type-vars)
-           (map parse-arg-type args)
-           (parse-pre-type result-type))
-         (map parse-arg-name args)
-         (parse-expression body))]
+       (case (leftmost-error (map parse-arg-type args))
+         [(left v) (left v)]
+         [(right arg-types)
+          (case (leftmost-error (map parse-arg-name args))
+            [(left v) (left v)]
+            [(right arg-names)
+             (case (leftmost-error (map parse-type-var-symbol type-vars))
+               [(left v) (left v)]
+               [(right type-vars)
+                (case (parse-pre-type result-type)
+                  [(left v) (left v)]
+                  [(right result-type)
+                   (right
+                     (function-definition
+                       function-name
+                       (fun-pre-type type-vars arg-types result-type)
+                       arg-names 
+                       (parse-expression body)))])])])])]
       [(node (cons (symbol-sexp #"define")
                    (cons (node (cons (symbol-sexp function-name) args))
                          (cons (symbol-sexp #":")
                                (cons result-type (cons body (empty)))))))
-       (function-definition
-         function-name
-         (fun-pre-type
-           (empty)
-           (map parse-arg-type args)
-           (parse-pre-type result-type))
-         (map parse-arg-name args)
-         (parse-expression body))]
-      [_ (panic #"Not a valid function definition")]))
+       (case (leftmost-error (map parse-arg-type args))
+         [(left v) (left v)]
+         [(right arg-types)
+          (case (leftmost-error (map parse-arg-name args))
+            [(left v) (left v)]
+            [(right arg-names)
+             (case (parse-pre-type result-type)
+               [(left v) (left v)]
+               [(right result-type)
+                (right
+                  (function-definition
+                    function-name
+                    (fun-pre-type (empty) arg-types result-type)
+                    arg-names
+                    (parse-expression body)))])])])]
+      [_ (left #"Not a valid function definition")]))
 
-  (define (parse-arg-type [sexp : Sexp]) : PreType
+  (define (parse-arg-type [sexp : Sexp]) : (Either Bytes PreType)
     (case sexp
       [(node (cons (symbol-sexp _) (cons (symbol-sexp #":") (cons type (empty)))))
        (parse-pre-type type)]
-      [_ (panic #"Not a valid argument")]))
-  (define (parse-arg-name [sexp : Sexp]) : Bytes
+      [_ (left #"Not a valid argument")]))
+  (define (parse-arg-name [sexp : Sexp]) : (Either Bytes Bytes)
     (case sexp
       [(node (cons (symbol-sexp name) (cons (symbol-sexp #":") (cons _ (empty)))))
-       name]
-      [_ (panic #"Not a valid argument")]))
+       (right name)]
+      [_ (left #"Not a valid argument")]))
 
   (define (parse-expression [sexp : Sexp]) : Expression
     (case sexp
@@ -284,12 +326,16 @@
        (case (parse-imports/top imports)
          [(left v) (left v)]
          [(right imports)
-          (right
-            (module name
-                    imports
-                    (parse-exports/top exports)
-                    (parse-types/top types)
-                    (map parse-function-definition definitions)))])]
+          (case (parse-exports/top exports)
+            [(left v) (left v)]
+            [(right exports)
+             (case (parse-types/top types)
+               [(left v) (left v)]
+               [(right types)
+                (case (leftmost-error (map parse-function-definition definitions))
+                  [(left v) (left v)]
+                  [(right defs)
+                   (right (module name imports exports types defs))])])])])]
       [_ (left #"Bad module form")]))
 
 
