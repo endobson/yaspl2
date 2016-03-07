@@ -1,21 +1,28 @@
 (module validator
   (import
     (prim
-      #:types (Bytes)
-      #:values ()
+      #:types (Bytes Boolean Void)
+      #:values (panic void)
       #:patterns ())
     (maybe
       #:types (Maybe)
       #:values (nothing)
+      #:patterns (nothing just))
+    (bytes bytes=?)
+    (dict
+      #:types (Dict)
+      #:values (dict-set dict-ref make-dict)
       #:patterns ())
     (list
       #:types (List)
-      #:values ()
-      #:patterns ())
+      #:values (cons empty)
+      #:patterns (cons empty))
     (source-language
-      #:types (Module)
-      #:values ()
-      #:patterns ())
+      #:types (Module Expression CaseClause Pattern FunctionDefinition)
+      #:values (module-definitions)
+      #:patterns (byte-literal bytes-literal boolean-literal var-expr if-expr begin-expr app-expr
+                  varargs-app-expr let-expr case-expr case-clause bytes-pattern byte-pattern
+                  variable-pattern ignore-pattern abstraction-pattern function-definition))
     (source-to-stack
       #:types (ModuleSignature)
       #:values ()
@@ -24,4 +31,75 @@
   (types)
 
   (define (validate-module [mod : Module] [sig : (List ModuleSignature)]) : (Maybe Bytes)
-    (nothing)))
+    (let ([free (free-variables/definitions (module-definitions mod) (make-dict bytes=?) (make-dict bytes=?))])
+      (nothing)))
+
+  (define (free-variables/definitions
+            [defs : (List FunctionDefinition)]
+            [env : (Dict Bytes Void)]
+            [acc : (Dict Bytes Void)]) : (Dict Bytes Void)
+    (case defs
+      [(empty) acc]
+      [(cons (function-definition _ _ args body) defs)
+       (let ([fun-env (add-arg-bindings args env)])
+         (free-variables/definitions defs env (free-variables body fun-env acc)))]))
+
+  (define (add-arg-bindings [args : (List Bytes)] [env : (Dict Bytes Void)]) : (Dict Bytes Void)
+    (case args
+      [(empty) env]
+      [(cons arg args) (add-arg-bindings args (dict-set env arg (void)))]))
+
+
+  (define (free-variables [expr : Expression] [env : (Dict Bytes Void)] [acc : (Dict Bytes Void)])
+    : (Dict Bytes Void)
+    (case expr
+      [(byte-literal _) acc]
+      [(bytes-literal _) acc]
+      [(boolean-literal _) acc]
+      [(if-expr c t f)
+       (free-variables/list (cons c (cons t (cons f (empty)))) env acc)]
+      [(begin-expr e es)
+       (free-variables/list (cons e es) env acc)]
+      [(app-expr op args)
+       (free-variables/list (cons op args) env acc)]
+      [(varargs-app-expr op args)
+       (free-variables/list (cons op args) env acc)]
+      [(let-expr name expr body)
+       (free-variables body (dict-set env name (void)) (free-variables expr env acc))]
+      [(case-expr expr clauses)
+       (free-variables/clauses clauses env (free-variables expr env acc))]
+      [(var-expr v)
+       (case (dict-ref env v)
+         [(just _) acc]
+         [(nothing) (dict-set acc v (void))])]))
+
+  (define (free-variables/list
+            [exprs : (List Expression)]
+            [env : (Dict Bytes Void)]
+            [acc : (Dict Bytes Void)]) : (Dict Bytes Void)
+    (case exprs
+      [(empty) acc]
+      [(cons expr exprs)
+       (free-variables/list exprs env (free-variables expr env acc))]))
+
+  (define (free-variables/clauses
+            [exprs : (List CaseClause)]
+            [env : (Dict Bytes Void)]
+            [acc : (Dict Bytes Void)]) : (Dict Bytes Void)
+    (case exprs
+      [(empty) acc]
+      [(cons (case-clause pattern expr) clauses)
+       (free-variables/clauses clauses env (free-variables expr (add-pattern-bindings pattern env) acc))]))
+
+  (define (add-pattern-bindings [p : Pattern] [env : (Dict Bytes Void)]) : (Dict Bytes Void)
+    (case p
+      [(bytes-pattern _) env]
+      [(byte-pattern _) env]
+      [(ignore-pattern) env]
+      [(variable-pattern v) (dict-set env v (void))]
+      [(abstraction-pattern _ pats) (add-pattern-bindings/list pats env)]))
+
+  (define (add-pattern-bindings/list [ps : (List Pattern)] [env : (Dict Bytes Void)]) : (Dict Bytes Void)
+    (case ps
+      [(empty) env]
+      [(cons p ps) (add-pattern-bindings/list ps (add-pattern-bindings p env))])))
