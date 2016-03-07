@@ -39,6 +39,7 @@
     #"libraries/source-to-stack.yaspl"
     #"libraries/stack-machine-optimizer.yaspl"
     #"libraries/x86-64-stack-machine.yaspl"
+    #"libraries/validator.yaspl"
     #"libraries/compiler.yaspl"))
 
 (define modules (load-modules (map bytes->path library-files)))

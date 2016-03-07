@@ -27,6 +27,7 @@
     #"libraries/source-language.yaspl"
     #"libraries/source-to-stack.yaspl"
     #"libraries/stack-machine-optimizer.yaspl"
+    #"libraries/validator.yaspl"
     #"libraries/x86-64-stack-machine.yaspl"
     #"libraries/compiler.yaspl"))
 

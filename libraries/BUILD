@@ -26,6 +26,7 @@ filegroup(
     ":stack-machine.yaspl",
     ":stack-machine-optimizer.yaspl",
     ":tuples.yaspl",
+    ":validator.yaspl",
     ":x86-64-stack-machine.yaspl",
   ]
 )
@@ -74,6 +75,7 @@ yaspl_library(
     ":either",
     ":io",
     ":list",
+    ":maybe",
     ":prim-implementation",
     ":sexp-parser",
     ":source-language",
@@ -81,6 +83,7 @@ yaspl_library(
     ":stack-machine",
     ":stack-machine-optimizer",
     ":tuples",
+    ":validator",
     ":x86-64-stack-machine",
  ]
 )
@@ -245,11 +248,20 @@ yaspl_library(
   ],
 )
 
-
-
 yaspl_library(
   name = "tuples",
   srcs = ["tuples.yaspl"],
+)
+
+yaspl_library(
+  name = "validator",
+  srcs = ["validator.yaspl"],
+  deps = [
+    ":list",
+    ":maybe",
+    ":source-language",
+    ":source-to-stack",
+  ]
 )
 
 yaspl_library(
