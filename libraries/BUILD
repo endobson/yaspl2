@@ -157,6 +157,9 @@ yaspl_test(
   main_module = "regexp_test",
   srcs = ["regexp-test.yaspl"],
   deps = [
+    ":io",
+    ":list",
+    ":maybe",
   ]
 )
 
