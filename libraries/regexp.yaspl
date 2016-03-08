@@ -1,0 +1,85 @@
+(module regexp
+  (import
+    (prim
+      #:types ()
+      #:values (bytes-length = + >= bytes-ref)
+      #:patterns ())
+    (maybe
+      #:types ()
+      #:values (just nothing)
+      #:patterns (just nothing))
+    (list
+      #:types ()
+      #:values (cons empty)
+      #:patterns (cons empty)))
+  (export)
+  (types
+    (define-type Regexp
+      (empty-regexp)
+      (epsilon-regexp)
+      (lit-regexp [v Byte])
+      (seq-regexp [l Regexp] [r Regexp])
+      (alt-regexp [l Regexp] [r Regexp])
+      (rep-regexp [v Regexp]))
+    (define-type RegexpMatcherState
+      (regexp-matcher-state
+        [b Bytes]
+        [index Byte]
+        [current (List Regexp)]
+        [other (Maybe RegexpMatcherState)]))
+    (define-type RegexpMatcherResult
+      (regexp-matcher-result
+        [index Byte]
+        [other (Maybe RegexpMatcherState)])))
+
+  (define (regexp-match? [r : Regexp] [b : Bytes]) : Boolean
+    (regexp-match-full?/inner (initial-state r b) (bytes-length b)))
+
+  (define (initial-state [r : Regexp] [b : Bytes]) : RegexpMatcherState
+    (regexp-matcher-state b 0 (cons r (empty)) (nothing)))
+
+
+  (define (regexp-match-full?/inner [s : RegexpMatcherState] [l : Byte]) : Boolean
+    (case (run-regexp-match s)
+      [(just (regexp-matcher-result i other))
+       (if (= i l)
+           #t
+           (case other
+             [(nothing) #f]
+             [(just state) (regexp-match-full?/inner state l)]))]
+      [(nothing) #f]))
+
+  (define (run-regexp-match [s : RegexpMatcherState]) : (Maybe RegexpMatcherResult)
+    (case s
+      [(regexp-matcher-state _ i (empty) other)
+       (just (regexp-matcher-result i other))]
+      [(regexp-matcher-state b i (cons r rs) other)
+       (case r
+         [(empty-regexp)
+          (case other
+            [(nothing) (nothing)]
+            [(just state) (run-regexp-match state)])]
+         [(epsilon-regexp)
+          (run-regexp-match (regexp-matcher-state b i rs other))]
+         [(lit-regexp v)
+          (if (>= i (bytes-length b))
+              (case other
+                [(nothing) (nothing)]
+                [(just state) (run-regexp-match state)])
+              (if (= (bytes-ref b i) v)
+                  (run-regexp-match (regexp-matcher-state b (+ 1 i) rs other))
+                  (case other
+                    [(nothing) (nothing)]
+                    [(just state) (run-regexp-match state)])))]
+         [(seq-regexp l r)
+          (run-regexp-match (regexp-matcher-state b i (cons l (cons r rs)) other))]
+         [(alt-regexp l r)
+          (run-regexp-match
+            (regexp-matcher-state
+              b i (cons l rs)
+              (just (regexp-matcher-state b i (cons r rs) other))))]
+         [(rep-regexp r)
+          (run-regexp-match
+            (regexp-matcher-state
+              b i (cons r (cons (rep-regexp r) rs))
+              (just (regexp-matcher-state b i rs other))))])])))

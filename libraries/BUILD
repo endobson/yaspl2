@@ -144,6 +144,15 @@ yaspl_library(
 )
 
 yaspl_library(
+  name = "regexp",
+  srcs = ["regexp.yaspl"],
+  deps = [
+    ":list",
+    ":maybe",
+  ]
+)
+
+yaspl_library(
   name = "stack-machine-optimizer",
   srcs = ["stack-machine-optimizer.yaspl"],
   deps = [
@@ -160,7 +169,6 @@ yaspl_library(
     ":tuples",
  ]
 )
-
 
 yaspl_library(
   name = "prim-implementation",
