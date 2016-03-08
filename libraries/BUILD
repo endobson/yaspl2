@@ -160,6 +160,7 @@ yaspl_test(
     ":io",
     ":list",
     ":maybe",
+    ":regexp",
   ]
 )
 
