@@ -1,4 +1,4 @@
-load(":yaspl.bzl", "yaspl_library", "yaspl_binary")
+load(":yaspl.bzl", "yaspl_library", "yaspl_binary", "yaspl_test")
 package(
   default_visibility = ["//visibility:public"]
 )
@@ -149,6 +149,14 @@ yaspl_library(
   deps = [
     ":list",
     ":maybe",
+  ]
+)
+
+yaspl_test(
+  name = "regexp-test",
+  main_module = "regexp_test",
+  srcs = ["regexp-test.yaspl"],
+  deps = [
   ]
 )
 
