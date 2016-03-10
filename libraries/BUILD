@@ -220,6 +220,18 @@ yaspl_library(
   ]
 )
 
+yaspl_test(
+  name = "set-test",
+  main_module = "set_test",
+  srcs = ["set-test.yaspl"],
+  deps = [
+    ":io",
+    ":list",
+    ":maybe",
+    ":set",
+  ]
+)
+
 
 yaspl_library(
   name = "sexp-parser",
