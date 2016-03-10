@@ -213,6 +213,15 @@ yaspl_library(
 
 
 yaspl_library(
+  name = "set",
+  srcs = ["set.yaspl"],
+  deps = [
+    ":list",
+  ]
+)
+
+
+yaspl_library(
   name = "sexp-parser",
   srcs = ["sexp-parser.yaspl"],
   deps = [
