@@ -41,7 +41,7 @@
 
     (define-type SexpResult
       (sexp-result [v Sexp] [lexer Lexer])
-      (sexp-result-error)))
+      (sexp-result-error [v Bytes])))
 
 
   (define (parse-sexps [bytes : Bytes]) : (Either Bytes (List Sexp))
@@ -53,7 +53,7 @@
         [(nothing) (right (reverse acc))]
         [(just (sexp-result v lexer))
          (parse-sexps/acc lexer (cons v acc))]
-        [(just (sexp-result-error)) (left #"Sexp result error")])))
+        [(just (sexp-result-error bytes)) (left bytes)])))
 
 
   (define (parse-sexp [bytes : Bytes]) : (Either Bytes Sexp)
@@ -61,7 +61,7 @@
       (let ([val (loop lexer)])
         (case val
           [(nothing) (left #"End of input")]
-          [(just (sexp-result-error)) (left #"Sexp result error")]
+          [(just (sexp-result-error bytes)) (left bytes)]
           [(just (sexp-result v lexer))
             (case (run-lexer lexer)
               [(lex-result v lexer) (left #"Leftovers")]
@@ -72,7 +72,7 @@
     (let ([val (run-lexer lexer)])
       (case val
         [(end-of-input) (nothing)]
-        [(bad-input) (just (sexp-result-error))]
+        [(bad-input) (just (sexp-result-error #"Unable to lex input."))]
         [(lex-result v lexer)
          (case v
            [(number-lexeme bytes) (just (sexp-result (number-sexp (decimal-bytes->integer bytes)) lexer))]
@@ -83,14 +83,14 @@
            [(left-paren-lexeme) (just (node-loop (empty) (paren) lexer))]
            [(left-bracket-lexeme) (just (node-loop (empty) (bracket) lexer))]
            [(comment-lexeme) (loop lexer)]
-           [(right-bracket-lexeme) (just (sexp-result-error))]
-           [(right-paren-lexeme) (just (sexp-result-error))])])))
+           [(right-bracket-lexeme) (just (sexp-result-error #"Unexpected ]."))]
+           [(right-paren-lexeme) (just (sexp-result-error #"Unexpected )."))])])))
 
   (define (node-loop [vals : (List Sexp)] [paren-style : ParenStyle] [lexer : Lexer]) : SexpResult
     (let ([val (run-lexer lexer)])
       (case val
-        [(end-of-input) (sexp-result-error)]
-        [(bad-input) (sexp-result-error)]
+        [(end-of-input) (sexp-result-error #"Unexpected end of input.")]
+        [(bad-input) (sexp-result-error #"Unable to lex input.")]
         [(lex-result v lexer)
           (case (lex-result-v val)
             [(comment-lexeme)
@@ -109,20 +109,20 @@
               (case (node-loop (empty) (paren) lexer)
                 [(sexp-result v lexer)
                  (node-loop (cons v vals) paren-style lexer)]
-                [(sexp-result-error) (sexp-result-error)])]
+                [(sexp-result-error v) (sexp-result-error v)])]
             [(left-bracket-lexeme)
               (case (node-loop (empty) (bracket) lexer)
                 [(sexp-result v lexer)
                  (node-loop (cons v vals) paren-style lexer)]
-                [(sexp-result-error) (sexp-result-error)])]
+                [(sexp-result-error v) (sexp-result-error v)])]
             [(right-bracket-lexeme)
              (case paren-style
                [(bracket) (sexp-result (node (reverse vals)) lexer)]
-               [(paren) (sexp-result-error)])]
+               [(paren) (sexp-result-error #"Unexpected ].")])]
             [(right-paren-lexeme)
              (case paren-style
                [(paren) (sexp-result (node (reverse vals)) lexer)]
-               [(bracket) (sexp-result-error)])])])))
+               [(bracket) (sexp-result-error #"Unexpected ).")])])])))
 
   (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Byte
     (let ([result (parse-sexp (read-all-bytes stdin))])

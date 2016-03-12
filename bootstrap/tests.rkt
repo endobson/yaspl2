@@ -222,10 +222,13 @@
 
 
       (yaspl-test #:module-name 'sexp-parser #:stdin #"" #:exit-code 1 #:stderr #"End of input\n")
-      (yaspl-test #:module-name 'sexp-parser #:stdin #"(" #:exit-code 1 #:stderr #"Sexp result error\n")
-      (yaspl-test #:module-name 'sexp-parser #:stdin #")" #:exit-code 1 #:stderr #"Sexp result error\n")
+      (yaspl-test #:module-name 'sexp-parser #:stdin #"(" #:exit-code 1 
+                  #:stderr #"Unexpected end of input.\n")
+      (yaspl-test #:module-name 'sexp-parser #:stdin #")" #:exit-code 1
+                  #:stderr #"Unexpected ).\n")
       (yaspl-test #:module-name 'sexp-parser #:stdin #"()" #:exit-code 0)
-      (yaspl-test #:module-name 'sexp-parser #:stdin #"(()" #:exit-code 1 #:stderr #"Sexp result error\n")
+      (yaspl-test #:module-name 'sexp-parser #:stdin #"(()" #:exit-code 1
+                  #:stderr #"Unexpected end of input.\n")
       (yaspl-test #:module-name 'sexp-parser #:stdin #"(()())" #:exit-code 0)
       (yaspl-test #:module-name 'sexp-parser #:stdin #"( ( ()(( )  )\n )( ))" #:exit-code 0)
       (yaspl-test #:module-name 'sexp-parser #:stdin #"+" #:exit-code 0)
@@ -244,8 +247,10 @@
 
       (yaspl-test #:module-name 'sexp-parser #:stdin #"[]" #:exit-code 0)
       (yaspl-test #:module-name 'sexp-parser #:stdin #"[[]()]" #:exit-code 0)
-      (yaspl-test #:module-name 'sexp-parser #:stdin #"[)" #:exit-code 1 #:stderr #"Sexp result error\n")
-      (yaspl-test #:module-name 'sexp-parser #:stdin #"(]" #:exit-code 1 #:stderr #"Sexp result error\n")
+      (yaspl-test #:module-name 'sexp-parser #:stdin #"[)" #:exit-code 1
+                  #:stderr #"Unexpected ).\n")
+      (yaspl-test #:module-name 'sexp-parser #:stdin #"(]" #:exit-code 1
+                  #:stderr #"Unexpected ].\n")
 
       (yaspl-test #:module-name 'arithmetic-expr #:stdin #"(module (define (f) 2))" #:exit-code 0)
       (yaspl-test #:module-name 'arithmetic-expr #:stdin #"(module (define (f x) (+ 2 3)))" #:exit-code 0)
