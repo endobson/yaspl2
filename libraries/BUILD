@@ -10,6 +10,15 @@ filegroup(
   data = [":compiler_lib.srcs"]
 )
 
+genquery(
+  name = "compiler_library_files_file",
+  visibility = ["//visibility:public"],
+  scope = [":compiler_library_files"],
+  expression = "kind(\"source file\", deps(//libraries:compiler_library_files))"
+  )
+
+
+
 yaspl_binary(
   name = "compiler",
   main_module = "compiler",
