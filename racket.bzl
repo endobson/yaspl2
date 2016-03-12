@@ -25,7 +25,9 @@ def _bin_impl(ctx):
     'exec "$SCRIPT_DIR/%s.runfiles/%s" -U ' % (
        ctx.label.name,
        _racket_binary_path(ctx)) +
-    "-u '%s' \"$@\"\n" % script_path
+    '-u "$SCRIPT_DIR/%s.runfiles/%s" "$@"\n'% (
+       ctx.label.name,
+       script_path)
   )
 
 
