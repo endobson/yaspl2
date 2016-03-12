@@ -1,36 +1,13 @@
-load(":yaspl.bzl", "yaspl_library", "yaspl_binary", "yaspl_test")
+load(":yaspl.bzl", "yaspl_library", "yaspl_binary", "yaspl_test",
+     "yaspl_bootstrap_library")
 package(
   default_visibility = ["//visibility:public"]
 )
 
-
 filegroup(
   name = "compiler_library_files",
   visibility = ["//visibility:public"],
-  srcs = [
-    ":arithmetic-expr.yaspl",
-    ":bytes.yaspl",
-    ":compiler.yaspl",
-    ":dict.yaspl",
-    ":either.yaspl",
-    ":io.yaspl",
-    ":join-list.yaspl",
-    ":lexer.yaspl",
-    ":list.yaspl",
-    ":maybe.yaspl",
-    ":numbers.yaspl",
-    ":prim-implementation.yaspl",
-    ":sexp-parser.yaspl",
-    ":source-language.yaspl",
-    ":intermediate-language.yaspl",
-    ":source-to-intermediate-language.yaspl",
-    ":source-to-stack.yaspl",
-    ":stack-machine.yaspl",
-    ":stack-machine-optimizer.yaspl",
-    ":tuples.yaspl",
-    ":validator.yaspl",
-    ":x86-64-stack-machine.yaspl",
-  ]
+  data = [":compiler_lib.srcs"]
 )
 
 yaspl_binary(
@@ -47,7 +24,7 @@ yaspl_binary(
 )
 
 
-yaspl_library(
+yaspl_bootstrap_library(
   name = "arithmetic-expr",
   srcs = ["arithmetic-expr.yaspl"],
   deps = [
@@ -60,7 +37,7 @@ yaspl_library(
 )
 
 
-yaspl_library(
+yaspl_bootstrap_library(
   name = "bytes",
   srcs = ["bytes.yaspl"],
   deps = [
@@ -68,7 +45,7 @@ yaspl_library(
   ]
 )
 
-yaspl_library(
+yaspl_bootstrap_library(
   name = "compiler_lib",
   srcs = ["compiler.yaspl"],
   deps = [
@@ -90,7 +67,7 @@ yaspl_library(
  ]
 )
 
-yaspl_library(
+yaspl_bootstrap_library(
   name = "dict",
   srcs = ["dict.yaspl"],
   deps = [
@@ -100,12 +77,12 @@ yaspl_library(
   ]
 )
 
-yaspl_library(
+yaspl_bootstrap_library(
   name = "either",
   srcs = ["either.yaspl"],
 )
 
-yaspl_library(
+yaspl_bootstrap_library(
   name = "intermediate-language",
   srcs = ["intermediate-language.yaspl"],
   deps = [
@@ -114,7 +91,7 @@ yaspl_library(
   ]
 )
 
-yaspl_library(
+yaspl_bootstrap_library(
   name = "io",
   srcs = ["io.yaspl"],
   deps = [
@@ -122,13 +99,13 @@ yaspl_library(
   ]
 )
 
-yaspl_library(
+yaspl_bootstrap_library(
   name = "join-list",
   srcs = ["join-list.yaspl"],
   deps = [":list"]
 )
 
-yaspl_library(
+yaspl_bootstrap_library(
   name = "lexer",
   srcs = ["lexer.yaspl"],
   deps = [
@@ -138,23 +115,23 @@ yaspl_library(
   ]
 )
 
-yaspl_library(
+yaspl_bootstrap_library(
   name = "list",
   srcs = ["list.yaspl"],
   deps = [":maybe"]
 )
 
-yaspl_library(
+yaspl_bootstrap_library(
   name = "maybe",
   srcs = ["maybe.yaspl"],
 )
 
-yaspl_library(
+yaspl_bootstrap_library(
   name = "numbers",
   srcs = ["numbers.yaspl"],
 )
 
-yaspl_library(
+yaspl_bootstrap_library(
   name = "prim-implementation",
   srcs = ["prim-implementation.yaspl"],
   deps = [
@@ -168,7 +145,7 @@ yaspl_library(
   srcs = ["print-stack-function.yaspl"],
   deps = [
     ":bytes",
-    ":compiler",
+    ":compiler_lib",
     ":dict",
     ":either",
     ":io",
@@ -206,7 +183,7 @@ yaspl_test(
   ]
 )
 
-yaspl_library(
+yaspl_bootstrap_library(
   name = "stack-machine-optimizer",
   srcs = ["stack-machine-optimizer.yaspl"],
   deps = [
@@ -246,7 +223,7 @@ yaspl_test(
 )
 
 
-yaspl_library(
+yaspl_bootstrap_library(
   name = "sexp-parser",
   srcs = ["sexp-parser.yaspl"],
   deps = [
@@ -259,7 +236,7 @@ yaspl_library(
   ]
 )
 
-yaspl_library(
+yaspl_bootstrap_library(
   name = "source-language",
   srcs = ["source-language.yaspl"],
   deps = [
@@ -271,7 +248,7 @@ yaspl_library(
   ]
 )
 
-yaspl_library(
+yaspl_bootstrap_library(
   name = "source-to-intermediate-language",
   srcs = ["source-to-intermediate-language.yaspl"],
   deps = [
@@ -281,7 +258,7 @@ yaspl_library(
 )
 
 
-yaspl_library(
+yaspl_bootstrap_library(
   name = "source-to-stack",
   srcs = ["source-to-stack.yaspl"],
   deps = [
@@ -298,7 +275,7 @@ yaspl_library(
   ]
 )
 
-yaspl_library(
+yaspl_bootstrap_library(
   name = "stack-machine",
   srcs = ["stack-machine.yaspl"],
   deps = [
@@ -313,12 +290,12 @@ yaspl_library(
   ],
 )
 
-yaspl_library(
+yaspl_bootstrap_library(
   name = "tuples",
   srcs = ["tuples.yaspl"],
 )
 
-yaspl_library(
+yaspl_bootstrap_library(
   name = "validator",
   srcs = ["validator.yaspl"],
   deps = [
@@ -329,7 +306,7 @@ yaspl_library(
   ]
 )
 
-yaspl_library(
+yaspl_bootstrap_library(
   name = "x86-64-stack-machine",
   srcs = ["x86-64-stack-machine.yaspl"],
   deps = [

@@ -179,3 +179,17 @@ yaspl_test = rule(
     "_compiler": _bootstrap_compiler
   }
 )
+
+def yaspl_bootstrap_library(name, srcs, deps=[]):
+  yaspl_library(
+    name=name,
+    srcs=srcs,
+    deps=deps,
+  )
+
+  source_suffix = ".srcs"
+  native.filegroup(
+    name=name + source_suffix,
+    srcs=srcs,
+    data=[dep + source_suffix for dep in deps],
+  )
