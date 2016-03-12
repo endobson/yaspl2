@@ -270,6 +270,16 @@ yaspl_library(
 )
 
 yaspl_library(
+  name = "source-to-intermediate-language",
+  srcs = ["source-to-intermediate-language.yaspl"],
+  deps = [
+    ":source-language",
+    ":intermediate-language"
+  ]
+)
+
+
+yaspl_library(
   name = "source-to-stack",
   srcs = ["source-to-stack.yaspl"],
   deps = [
