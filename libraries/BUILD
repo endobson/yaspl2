@@ -104,6 +104,15 @@ yaspl_library(
 )
 
 yaspl_library(
+  name = "intermediate-language",
+  srcs = ["intermediate-language.yaspl"],
+  deps = [
+    ":list",
+    ":source-language",
+  ]
+)
+
+yaspl_library(
   name = "io",
   srcs = ["io.yaspl"],
   deps = [
