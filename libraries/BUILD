@@ -22,6 +22,8 @@ filegroup(
     ":prim-implementation.yaspl",
     ":sexp-parser.yaspl",
     ":source-language.yaspl",
+    ":intermediate-language.yaspl",
+    ":source-to-intermediate-language.yaspl",
     ":source-to-stack.yaspl",
     ":stack-machine.yaspl",
     ":stack-machine-optimizer.yaspl",
@@ -290,6 +292,7 @@ yaspl_library(
     ":list",
     ":maybe",
     ":source-language",
+    ":source-to-intermediate-language",
     ":stack-machine",
     ":tuples",
   ]

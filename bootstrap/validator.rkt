@@ -66,7 +66,7 @@
 
 
   (match module
-    [(module& _ (imports& _ (list (import& _ import-names) ...) _) _
+    [(module& _ (imports& _ (list (import& _ _ import-names) ...) _) _
        (list (define-type& _ _
                (list (variant& variant-namess (list (variant-field& field-namesss _) ...)) ...)) ...)
        definitions)
@@ -132,12 +132,14 @@
                            (data-ty-constructor module-name type-name (map (λ (_) (*-kind)) type-vars)))]))
            (for ([import (in-list (imports&-types imports))])
              (match import
-               [(import& src-mod name)
+               [(import& src-mod exported-name local-name)
                 ;; TODO make the prim module-signature work the same way as others
-                (hash-set! mut-type-name-env name
+                (hash-set! mut-type-name-env local-name
                   (if (equal? src-mod 'prim)
-                      (hash-ref (module-signature-exports (hash-ref module-signatures src-mod)) name)
-                      (match (hash-ref (module-signature-types (hash-ref module-signatures src-mod)) name)
+                      (hash-ref (module-signature-exports (hash-ref module-signatures src-mod))
+                                exported-name)
+                      (match (hash-ref (module-signature-types (hash-ref module-signatures src-mod))
+                                       exported-name)
                         [(inductive-signature orig-mod-name ty-name #f variants)
                          (data-ty orig-mod-name ty-name empty)]
                         [(inductive-signature orig-mod-name ty-name type-vars variants)
@@ -182,10 +184,10 @@
 
      (for ([import (in-list (imports&-values imports))])
        (match import
-         [(import& src-mod name)
-          (hash-set! mut-type-env name
+         [(import& src-mod exported-name local-name)
+          (hash-set! mut-type-env local-name
                      (hash-ref (module-signature-exports (hash-ref module-signatures src-mod))
-                               name))]))
+                               exported-name))]))
 
 
 
@@ -219,11 +221,11 @@
                                   (hash-ref variant-parsed-field-types name)))]))]))
           (for ([import (in-list (imports&-patterns imports))])
             (match import
-              [(import& src-mod name)
+              [(import& src-mod exported-name local-name)
                (hash-set!
                  mut-pattern-env
-                 name
-                 (hash-ref (module-signature-patterns (hash-ref module-signatures src-mod)) name))]))
+                 local-name
+                 (hash-ref (module-signature-patterns (hash-ref module-signatures src-mod)) exported-name))]))
            mut-pattern-env)))
 
 
@@ -240,9 +242,9 @@
      ;; TODO remove hack to limit imports
      (define imported-algebraic-types
        (for/fold ([acc empty]) ([module-signature (in-hash-values module-signatures)])
-         (match-define (imports& (list (import& t-mods _) ...)
-                                 (list (import& v-mods _) ...)
-                                 (list (import& p-mods _) ...)) imports)
+         (match-define (imports& (list (import& t-mods _ _) ...)
+                                 (list (import& v-mods _ _) ...)
+                                 (list (import& p-mods _ _) ...)) imports)
          (if (member (module-signature-name module-signature)
                      (append t-mods v-mods p-mods))
              (append (hash-values (module-signature-types module-signature)) acc)

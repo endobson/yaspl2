@@ -29,20 +29,22 @@
        (values
          empty
          (for/list ([function-name (in-list function-names)])
-           (import& module-name function-name))
+           (import& module-name function-name function-name))
          empty)]
       [`(,(? symbol? module-name)
-          #:types (,(? symbol? type-names) ...)
-          #:values (,(? symbol? function-names) ...)
-          #:patterns (,(? symbol? pattern-names) ...))
+          #:types ,types
+          #:values ,functions
+          #:patterns ,patterns)
+       (define (parse-import-name import-name)
+         (match import-name
+           [(? symbol? name)
+            (import& module-name name name)]
+           [(list (? symbol? exported-name) (? symbol? local-name))
+            (import& module-name exported-name local-name)]))
        (values
-         (for/list ([type-name (in-list type-names)])
-           (import& module-name type-name))
-         (for/list ([function-name (in-list function-names)])
-           (import& module-name function-name))
-         (for/list ([pattern-name (in-list pattern-names)])
-           (import& module-name pattern-name)))]))
-
+         (map parse-import-name types)
+         (map parse-import-name functions)
+         (map parse-import-name patterns))]))
 
   (let-values ([(types vals patterns) (parse-imports imports)])
     (imports& (append* types) (append* vals) (append* patterns))))

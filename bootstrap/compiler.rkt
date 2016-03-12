@@ -71,9 +71,9 @@
       (define local-env (make-hash))
 
       (for ([import (in-list (imports&-values (module&-imports module)))])
-        (hash-set! local-env (import&-name import)
+        (hash-set! local-env (import&-local-name import)
                    (hash-ref global-env
-                     (full-name (import&-module-name import) (import&-name import)))))
+                     (full-name (import&-module-name import) (import&-exported-name import)))))
 
       (define variant-defs
         (for/list ([type (in-list (module&-types module))])

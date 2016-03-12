@@ -25,6 +25,8 @@
     #"libraries/stack-machine.yaspl"
     #"libraries/prim-implementation.yaspl"
     #"libraries/source-language.yaspl"
+    #"libraries/intermediate-language.yaspl"
+    #"libraries/source-to-intermediate-language.yaspl"
     #"libraries/source-to-stack.yaspl"
     #"libraries/stack-machine-optimizer.yaspl"
     #"libraries/validator.yaspl"
