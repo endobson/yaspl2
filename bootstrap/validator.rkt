@@ -16,7 +16,7 @@
   construct-module-signature)
 
 
-(struct pattern-spec (input-type type-vars field-types))
+(struct pattern-spec (input-type type-vars field-types) #:transparent)
 
 ;; TODO ensure all exports have sensible bindings
 (define (check-module module)
@@ -612,14 +612,18 @@
 (define (check-patterns-complete/not-useless env patterns)
 
   (define (lookup-variants variant)
+    (define input-type (pattern-spec-input-type (binding-env-pattern-ref env variant)))
     (define ind-sigs
       (for*/list ([ind-sig (in-list (binding-env-types env))]
-                  #:when (member variant (map variant-signature-name
-                                           (inductive-signature-variants ind-sig))))
+                  #:when
+                    (and (equal? (inductive-signature-module-name ind-sig)
+                                 (data-ty-module-name input-type))
+                         (equal? (inductive-signature-name ind-sig)
+                                 (data-ty-name input-type))))
         ind-sig))
     ;; TODO avoid this issue
     (unless (= (length ind-sigs) 1)
-      (error 'lookup-other-variants "Bad variant ~s: ~s" variant ind-sigs))
+      (error 'lookup-other-variants "Bad variant ~s: ~s ~s" variant input-type ind-sigs))
     (define abstract-values
       (for/hash ([variant-sig (in-list (inductive-signature-variants (first ind-sigs)))])
         (define name (variant-signature-name variant-sig))
