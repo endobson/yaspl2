@@ -7,15 +7,8 @@ package(
 filegroup(
   name = "compiler_library_files",
   visibility = ["//visibility:public"],
-  data = [":compiler_lib.srcs"]
+  data = [":compiler_lib.srcs", ":compiler_lib.src.list"]
 )
-
-genquery(
-  name = "compiler_library_files_file",
-  visibility = ["//visibility:public"],
-  scope = [":compiler_library_files"],
-  expression = "kind(\"source file\", deps(//libraries:compiler_library_files))"
-  )
 
 
 

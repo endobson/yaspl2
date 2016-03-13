@@ -25,6 +25,20 @@ def _lib_impl(ctx):
     yaspl_transitive_srcs = transitive_srcs
   )
 
+def _src_impl(ctx):
+  transitive_srcs = _transitive_srcs(ctx)
+  transitive_src_paths = [src.path for src in transitive_srcs]
+
+  ctx.file_action(
+    output = ctx.outputs.file,
+    content = "\n".join(transitive_src_paths)
+  )
+
+  return struct(
+    yaspl_transitive_srcs = transitive_srcs
+  )
+
+
 def _bin_impl(ctx):
 
   transitive_srcs = _transitive_srcs(ctx)
@@ -100,7 +114,6 @@ def _test_impl(ctx):
       ctx.outputs.executable.path
     )
   )
-
 
   ctx.action(
     inputs = [ctx.outputs.asm],
@@ -180,6 +193,20 @@ yaspl_test = rule(
   }
 )
 
+yaspl_srcs = rule(
+  implementation = _src_impl,
+  outputs = {
+    "file": "%{name}.list",
+  },
+  attrs = {
+    "srcs": attr.label_list(
+      allow_files=_yaspl_src_file_type,
+    ),
+    "deps": _deps_attr,
+  }
+)
+
+
 def yaspl_bootstrap_library(name, srcs, deps=[]):
   yaspl_library(
     name=name,
@@ -187,9 +214,23 @@ def yaspl_bootstrap_library(name, srcs, deps=[]):
     deps=deps,
   )
 
-  source_suffix = ".srcs"
-  native.filegroup(
-    name=name + source_suffix,
+  yaspl_srcs(
+    name=name + ".src",
     srcs=srcs,
-    data=[dep + source_suffix for dep in deps],
+    deps=[dep + ".src" for dep in deps],
+  )
+
+  source_file_suffix = ".src_dep"
+  source_group_suffix = ".srcs"
+
+  for src in srcs:
+    native.filegroup(
+      name=src + source_file_suffix,
+      srcs=[src],
+      data=[dep + source_group_suffix for dep in deps],
+    )
+
+  native.filegroup(
+    name=name + source_group_suffix,
+    data=[src + source_file_suffix for src in srcs],
   )

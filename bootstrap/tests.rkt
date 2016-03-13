@@ -19,30 +19,9 @@
     racket/base
     syntax/parse))
 
-(define library-files
-  (list
-    #"libraries/maybe.yaspl"
-    #"libraries/list.yaspl"
-    #"libraries/bytes.yaspl"
-    #"libraries/tuples.yaspl"
-    #"libraries/dict.yaspl"
-    #"libraries/either.yaspl"
-    #"libraries/io.yaspl"
-    #"libraries/numbers.yaspl"
-    #"libraries/lexer.yaspl"
-    #"libraries/sexp-parser.yaspl"
-    #"libraries/arithmetic-expr.yaspl"
-    #"libraries/join-list.yaspl"
-    #"libraries/stack-machine.yaspl"
-    #"libraries/prim-implementation.yaspl"
-    #"libraries/source-language.yaspl"
-    #"libraries/intermediate-language.yaspl"
-    #"libraries/source-to-intermediate-language.yaspl"
-    #"libraries/source-to-stack.yaspl"
-    #"libraries/stack-machine-optimizer.yaspl"
-    #"libraries/x86-64-stack-machine.yaspl"
-    #"libraries/validator.yaspl"
-    #"libraries/compiler.yaspl"))
+
+(define-runtime-path library-list-file "../libraries/compiler_lib.src.list")
+(define library-files (file->bytes-lines library-list-file))
 
 (define modules (load-modules (map bytes->path library-files)))
 
