@@ -52,20 +52,30 @@
                 make-varargs-array)
       #:patterns (gen-state tmp-slot var-slot))
     (source-language
-      #:types (Module FunctionDefinition Expression Imports Import TypeDefinition VariantDefinition
-               VariantField CaseClause Pattern)
+      #:types (Module FunctionDefinition Imports Import TypeDefinition VariantDefinition
+               VariantField Pattern)
       #:values (module-name module-definitions module-types
                 function-definition-name
                 type-definition-variants)
-      #:patterns (module imports import function-definition bytes-literal byte-literal boolean-literal
-                  let-expr var-expr app-expr if-expr begin-expr varargs-app-expr
+      #:patterns (module imports import function-definition
+                  bytes-literal byte-literal boolean-literal let-expr var-expr app-expr if-expr
+                  begin-expr varargs-app-expr
                   variant-definition type-definition
                   variant-field case-expr case-clause ignore-pattern variable-pattern
                   abstraction-pattern bytes-pattern byte-pattern))
     (intermediate-language
-      #:types ((Module i:Module))
-      #:values ()
-      #:patterns ((module i:module))))
+      #:types ((Module i:Module)
+               (FunctionDefinition i:FunctionDefinition)
+               Expression CaseClause)
+      #:values ((module-name i:module-name)
+                (module-definitions i:module-definitions))
+      #:patterns ((module i:module)
+                  (function-definition i:function-definition)
+                  bytes-literal byte-literal boolean-literal let-expr var-expr if-expr
+                  create-closure-expr
+                  call-closure-expr
+                  begin-expr varargs-call-closure-expr
+                  case-expr case-clause)))
   (export compile-module)
   (types
     (define-type CompiledModule
@@ -81,7 +91,7 @@
            (compiled-module
              (append
                (compile-type-definitions imod)
-               (compile-function-definitions mod env))
+               (compile-function-definitions imod env))
              (module->module-signature mod env))))]))
 
 
@@ -470,12 +480,12 @@
           (cons (dup-cmd (* 2 args)) cmds))))
 
 
-  (define (compile-function-definitions [mod : Module] [env : Environment]) : (List StackFunction)
-    (compile-function-definitions/list (module-name mod) (module-definitions mod) env))
+  (define (compile-function-definitions [mod : i:Module] [env : Environment]) : (List StackFunction)
+    (compile-function-definitions/list (i:module-name mod) (i:module-definitions mod) env))
 
   (define (compile-function-definitions/list
             [mod-name : Bytes]
-            [funs : (List FunctionDefinition)]
+            [funs : (List i:FunctionDefinition)]
             [env : Environment]) : (List StackFunction)
     (case funs
       [(empty) (empty)]
@@ -485,10 +495,10 @@
 
   (define (compile-function-definition
             [mod-name : Bytes]
-            [fun : FunctionDefinition]
+            [fun : i:FunctionDefinition]
             [env : Environment]) : StackFunction
     (case fun
-      [(function-definition name pre-type arg-names body)
+      [(i:function-definition name pre-type arg-names _ body)
        (stack-function
          (mangle-name (bytes-append (cons mod-name (cons #"_" (cons name (empty))))))
          ;; TODO validate the genstate has one temporary left in it, the return addr, and then the
@@ -534,13 +544,15 @@
          [(just (global-function n))
           (function-ref n state)]
          [(nothing) (panic (bytes-append (cons #"Unbound variable: " (cons v (empty)))))])]
+      [(create-closure-expr op args)
+       (panic #"nyi")]
       ;; TODO make effects of op go before arguments
-      [(app-expr op args)
+      [(call-closure-expr op args)
        (call-function (length args)
          (compile-expression op env
            (compile-expressions args env state)))]
       ;; TODO make effects of op go before arguments
-      [(varargs-app-expr op args)
+      [(varargs-call-closure-expr op args)
        (call-function 1
          (compile-expression op env
            (make-varargs-array (length args)
