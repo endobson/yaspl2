@@ -84,6 +84,18 @@ yaspl_bootstrap_library(
   srcs = ["either.yaspl"],
 )
 
+
+yaspl_bootstrap_library(
+  name = "environment",
+  srcs = ["environment.yaspl"],
+  deps = [
+    ":dict",
+    ":bytes",
+    ":list",
+    ":maybe",
+  ]
+)
+
 yaspl_bootstrap_library(
   name = "intermediate-language",
   srcs = ["intermediate-language.yaspl"],
@@ -262,17 +274,38 @@ yaspl_bootstrap_library(
 
 
 yaspl_bootstrap_library(
+  name = "source-to-module-signature",
+  srcs = ["source-to-module-signature.yaspl"],
+  deps = [
+    ":bytes",
+    ":dict",
+    ":either",
+    ":environment",
+    ":join-list",
+    ":list",
+    ":maybe",
+    ":source-language",
+    ":source-to-intermediate-language",
+    ":stack-machine",
+    ":tuples",
+  ]
+)
+
+
+yaspl_bootstrap_library(
   name = "source-to-stack",
   srcs = ["source-to-stack.yaspl"],
   deps = [
     ":bytes",
     ":dict",
     ":either",
+    ":environment",
     ":join-list",
     ":list",
     ":maybe",
     ":source-language",
     ":source-to-intermediate-language",
+    ":source-to-module-signature",
     ":stack-machine",
     ":tuples",
   ]

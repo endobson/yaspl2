@@ -29,6 +29,16 @@
       #:types ()
       #:values (jl->list empty-jl append-jl snoc-jl)
       #:patterns ())
+    (environment
+      #:types (Environment VariantInfo VarReference)
+      #:values (environment global-function local-var variant-info global-function-name
+                            environment-tag-ref environment-value-ref environment-value-set)
+      #:patterns (local-var global-function))
+    (source-to-module-signature
+      #:types (ModuleSignature)
+      #:values (module->module-signature 
+                module-signature-name module-signature-pattern-exports module-signature-value-exports)
+      #:patterns ())
     (source-to-intermediate-language source->intermediate)
     (stack-machine
       #:types (StackFunction StackBasicBlock StackCmd StackTerminal GenState)
@@ -52,24 +62,10 @@
                   variant-definition type-definition
                   variant-field case-expr case-clause ignore-pattern variable-pattern
                   abstraction-pattern bytes-pattern byte-pattern)))
-  (export compile-module module-signature)
+  (export compile-module)
   (types
-    (define-type Environment
-      (environment
-        (value-bindings (Dict Bytes VarReference))
-        (variant-bindings (Dict Bytes VariantInfo))))
-    (define-type VariantInfo
-      (variant-info [tag Byte]))
-    (define-type VarReference
-      (local-var)
-      (global-function [name Bytes]))
     (define-type CompiledModule
-      (compiled-module [code (List StackFunction)] [sig ModuleSignature]))
-    (define-type ModuleSignature
-      (module-signature
-        [name Bytes]
-        [value-exports (Dict Bytes Bytes)]
-        [pattern-exports (Dict Bytes Byte)])))
+      (compiled-module [code (List StackFunction)] [sig ModuleSignature])))
 
   (define (compile-module [mod : Module] [sigs : (List ModuleSignature)]) :
     (Either Bytes CompiledModule)
@@ -83,58 +79,6 @@
                (compile-type-definitions mod)
                (compile-function-definitions mod env))
              (module->module-signature mod env))))]))
-
-
-  (define (module->module-signature [mod : Module] [env : Environment]) : ModuleSignature
-    (case mod
-      [(module name _ exports types _)
-       (module-signature
-         name
-         (make-exports exports env (make-dict bytes=?))
-         (make-exported-patterns types env (make-dict bytes=?)))]))
-
-  (define (make-exports [exports : (List Bytes)] [env : Environment] [acc : (Dict Bytes Bytes)])
-    : (Dict Bytes Bytes)
-    (case exports
-      [(empty) acc]
-      [(cons export exports)
-       (case (environment-value-ref env export)
-         ;; TODO handle this case better (seperate out value and type exports)
-         [(nothing)
-          (make-exports exports env acc)]
-         [(just exported-name)
-          (make-exports
-            exports
-            env
-            (dict-set
-              acc
-              export
-              (global-function-name exported-name)))])]))
-
-
-  (define (make-exported-patterns
-            [types : (List TypeDefinition)]
-            [env : Environment]
-            [acc : (Dict Bytes Byte)]) : (Dict Bytes Byte)
-    (case types
-      [(empty) acc]
-      [(cons (type-definition _ _ variants) types)
-       (make-exported-patterns
-         types
-         env
-         (make-exported-patterns/variants variants env acc))]))
-
-  (define (make-exported-patterns/variants
-            [variants : (List VariantDefinition)]
-            [env : Environment]
-            [acc : (Dict Bytes Byte)]) : (Dict Bytes Byte)
-    (case variants
-      [(empty) acc]
-      [(cons (variant-definition name _) variants)
-       (make-exported-patterns/variants
-         variants
-         env
-         (dict-set acc name (environment-tag-ref env name)))]))
 
 
   (define (make-global-env [mod : Module] [sigs : (List ModuleSignature)])
@@ -909,18 +853,6 @@
       [(empty) state]
       [(cons expr exprs)
        (compile-begin-exprs exprs env (compile-expression expr env (ignore-value state)))]))
-
-  (define (environment-value-ref [env : Environment] [name : Bytes]) : (Maybe VarReference)
-    (dict-ref (environment-value-bindings env) name))
-  (define (environment-value-set [env : Environment] [name : Bytes] [val : VarReference])
-    : Environment
-    (case env
-      [(environment vals variants)
-       (environment (dict-set vals name val) variants)]))
-  (define (environment-tag-ref [env : Environment] [name : Bytes]) : Byte
-    (case (dict-ref (environment-variant-bindings env) name)
-      [(nothing) (panic (bytes-append (cons #"No variant-information for: " (cons name (empty)))))]
-      [(just tag) (variant-info-tag tag)]))
 
 
   (define (mangle-name [name : Bytes]) : Bytes

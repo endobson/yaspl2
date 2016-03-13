@@ -47,6 +47,7 @@
        (recur expr)
        ((recur/env (set-add env name)) body)]
       [(case& expr clauses)
+       (recur expr)
        (for ([clause (in-list clauses)])
          (define (pattern-binding-variables p acc)
            (match p
@@ -139,7 +140,11 @@
                       (hash-ref (module-signature-exports (hash-ref module-signatures src-mod))
                                 exported-name)
                       (match (hash-ref (module-signature-types (hash-ref module-signatures src-mod))
-                                       exported-name)
+                                       exported-name
+                                       (lambda ()
+                                         (error 'validator 
+                                                "Module ~s doesn`t have exported type ~a"
+                                                src-mod exported-name)))
                         [(inductive-signature orig-mod-name ty-name #f variants)
                          (data-ty orig-mod-name ty-name empty)]
                         [(inductive-signature orig-mod-name ty-name type-vars variants)
