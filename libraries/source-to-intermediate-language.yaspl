@@ -16,16 +16,28 @@
       #:types
         ((Module i:Module)
          (FunctionDefinition i:FunctionDefinition)
-         (Expression i:Expression))
+         (Expression i:Expression)
+         (CaseClause i:CaseClause))
       #:values
         ((module i:module)
          (function-definition i:function-definition)
-         (byte-literal i:byte-literal))
+         (byte-literal i:byte-literal)
+         (boolean-literal i:boolean-literal)
+         (var-expr i:var-expr)
+         (if-expr i:if-expr)
+         (begin-expr i:begin-expr)
+         (create-closure-expr i:create-closure-expr)
+         (call-closure-expr i:call-closure-expr)
+         (varargs-call-closure-expr i:varargs-call-closure-expr)
+         (let-expr i:let-expr)
+         (case-expr i:case-expr)
+         (case-clause i:case-clause))
       #:patterns ())
     (source-language
-      #:types (Module FunctionDefinition Expression)
+      #:types (Module FunctionDefinition Expression CaseClause)
       #:values ()
-      #:patterns (module function-definition)))
+      #:patterns (module function-definition byte-literal boolean-literal var-expr if-expr begin-expr
+                         let-expr case-expr case-clause)))
   (export source->intermediate)
   (types)
 
@@ -59,5 +71,65 @@
   (define (convert-expression [expr : Expression] [acc : (List i:FunctionDefinition)])
     : (Tuple2 i:Expression (List i:FunctionDefinition))
     (case expr
+      [(byte-literal v) (tuple2 (i:byte-literal v) acc)]
+      [(boolean-literal v) (tuple2 (i:boolean-literal v) acc)]
+      [(var-expr v) (tuple2 (i:var-expr v) acc)]
+      [(if-expr c t f)
+       (case (convert-expression c acc)
+         [(tuple2 ic acc)
+          (case (convert-expression t acc)
+            [(tuple2 it acc)
+             (case (convert-expression f acc)
+               [(tuple2 if acc)
+                (tuple2 (i:if-expr ic it if) acc)])])])]
+      [(begin-expr e es)
+       (case (convert-expression e acc)
+         [(tuple2 ie acc)
+          (case (convert-expressions es acc)
+            [(tuple2 ies acc)
+             (tuple2 (i:begin-expr ie ies) acc)])])]
+      [(let-expr name expr body)
+       (case (convert-expression expr acc)
+         [(tuple2 iexpr acc)
+          (case (convert-expression body acc)
+            [(tuple2 ibody acc)
+             (tuple2 (i:let-expr name iexpr ibody) acc)])])]
+      [(case-expr expr clauses)
+       (case (convert-expression expr acc)
+         [(tuple2 iexpr acc)
+          (case (convert-clauses clauses acc)
+            [(tuple2 iclauses acc)
+             (tuple2 (i:case-expr iexpr iclauses) acc)])])]
+
       [_
-       (tuple2 (i:byte-literal 0) acc)])))
+       (tuple2 (i:byte-literal 0) acc)]))
+
+  (define (convert-clause [clause : CaseClause] [acc : (List i:FunctionDefinition)])
+    : (Tuple2 i:CaseClause (List i:FunctionDefinition))
+    (case clause
+      [(case-clause pat expr)
+       (case (convert-expression expr acc)
+         [(tuple2 iexpr acc)
+          (tuple2 (i:case-clause pat iexpr) acc)])]))
+
+  (define (convert-expressions [exprs : (List Expression)] [acc : (List i:FunctionDefinition)])
+    : (Tuple2 (List i:Expression) (List i:FunctionDefinition))
+    (case exprs
+      [(empty) (tuple2 (empty) acc)]
+      [(cons e es)
+       (case (convert-expression e acc)
+         [(tuple2 ie acc)
+          (case (convert-expressions es acc)
+            [(tuple2 ies acc)
+             (tuple2 (cons ie ies) acc)])])]))
+
+  (define (convert-clauses [clauses : (List CaseClause)] [acc : (List i:FunctionDefinition)])
+    : (Tuple2 (List i:CaseClause) (List i:FunctionDefinition))
+    (case clauses
+      [(empty) (tuple2 (empty) acc)]
+      [(cons c cs)
+       (case (convert-clause c acc)
+         [(tuple2 ic acc)
+          (case (convert-clauses cs acc)
+            [(tuple2 ics acc)
+             (tuple2 (cons ic ics) acc)])])])))
