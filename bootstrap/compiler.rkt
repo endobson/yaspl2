@@ -69,11 +69,19 @@
     (for/list ([module (topo-sort (set->list modules))])
       ;;mapping to identifiers
       (define local-env (make-hash))
+      (define local-pattern-env (make-hash))
 
       (for ([import (in-list (imports&-values (module&-imports module)))])
         (hash-set! local-env (import&-local-name import)
                    (hash-ref global-env
                      (full-name (import&-module-name import) (import&-exported-name import)))))
+
+      ;; TODO actually support more complicated pattern bindings
+      (for ([import (in-list (imports&-patterns (module&-imports module)))])
+        (hash-set! local-pattern-env (import&-local-name import)
+                   (import&-exported-name import)))
+
+
 
       (define variant-defs
         (for/list ([type (in-list (module&-types module))])
@@ -81,6 +89,7 @@
             (define variant-name (variant&-name variant))
             (define constructor-id (generate-temporary variant-name))
             (hash-set! local-env variant-name constructor-id)
+            (hash-set! local-pattern-env variant-name variant-name)
 
             (cons
               #`(define (#,constructor-id . vs) (variant-val '#,variant-name vs))
@@ -98,6 +107,7 @@
         (hash-set! local-env name temporary))
 
       (define immutable-local-env (hash-copy/immutable local-env))
+      (define immutable-local-pattern-env (hash-copy/immutable local-pattern-env))
 
       (define function-defs
         (for/list ([(name def) (in-hash (module&-definitions module))])
@@ -106,6 +116,7 @@
              (define temporaries (generate-temporaries args))
              `(,#'define (,(hash-ref local-env name) ,@temporaries)
                  ,(compile-expr
+                      immutable-local-pattern-env
                       (for/fold ([env immutable-local-env])
                                 ([a (in-list args)] [t (in-list temporaries)])
                         (hash-set env a t))
@@ -123,7 +134,7 @@
 
 
 ;; env is hash table to expressions which evaluate to the value
-(define (compile-expr env expr)
+(define (compile-expr pat-env env expr)
   (match expr
     [(byte& v)
      `(,#'byte-val ',v)]
@@ -140,7 +151,7 @@
        (for/lists (bindings ids)
                   ([v (in-list (cons op args))]
                    [v-id (in-list (cons op-id arg-ids))])
-         (define compiled-expr (compile-expr env v))
+         (define compiled-expr (compile-expr pat-env env v))
          (if (identifier? compiled-expr)
              (values empty compiled-expr)
              (values
@@ -158,7 +169,7 @@
        (for/lists (bindings ids)
                   ([v (in-list (cons op args))]
                    [v-id (in-list (cons op-id arg-ids))])
-         (define compiled-expr (compile-expr env v))
+         (define compiled-expr (compile-expr pat-env env v))
          (if (identifier? compiled-expr)
              (values empty compiled-expr)
              (values
@@ -172,31 +183,31 @@
             (,#'#%app ,(first ids) (,#'#%app ,#'array-val (,#'#%app ,#'vector ,@(rest ids))))))]
 
     [(if& cond true false)
-     `(,#'if ,#`(boolean-val-v #,(compile-expr env cond))
-           ,(compile-expr env true)
-           ,(compile-expr env false))]
+     `(,#'if ,#`(boolean-val-v #,(compile-expr pat-env env cond))
+           ,(compile-expr pat-env env true)
+           ,(compile-expr pat-env env false))]
     [(begin& first-expr exprs)
-     `(,#'begin ,@(map (λ (e) (compile-expr env e)) (cons first-expr exprs)))]
+     `(,#'begin ,@(map (λ (e) (compile-expr pat-env env e)) (cons first-expr exprs)))]
     [(let& name expr body)
-     (define compiled-expr (compile-expr env expr))
+     (define compiled-expr (compile-expr pat-env env expr))
      (cond
        [(identifier? compiled-expr)
-        (compile-expr (hash-set env name compiled-expr) body)]
+        (compile-expr pat-env (hash-set env name compiled-expr) body)]
        [else
         (define temp (generate-temporary name))
         `(,#'let ([,temp ,compiled-expr])
-            ,(compile-expr (hash-set env name temp) body))])]
+            ,(compile-expr pat-env (hash-set env name temp) body))])]
     [(case& expr clauses)
      (define match-clauses
        (for/list ([clause (in-list clauses)])
          (match-define (case-clause& pattern expr) clause)
-         (let-values ([(match-pat env) (compile-pattern pattern env)])
-           (define body (compile-expr env expr))
+         (let-values ([(match-pat env) (compile-pattern pattern pat-env env)])
+           (define body (compile-expr pat-env env expr))
            `[,match-pat ,body])))
-     `(,#'match ,(compile-expr env expr) ,@match-clauses)]))
+     `(,#'match ,(compile-expr pat-env env expr) ,@match-clauses)]))
 
-;; Pattern -> (Values Syntax (Hash Symbol Identifier))
-(define (compile-pattern p env)
+;; Pattern (Hash Symbol Symbol) (Hash Symbol Indentifier) -> (Values Syntax (Hash Symbol Identifier))
+(define (compile-pattern p pat-env env)
   (define (recur p env)
     (match p
       [(bytes-pattern& bytes)
@@ -208,11 +219,11 @@
        (values id (hash-set env var id))]
       [(ignore-pattern&)
        (values #'_ env)]
-      [(abstraction-pattern& pattern-name pats)
+      [(abstraction-pattern& pattern-binding pats)
        (let-values
          ([(vs env)
            (for/fold ([vs empty] [env env]) ([pat (in-list (reverse pats))])
              (let-values ([(v env) (recur pat env)])
                 (values (cons v vs) env)))])
-         (values `(,#'variant-val ',pattern-name (list ,@vs)) env))]))
+         (values `(,#'variant-val ',(hash-ref pat-env pattern-binding) (list ,@vs)) env))]))
   (recur p env))

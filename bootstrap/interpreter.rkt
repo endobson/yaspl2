@@ -17,6 +17,7 @@
   (struct-out program-result))
 
 
+(struct environment (values patterns))
 
 
 ;; Ties the knot of recursive global functions
@@ -32,11 +33,18 @@
 
   (for ([module (topo-sort (set->list modules))])
     (define local-env (make-hash))
+    (define local-pattern-env (make-hash))
 
     (for ([import (in-list (imports&-values (module&-imports module)))])
       (hash-set! local-env (import&-local-name import)
                  (hash-ref global-env
                    (full-name (import&-module-name import) (import&-exported-name import)))))
+
+    ;; TODO actually support more complicated pattern bindings
+    (for ([import (in-list (imports&-patterns (module&-imports module)))])
+      (hash-set! local-pattern-env (import&-local-name import)
+                 (import&-exported-name import)))
+
 
     (for ([type (in-list (module&-types module))])
       (for ([variant (in-list (define-type&-variants type))])
@@ -45,6 +53,7 @@
           (variant-constructor-val
             variant-name
             (map variant-field&-name (variant&-fields variant))))
+        (hash-set! local-pattern-env variant-name variant-name)
 
         (for ([field (variant&-fields variant)] [index (in-naturals)])
           (define field-name (variant-field&-name field))
@@ -59,7 +68,8 @@
           [(definition& _ args body)
            (function-val args env-box body)]))
       (hash-set! local-env name val))
-    (set-box! env-box (hash-copy/immutable local-env))
+    (set-box! env-box (environment (hash-copy/immutable local-env)
+                                   (hash-copy/immutable local-pattern-env)))
 
     (for ([export (in-list (module&-exports module))])
       (match-define (export& in-name out-name) export)
@@ -104,7 +114,7 @@
          (let ([new-env
                  (for/fold ([env (unbox env-box)])
                            ([v (in-list args)] [name (in-list arg-names)])
-                   (hash-set env name v))])
+                   (variable-set env name v))])
            (run-eval body new-env cont))
          (error-sentinal
            (string->bytes/utf-8
@@ -136,7 +146,7 @@
     [(boolean& v)
      (run-cont (boolean-val v) cont)]
     [(variable& v)
-     (define val (hash-ref env v #f))
+     (define val (variable-ref env v #f))
      (if val
          (run-cont val cont)
          (error-sentinal (string->bytes/utf-8 (format "No binding for ~a available" v))))]
@@ -198,9 +208,9 @@
      (match-define (list expr value-map) match-result)
      (run-eval expr value-map cont)]
     [(bind-k name body env cont)
-     (run-eval body (hash-set env name val) cont)]))
+     (run-eval body (variable-set env name val) cont)]))
 
-;; Returns either #f or (Hash Variable Value)
+;; Returns either #f or Environment
 (define (match-pattern p v env)
   (define (recur pvs acc)
     (match pvs
@@ -214,13 +224,29 @@
          [(byte-val v-val)
           (and (equal? byte v-val) (recur pvs acc))])]
       [(cons (list (variable-pattern& var) v) pvs)
-       (recur pvs (hash-set acc var v))]
+       (recur pvs (variable-set acc var v))]
       [(cons (list (ignore-pattern&) _) pvs)
        (recur pvs acc)]
-      [(cons (list (abstraction-pattern& pattern-name field-patterns) v) pvs)
+      [(cons (list (abstraction-pattern& pattern-binding field-patterns) v) pvs)
+       (define pattern-name (pattern-ref env pattern-binding))
        (match v
          [(variant-val name fields)
           (and (equal? name pattern-name)
                (recur (append (map list field-patterns fields) pvs) acc))])]))
   (recur (list (list p v)) env))
 
+
+(define (pattern-ref env name)
+  (match env
+    [(environment vals pats)
+     (hash-ref pats name)]))
+
+(define (variable-set env name value)
+  (match env
+    [(environment vals pats)
+     (environment (hash-set vals name value) pats)]))
+
+(define (variable-ref env name default)
+  (match env
+    [(environment vals pats)
+     (hash-ref vals name default)]))
