@@ -16,7 +16,7 @@
   construct-module-signature)
 
 
-(struct pattern-spec (input-type type-vars field-types) #:transparent)
+(struct pattern-spec (variant-name input-type type-vars field-types) #:transparent)
 
 ;; TODO ensure all exports have sensible bindings
 (define (check-module module)
@@ -210,6 +210,7 @@
                     [(variant& name (list (variant-field& field-names field-types) ...))
                      (hash-set! mut-pattern-env name
                                 (pattern-spec
+                                  name
                                   (hash-ref type-name-env type-name)
                                   empty
                                   (hash-ref variant-parsed-field-types name)))]))]
@@ -221,6 +222,7 @@
                        (hash-ref type-name-env type-name))
                      (hash-set! mut-pattern-env name
                                 (pattern-spec
+                                  name
                                   (data-ty ty-module-name ty-name (map type-var-ty type-vars))
                                   type-vars
                                   (hash-ref variant-parsed-field-types name)))]))]))
@@ -616,8 +618,9 @@
 
 (define (check-patterns-complete/not-useless env patterns)
 
-  (define (lookup-variants variant)
-    (define input-type (pattern-spec-input-type (binding-env-pattern-ref env variant)))
+  (define (lookup-variants pattern-spec)
+    (define variant-name (pattern-spec-variant-name pattern-spec))
+    (define input-type (pattern-spec-input-type pattern-spec))
     (define ind-sigs
       (for*/list ([ind-sig (in-list (binding-env-types env))]
                   #:when
@@ -628,7 +631,7 @@
         ind-sig))
     ;; TODO avoid this issue
     (unless (= (length ind-sigs) 1)
-      (error 'lookup-other-variants "Bad variant ~s: ~s ~s" variant input-type ind-sigs))
+      (error 'lookup-other-variants "Bad variant ~s: ~s ~s" variant-name input-type ind-sigs))
     (define abstract-values
       (for/hash ([variant-sig (in-list (inductive-signature-variants (first ind-sigs)))])
         (define name (variant-signature-name variant-sig))
@@ -637,9 +640,9 @@
           (abstract-variant name (map (λ (_) (any-abstract-value))
                                       (variant-signature-types variant-sig))))))
     (values
-      (hash-ref abstract-values variant)
+      (hash-ref abstract-values variant-name)
       (list->set
-        (hash-values (hash-remove abstract-values variant)))))
+        (hash-values (hash-remove abstract-values variant-name)))))
 
   (define (abstract-match/many pattern abstract-values)
     (for/fold ([leftovers-acc (set)] [matched-acc (set)])
@@ -685,19 +688,21 @@
       [(byte-pattern& _) (values (set abstract-value) (set (some-abstract-value)))]
       [(or (variable-pattern& _) (ignore-pattern&))
        (values (set) (set abstract-value))]
-      [(abstraction-pattern& pat-name patterns)
+      [(abstraction-pattern& pat-binding patterns)
+       (define pat-spec (binding-env-pattern-ref env pat-binding))
+       (define variant-name (pattern-spec-variant-name pat-spec))
        (match abstract-value
         [(any-abstract-value)
          ;; Compute all variants
          (define-values (refined-value other-variant-values)
-           (lookup-variants pat-name))
+           (lookup-variants pat-spec))
          (define-values (unmatched matched)
            (abstract-match pattern refined-value))
          (values
            (set-union unmatched other-variant-values)
            matched)]
         [(abstract-variant val-name fields)
-         #:when (equal? pat-name val-name)
+         #:when (equal? variant-name val-name)
          (define-values (unmatched-vecs matched-vecs)
            (abstract-match/vec patterns fields))
          (values

@@ -468,6 +468,26 @@
             (define (main) : Byte (foo)))"
         #:exit-code 5)
 
+      (compiler-test #:mod 'compiler
+        #"(module other
+            (import)
+            (export foo)
+            (types
+              (define-type Foo
+                (foo))))
+          (module main
+            (import
+              (other
+                #:types ()
+                #:values (foo)
+                #:patterns ((foo bar))))
+            (export)
+            (types)
+            (define (main) : Byte
+              (case (foo)
+                [(bar) 0])))"
+        #:exit-code 0)
+
 
       (compiler-test #:mod 'compiler
         #"(module main
