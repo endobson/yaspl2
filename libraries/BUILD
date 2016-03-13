@@ -254,8 +254,9 @@ yaspl_bootstrap_library(
   name = "source-to-intermediate-language",
   srcs = ["source-to-intermediate-language.yaspl"],
   deps = [
+    ":intermediate-language",
     ":source-language",
-    ":intermediate-language"
+    ":tuples",
   ]
 )
 
