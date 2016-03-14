@@ -68,6 +68,7 @@
                (FunctionDefinition i:FunctionDefinition)
                Expression CaseClause)
       #:values ((module-name i:module-name)
+                (module-closures i:module-closures)
                 (module-definitions i:module-definitions))
       #:patterns ((module i:module)
                   (function-definition i:function-definition)
@@ -91,7 +92,9 @@
            (compiled-module
              (append
                (compile-type-definitions imod)
-               (compile-function-definitions imod env))
+               (append
+                 (compile-function-definitions imod env)
+                 (compile-closures imod)))
              (module->module-signature mod env))))]))
 
 
@@ -486,6 +489,21 @@
           (- args 1)
           (cons (dup-cmd (* 2 args)) cmds))))
 
+  (define (compile-closures [mod : i:Module]) : (List TopLevelObject)
+    (compile-closures/list (i:module-name mod) (i:module-closures mod)))
+
+  (define (compile-closures/list
+            [mod-name : Bytes]
+            [pairs : (List (Tuple2 Bytes Bytes))])
+    : (List TopLevelObject)
+    (case pairs
+      [(empty) (empty)]
+      [(cons (tuple2 name fun-name) pairs)
+       (cons
+         (trivial-closure-tlo
+           (mangle-name (bytes-append (varargs list mod-name #"_" name)))
+           (mangle-name (bytes-append (varargs list mod-name #"_" fun-name))))
+         (compile-closures/list mod-name pairs))]))
 
   (define (compile-function-definitions [mod : i:Module] [env : Environment]) : (List TopLevelObject)
     (compile-function-definitions/list (i:module-name mod) (i:module-definitions mod) env))
@@ -497,35 +515,29 @@
     (case funs
       [(empty) (empty)]
       [(cons fun funs)
-       (append (compile-function-definition mod-name fun env)
-               (compile-function-definitions/list mod-name funs env))]))
+       (cons (compile-function-definition mod-name fun env)
+             (compile-function-definitions/list mod-name funs env))]))
 
   (define (compile-function-definition
             [mod-name : Bytes]
             [fun : i:FunctionDefinition]
-            [env : Environment]) : (List TopLevelObject)
+            [env : Environment]) : TopLevelObject
     (case fun
       [(i:function-definition name pre-type arg-names _ body)
-       (let ([mangled-name
-              (mangle-name (bytes-append (varargs list mod-name #"_" name)))])
-         (varargs list
-           (function-tlo
-             (stack-function
-               mangled-name
-               ;; TODO validate the genstate has one temporary left in it, the return addr, and then the
-               ;; variables.
-               (case (compile-expression
-                       body
-                       (add-all-locals env arg-names)
-                       (gen-state (initial-variables arg-names) (empty-jl) 0 (empty-jl)))
-                 [(gen-state _ cmds label blocks)
-                  (jl->list
-                    (snoc-jl
-                      blocks
-                      (stack-basic-block (jl->list cmds) (return (length arg-names)))))])))
-           (trivial-closure-tlo
-             (bytes-append (varargs list mangled-name #"_closure"))
-             mangled-name)))]))
+       (function-tlo
+         (stack-function
+           (mangle-name (bytes-append (varargs list mod-name #"_" name)))
+           ;; TODO validate the genstate has one temporary left in it, the return addr, and then the
+           ;; variables.
+           (case (compile-expression
+                   body
+                   (add-all-locals env arg-names)
+                   (gen-state (initial-variables arg-names) (empty-jl) 0 (empty-jl)))
+             [(gen-state _ cmds label blocks)
+              (jl->list
+                (snoc-jl
+                  blocks
+                  (stack-basic-block (jl->list cmds) (return (length arg-names)))))])))]))
 
   (define (compile-expressions
             [exprs : (List Expression)]
