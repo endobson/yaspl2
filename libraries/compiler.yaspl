@@ -26,18 +26,14 @@
       #:values (parse-sexps)
       #:patterns ())
     (source-to-stack
-      #:types ()
-      #:values (compile-module)
-      #:patterns (compiled-module))
+      #:types (TopLevelObject)
+      #:values (compile-module function-tlo function-tlo-v)
+      #:patterns (compiled-module function-tlo))
     (source-to-module-signature
       #:types (ModuleSignature)
       #:values (module-signature)
       #:patterns ())
     (stack-machine-optimizer optimize-stack-function)
-    (stack-machine
-      #:types (StackFunction)
-      #:values ()
-      #:patterns ())
     (x86-64-stack-machine compile-stack-machine)
     (prim-implementation prim-implementation)
     (validator validate-module)
@@ -87,11 +83,11 @@
   (define (compile-modules
             [mods : (List Module)]
             [sigs : (List ModuleSignature)]
-            [funcs : (List StackFunction)])
-    : (Either Bytes (List StackFunction))
+            [funcs : (List TopLevelObject)])
+    : (Either Bytes (List TopLevelObject))
     (case mods
       [(empty)
-       (right (map optimize-stack-function funcs))]
+       (right (map optimize-tlo funcs))]
       [(cons mod mods)
        (case (validate-module mod sigs)
          [(just v)
@@ -101,6 +97,11 @@
             [(left v) (left v)]
             [(right (compiled-module new-funcs sig))
              (compile-modules mods (cons sig sigs) (append new-funcs funcs))])])]))
+
+  (define (optimize-tlo [tlo : TopLevelObject]) : TopLevelObject
+    (case tlo
+      [(function-tlo func)
+       (function-tlo (optimize-stack-function func))]))
 
   (define (extract-modules [vals : (List (Either Bytes Module))] [stderr : OutputPort]) : (List Module)
     (case vals
@@ -149,7 +150,7 @@
                                 stderr))
                             stderr)
                           (cons (prim-signature) (empty))
-                          (prim-implementation))
+                          (map function-tlo (prim-implementation)))
                     [(left v)
                      (begin
                        (write-line v stderr)
@@ -157,7 +158,7 @@
                     [(right code)
                      (compile-stack-machine
                        (bytes-append (varargs list (array-ref args 2) #"_main"))
-                       code
+                       (map function-tlo-v code)
                        output)])
                   (close-output-port output)))
               0)))))

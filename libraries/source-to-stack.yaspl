@@ -76,10 +76,12 @@
                   call-closure-expr
                   begin-expr varargs-call-closure-expr
                   case-expr case-clause)))
-  (export compile-module)
+  (export compile-module function-tlo function-tlo-v)
   (types
     (define-type CompiledModule
-      (compiled-module [code (List StackFunction)] [sig ModuleSignature])))
+      (compiled-module [code (List TopLevelObject)] [sig ModuleSignature]))
+    (define-type TopLevelObject
+      (function-tlo [v StackFunction])))
 
   (define (compile-module [mod : Module] [sigs : (List ModuleSignature)]) :
     (Either Bytes CompiledModule)
@@ -368,7 +370,7 @@
       [(cons name names) (add-all-locals (environment-value-set env name (local-var)) names)]))
 
 
-  (define (compile-type-definitions [mod : i:Module]) : (List StackFunction)
+  (define (compile-type-definitions [mod : i:Module]) : (List TopLevelObject)
     (case mod
       [(i:module name _ types _)
        (compile-type-definitions/list name types (empty))]))
@@ -376,7 +378,7 @@
   (define (compile-type-definitions/list
             [mod-name : Bytes]
             [defs : (List TypeDefinition)]
-            [acc : (List StackFunction)]) : (List StackFunction)
+            [acc : (List TopLevelObject)]) : (List TopLevelObject)
     (case defs
       [(empty) acc]
       [(cons def defs)
@@ -388,7 +390,7 @@
   (define (compile-type-definition
             [mod-name : Bytes]
             [def : TypeDefinition]
-            [acc : (List StackFunction)]) : (List StackFunction)
+            [acc : (List TopLevelObject)]) : (List TopLevelObject)
     (case def
       [(type-definition name _ variants)
        (compile-type-definition/variants mod-name name 0 variants acc)]))
@@ -398,7 +400,7 @@
             [type-name : Bytes]
             [variant-index : Byte]
             [variants : (List VariantDefinition)]
-            [acc : (List StackFunction)]) : (List StackFunction)
+            [acc : (List TopLevelObject)]) : (List TopLevelObject)
     (case variants
       [(empty) acc]
       [(cons variant variants)
@@ -414,24 +416,25 @@
             [type-name : Bytes]
             [variant-index : Byte]
             [def : VariantDefinition]
-            [acc : (List StackFunction)]) : (List StackFunction)
+            [acc : (List TopLevelObject)]) : (List TopLevelObject)
     (case def
       [(variant-definition name fields)
        (cons
          (let ([mangled-name
                 (mangle-name (bytes-append (varargs list mod-name #"_" type-name #"_" name)))])
-           (stack-function
-             mangled-name
-             (bytes-append (varargs list mangled-name #"_closure"))
-             (cons
-               (stack-basic-block
-                 (add-reversed-args
-                   (length fields)
-                   (cons
-                     (alloc-variant-cmd variant-index (length fields))
-                     (empty)))
-                 (return (length fields)))
-               (empty))))
+           (function-tlo
+             (stack-function
+               mangled-name
+               (bytes-append (varargs list mangled-name #"_closure"))
+               (cons
+                 (stack-basic-block
+                   (add-reversed-args
+                     (length fields)
+                     (cons
+                       (alloc-variant-cmd variant-index (length fields))
+                       (empty)))
+                   (return (length fields)))
+                 (empty)))))
          (compile-variant-definition/accessors
            mod-name
            type-name
@@ -448,7 +451,7 @@
             [variant-index : Byte]
             [field-index : Byte]
             [fields : (List VariantField)]
-            [acc : (List StackFunction)]) : (List StackFunction)
+            [acc : (List TopLevelObject)]) : (List TopLevelObject)
     (case fields
       [(empty) acc]
       [(cons (variant-field name _) fields)
@@ -463,14 +466,15 @@
            (let ([mangled-name
                   (mangle-name
                     (bytes-append (varargs list mod-name #"_" type-name #"_" variant-name #"_" name)))])
-             (stack-function
-               mangled-name
-               (bytes-append (varargs list mangled-name #"_closure"))
-               (cons
-                 (stack-basic-block
-                   (add-reversed-args 1 (cons (variant-ref-cmd variant-index field-index) (empty)))
-                   (return 1))
-                 (empty))))
+             (function-tlo
+               (stack-function
+                 mangled-name
+                 (bytes-append (varargs list mangled-name #"_closure"))
+                 (cons
+                   (stack-basic-block
+                     (add-reversed-args 1 (cons (variant-ref-cmd variant-index field-index) (empty)))
+                     (return 1))
+                   (empty)))))
            acc))]))
 
   (define (add-reversed-args [args : Byte] [cmds : (List StackCmd)]) : (List StackCmd)
@@ -481,13 +485,13 @@
           (cons (dup-cmd (* 2 args)) cmds))))
 
 
-  (define (compile-function-definitions [mod : i:Module] [env : Environment]) : (List StackFunction)
+  (define (compile-function-definitions [mod : i:Module] [env : Environment]) : (List TopLevelObject)
     (compile-function-definitions/list (i:module-name mod) (i:module-definitions mod) env))
 
   (define (compile-function-definitions/list
             [mod-name : Bytes]
             [funs : (List i:FunctionDefinition)]
-            [env : Environment]) : (List StackFunction)
+            [env : Environment]) : (List TopLevelObject)
     (case funs
       [(empty) (empty)]
       [(cons fun funs)
@@ -497,25 +501,26 @@
   (define (compile-function-definition
             [mod-name : Bytes]
             [fun : i:FunctionDefinition]
-            [env : Environment]) : StackFunction
+            [env : Environment]) : TopLevelObject
     (case fun
       [(i:function-definition name pre-type arg-names _ body)
        (let ([mangled-name
               (mangle-name (bytes-append (varargs list mod-name #"_" name)))])
-         (stack-function
-           mangled-name
-           (bytes-append (varargs list mangled-name #"_closure"))
-           ;; TODO validate the genstate has one temporary left in it, the return addr, and then the
-           ;; variables.
-           (case (compile-expression
-                   body
-                   (add-all-locals env arg-names)
-                   (gen-state (initial-variables arg-names) (empty-jl) 0 (empty-jl)))
-             [(gen-state _ cmds label blocks)
-              (jl->list
-                (snoc-jl
-                  blocks
-                  (stack-basic-block (jl->list cmds) (return (length arg-names)))))])))]))
+         (function-tlo
+           (stack-function
+             mangled-name
+             (bytes-append (varargs list mangled-name #"_closure"))
+             ;; TODO validate the genstate has one temporary left in it, the return addr, and then the
+             ;; variables.
+             (case (compile-expression
+                     body
+                     (add-all-locals env arg-names)
+                     (gen-state (initial-variables arg-names) (empty-jl) 0 (empty-jl)))
+               [(gen-state _ cmds label blocks)
+                (jl->list
+                  (snoc-jl
+                    blocks
+                    (stack-basic-block (jl->list cmds) (return (length arg-names)))))]))))]))
 
   (define (compile-expressions
             [exprs : (List Expression)]
