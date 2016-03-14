@@ -6,7 +6,7 @@
       #:patterns ())
     (list
       #:types (List)
-      #:values (cons empty length append map append* reverse)
+      #:values (cons empty length append map append* reverse list)
       #:patterns (cons empty))
     (bytes bytes=? bytes-append)
     (either
@@ -418,19 +418,20 @@
     (case def
       [(variant-definition name fields)
        (cons
-         (stack-function
-           (mangle-name
-             (bytes-append (cons mod-name (cons #"_" (cons type-name (cons #"_"
-                                                                           (cons name (empty))))))))
-           (cons
-             (stack-basic-block
-               (add-reversed-args
-                 (length fields)
-                 (cons
-                   (alloc-variant-cmd variant-index (length fields))
-                   (empty)))
-               (return (length fields)))
-             (empty)))
+         (let ([mangled-name
+                (mangle-name (bytes-append (varargs list mod-name #"_" type-name #"_" name)))])
+           (stack-function
+             mangled-name
+             (bytes-append (varargs list mangled-name #"_closure"))
+             (cons
+               (stack-basic-block
+                 (add-reversed-args
+                   (length fields)
+                   (cons
+                     (alloc-variant-cmd variant-index (length fields))
+                     (empty)))
+                 (return (length fields)))
+               (empty))))
          (compile-variant-definition/accessors
            mod-name
            type-name
@@ -459,17 +460,17 @@
          (+ field-index 1)
          fields
          (cons
-           (stack-function
-             (mangle-name
-               (bytes-append
-                 (cons mod-name (cons #"_"
-                   (cons type-name (cons #"_"
-                     (cons variant-name (cons #"_" (cons name (empty))))))))))
-             (cons
-               (stack-basic-block
-                 (add-reversed-args 1 (cons (variant-ref-cmd variant-index field-index) (empty)))
-                 (return 1))
-               (empty)))
+           (let ([mangled-name
+                  (mangle-name
+                    (bytes-append (varargs list mod-name #"_" type-name #"_" variant-name #"_" name)))])
+             (stack-function
+               mangled-name
+               (bytes-append (varargs list mangled-name #"_closure"))
+               (cons
+                 (stack-basic-block
+                   (add-reversed-args 1 (cons (variant-ref-cmd variant-index field-index) (empty)))
+                   (return 1))
+                 (empty))))
            acc))]))
 
   (define (add-reversed-args [args : Byte] [cmds : (List StackCmd)]) : (List StackCmd)
@@ -499,19 +500,22 @@
             [env : Environment]) : StackFunction
     (case fun
       [(i:function-definition name pre-type arg-names _ body)
-       (stack-function
-         (mangle-name (bytes-append (cons mod-name (cons #"_" (cons name (empty))))))
-         ;; TODO validate the genstate has one temporary left in it, the return addr, and then the
-         ;; variables.
-         (case (compile-expression
-                 body
-                 (add-all-locals env arg-names)
-                 (gen-state (initial-variables arg-names) (empty-jl) 0 (empty-jl)))
-           [(gen-state _ cmds label blocks)
-            (jl->list
-              (snoc-jl
-                blocks
-                (stack-basic-block (jl->list cmds) (return (length arg-names)))))]))]))
+       (let ([mangled-name
+              (mangle-name (bytes-append (varargs list mod-name #"_" name)))])
+         (stack-function
+           mangled-name
+           (bytes-append (varargs list mangled-name #"_closure"))
+           ;; TODO validate the genstate has one temporary left in it, the return addr, and then the
+           ;; variables.
+           (case (compile-expression
+                   body
+                   (add-all-locals env arg-names)
+                   (gen-state (initial-variables arg-names) (empty-jl) 0 (empty-jl)))
+             [(gen-state _ cmds label blocks)
+              (jl->list
+                (snoc-jl
+                  blocks
+                  (stack-basic-block (jl->list cmds) (return (length arg-names)))))])))]))
 
   (define (compile-expressions
             [exprs : (List Expression)]
