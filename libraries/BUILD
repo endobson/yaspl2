@@ -87,6 +87,7 @@ yaspl_bootstrap_library(
   srcs = ["intermediate-language.yaspl"],
   deps = [
     ":list",
+    ":tuples",
     ":source-language",
   ]
 )
