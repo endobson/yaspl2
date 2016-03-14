@@ -25,20 +25,6 @@ yaspl_binary(
   deps = [":print-stack-function_lib"]
 )
 
-
-yaspl_bootstrap_library(
-  name = "arithmetic-expr",
-  srcs = ["arithmetic-expr.yaspl"],
-  deps = [
-    ":bytes",
-    ":either",
-    ":io",
-    ":list",
-    ":sexp-parser",
-  ]
-)
-
-
 yaspl_bootstrap_library(
   name = "bytes",
   srcs = ["bytes.yaspl"],
@@ -315,7 +301,6 @@ yaspl_bootstrap_library(
   name = "stack-machine",
   srcs = ["stack-machine.yaspl"],
   deps = [
-    ":arithmetic-expr",
     ":bytes",
     ":io",
     ":join-list",
@@ -346,7 +331,6 @@ yaspl_bootstrap_library(
   name = "x86-64-stack-machine",
   srcs = ["x86-64-stack-machine.yaspl"],
   deps = [
-    ":arithmetic-expr",
     ":bytes",
     ":either",
     ":io",

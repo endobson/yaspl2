@@ -4,12 +4,6 @@
       #:types (Bytes Byte InputPort OutputPort Void Boolean)
       #:values (void - + panic =)
       #:patterns ())
-    (arithmetic-expr
-      #:types (ArithExpr NumOp Module Function)
-      #:values (parse-arith-expr)
-      #:patterns (module function
-                  var-expr num-op-expr fun-call-expr num-lit
-                  plus-op minus-op times-op let-expr))
     (bytes bytes-append)
     (list
       #:types (List)
@@ -28,7 +22,7 @@
     (io read-all-bytes write-all-bytes)
     (numbers integer->decimal-bytes))
   (export StackFunction StackBasicBlock StackCmd StackTerminal
-          compile-module stack-function-blocks stack-basic-block-cmds
+          stack-function-blocks stack-basic-block-cmds
           stack-function stack-basic-block gen-state-cmds gen-state
           initial-variables return add-byte-literal add-boolean-literal add-bytes-literal
           name-temporary unscope-variable variable-ref
@@ -102,53 +96,6 @@
                  [label-counter Byte]
                  [blocks (JoinList StackBasicBlock)])))
 
-  (define (compile-module [mod : Module]) : (List StackFunction)
-    (case mod
-      [(module functions)
-       (map compile-function functions)]))
-
-  (define (compile-function [function : Function]) : StackFunction
-    (case function
-      [(function name arg-names body)
-       (stack-function
-         name
-         (bytes-append (varargs list name #"_closure"))
-         ;; TODO validate the genstate has one temporary left in it, the return addr, and then the
-         ;; variables.
-         (case (compile-arith-expr body
-                 (gen-state (initial-variables arg-names) (empty-jl) 1 (empty-jl)))
-           [(gen-state _ cmds _ blocks)
-            (cons
-              (stack-basic-block (jl->list cmds) (return (length arg-names)))
-              (jl->list blocks))]))]))
-
-  (define (compile-arith-expr [expr : ArithExpr] [state : GenState]) : GenState
-    (case expr
-      [(let-expr var expr body)
-       (unscope-variable var
-         (compile-arith-expr body
-           (name-temporary var
-             (compile-arith-expr expr state))))]
-      [(var-expr var)
-       (variable-ref var state) ]
-      [(num-op-expr op left right)
-       (add-op op
-         (compile-arith-expr right
-           (compile-arith-expr left state)))]
-      [(fun-call-expr name args)
-       (call-function (length args)
-         (create-closure name 0
-           (compile-arith-exprs args state)))]
-      [(num-lit v)
-       (add-byte-literal v state)]))
-
-
-  (define (compile-arith-exprs [exprs : (List ArithExpr)] [state : GenState]) : GenState
-    (case exprs
-      [(empty) state]
-      [(cons expr exprs)
-       (compile-arith-exprs exprs
-         (compile-arith-expr expr state))]))
 
   (define (unscope-variable [var : Bytes] [state : GenState]) : GenState
     (case state
@@ -208,22 +155,6 @@
        (gen-state
          (tmp-slot (remove-temporaries 2 stack))
          (snoc-jl cmds (bin-logic-math-cmd (equal-op)))
-         label
-         blocks)]))
-
-  (define (add-op [v : NumOp] [state : GenState]) : GenState
-    (case state
-      [(gen-state stack cmds label blocks)
-       (gen-state
-         (tmp-slot (remove-temporaries 2 stack))
-         (snoc-jl
-           (snoc-jl
-             cmds
-             (case v
-               [(plus-op) (create-closure-cmd #"prim_add" 0)]
-               [(times-op) (create-closure-cmd #"prim_mult" 0)]
-               [(minus-op) (create-closure-cmd #"prim_sub" 0)]))
-           (fun-call-cmd 2))
          label
          blocks)]))
 

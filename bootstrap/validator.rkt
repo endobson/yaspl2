@@ -192,7 +192,11 @@
          [(import& src-mod exported-name local-name)
           (hash-set! mut-type-env local-name
                      (hash-ref (module-signature-exports (hash-ref module-signatures src-mod))
-                               exported-name))]))
+                               exported-name
+                               (lambda ()
+                                 (error 'validator 
+                                        "Error validating ~s: Module ~s doesn`t have exported value ~a"
+                                        module-name src-mod exported-name))))]))
 
 
 
