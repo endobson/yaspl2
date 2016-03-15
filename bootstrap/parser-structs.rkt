@@ -22,6 +22,8 @@
 (struct let& expression& (name expr body) #:transparent)
 (struct case& expression& (expr clauses) #:transparent)
 (struct case-clause& (pattern expr) #:transparent)
+;; args+tys : (List (List Symbol PreType))
+(struct lambda& expression& (args+tys body) #:transparent)
 
 (struct pattern& () #:transparent)
 (struct bytes-pattern& pattern& (v) #:transparent)

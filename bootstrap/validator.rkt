@@ -46,6 +46,8 @@
       [(let& name expr body)
        (recur expr)
        ((recur/env (set-add env name)) body)]
+      [(lambda& (list (list args _) ...) body)
+       ((recur/env (set-union env (list->set args))) body)]
       [(case& expr clauses)
        (recur expr)
        (for ([clause (in-list clauses)])
@@ -241,7 +243,7 @@
 
 
      ;; TODO add types for variants
-     (define module-algebraic-types
+     (define module-inductive-signatures
        (for/list ([type-def (in-list type-defs)])
          (match type-def
            [(define-type& type-name type-vars variants)
@@ -251,7 +253,7 @@
                                    (map (λ (_) 'nyi) (variant&-fields variant)))))])))
 
      ;; TODO remove hack to limit imports
-     (define imported-algebraic-types
+     (define imported-inductive-signatures
        (for/fold ([acc empty]) ([module-signature (in-hash-values module-signatures)])
          (match-define (imports& (list (import& t-mods _ _) ...)
                                  (list (import& v-mods _ _) ...)
@@ -261,8 +263,8 @@
              (append (hash-values (module-signature-types module-signature)) acc)
              acc)))
 
-     (define algebraic-types
-       (append module-algebraic-types imported-algebraic-types))
+     (define inductive-signatures
+       (append module-inductive-signatures imported-inductive-signatures))
 
 
      (for ([(def-name def) (in-hash defs)])
@@ -271,7 +273,8 @@
           (match (hash-ref type-env def-name)
             [(fun-ty type-vars arg-types result-type)
              (let ([values (foldl (λ (k v h) (hash-set h k v)) type-env args arg-types)])
-               ((type-check/env (binding-env values algebraic-types pattern-env)) body result-type))])]))
+               ((type-check/env (binding-env values inductive-signatures pattern-env type-env))
+                body result-type))])]))
 
      ;; TODO limit this to only exported values not types
      (define exported-value-bindings
@@ -281,7 +284,7 @@
 
      ;; TODO define a mechanism for exporting types and limit this to the exported types
      (define exported-type-bindings
-       (for/hash ([ind-sig (in-list module-algebraic-types)])
+       (for/hash ([ind-sig (in-list module-inductive-signatures)])
          (values (inductive-signature-name ind-sig) ind-sig)))
 
 
@@ -304,15 +307,15 @@
        exported-type-bindings
        exported-pattern-bindings)]))
 
-(struct binding-env (values types patterns))
+(struct binding-env (values inductive-signatures patterns types))
 
 (define (binding-env-value-ref env name)
   (hash-ref (binding-env-values env) name))
 
 (define (binding-env-value-set env name ty)
   (match env
-    [(binding-env v t p)
-     (binding-env (hash-set v name ty) t p)]))
+    [(binding-env v is p t)
+     (binding-env (hash-set v name ty) is p t)]))
 
 (define (binding-env-pattern-ref env name)
   (hash-ref (binding-env-patterns env) name))
@@ -464,6 +467,7 @@
      (check (binding-env-value-ref env v))]
     [(if& cond true false)
      (type-check cond (boolean-ty))
+     ;; TODO check that these match
      (type-check true type)
      (type-check false type)]
     [(begin& first-expr exprs)
@@ -540,6 +544,27 @@
      (let* ([expr-type (type-infer expr)]
             [type-env (binding-env-value-set env name expr-type)])
        ((type-check/env type-env) body type))]
+    [(lambda& (list (list args arg-pre-types) ...) body)
+     (cond
+       [(unknown-ty? type)
+        (fun-ty
+          empty
+          (for/list ([pre-type (in-list arg-pre-types)])
+            (parse-type/env pre-type (binding-env-types env)))
+          (type-infer body))]
+       [else
+        (match type
+          [(fun-ty (list) arg-types body-type)
+           (check
+             (fun-ty
+               empty
+               (for/list ([pre-type (in-list arg-pre-types)])
+                 (parse-type/env pre-type (binding-env-types env)))
+               (type-check body body-type)))]
+          [(fun-ty (list) arg-types body-type)
+           (error 'typecheck "Expected a polymorphic function: got a lambda expression")]
+          [_
+           (error 'typecheck "Expected a non function: got a lambda expression")])])]
     [(case& expr clauses)
      (check-patterns-complete/not-useless env (map case-clause&-pattern clauses))
 
@@ -626,7 +651,7 @@
     (define variant-name (pattern-spec-variant-name pattern-spec))
     (define input-type (pattern-spec-input-type pattern-spec))
     (define ind-sigs
-      (for*/list ([ind-sig (in-list (binding-env-types env))]
+      (for*/list ([ind-sig (in-list (binding-env-inductive-signatures env))]
                   #:when
                     (and (equal? (inductive-signature-module-name ind-sig)
                                  (data-ty-module-name input-type))

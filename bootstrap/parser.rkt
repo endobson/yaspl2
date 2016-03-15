@@ -106,6 +106,9 @@
               (case-clause&
                 (parse-pattern pattern)
                 (parse body))))]
+    [`(lambda ([,(? symbol? args) : ,arg-types] ...) ,body)
+     (lambda& (map list args (map parse-pre-type arg-types)) (parse body))]
+
     [(list op args ...)
      (app& (parse op) (map parse args))]))
 

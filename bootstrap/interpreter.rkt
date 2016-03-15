@@ -162,6 +162,8 @@
          (ignore-k expr env cont)))]
     [(case& expr clauses)
      (run-eval expr env (case-k clauses env cont))]
+    [(lambda& (list (list args _) ...) body)
+     (run-cont (function-val args (box-immutable env) body) cont)]
     [(let& name expr body)
      (run-eval expr env (bind-k name body env cont))]))
 
