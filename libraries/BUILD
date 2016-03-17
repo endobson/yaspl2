@@ -83,6 +83,18 @@ yaspl_bootstrap_library(
 )
 
 yaspl_bootstrap_library(
+  name = "free-variables",
+  srcs = ["free-variables.yaspl"],
+  deps = [
+    ":bytes",
+    ":list",
+    ":tuples",
+    ":set",
+    ":source-language",
+  ]
+)
+
+yaspl_bootstrap_library(
   name = "intermediate-language",
   srcs = ["intermediate-language.yaspl"],
   deps = [
@@ -203,7 +215,7 @@ yaspl_bootstrap_library(
 )
 
 
-yaspl_library(
+yaspl_bootstrap_library(
   name = "set",
   srcs = ["set.yaspl"],
   deps = [
@@ -257,6 +269,7 @@ yaspl_bootstrap_library(
     ":intermediate-language",
     ":source-language",
     ":tuples",
+    ":free-variables",
   ]
 )
 

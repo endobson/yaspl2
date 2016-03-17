@@ -1,0 +1,92 @@
+(module free-variables
+  (import
+    (prim
+      #:types (Bytes)
+      #:values ()
+      #:patterns ())
+    (tuples
+      #:types (Tuple2)
+      #:values ()
+      #:patterns (tuple2))
+    (bytes bytes=?)
+    (list
+      #:types (List)
+      #:values (cons empty list map)
+      #:patterns (cons empty))
+    (set
+      #:types (Set)
+      #:values (set-add set-remove make-set set-member? set-add-all)
+      #:patterns ())
+    (source-language
+      #:types (Expression CaseClause Pattern PreType)
+      #:values ()
+      #:patterns (byte-literal bytes-literal boolean-literal var-expr if-expr begin-expr app-expr
+                  varargs-app-expr let-expr case-expr case-clause bytes-pattern byte-pattern
+                  lambda-expr variable-pattern ignore-pattern abstraction-pattern
+                  function-definition)))
+  (export free-variables)
+  (types)
+
+  (define (free-variables [expr : Expression]) : (Set Bytes)
+    (free-variables* expr (make-set bytes=?) (make-set bytes=?)))
+
+  (define (free-variables* [expr : Expression] [env : (Set Bytes)] [acc : (Set Bytes)])
+    : (Set Bytes)
+    (case expr
+      [(byte-literal _) acc]
+      [(bytes-literal _) acc]
+      [(boolean-literal _) acc]
+      [(if-expr c t f)
+       (free-variables/list (cons c (cons t (cons f (empty)))) env acc)]
+      [(begin-expr e es)
+       (free-variables/list (cons e es) env acc)]
+      [(app-expr op args)
+       (free-variables/list (cons op args) env acc)]
+      [(varargs-app-expr op args)
+       (free-variables/list (cons op args) env acc)]
+      [(let-expr name expr body)
+       (free-variables* body (set-add env name) (free-variables* expr env acc))]
+      [(case-expr expr clauses)
+       (free-variables/clauses clauses env (free-variables* expr env acc))]
+      [(lambda-expr args+tys body)
+       (free-variables* body (set-add-all env (map extract-arg args+tys)) acc)]
+      [(var-expr v)
+       (if (set-member? env v)
+           acc
+           (set-add acc v))]))
+
+  (define (free-variables/list
+            [exprs : (List Expression)]
+            [env : (Set Bytes)]
+            [acc : (Set Bytes)]) : (Set Bytes)
+    (case exprs
+      [(empty) acc]
+      [(cons expr exprs)
+       (free-variables/list exprs env (free-variables* expr env acc))]))
+
+  (define (free-variables/clauses
+            [exprs : (List CaseClause)]
+            [env : (Set Bytes)]
+            [acc : (Set Bytes)]) : (Set Bytes)
+    (case exprs
+      [(empty) acc]
+      [(cons (case-clause pattern expr) clauses)
+       (free-variables/clauses clauses env (free-variables* expr (add-pattern-bindings pattern env) acc))]))
+
+  (define (add-pattern-bindings [p : Pattern] [env : (Set Bytes)]) : (Set Bytes)
+    (case p
+      [(bytes-pattern _) env]
+      [(byte-pattern _) env]
+      [(ignore-pattern) env]
+      [(variable-pattern v) (set-add env v)]
+      [(abstraction-pattern _ pats) (add-pattern-bindings/list pats env)]))
+
+  (define (add-pattern-bindings/list [ps : (List Pattern)] [env : (Set Bytes)]) : (Set Bytes)
+    (case ps
+      [(empty) env]
+      [(cons p ps) (add-pattern-bindings/list ps (add-pattern-bindings p env))]))
+
+  (define (extract-arg [arg+ty : (Tuple2 Bytes PreType)]) : Bytes
+    (case arg+ty
+      [(tuple2 arg _)
+       arg])))
