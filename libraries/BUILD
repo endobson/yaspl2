@@ -246,6 +246,7 @@ yaspl_bootstrap_library(
    ":list",
    ":maybe",
    ":sexp-parser",
+   ":tuples",
   ]
 )
 
@@ -325,6 +326,7 @@ yaspl_bootstrap_library(
     ":maybe",
     ":source-language",
     ":source-to-stack",
+    ":tuples",
   ]
 )
 

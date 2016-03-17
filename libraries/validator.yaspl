@@ -4,6 +4,10 @@
       #:types (Bytes Boolean Void)
       #:values (panic void make-bytes bytes-set! bytes-length +)
       #:patterns ())
+    (tuples
+      #:types (Tuple2)
+      #:values ()
+      #:patterns (tuple2))
     (maybe
       #:types (Maybe)
       #:values (nothing just)
@@ -19,10 +23,11 @@
       #:patterns (cons empty))
     (source-language
       #:types (Module Expression CaseClause Pattern FunctionDefinition TypeDefinition
-                      VariantDefinition VariantField Imports Import)
+                      VariantDefinition VariantField Imports Import PreType)
       #:values (module-definitions module-name)
       #:patterns (byte-literal bytes-literal boolean-literal var-expr if-expr begin-expr app-expr
                   varargs-app-expr let-expr case-expr case-clause bytes-pattern byte-pattern
+                  lambda-expr
                   variable-pattern ignore-pattern abstraction-pattern function-definition
                   module imports import variant-definition variant-field type-definition))
     (source-to-module-signature
@@ -180,6 +185,10 @@
        (free-patterns/definitions defs env (free-patterns body env acc))]))
 
 
+  (define (extract-arg [arg+ty : (Tuple2 Bytes PreType)]) : Bytes
+    (case arg+ty
+      [(tuple2 arg _)
+       arg]))
 
   (define (free-variables [expr : Expression] [env : (Dict Bytes Void)] [acc : (Dict Bytes Void)])
     : (Dict Bytes Void)
@@ -199,6 +208,8 @@
        (free-variables body (dict-set env name (void)) (free-variables expr env acc))]
       [(case-expr expr clauses)
        (free-variables/clauses clauses env (free-variables expr env acc))]
+      [(lambda-expr args+tys body)
+       (free-variables expr (add-arg-bindings (map extract-arg args+tys) env) acc)]
       [(var-expr v)
        (case (dict-ref env v)
          [(just _) acc]
@@ -253,7 +264,9 @@
       [(let-expr name expr body)
        (free-patterns/list (cons body (cons expr (empty))) env acc)]
       [(case-expr expr clauses)
-       (free-patterns/clauses clauses env (free-patterns expr env acc))]))
+       (free-patterns/clauses clauses env (free-patterns expr env acc))]
+      [(lambda-expr _ body)
+       (free-patterns body env acc)]))
 
   (define (free-patterns/list
             [exprs : (List Expression)]
