@@ -560,6 +560,17 @@
                 [_ 3])))"
         #:exit-code 2)
 
+      #;
+      (compiler-test #:mod 'compiler
+        #"(module main
+            (import)
+            (export)
+            (types)
+            (define (main) : Byte
+              ((lambda () 0))))"
+        #:exit-code 0)
+
+
       )))
 
 (break-enabled #f)
