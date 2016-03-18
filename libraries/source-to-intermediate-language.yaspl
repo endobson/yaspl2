@@ -4,11 +4,19 @@
       #:types (Bytes)
       #:values (panic)
       #:patterns ())
-    (bytes bytes-append)
+    (bytes bytes-append bytes=?)
     (list
       #:types (List)
       #:values (empty cons list map)
       #:patterns (empty cons))
+    (dict
+      #:types (Dict)
+      #:values (dict-set make-dict dict-ref)
+      #:patterns ())
+    (maybe
+      #:types (Maybe)
+      #:values ()
+      #:patterns (just nothing))
     (set
       #:types (Set)
       #:values (set->list)
@@ -41,7 +49,7 @@
          (case-expr i:case-expr)
          (case-clause i:case-clause)
          closure-constant)
-      #:patterns ())
+      #:patterns (closure-constant))
     (source-language
       #:types (Module FunctionDefinition Expression CaseClause PreType)
       #:values (var-pre-type)
@@ -49,7 +57,9 @@
                   boolean-literal var-expr if-expr begin-expr lambda-expr
                   let-expr case-expr case-clause app-expr varargs-app-expr)))
   (export source->intermediate)
-  (types)
+  (types
+    (define-type Environment
+      (environment)))
 
   (define (source->intermediate [mod : Module]) : i:Module
     (case mod
@@ -58,9 +68,11 @@
          name
          imports
          types
-         (convert-function-definitions definitions (empty))
+         (convert-function-definitions
+           definitions
+           (environment)
+           (empty))
          (create-closures definitions (empty)))]))
-
 
   (define (create-closures
             [funs : (List FunctionDefinition)]
@@ -70,31 +82,37 @@
       [(cons (function-definition name type args body) funs)
        (create-closures
          funs
-         (cons (closure-constant (bytes-append (varargs list name #"-closure")) name) acc))]))
+         (cons (closure-constant name (bytes-append (varargs list name #"-code"))) acc))]))
 
   (define (convert-function-definitions
             [funs : (List FunctionDefinition)]
+            [env : Environment]
             [acc : (List i:FunctionDefinition)]) : (List i:FunctionDefinition)
     (case funs
       [(empty) acc]
       [(cons fun funs)
-       (convert-function-definitions funs (convert-function-definition fun acc))]))
+       (convert-function-definitions funs env (convert-function-definition fun env acc))]))
 
-  (define (convert-function-definition [fun : FunctionDefinition] [acc : (List i:FunctionDefinition)])
+  (define (convert-function-definition
+            [fun : FunctionDefinition]
+            [env : Environment]
+            [acc : (List i:FunctionDefinition)])
     : (List i:FunctionDefinition)
     (case fun
       [(function-definition name type args body)
-       (case (convert-expression body acc)
+       (case (convert-expression body env acc)
          [(tuple2 i:body acc)
           (cons
-            (i:function-definition name type args (empty) i:body)
+            (i:function-definition
+              (bytes-append (varargs list name #"-code"))
+              type args (empty) i:body)
             acc)])]))
 
   (define (parse-arg [arg+ty : (Tuple2 Bytes PreType)]) : Bytes
     (case arg+ty
       [(tuple2 arg ty) arg]))
 
-  (define (convert-expression [expr : Expression] [acc : (List i:FunctionDefinition)])
+  (define (convert-expression [expr : Expression] [env : Environment] [acc : (List i:FunctionDefinition)])
     : (Tuple2 i:Expression (List i:FunctionDefinition))
     (case expr
       [(byte-literal v) (tuple2 (i:byte-literal v) acc)]
@@ -103,34 +121,34 @@
       ;; TODO handle this correctly
       [(var-expr v) (tuple2 (i:local-var-expr v) acc)]
       [(if-expr c t f)
-       (case (convert-expression c acc)
+       (case (convert-expression c env acc)
          [(tuple2 ic acc)
-          (case (convert-expression t acc)
+          (case (convert-expression t env acc)
             [(tuple2 it acc)
-             (case (convert-expression f acc)
+             (case (convert-expression f env acc)
                [(tuple2 if acc)
                 (tuple2 (i:if-expr ic it if) acc)])])])]
       [(begin-expr e es)
-       (case (convert-expression e acc)
+       (case (convert-expression e env acc)
          [(tuple2 ie acc)
-          (case (convert-expressions es acc)
+          (case (convert-expressions es env acc)
             [(tuple2 ies acc)
              (tuple2 (i:begin-expr ie ies) acc)])])]
       [(let-expr name expr body)
-       (case (convert-expression expr acc)
+       (case (convert-expression expr env acc)
          [(tuple2 iexpr acc)
-          (case (convert-expression body acc)
+          (case (convert-expression body env acc)
             [(tuple2 ibody acc)
              (tuple2 (i:let-expr name iexpr ibody) acc)])])]
       [(case-expr expr clauses)
-       (case (convert-expression expr acc)
+       (case (convert-expression expr env acc)
          [(tuple2 iexpr acc)
-          (case (convert-clauses clauses acc)
+          (case (convert-clauses clauses env acc)
             [(tuple2 iclauses acc)
              (tuple2 (i:case-expr iexpr iclauses) acc)])])]
       [(lambda-expr args+tys body)
        (let ([fv (free-variables body)])
-         (case (convert-expression body acc)
+         (case (convert-expression body env acc)
            [(tuple2 ibody acc)
             ;; TODO use a real type
             (tuple2
@@ -141,44 +159,50 @@
                   (map parse-arg args+tys) (set->list fv) ibody)
                 acc))]))]
       [(app-expr op args)
-       (case (convert-expression op acc)
+       (case (convert-expression op env acc)
          [(tuple2 iop acc)
-          (case (convert-expressions args acc)
+          (case (convert-expressions args env acc)
             [(tuple2 iargs acc)
              (tuple2 (i:call-closure-expr iop iargs) acc)])])]
       [(varargs-app-expr op args)
-       (case (convert-expression op acc)
+       (case (convert-expression op env acc)
          [(tuple2 iop acc)
-          (case (convert-expressions args acc)
+          (case (convert-expressions args env acc)
             [(tuple2 iargs acc)
              (tuple2 (i:varargs-call-closure-expr iop iargs) acc)])])]))
 
-  (define (convert-clause [clause : CaseClause] [acc : (List i:FunctionDefinition)])
+  (define (convert-clause [clause : CaseClause] [env : Environment] [acc : (List i:FunctionDefinition)])
     : (Tuple2 i:CaseClause (List i:FunctionDefinition))
     (case clause
       [(case-clause pat expr)
-       (case (convert-expression expr acc)
+       (case (convert-expression expr env acc)
          [(tuple2 iexpr acc)
           (tuple2 (i:case-clause pat iexpr) acc)])]))
 
-  (define (convert-expressions [exprs : (List Expression)] [acc : (List i:FunctionDefinition)])
+  (define (convert-expressions
+            [exprs : (List Expression)]
+            [env : Environment]
+            [acc : (List i:FunctionDefinition)])
     : (Tuple2 (List i:Expression) (List i:FunctionDefinition))
     (case exprs
       [(empty) (tuple2 (empty) acc)]
       [(cons e es)
-       (case (convert-expression e acc)
+       (case (convert-expression e env acc)
          [(tuple2 ie acc)
-          (case (convert-expressions es acc)
+          (case (convert-expressions es env acc)
             [(tuple2 ies acc)
              (tuple2 (cons ie ies) acc)])])]))
 
-  (define (convert-clauses [clauses : (List CaseClause)] [acc : (List i:FunctionDefinition)])
+  (define (convert-clauses
+            [clauses : (List CaseClause)]
+            [env : Environment]
+            [acc : (List i:FunctionDefinition)])
     : (Tuple2 (List i:CaseClause) (List i:FunctionDefinition))
     (case clauses
       [(empty) (tuple2 (empty) acc)]
       [(cons c cs)
-       (case (convert-clause c acc)
+       (case (convert-clause c env acc)
          [(tuple2 ic acc)
-          (case (convert-clauses cs acc)
+          (case (convert-clauses cs env acc)
             [(tuple2 ics acc)
              (tuple2 (cons ic ics) acc)])])])))

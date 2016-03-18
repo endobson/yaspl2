@@ -69,7 +69,8 @@
                Expression CaseClause ClosureConstant)
       #:values ((module-name i:module-name)
                 (module-closures i:module-closures)
-                (module-definitions i:module-definitions))
+                (module-definitions i:module-definitions)
+                closure-constant-name)
       #:patterns ((module i:module)
                   (function-definition i:function-definition)
                   bytes-literal byte-literal boolean-literal let-expr local-var-expr
@@ -85,10 +86,10 @@
 
   (define (compile-module [mod : Module] [sigs : (List ModuleSignature)]) :
     (Either Bytes CompiledModule)
-    (case (make-global-env mod sigs)
-      [(left v) (left v)]
-      [(right env)
-       (let ([imod (source->intermediate mod)])
+    (let ([imod (source->intermediate mod)])
+      (case (make-global-env mod imod sigs)
+        [(left v) (left v)]
+        [(right env)
          (right
            (compiled-module
              (append
@@ -96,10 +97,10 @@
                (append
                  (compile-function-definitions imod env)
                  (compile-closures imod)))
-             (module->module-signature mod env))))]))
+             (module->module-signature mod env)))])))
 
 
-  (define (make-global-env [mod : Module] [sigs : (List ModuleSignature)])
+  (define (make-global-env [mod : Module] [imod : i:Module] [sigs : (List ModuleSignature)])
     : (Either Bytes Environment)
     (case (add-all-imported-patterns
             (add-type-definitions-variant-infos/top
@@ -107,7 +108,7 @@
             mod sigs)
       [(left v) (left v)]
       [(right pattern-env)
-       (case (setup-value-environment mod sigs)
+       (case (setup-value-environment mod imod sigs)
          [(left v) (left v)]
          [(right value-env)
           (right
@@ -115,12 +116,14 @@
               value-env
               pattern-env))])]))
 
-  (define (setup-value-environment [mod : Module] [sigs : (List ModuleSignature)])
+  (define (setup-value-environment [mod : Module] [imod : i:Module] [sigs : (List ModuleSignature)])
     : (Either Bytes (Dict Bytes VarReference))
     (add-all-imported-functions
       (add-type-definitions-functions/top
         (add-locally-defined-functions
-          (initial-value-bindings)
+          (add-locally-defined-closures
+            (initial-value-bindings)
+            imod)
           mod)
         mod)
       mod sigs))
@@ -231,29 +234,44 @@
   (define (add-locally-defined-functions [env : (Dict Bytes VarReference)] [mod : Module])
     : (Dict Bytes VarReference)
     (let ([var-names (map function-definition-name (module-definitions mod))])
-      (let ([closure-names (get-closure-names (module-name mod) (module-definitions mod))])
-        (add-all-globals env var-names closure-names))))
+      (let ([mangled-names (get-mangled-names (module-name mod) (module-definitions mod))])
+        (add-all-globals env var-names mangled-names))))
 
-  (define (get-closure-names [mod-name : Bytes] [funs : (List FunctionDefinition)]) : (List Bytes)
+  (define (get-mangled-names [mod-name : Bytes] [funs : (List FunctionDefinition)]) : (List Bytes)
     (case funs
       [(empty) (empty)]
       [(cons (function-definition name _ _ _) funs)
        (cons
-         (mangle-name (bytes-append (varargs list mod-name #"_" name #"_closure")))
-         (get-closure-names mod-name funs))]))
+         (mangle-name (bytes-append (varargs list mod-name #"_" name)))
+         (get-mangled-names mod-name funs))]))
+
+  (define (i-get-mangled-names [mod-name : Bytes] [closures : (List ClosureConstant)]) : (List Bytes)
+    (case closures
+      [(empty) (empty)]
+      [(cons (closure-constant name _) closures)
+       (cons
+         (mangle-name (bytes-append (varargs list mod-name #"_" name)))
+         (i-get-mangled-names mod-name closures))]))
+
+  (define (add-locally-defined-closures [env : (Dict Bytes VarReference)] [imod : i:Module])
+    : (Dict Bytes VarReference)
+    (let ([var-names (map closure-constant-name (i:module-closures imod))])
+      (let ([mangled-names (i-get-mangled-names (i:module-name imod) (i:module-closures imod))])
+        (add-all-globals env var-names mangled-names))))
+
 
   (define (add-all-globals [env : (Dict Bytes VarReference)]
                            [var-names : (List Bytes)]
-                           [closure-names : (List Bytes)])
+                           [mangled-names : (List Bytes)])
     : (Dict Bytes VarReference)
     (case var-names
       [(empty) env]
       [(cons var-name var-names)
-       (case closure-names
-         [(empty) (panic #"var-names not the same length as closure-names")]
-         [(cons closure-name closure-names)
+       (case mangled-names
+         [(empty) (panic #"var-names not the same length as mangled-names")]
+         [(cons mangled-name mangled-names)
           (add-all-globals
-            (dict-set env var-name (global-value closure-name)) var-names closure-names)])]))
+            (dict-set env var-name (global-value mangled-name)) var-names mangled-names)])]))
 
   (define (add-type-definitions-functions/top [env : (Dict Bytes VarReference)] [mod : Module])
     : (Dict Bytes VarReference)

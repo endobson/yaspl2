@@ -266,10 +266,11 @@ yaspl_bootstrap_library(
   name = "source-to-intermediate-language",
   srcs = ["source-to-intermediate-language.yaspl"],
   deps = [
+    ":dict",
+    ":free-variables",
     ":intermediate-language",
     ":source-language",
     ":tuples",
-    ":free-variables",
   ]
 )
 
