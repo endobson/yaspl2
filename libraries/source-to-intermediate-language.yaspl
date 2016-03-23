@@ -1,8 +1,8 @@
 (module source-to-intermediate-language
   (import
     (prim
-      #:types (Bytes)
-      #:values (panic)
+      #:types (Byte Bytes)
+      #:values (+)
       #:patterns ())
     (bytes bytes-append bytes=?)
     (list
@@ -21,6 +21,7 @@
       #:types (Set)
       #:values (set->list)
       #:patterns ())
+    (numbers integer->decimal-bytes)
     (tuples
       #:types (Tuple2)
       #:values (tuple2)
@@ -61,7 +62,7 @@
     (define-type Environment
       (environment))
     (define-type State
-      (state [funcs (List i:FunctionDefinition)])))
+      (state [funcs (List i:FunctionDefinition)] [counter Byte])))
 
   (define (source->intermediate [mod : Module]) : i:Module
     (case mod
@@ -75,7 +76,7 @@
            (convert-function-definitions
              definitions
              (environment)
-             (state (empty))))
+             (state (empty) 0)))
          (create-closures definitions (empty)))]))
 
   (define (create-closures
@@ -154,14 +155,18 @@
        (let ([fv (free-variables body)])
          (case (convert-expression body env acc)
            [(tuple2 ibody acc)
-            ;; TODO use a real type
-            (tuple2
-              (i:create-closure-expr (i:local-var-expr #"closure-name") (empty))
-              (add-function
-                (i:function-definition
-                  #"closure-name" (var-pre-type #"bogus")
-                  (map parse-arg args+tys) (set->list fv) ibody)
-                acc))]))]
+            (case (get-next-index acc)
+              [(tuple2 index acc)
+               (let ([closure-name
+                       (bytes-append (cons #"lambda-" (cons (integer->decimal-bytes index) (empty))))])
+                 ;; TODO use a real type
+                 (tuple2
+                   (i:create-closure-expr (i:local-var-expr closure-name) (empty))
+                   (add-function
+                     (i:function-definition
+                       closure-name (var-pre-type #"bogus")
+                       (map parse-arg args+tys) (set->list fv) ibody)
+                     acc)))])]))]
       [(app-expr op args)
        (case (convert-expression op env acc)
          [(tuple2 iop acc)
@@ -213,5 +218,10 @@
 
   (define (add-function [func : i:FunctionDefinition] [acc : State]) : State
     (case acc
-      [(state funcs)
-       (state (cons func funcs))])))
+      [(state funcs counter)
+       (state (cons func funcs) counter)]))
+
+  (define (get-next-index [acc : State]) : (Tuple2 Byte State)
+    (case acc
+      [(state funcs counter)
+       (tuple2 counter (state funcs (+ 1 counter)))])))

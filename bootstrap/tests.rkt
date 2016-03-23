@@ -569,6 +569,16 @@
               ((lambda () 0))))"
         #:exit-code 0)
 
+      (compiler-test #:mod 'compiler
+        #"(module main
+            (import)
+            (export)
+            (types)
+            (define (main) : Byte
+              (((lambda () (lambda () 0))))))"
+        #:exit-code 0)
+
+
 
       )))
 
