@@ -31,9 +31,9 @@
       #:patterns ())
     (environment
       #:types (Environment VariantInfo VarReference)
-      #:values (environment global-value local-var variant-info
-                            environment-tag-ref environment-value-ref environment-value-set)
-      #:patterns (local-var global-value))
+      #:values (environment global-value local-var free-var variant-info
+                environment-tag-ref environment-value-ref environment-value-set)
+      #:patterns (local-var global-value free-var))
     (intermediate-to-module-signature
       #:types (ModuleSignature)
       #:values (module->module-signature 
@@ -49,7 +49,7 @@
                 alloc-variant-cmd dup-cmd variant-ref-cmd variant-switch no-catch-all-case
                 dup-temporary catch-all-case variant-case pop-cmd boolean-lit-cmd
                 variant-ref var-slot swap-cmd assert-stack-equal? add-bytes-cmp add-byte-cmp
-                make-varargs-array function-tlo trivial-closure-tlo)
+                make-varargs-array function-tlo trivial-closure-tlo load-free-var)
       #:patterns (gen-state tmp-slot var-slot))
     (source-language
       #:types (Module FunctionDefinition Imports Import TypeDefinition VariantDefinition
@@ -388,6 +388,13 @@
       [(empty) env]
       [(cons name names) (add-all-locals (environment-value-set env name (local-var)) names)]))
 
+  (define (add-all-free-vars [env : Environment] [names : (List Bytes)] [index : Byte])
+    : Environment
+    (case names
+      [(empty) env]
+      [(cons name names)
+       (add-all-free-vars (environment-value-set env name (free-var index)) names (+ 1 index))]))
+
 
   (define (compile-type-definitions [imod : i:Module]) : (List TopLevelObject)
     (case imod
@@ -543,7 +550,7 @@
             [fun : i:FunctionDefinition]
             [env : Environment]) : TopLevelObject
     (case fun
-      [(i:function-definition name pre-type arg-names _ body)
+      [(i:function-definition name pre-type arg-names free-vars body)
        (function-tlo
          (stack-function
            (mangle-name (bytes-append (varargs list mod-name #"_" name)))
@@ -551,7 +558,7 @@
            ;; variables.
            (case (compile-expression
                    body
-                   (add-all-locals env arg-names)
+                   (add-all-free-vars (add-all-locals env arg-names) free-vars 0)
                    (gen-state (initial-variables arg-names) (empty-jl) 0 (empty-jl)))
              [(gen-state _ cmds label blocks)
               (jl->list
@@ -587,6 +594,8 @@
       [(local-var-expr v)
        (case (environment-value-ref env v)
          [(just (local-var)) (variable-ref v state)]
+         [(just (free-var offset))
+          (load-free-var offset state)]
          [(just (global-value n))
           (load-global n state)]
          [(nothing) (panic (bytes-append (cons #"Unbound variable: " (cons v (empty)))))])]
