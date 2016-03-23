@@ -273,7 +273,7 @@
           (match (hash-ref type-env def-name)
             [(fun-ty type-vars arg-types result-type)
              (let ([values (foldl (λ (k v h) (hash-set h k v)) type-env args arg-types)])
-               ((type-check/env (binding-env values inductive-signatures pattern-env type-env))
+               ((type-check/env (binding-env values inductive-signatures pattern-env type-name-env))
                 body result-type))])]))
 
      ;; TODO limit this to only exported values not types
@@ -547,20 +547,28 @@
     [(lambda& (list (list args arg-pre-types) ...) body)
      (cond
        [(unknown-ty? type)
+        (define arg-types
+          (for/list ([pre-type (in-list arg-pre-types)])
+            ((parse-type/env (binding-env-types env)) pre-type)))
         (fun-ty
           empty
-          (for/list ([pre-type (in-list arg-pre-types)])
-            (parse-type/env pre-type (binding-env-types env)))
-          (type-infer body))]
+          arg-types
+          (let ([env (for/fold ([env env]) ([arg (in-list args)] [arg-type arg-types])
+                       (binding-env-value-set env arg arg-type))])
+            ((type-check/env env) body (unknown-ty))))]
        [else
         (match type
           [(fun-ty (list) arg-types body-type)
+           (define documented-arg-types
+             (for/list ([pre-type (in-list arg-pre-types)])
+               (parse-type/env pre-type (binding-env-types env))))
            (check
              (fun-ty
                empty
-               (for/list ([pre-type (in-list arg-pre-types)])
-                 (parse-type/env pre-type (binding-env-types env)))
-               (type-check body body-type)))]
+               documented-arg-types
+               (let ([env (for/fold ([env env]) ([arg (in-list args)] [arg-type documented-arg-types])
+                            (binding-env-value-set env arg arg-type))])
+                 ((type-check/env env) body body-type))))]
           [(fun-ty (list) arg-types body-type)
            (error 'typecheck "Expected a polymorphic function: got a lambda expression")]
           [_

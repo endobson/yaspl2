@@ -203,7 +203,7 @@
        (for/fold ([env env]) ([name (in-list arg-names)] [id (in-list ids)])
          (hash-set env name id)))
 
-     `(,#'lambda (,@ids) ,(compile-expr pat-env env body))]
+     `(,#'lambda (,@ids) ,(compile-expr pat-env new-env body))]
     [(case& expr clauses)
      (define match-clauses
        (for/list ([clause (in-list clauses)])
