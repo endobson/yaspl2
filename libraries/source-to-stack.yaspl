@@ -70,6 +70,8 @@
       #:values ((module-name i:module-name)
                 (module-closures i:module-closures)
                 (module-definitions i:module-definitions)
+                (module-types i:module-types)
+                (function-definition-name i:function-definition-name)
                 closure-constant-name)
       #:patterns ((module i:module)
                   (function-definition i:function-definition)
@@ -87,7 +89,7 @@
   (define (compile-module [mod : Module] [sigs : (List ModuleSignature)]) :
     (Either Bytes CompiledModule)
     (let ([imod (source->intermediate mod)])
-      (case (make-global-env mod imod sigs)
+      (case (make-global-env imod sigs)
         [(left v) (left v)]
         [(right env)
          (right
@@ -100,15 +102,15 @@
              (module->module-signature imod env)))])))
 
 
-  (define (make-global-env [mod : Module] [imod : i:Module] [sigs : (List ModuleSignature)])
+  (define (make-global-env [imod : i:Module] [sigs : (List ModuleSignature)])
     : (Either Bytes Environment)
     (case (add-all-imported-patterns
             (add-type-definitions-variant-infos/top
-              (initial-variant-bindings) mod)
-            mod sigs)
+              (initial-variant-bindings) imod)
+            imod sigs)
       [(left v) (left v)]
       [(right pattern-env)
-       (case (setup-value-environment mod imod sigs)
+       (case (setup-value-environment imod sigs)
          [(left v) (left v)]
          [(right value-env)
           (right
@@ -116,7 +118,7 @@
               value-env
               pattern-env))])]))
 
-  (define (setup-value-environment [mod : Module] [imod : i:Module] [sigs : (List ModuleSignature)])
+  (define (setup-value-environment [imod : i:Module] [sigs : (List ModuleSignature)])
     : (Either Bytes (Dict Bytes VarReference))
     (add-all-imported-functions
       (add-type-definitions-functions/top
@@ -124,9 +126,9 @@
           (add-locally-defined-closures
             (initial-value-bindings)
             imod)
-          mod)
-        mod)
-      mod sigs))
+          imod)
+        imod)
+      imod sigs))
 
 
   (define (initial-value-bindings) : (Dict Bytes VarReference)
@@ -138,10 +140,10 @@
 
   (define (add-all-imported-patterns
             [env : (Dict Bytes VariantInfo)]
-            [mod : Module]
+            [imod : i:Module]
             [sigs : (List ModuleSignature)]) : (Either Bytes (Dict Bytes VariantInfo))
-    (case mod
-      [(module _ imports _ _ _)
+    (case imod
+      [(i:module _ imports _ _ _ _)
        (add-all-imports/patterns env imports sigs)]))
 
   (define (add-all-imports/patterns
@@ -183,10 +185,10 @@
 
   (define (add-all-imported-functions
             [env : (Dict Bytes VarReference)]
-            [mod : Module]
+            [imod : i:Module]
             [sigs : (List ModuleSignature)]) : (Either Bytes (Dict Bytes VarReference))
-    (case mod
-      [(module _ imports _ _ _)
+    (case imod
+      [(i:module _ imports _ _ _ _)
        (add-all-imports env imports sigs)]))
 
   (define (add-all-imports
@@ -231,16 +233,16 @@
            (right sig)
            (lookup-module-signature mod-name sigs))]))
 
-  (define (add-locally-defined-functions [env : (Dict Bytes VarReference)] [mod : Module])
+  (define (add-locally-defined-functions [env : (Dict Bytes VarReference)] [imod : i:Module])
     : (Dict Bytes VarReference)
-    (let ([var-names (map function-definition-name (module-definitions mod))])
-      (let ([mangled-names (get-mangled-names (module-name mod) (module-definitions mod))])
+    (let ([var-names (map i:function-definition-name (i:module-definitions imod))])
+      (let ([mangled-names (get-mangled-names (i:module-name imod) (i:module-definitions imod))])
         (add-all-globals env var-names mangled-names))))
 
-  (define (get-mangled-names [mod-name : Bytes] [funs : (List FunctionDefinition)]) : (List Bytes)
+  (define (get-mangled-names [mod-name : Bytes] [funs : (List i:FunctionDefinition)]) : (List Bytes)
     (case funs
       [(empty) (empty)]
-      [(cons (function-definition name _ _ _) funs)
+      [(cons (i:function-definition name _ _ _ _) funs)
        (cons
          (mangle-name (bytes-append (varargs list mod-name #"_" name)))
          (get-mangled-names mod-name funs))]))
@@ -273,9 +275,9 @@
           (add-all-globals
             (dict-set env var-name (global-value mangled-name)) var-names mangled-names)])]))
 
-  (define (add-type-definitions-functions/top [env : (Dict Bytes VarReference)] [mod : Module])
+  (define (add-type-definitions-functions/top [env : (Dict Bytes VarReference)] [imod : i:Module])
     : (Dict Bytes VarReference)
-    (add-type-definitions-functions env (module-name mod) (module-types mod)))
+    (add-type-definitions-functions env (i:module-name imod) (i:module-types imod)))
 
   (define (add-type-definitions-functions
             [env : (Dict Bytes VarReference)]
@@ -353,9 +355,9 @@
          variant-name
          fields)]))
 
-  (define (add-type-definitions-variant-infos/top [env : (Dict Bytes VariantInfo)] [mod : Module])
+  (define (add-type-definitions-variant-infos/top [env : (Dict Bytes VariantInfo)] [imod : i:Module])
     : (Dict Bytes VariantInfo)
-    (add-type-definitions-variant-infos env (module-types mod)))
+    (add-type-definitions-variant-infos env (i:module-types imod)))
 
   (define (add-type-definitions-variant-infos
             [env : (Dict Bytes VariantInfo)]
@@ -388,8 +390,8 @@
       [(cons name names) (add-all-locals (environment-value-set env name (local-var)) names)]))
 
 
-  (define (compile-type-definitions [mod : i:Module]) : (List TopLevelObject)
-    (case mod
+  (define (compile-type-definitions [imod : i:Module]) : (List TopLevelObject)
+    (case imod
       [(i:module name _ _ types _ _)
        (compile-type-definitions/list name types (empty))]))
 
@@ -508,8 +510,8 @@
           (- args 1)
           (cons (dup-cmd (* 2 args)) cmds))))
 
-  (define (compile-closures [mod : i:Module]) : (List TopLevelObject)
-    (compile-closures/list (i:module-name mod) (i:module-closures mod)))
+  (define (compile-closures [imod : i:Module]) : (List TopLevelObject)
+    (compile-closures/list (i:module-name imod) (i:module-closures imod)))
 
   (define (compile-closures/list
             [mod-name : Bytes]
@@ -524,8 +526,8 @@
            (mangle-name (bytes-append (varargs list mod-name #"_" fun-name))))
          (compile-closures/list mod-name pairs))]))
 
-  (define (compile-function-definitions [mod : i:Module] [env : Environment]) : (List TopLevelObject)
-    (compile-function-definitions/list (i:module-name mod) (i:module-definitions mod) env))
+  (define (compile-function-definitions [imod : i:Module] [env : Environment]) : (List TopLevelObject)
+    (compile-function-definitions/list (i:module-name imod) (i:module-definitions imod) env))
 
   (define (compile-function-definitions/list
             [mod-name : Bytes]
