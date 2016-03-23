@@ -591,6 +591,18 @@
         #:exit-code 3)
 
 
+      (compiler-test #:mod 'compiler
+        #"(module main
+            (import (prim +))
+            (export)
+            (types)
+            (define (main) : Byte
+              (let ([x 3])
+                (let ([f (lambda ([a : Byte]) (+ a x))])
+                  (f 1)))))"
+        #:exit-code 4)
+
+
 
       )))
 
