@@ -46,7 +46,7 @@ yaspl_bootstrap_library(
     ":prim-implementation",
     ":sexp-parser",
     ":source-language",
-    ":source-to-stack",
+    ":intermediate-to-stack",
     ":stack-machine",
     ":stack-machine-optimizer",
     ":tuples",
@@ -166,7 +166,7 @@ yaspl_library(
     ":prim-implementation",
     ":sexp-parser",
     ":source-language",
-    ":source-to-stack",
+    ":intermediate-to-stack",
     ":stack-machine-optimizer",
     ":stack-machine",
     ":tuples",
@@ -208,7 +208,7 @@ yaspl_bootstrap_library(
     ":prim-implementation",
     ":sexp-parser",
     ":source-language",
-    ":source-to-stack",
+    ":intermediate-to-stack",
     ":stack-machine",
     ":tuples",
  ]
@@ -295,8 +295,8 @@ yaspl_bootstrap_library(
 
 
 yaspl_bootstrap_library(
-  name = "source-to-stack",
-  srcs = ["source-to-stack.yaspl"],
+  name = "intermediate-to-stack",
+  srcs = ["intermediate-to-stack.yaspl"],
   deps = [
     ":bytes",
     ":dict",
@@ -336,10 +336,12 @@ yaspl_bootstrap_library(
   name = "validator",
   srcs = ["validator.yaspl"],
   deps = [
+    ":bytes",
+    ":dict",
     ":list",
     ":maybe",
     ":source-language",
-    ":source-to-stack",
+    ":intermediate-to-module-signature",
     ":tuples",
   ]
 )
