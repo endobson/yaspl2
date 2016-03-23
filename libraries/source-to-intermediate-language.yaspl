@@ -59,7 +59,9 @@
   (export source->intermediate)
   (types
     (define-type Environment
-      (environment)))
+      (environment))
+    (define-type State
+      (state [funcs (List i:FunctionDefinition)])))
 
   (define (source->intermediate [mod : Module]) : i:Module
     (case mod
@@ -69,10 +71,11 @@
          imports
          exports
          types
-         (convert-function-definitions
-           definitions
-           (environment)
-           (empty))
+         (state-funcs
+           (convert-function-definitions
+             definitions
+             (environment)
+             (state (empty))))
          (create-closures definitions (empty)))]))
 
   (define (create-closures
@@ -88,7 +91,7 @@
   (define (convert-function-definitions
             [funs : (List FunctionDefinition)]
             [env : Environment]
-            [acc : (List i:FunctionDefinition)]) : (List i:FunctionDefinition)
+            [acc : State]) : State
     (case funs
       [(empty) acc]
       [(cons fun funs)
@@ -97,24 +100,27 @@
   (define (convert-function-definition
             [fun : FunctionDefinition]
             [env : Environment]
-            [acc : (List i:FunctionDefinition)])
-    : (List i:FunctionDefinition)
+            [acc : State])
+    : State
     (case fun
       [(function-definition name type args body)
        (case (convert-expression body env acc)
          [(tuple2 i:body acc)
-          (cons
-            (i:function-definition
-              (bytes-append (varargs list name #"-code"))
-              type args (empty) i:body)
-            acc)])]))
+          (case acc
+            [(state funcs)
+             (state
+               (cons
+                 (i:function-definition
+                   (bytes-append (varargs list name #"-code"))
+                   type args (empty) i:body)
+                 funcs))])])]))
 
   (define (parse-arg [arg+ty : (Tuple2 Bytes PreType)]) : Bytes
     (case arg+ty
       [(tuple2 arg ty) arg]))
 
-  (define (convert-expression [expr : Expression] [env : Environment] [acc : (List i:FunctionDefinition)])
-    : (Tuple2 i:Expression (List i:FunctionDefinition))
+  (define (convert-expression [expr : Expression] [env : Environment] [acc : State])
+    : (Tuple2 i:Expression State)
     (case expr
       [(byte-literal v) (tuple2 (i:byte-literal v) acc)]
       [(bytes-literal v) (tuple2 (i:bytes-literal v) acc)]
@@ -154,11 +160,14 @@
             ;; TODO use a real type
             (tuple2
               (i:create-closure-expr (i:local-var-expr #"closure-name") (empty))
-              (cons
-                (i:function-definition
-                  #"closure-name" (var-pre-type #"bogus")
-                  (map parse-arg args+tys) (set->list fv) ibody)
-                acc))]))]
+              (case acc
+                [(state funcs)
+                 (state
+                   (cons
+                     (i:function-definition
+                       #"closure-name" (var-pre-type #"bogus")
+                       (map parse-arg args+tys) (set->list fv) ibody)
+                     funcs))]))]))]
       [(app-expr op args)
        (case (convert-expression op env acc)
          [(tuple2 iop acc)
@@ -172,8 +181,8 @@
             [(tuple2 iargs acc)
              (tuple2 (i:varargs-call-closure-expr iop iargs) acc)])])]))
 
-  (define (convert-clause [clause : CaseClause] [env : Environment] [acc : (List i:FunctionDefinition)])
-    : (Tuple2 i:CaseClause (List i:FunctionDefinition))
+  (define (convert-clause [clause : CaseClause] [env : Environment] [acc : State])
+    : (Tuple2 i:CaseClause State)
     (case clause
       [(case-clause pat expr)
        (case (convert-expression expr env acc)
@@ -183,8 +192,8 @@
   (define (convert-expressions
             [exprs : (List Expression)]
             [env : Environment]
-            [acc : (List i:FunctionDefinition)])
-    : (Tuple2 (List i:Expression) (List i:FunctionDefinition))
+            [acc : State])
+    : (Tuple2 (List i:Expression) State)
     (case exprs
       [(empty) (tuple2 (empty) acc)]
       [(cons e es)
@@ -197,8 +206,8 @@
   (define (convert-clauses
             [clauses : (List CaseClause)]
             [env : Environment]
-            [acc : (List i:FunctionDefinition)])
-    : (Tuple2 (List i:CaseClause) (List i:FunctionDefinition))
+            [acc : State])
+    : (Tuple2 (List i:CaseClause) State)
     (case clauses
       [(empty) (tuple2 (empty) acc)]
       [(cons c cs)
