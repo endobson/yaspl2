@@ -276,8 +276,8 @@ yaspl_bootstrap_library(
 
 
 yaspl_bootstrap_library(
-  name = "source-to-module-signature",
-  srcs = ["source-to-module-signature.yaspl"],
+  name = "intermediate-to-module-signature",
+  srcs = ["intermediate-to-module-signature.yaspl"],
   deps = [
     ":bytes",
     ":dict",
@@ -302,12 +302,12 @@ yaspl_bootstrap_library(
     ":dict",
     ":either",
     ":environment",
+    ":intermediate-to-module-signature",
     ":join-list",
     ":list",
     ":maybe",
     ":source-language",
     ":source-to-intermediate-language",
-    ":source-to-module-signature",
     ":stack-machine",
     ":tuples",
   ]
