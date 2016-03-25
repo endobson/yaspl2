@@ -56,6 +56,12 @@
     (get-output-bytes stdout)
     (get-output-bytes stderr)))
 
+(define define-sym (datum->syntax #'define 'define))
+(define app-sym (datum->syntax #'#%app '#%app))
+(define list-ref-sym (datum->syntax #'list-ref 'list-ref))
+(define variant-val-sym (datum->syntax #'variant-val 'variant-val))
+(define variant-val-fields-sym (datum->syntax #'variant-val-fields 'variant-val-fields))
+
 (define (compile-modules modules)
   (define (make-primitive-environment)
     (hash-copy
@@ -92,14 +98,14 @@
             (hash-set! local-pattern-env variant-name variant-name)
 
             (cons
-              #`(define (#,constructor-id . vs) (variant-val '#,variant-name vs))
+              `(,define-sym (,constructor-id . vs) (,app-sym ,variant-val-sym ',variant-name vs))
               (for/list ([field (variant&-fields variant)] [index (in-naturals)])
                 (define field-name (variant-field&-name field))
                 (define field-id (generate-temporary field-name))
                 (hash-set! local-env
                   (string->symbol (format "~a-~a" variant-name field-name))
                   field-id)
-                #`(define (#,field-id v) (list-ref (variant-val-fields v) '#,index)))))))
+                `(,define-sym (,field-id v) (,app-sym ,list-ref-sym (,app-sym ,variant-val-fields-sym v) ',index)))))))
 
 
       (for ([(name _) (in-hash (module&-definitions module))])
@@ -114,7 +120,7 @@
           (match def
             [(definition& _ args body)
              (define temporaries (generate-temporaries args))
-             `(,#'define (,(hash-ref local-env name) ,@temporaries)
+             `(,define-sym (,(hash-ref local-env name) ,@temporaries)
                  ,(compile-expr
                       immutable-local-pattern-env
                       (for/fold ([env immutable-local-env])
@@ -127,7 +133,7 @@
         (define local-val (hash-ref local-env in-name #f))
         (when local-val
           (hash-set! global-env (full-name (module&-name module) out-name) local-val)))
-      (append (flatten variant-defs) function-defs)))
+      (append (append* (append* variant-defs)) function-defs)))
   (values
     (append* definitions)
     global-env))
@@ -155,13 +161,13 @@
          (if (identifier? compiled-expr)
              (values empty compiled-expr)
              (values
-               (list `[,v-id ,compiled-expr])
+               (list `[(,v-id) ,compiled-expr])
                v-id))))
      (define flattened-bindings (append* bindings))
 
      (if (empty? flattened-bindings)
-         `(,@ids)
-         `(,#'let (,@flattened-bindings) (,#'#%app ,@ids)))]
+         `(,#'#%app ,@ids)
+         `(,#'let-values (,@flattened-bindings) (,#'#%app ,@ids)))]
     [(varargs-app& op args)
      (match-define (cons op-id arg-ids) (generate-temporaries (cons op args)))
 
@@ -183,7 +189,7 @@
             (,#'#%app ,(first ids) (,#'#%app ,#'array-val (,#'#%app ,#'vector ,@(rest ids))))))]
 
     [(if& cond true false)
-     `(,#'if ,#`(boolean-val-v #,(compile-expr pat-env env cond))
+     `(,#'if ,`(,#'boolean-val-v ,(compile-expr pat-env env cond))
            ,(compile-expr pat-env env true)
            ,(compile-expr pat-env env false))]
     [(begin& first-expr exprs)
