@@ -153,42 +153,16 @@
     [(variable& v)
      (hash-ref env v (lambda () (error 'compile-expr "Unbound variables ~a" v)))]
     [(app& op args)
-     (match-define (cons op-id arg-ids) (generate-temporaries (cons op args)))
-
-     (define-values (bindings ids)
-       (for/lists (bindings ids)
-                  ([v (in-list (cons op args))]
-                   [v-id (in-list (cons op-id arg-ids))])
-         (define compiled-expr (compile-expr pat-env env v))
-         (if (identifier? compiled-expr)
-             (values empty compiled-expr)
-             (values
-               (list `[(,v-id) ,compiled-expr])
-               v-id))))
-     (define flattened-bindings (append* bindings))
-
-     (if (empty? flattened-bindings)
-         `(,#'#%app ,@ids)
-         `(,#'let-values (,@flattened-bindings) (,#'#%app ,@ids)))]
+     `(,#'#%app
+       ,@(for/list ([v (in-list (cons op args))])
+           (compile-expr pat-env env v)))]
     [(varargs-app& op args)
-     (match-define (cons op-id arg-ids) (generate-temporaries (cons op args)))
-
-     (define-values (bindings ids)
-       (for/lists (bindings ids)
-                  ([v (in-list (cons op args))]
-                   [v-id (in-list (cons op-id arg-ids))])
-         (define compiled-expr (compile-expr pat-env env v))
-         (if (identifier? compiled-expr)
-             (values empty compiled-expr)
-             (values
-               (list `[,v-id ,compiled-expr])
-               v-id))))
-     (define flattened-bindings (append* bindings))
-
-     (if (empty? flattened-bindings)
-         `(,@ids)
-         `(,#'let (,@flattened-bindings)
-            (,#'#%app ,(first ids) (,#'#%app ,#'array-val (,#'#%app ,#'vector ,@(rest ids))))))]
+     `(,#'#%app
+        ,(compile-expr pat-env env op)
+        (,#'#%app ,#'array-val
+                  (,#'#%app ,#'vector
+                            ,@(for/list ([arg (in-list args)])
+                                (compile-expr pat-env env arg)))))]
 
     [(if& cond true false)
      `(,#'if ,`(,#'boolean-val-v ,(compile-expr pat-env env cond))
