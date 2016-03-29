@@ -49,13 +49,11 @@
          (list))]
 
       [(abstraction-pattern& pattern-binding pats)
-       (define val-id #'foobar)
-
        (define fields-list (map convert* pats))
        (define field-temps (generate-temporaries pats))
        (let-values
          ([(form vars)
-           (let loop ([fields-list fields-list] [field-temps field-temps] [vars empty])
+           (let loop ([fields-list fields-list] [field-temps field-temps] [i 0] [vars empty])
              (if (empty? fields-list)
                  (values
                    #`(sk #,@(map cdr vars))
@@ -63,19 +61,19 @@
                  (match (first fields-list)
                    [(pat-fields matcher-id bindings new-vars)
                     (let-values ([(form full-vars)
-                                  (loop (rest fields-list) (rest field-temps) (append new-vars vars))])
+                                  (loop (rest fields-list) (rest field-temps) (add1 i) (append new-vars vars))])
                       (values
-                        #`(#,matcher-id #,(first field-temps) (lambda (#,@(map cdr new-vars)) #,form) fk)
+                        #`(#,matcher-id
+                           (unsafe-car
+                             #,(for/fold ([expr #'(variant-val-fields v)]) ([_ (in-range i)])
+                                 #`(unsafe-cdr #,expr)))
+                           (lambda (#,@(map cdr new-vars)) #,form)
+                           fk)
                         full-vars))])))])
          (define matcher
            #`(lambda (v sk fk)
                (if (equal? (variant-val-variant-name v) '#,(hash-ref pat-env pattern-binding))
-                   (let ([fields (variant-val-fields v)])
-                     ((lambda (#,@field-temps) #,form)
-                      #,@(for/list ([(_ i) (in-indexed (in-list field-temps))])
-                          #`(unsafe-car
-                              #,(for/fold ([expr #'fields]) ([_ (in-range i)])
-                                  #`(unsafe-cdr #,expr))))))
+                   #,form
                    (fk))))
          (define matcher-id (generate-temporary))
          (pat-fields

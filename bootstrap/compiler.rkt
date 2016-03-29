@@ -58,7 +58,7 @@
     (get-output-bytes stderr)))
 
 (define define-sym (datum->syntax #'define 'define))
-(define app-sym (datum->syntax #'#%app '#%app))
+(define app-sym (datum->syntax #'#%plain-app '#%plain-app))
 (define lambda-sym (datum->syntax #'lambda 'lambda))
 (define list-ref-sym (datum->syntax #'list-ref 'list-ref))
 (define variant-val-sym (datum->syntax #'variant-val 'variant-val))
