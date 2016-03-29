@@ -6,6 +6,7 @@
   "primitives.rkt"
   "utils.rkt"
   "topo-sort.rkt"
+  "simple-match.rkt"
   racket/list
   racket/syntax
   racket/set
@@ -58,6 +59,7 @@
 
 (define define-sym (datum->syntax #'define 'define))
 (define app-sym (datum->syntax #'#%app '#%app))
+(define lambda-sym (datum->syntax #'lambda 'lambda))
 (define list-ref-sym (datum->syntax #'list-ref 'list-ref))
 (define variant-val-sym (datum->syntax #'variant-val 'variant-val))
 (define variant-val-fields-sym (datum->syntax #'variant-val-fields 'variant-val-fields))
@@ -149,7 +151,7 @@
     [(boolean& v)
      `(,#'boolean-val ',v)]
     [(variable& v)
-     (hash-ref env v)]
+     (hash-ref env v (lambda () (error 'compile-expr "Unbound variables ~a" v)))]
     [(app& op args)
      (match-define (cons op-id arg-ids) (generate-temporaries (cons op args)))
 
@@ -210,6 +212,18 @@
          (hash-set env name id)))
 
      `(,#'lambda (,@ids) ,(compile-expr pat-env new-env body))]
+    [(case& expr clauses)
+     (define form
+       (for/fold ([form #'(error 'end-of-case)]) ([clause (in-list (reverse clauses))])
+         (match-define (case-clause& pattern expr) clause)
+         (let-values ([(triple-function vars env) (compile-pattern/simple-match pattern pat-env env)])
+           (define body (compile-expr pat-env env expr))
+            #`(#,app-sym #,triple-function
+                 val
+                 (#,lambda-sym (#,@vars) #,body)
+                 (#,lambda-sym () #,form)))))
+       #`(let ([val #,(compile-expr pat-env env expr)]) #,form)]
+    #;
     [(case& expr clauses)
      (define match-clauses
        (for/list ([clause (in-list clauses)])
