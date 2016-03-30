@@ -34,11 +34,13 @@ racket_library(
   ]
 )
 
-# TODO fix this to have a dep
 racket_library(
   name = "parser",
   srcs = [
     "parser.rkt"
+  ],
+  deps = [
+    ":parser-structs"
   ]
 )
 

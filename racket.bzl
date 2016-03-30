@@ -68,9 +68,12 @@ def _lib_impl(ctx):
     fail("Source file must match rule name", "srcs")
 
 
+  gen_rkt = ctx.new_file("%s.gen.rkt" % ctx.label.name)
+
+
   ctx.template_action(
     template=ctx.files.srcs[0],
-    output=ctx.outputs.gen_rkt,
+    output=gen_rkt,
     substitutions={}
   )
 
@@ -81,14 +84,14 @@ def _lib_impl(ctx):
       "-l", "compiler/compiler",
       "-e",
       "((compile-zos #f #:module? #t)" +
-      " (list \"%s\")" % ctx.outputs.gen_rkt.path +
+      " (list \"%s\")" % gen_rkt.path +
       " \"%s\"" % ctx.outputs.zo.dirname + ")",
       "-e",
       "(rename-file-or-directory " +
       "  \"%s\"" % ctx.outputs.zo.path.replace("_rkt.zo", ".gen_rkt.zo") +
       "  \"%s\")" % ctx.outputs.zo.path
     ],
-    inputs=[ctx.files.srcs[0], ctx.outputs.gen_rkt],
+    inputs=[ctx.files.srcs[0], gen_rkt] + ctx.files.deps,
     outputs=[ctx.outputs.zo],
   )
 
@@ -113,6 +116,27 @@ _base_racket_attrs = {
   ),
 }
 
+_racket_lib_attrs = {
+  "srcs": attr.label_list(
+    allow_files=racket_src_file_type,
+    mandatory=True,
+    non_empty=True
+  ),
+  "data": attr.label_list(
+    allow_files=True,
+    cfg=DATA_CFG
+  ),
+  "deps": attr.label_list(),
+  "_lib_deps": attr.label(default=Label("@minimal_racket//osx/v6.4:racket-src-osx")),
+  "_rackunit_deps": attr.label(default=Label("@minimal_racket//osx/v6.4:rackunit")),
+  "_racket_deps": attr.label(
+    default=Label("@minimal_racket//osx/v6.4:bin/racket"),
+    executable=True,
+    allow_files=True
+  ),
+}
+
+
 
 racket_test = rule(
   implementation=_bin_impl,
@@ -131,7 +155,6 @@ racket_library = rule(
   implementation=_lib_impl,
   outputs = {
     "zo": "compiled/%{name}_rkt.zo",
-    "gen_rkt": "%{name}.gen.rkt",
   },
-  attrs = _base_racket_attrs
+  attrs = _racket_lib_attrs
 )
