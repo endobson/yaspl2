@@ -4,15 +4,13 @@ package(
 )
 
 racket_test(
-  name = "tests_rkt",
-  srcs = [
-    "tests.rkt",
-  ],
+  name = "tests_test",
+  main_module = ":tests.rkt",
   data = [
     "//libraries:compiler_library_files",
     "//tests:files"
   ],
-  deps = glob(["*.rkt"]),
+  deps = [":tests"],
 )
 
 racket_binary(
