@@ -64,9 +64,15 @@ def _lib_impl(ctx):
   src_name = ctx.files.srcs[0].basename
   if (not(src_name.endswith(".rkt"))):
     fail("Source file must end in .rkt", "srcs")
-  if (not(src_name.rstrip(".rkt") == ctx.label.name)):
+  if (not(src_name.rpartition(".rkt")[0] == ctx.label.name)):
     fail("Source file must match rule name", "srcs")
 
+
+  ctx.template_action(
+    template=ctx.files.srcs[0],
+    output=ctx.outputs.gen_rkt,
+    substitutions={}
+  )
 
   ctx.action(
     executable=ctx.files._racket_deps[0],
@@ -75,10 +81,14 @@ def _lib_impl(ctx):
       "-l", "compiler/compiler",
       "-e",
       "((compile-zos #f #:module? #t)" +
-      " (list \"%s\")" % ctx.files.srcs[0].path +
-      " \"%s\"" % ctx.outputs.zo.dirname + ")"
+      " (list \"%s\")" % ctx.outputs.gen_rkt.path +
+      " \"%s\"" % ctx.outputs.zo.dirname + ")",
+      "-e",
+      "(rename-file-or-directory " +
+      "  \"%s\"" % ctx.outputs.zo.path.replace("_rkt.zo", ".gen_rkt.zo") +
+      "  \"%s\")" % ctx.outputs.zo.path
     ],
-    inputs=[ctx.files.srcs[0]],
+    inputs=[ctx.files.srcs[0], ctx.outputs.gen_rkt],
     outputs=[ctx.outputs.zo],
   )
 
@@ -121,6 +131,7 @@ racket_library = rule(
   implementation=_lib_impl,
   outputs = {
     "zo": "compiled/%{name}_rkt.zo",
+    "gen_rkt": "%{name}.gen.rkt",
   },
   attrs = _base_racket_attrs
 )
