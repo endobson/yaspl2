@@ -52,6 +52,127 @@ racket_library(
   ]
 )
 
+racket_library(
+  name = "signature-structs",
+  srcs = [
+    "signature-structs.rkt"
+  ]
+)
+
+racket_library(
+  name = "primitives",
+  srcs = [
+    "primitives.rkt"
+  ],
+  deps = [
+    ":machine-structs",
+    ":type-structs",
+    ":signature-structs",
+  ]
+)
+
+racket_library(
+  name = "simple-match",
+  srcs = [
+    "simple-match.rkt"
+  ],
+  deps = [
+    ":machine-structs",
+    ":parser-structs",
+  ]
+)
+
+racket_library(
+  name = "validator",
+  srcs = [
+    "validator.rkt"
+  ],
+  deps = [
+    ":parser-structs",
+    ":type-structs",
+    ":signature-structs",
+    ":utils",
+  ]
+)
+
+racket_library(
+  name = "interpreter",
+  srcs = [
+    "interpreter.rkt"
+  ],
+  deps = [
+    ":parser-structs",
+    ":machine-structs",
+    ":utils",
+    ":topo-sort",
+    ":primitives",
+  ]
+)
+
+racket_library(
+  name = "tests",
+  srcs = [
+    "tests.rkt"
+  ],
+  deps = [
+    ":interpreter",
+    ":libraries",
+    ":parser",
+  ]
+)
+
+racket_library(
+  name = "libraries",
+  srcs = [
+    "libraries.rkt"
+  ],
+  deps = [
+    ":interpreter",
+    ":parser",
+    ":validator",
+    ":primitives",
+  ]
+)
+
+
+racket_library(
+  name = "compiler",
+  srcs = [
+    "compiler.rkt"
+  ],
+  deps = [
+    ":machine-structs",
+    ":parser-structs",
+    ":primitives",
+    ":utils",
+    ":topo-sort",
+    ":simple-match",
+  ]
+)
+
+
+
+
+
+racket_library(
+  name = "topo-sort",
+  srcs = [
+    "topo-sort.rkt"
+  ],
+  deps = [
+    ":parser-structs",
+  ]
+)
+
+
+racket_library(
+  name = "utils",
+  srcs = [
+    "utils.rkt"
+  ]
+)
+
+
 
 racket_library(
   name = "type-structs",
@@ -61,37 +182,37 @@ racket_library(
 )
 
 genrule(
-  name = "gen_compiler",
+  name = "gen_bootstrap_compiler",
   tools = [":compiler-compiler"],
-  outs = ["compiler.s"],
+  outs = ["bootstrap_compiler.s"],
   cmd = "$(location :compiler-compiler) $@"
 )
 
 genrule(
-  name = "assemble_compiler",
-  srcs = ["compiler.s"],
-  outs = ["compiler.o"],
-  cmd = "as $(location compiler.s) -o $(location compiler.o)"
+  name = "assemble_bootstrap_compiler",
+  srcs = ["bootstrap_compiler.s"],
+  outs = ["bootstrap_compiler.o"],
+  cmd = "as $(location bootstrap_compiler.s) -o $(location bootstrap_compiler.o)"
 )
 
 
 genrule(
-  name = "link_compiler",
-  srcs = ["compiler.o"],
-  outs = ["compiler"],
+  name = "link_bootstrap_compiler",
+  srcs = ["bootstrap_compiler.o"],
+  outs = ["bootstrap_compiler"],
   executable = 1,
   output_to_bindir = 1,
   cmd = "ld -arch x86_64 " +
     "-macosx_version_min 10.11 " +
     "-static " +
-    "$(location compiler.o) -o $(location compiler)"
+    "$(location bootstrap_compiler.o) -o $(location bootstrap_compiler)"
 )
 
 sh_test(
   name = "compile-compiler-test",
   srcs = ["compile-compiler-test.sh"],
   data = [
-    ":compiler.s",
+    ":bootstrap_compiler.s",
     "//libraries:compiler.s"
   ],
 )
