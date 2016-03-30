@@ -14,14 +14,25 @@ racket_test(
 )
 
 racket_binary(
+  name = "compiler-compiler_bin",
+  main_module = 
+    ":compiler-compiler.rkt",
+  data = glob(["tests/*"]) + [
+    "//libraries:compiler_library_files"
+  ],
+  deps = [":compiler-compiler"],
+)
+
+
+racket_library(
   name = "compiler-compiler",
   srcs = [
     "compiler-compiler.rkt"
   ],
-  data = glob(["tests/*"]) + [
-    "//libraries:compiler_library_files"
-  ],
-  deps = glob(["*.rkt"]),
+  deps = [
+    ":compiler",
+    ":libraries"
+  ]
 )
 
 
@@ -181,9 +192,9 @@ racket_library(
 
 genrule(
   name = "gen_bootstrap_compiler",
-  tools = [":compiler-compiler"],
+  tools = [":compiler-compiler_bin"],
   outs = ["bootstrap_compiler.s"],
-  cmd = "$(location :compiler-compiler) $@"
+  cmd = "$(location :compiler-compiler_bin) $@"
 )
 
 genrule(
