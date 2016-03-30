@@ -58,6 +58,31 @@ def _bin_impl(ctx):
   return struct(runfiles=runfiles)
 
 
+def _lib_impl(ctx):
+  if (len(ctx.attr.srcs) != 1):
+    fail("Must supply exactly one source file: Got %s" % len(ctx.attr.srcs), "srcs")
+  src_name = ctx.files.srcs[0].basename
+  if (not(src_name.endswith(".rkt"))):
+    fail("Source file must end in .rkt", "srcs")
+  if (not(src_name.rstrip(".rkt") == ctx.label.name)):
+    fail("Source file must match rule name", "srcs")
+
+
+  ctx.action(
+    executable=ctx.files._racket_deps[0],
+    arguments = [
+      "-l", "racket/base",
+      "-l", "compiler/compiler",
+      "-e",
+      "((compile-zos #f #:module? #t)" +
+      " (list \"%s\")" % ctx.files.srcs[0].path +
+      " \"%s\"" % ctx.outputs.zo.dirname + ")"
+    ],
+    inputs=[ctx.files.srcs[0]],
+    outputs=[ctx.outputs.zo],
+  )
+
+
 _base_racket_attrs = {
   "srcs": attr.label_list(
     allow_files=racket_src_file_type,
@@ -89,5 +114,13 @@ racket_test = rule(
 racket_binary = rule(
   implementation=_bin_impl,
   executable=True,
+  attrs = _base_racket_attrs
+)
+
+racket_library = rule(
+  implementation=_lib_impl,
+  outputs = {
+    "zo": "compiled/%{name}_rkt.zo",
+  },
   attrs = _base_racket_attrs
 )

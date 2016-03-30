@@ -1,4 +1,4 @@
-load("//:racket.bzl", "racket_test", "racket_binary")
+load("//:racket.bzl", "racket_test", "racket_binary", "racket_library")
 package(
   default_visibility = ["//visibility:public"]
 )
@@ -25,6 +25,15 @@ racket_binary(
   ],
   deps = glob(["*.rkt"]),
 )
+
+
+racket_library(
+  name = "parser-structs",
+  srcs = [
+    "parser-structs.rkt"
+  ]
+)
+
 
 genrule(
   name = "gen_compiler",
