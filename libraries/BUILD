@@ -25,6 +25,13 @@ yaspl_binary(
   deps = [":print-stack-function_lib"]
 )
 
+yaspl_binary(
+  name = "send-udp-message",
+  main_module = "send_udp_message",
+  deps = [":send-udp-message_lib"]
+)
+
+
 yaspl_bootstrap_library(
   name = "bytes",
   srcs = ["bytes.yaspl"],
@@ -112,6 +119,12 @@ yaspl_bootstrap_library(
   ]
 )
 
+yaspl_library(
+  name = "ip",
+  srcs = ["ip.yaspl"],
+  deps = [],
+)
+
 yaspl_bootstrap_library(
   name = "join-list",
   srcs = ["join-list.yaspl"],
@@ -193,6 +206,15 @@ yaspl_test(
     ":list",
     ":maybe",
     ":regexp",
+  ]
+)
+
+
+yaspl_library(
+  name = "send-udp-message_lib",
+  srcs = ["send-udp-message.yaspl"],
+  deps = [
+    ":ip"
   ]
 )
 
