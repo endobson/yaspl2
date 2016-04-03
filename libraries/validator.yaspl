@@ -6,12 +6,16 @@
       #:patterns ())
     (tuples
       #:types (Tuple2)
-      #:values ()
+      #:values (tuple2)
       #:patterns (tuple2))
     (maybe
       #:types (Maybe)
       #:values (nothing just)
       #:patterns (nothing just))
+    (either
+      #:types (Either)
+      #:values (left right)
+      #:patterns (left right))
     (bytes bytes=? bytes-append bytes-copy!)
     (dict
       #:types (Dict)
@@ -38,24 +42,41 @@
   (types)
 
   (define (validate-module [mod : Module] [sig : (List ModuleSignature)]) : (Maybe Bytes)
-    (let ([free (free-variables/definitions
-                  (module-definitions mod) (module-environment mod) (make-dict bytes=?))])
+    (case (validate-module/duplicate-imports mod)
+      [(left v) (just v)]
+      [(right (tuple2 env pat-env))
+       (case (validate-module/free-variables mod env)
+         [(just v) (just v)]
+         [(nothing)
+          (validate-module/free-patterns mod pat-env)])]))
+
+
+  (define (validate-module/duplicate-imports [mod : Module])
+    : (Either Bytes (Tuple2 (Dict Bytes Void) (Dict Bytes Void)))
+    (right (tuple2 (module-environment mod) (module-pattern-environment mod))))
+
+
+
+  (define (validate-module/free-variables [mod : Module] [env : (Dict Bytes Void)]) : (Maybe Bytes)
+    (let ([free (free-variables/definitions (module-definitions mod) env (make-dict bytes=?))])
       (case (dict-keys free)
-        [(empty)
-         (let ([free-patterns
-                 (free-patterns/definitions
-                    (module-definitions mod) (module-pattern-environment mod) (make-dict bytes=?))])
-           (case (dict-keys free-patterns)
-             [(empty) (nothing)]
-             [keys
-               (let ([first-line
-                       (bytes-append
-                          (varargs list #"Unbound patterns in module " (module-name mod) #":"))])
-                 (just (bytes-append (map add-newline (cons first-line (map indent keys))))))]))]
+        [(empty) (nothing)]
         [keys
           (let ([first-line
                   (bytes-append
                      (varargs list #"Unbound variables in module " (module-name mod) #":"))])
+            (just (bytes-append (map add-newline (cons first-line (map indent keys))))))])))
+
+
+  (define (validate-module/free-patterns [mod : Module] [env : (Dict Bytes Void)]) : (Maybe Bytes)
+    (let ([free-patterns
+            (free-patterns/definitions (module-definitions mod) env (make-dict bytes=?))])
+      (case (dict-keys free-patterns)
+        [(empty) (nothing)]
+        [keys
+          (let ([first-line
+                  (bytes-append
+                     (varargs list #"Unbound patterns in module " (module-name mod) #":"))])
             (just (bytes-append (map add-newline (cons first-line (map indent keys))))))])))
 
   (define (add-newline [bytes : Bytes]) : Bytes
@@ -119,7 +140,7 @@
     (case variants
       [(empty) env]
       [(cons (variant-definition name _) variants)
-       (add-constructor-bindings/variants variants (dict-set env name (void)))]))
+       (add-constructor-bindings/variants variants (dict-add env name (void)))]))
 
 
   (define (add-accessor-bindings/variants [variants : (List VariantDefinition)] [env : (Dict Bytes Void)])
