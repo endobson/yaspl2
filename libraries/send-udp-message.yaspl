@@ -2,7 +2,8 @@
   (import
     (prim
       #:types (Array Bytes InputPort OutputPort OutputPort Void)
-      #:values (socket bind sendto recvfrom bytes-length make-bytes bytes-set! write-bytes)
+      #:values (socket bind sendto recvfrom bytes-length make-bytes bytes-set! write-bytes quotient
+                remainder = void)
       #:patterns ())
     (ip
       #:types ()
@@ -14,57 +15,71 @@
   (define (make-client-sock-addr) : Bytes
     (let ([bytes (make-bytes 16)])
       (let ([ip-addr (ipv4-address 127 0 0 1)])
-        (begin
-          (bytes-set! bytes 0 0)
-          (bytes-set! bytes 1 2) ;; Family: AF_INET
-          ;; Port 1026
-          (bytes-set! bytes 2 4) ;; Port big byte: 1024
-          (bytes-set! bytes 3 2) ;; Port little byte: 2
-          ;; IP addr = 0.0.0.0
-          (bytes-set! bytes 4 (ipv4-address-octet1 ip-addr))
-          (bytes-set! bytes 5 (ipv4-address-octet2 ip-addr))
-          (bytes-set! bytes 6 (ipv4-address-octet3 ip-addr))
-          (bytes-set! bytes 7 (ipv4-address-octet4 ip-addr))
-          ;; ZERO
-          (bytes-set! bytes  8 0)
-          (bytes-set! bytes  9 0)
-          (bytes-set! bytes 10 0)
-          (bytes-set! bytes 11 0)
-          (bytes-set! bytes 12 0)
-          (bytes-set! bytes 13 0)
-          (bytes-set! bytes 14 0)
-          (bytes-set! bytes 15 0)
-          bytes))))
+        (let ([port 1026])
+          (begin
+            (bytes-set! bytes 0 0)
+            (bytes-set! bytes 1 2) ;; Family: AF_INET
+            ;; Port 1026
+            (bytes-set! bytes 2 (quotient port 256))
+            (bytes-set! bytes 3 (remainder port 256))
+            ;; IP addr = 0.0.0.0
+            (bytes-set! bytes 4 (ipv4-address-octet1 ip-addr))
+            (bytes-set! bytes 5 (ipv4-address-octet2 ip-addr))
+            (bytes-set! bytes 6 (ipv4-address-octet3 ip-addr))
+            (bytes-set! bytes 7 (ipv4-address-octet4 ip-addr))
+            ;; ZERO
+            (bytes-set! bytes  8 0)
+            (bytes-set! bytes  9 0)
+            (bytes-set! bytes 10 0)
+            (bytes-set! bytes 11 0)
+            (bytes-set! bytes 12 0)
+            (bytes-set! bytes 13 0)
+            (bytes-set! bytes 14 0)
+            (bytes-set! bytes 15 0)
+            bytes)))))
 
 
   (define (make-server-sock-addr) : Bytes
     (let ([bytes (make-bytes 16)])
-      (begin
-        (bytes-set! bytes 0 0)
-        (bytes-set! bytes 1 2) ;; Family: AF_INET
-        ;; Port 1025
-        (bytes-set! bytes 2 4) ;; Port big byte: 1024
-        (bytes-set! bytes 3 1) ;; Port little byte: 1
-        ;; IP addr = 0.0.0.0
-        (bytes-set! bytes 4 0)
-        (bytes-set! bytes 5 0)
-        (bytes-set! bytes 6 0)
-        (bytes-set! bytes 7 0)
-        ;; ZERO
-        (bytes-set! bytes  8 0)
-        (bytes-set! bytes  9 0)
-        (bytes-set! bytes 10 0)
-        (bytes-set! bytes 11 0)
-        (bytes-set! bytes 12 0)
-        (bytes-set! bytes 13 0)
-        (bytes-set! bytes 14 0)
-        (bytes-set! bytes 15 0)
-        bytes)))
+      (let ([ip-addr (ipv4-address 127 0 0 1)])
+        (let ([port 1025])
+          (begin
+            (bytes-set! bytes 0 0)
+            (bytes-set! bytes 1 2) ;; Family: AF_INET
+            ;; Port 1025
+            (bytes-set! bytes 2 (quotient port 256))
+            (bytes-set! bytes 3 (remainder port 256))
+            ;; IP address
+            (bytes-set! bytes 4 (ipv4-address-octet1 ip-addr))
+            (bytes-set! bytes 5 (ipv4-address-octet2 ip-addr))
+            (bytes-set! bytes 6 (ipv4-address-octet3 ip-addr))
+            (bytes-set! bytes 7 (ipv4-address-octet4 ip-addr))
+            ;; ZERO
+            (bytes-set! bytes  8 0)
+            (bytes-set! bytes  9 0)
+            (bytes-set! bytes 10 0)
+            (bytes-set! bytes 11 0)
+            (bytes-set! bytes 12 0)
+            (bytes-set! bytes 13 0)
+            (bytes-set! bytes 14 0)
+            (bytes-set! bytes 15 0)
+            bytes)))))
 
   (define (make-blank-sock-addr) : Bytes
     (make-bytes 16))
 
-
+  (define (run-recv [sock : Byte] [stdout : OutputPort]) : Void
+    (let ([sock-addr (make-blank-sock-addr)])
+      (let ([buf (make-bytes 1024)])
+        (let ([len-buf (make-bytes 4)])
+          (begin
+            (bytes-set! len-buf 0 (bytes-length sock-addr))
+            (let ([len (recvfrom sock buf (bytes-length buf) 0 sock-addr len-buf)])
+              (if (= len 0)
+                  (void)
+                  (begin
+                    (write-bytes buf stdout 0 len)
+                    (run-recv sock stdout)))))))))
 
 
   (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Byte
@@ -76,11 +91,5 @@
         ;  (sendto sock #"cba" 3 0 sock-addr (bytes-length sock-addr)))
         ;(let ([sock-addr (make-server-sock-addr)])
         ;  (sendto sock #"dbf" 3 0 sock-addr (bytes-length sock-addr)))
-        (let ([sock-addr (make-blank-sock-addr)])
-          (let ([buf (make-bytes 10)])
-            (let ([len-buf (make-bytes 4)])
-              (begin
-                (bytes-set! len-buf 0 (bytes-length sock-addr))
-                (let ([len (recvfrom sock buf (bytes-length buf) 0 sock-addr len-buf)])
-                  (write-bytes buf stdout 0 len))))))
+        (run-recv sock stdout)
         0))))
