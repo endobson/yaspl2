@@ -2,7 +2,7 @@
   (import
     (prim
       #:types (Bytes Boolean Void)
-      #:values (panic void make-bytes bytes-set! bytes-length +)
+      #:values (panic void make-bytes bytes-set! bytes-length + >)
       #:patterns ())
     (tuples
       #:types (Tuple2)
@@ -23,7 +23,7 @@
       #:patterns ())
     (multi-set
       #:types (MultiSet)
-      #:values (make-multi-set multi-set-add multi-set-keys)
+      #:values (make-multi-set multi-set-add multi-set-keys multi-set-count)
       #:patterns ())
     (list
       #:types (List)
@@ -57,7 +57,44 @@
 
   (define (validate-module/duplicate-imports [mod : Module])
     : (Either Bytes (Tuple2 (Dict Bytes Void) (Dict Bytes Void)))
-    (right (tuple2 (module-environment mod) (module-pattern-environment mod))))
+    (let ([env (module-environment mod)])
+      (case (find-duplicates env)
+        [(empty)
+         (let ([pattern-env (module-pattern-environment mod)])
+           (case (find-duplicates pattern-env)
+             [(empty)
+              (right (tuple2 (multi-set->void-dict env) (multi-set->void-dict pattern-env)))]
+             [imports
+              (let ([first-line
+                      (bytes-append
+                         (varargs list #"Duplicate pattern imports in module " (module-name mod) #":"))])
+                (left (bytes-append (map add-newline (cons first-line (map indent imports))))))]))]
+        [imports
+         (let ([first-line
+                 (bytes-append
+                    (varargs list #"Duplicate imports in module " (module-name mod) #":"))])
+           (left (bytes-append (map add-newline (cons first-line (map indent imports))))))])))
+
+
+  (define (find-duplicates [ms : (MultiSet Bytes)]) : (List Bytes)
+    (find-duplicates/list (multi-set-keys ms) ms))
+
+  (define (find-duplicates/list [l : (List Bytes)] [ms : (MultiSet Bytes)]) : (List Bytes)
+    (case l
+      [(empty) (empty)]
+      [(cons e l)
+       (if (> (multi-set-count ms e) 1)
+         (cons e (find-duplicates/list l ms))
+         (find-duplicates/list l ms))]))
+
+  (define (multi-set->void-dict [ms : (MultiSet Bytes)]) : (Dict Bytes Void)
+    (list->void-dict (multi-set-keys ms) (make-dict bytes=?)))
+
+  (define (list->void-dict [l : (List Bytes)] [d : (Dict Bytes Void)]) : (Dict Bytes Void)
+    (case l
+      [(empty) d]
+      [(cons e l)
+       (list->void-dict l (dict-set d e (void)))]))
 
 
 
@@ -101,41 +138,31 @@
           new-bytes))))
 
 
-  (define (module-environment [mod : Module]) : (Dict Bytes Void)
+  (define (module-environment [mod : Module]) : (MultiSet Bytes)
     (case mod
       [(module _ imports _ types definitions)
        (add-importss-bindings imports
-         (add-constructor-bindings/types* types
+         (add-constructor-bindings/types types
            (add-accessor-bindings/types types
              (add-definitions-bindings definitions
-               (make-dict bytes=?)))))]))
+               (make-multi-set bytes=?)))))]))
 
-  (define (module-pattern-environment [mod : Module]) : (Dict Bytes Void)
+  (define (module-pattern-environment [mod : Module]) : (MultiSet Bytes)
     (case mod
       [(module _ imports _ types definitions)
-       (multi-set->void-dict
          (add-importss-pattern-bindings imports
            (add-constructor-bindings/types types
-             (make-multi-set bytes=?))))]))
+             (make-multi-set bytes=?)))]))
 
-  (define (multi-set->void-dict [ms : (MultiSet Bytes)]) : (Dict Bytes Void)
-    (list->void-dict (multi-set-keys ms) (make-dict bytes=?)))
-
-  (define (list->void-dict [l : (List Bytes)] [d : (Dict Bytes Void)]) : (Dict Bytes Void)
-    (case l
-      [(empty) d]
-      [(cons e l)
-       (list->void-dict l (dict-set d e (void)))]))
-
-  (define (add-definitions-bindings [defs : (List FunctionDefinition)] [env : (Dict Bytes Void)])
-    : (Dict Bytes Void)
+  (define (add-definitions-bindings [defs : (List FunctionDefinition)] [env : (MultiSet Bytes)])
+    : (MultiSet Bytes)
     (case defs
       [(empty) env]
       [(cons (function-definition name _ _ _) defs)
-       (add-definitions-bindings defs (dict-add env name (void)))]))
+       (add-definitions-bindings defs (multi-set-add env name))]))
 
-  (define (add-accessor-bindings/types [types : (List TypeDefinition)] [env : (Dict Bytes Void)])
-    : (Dict Bytes Void)
+  (define (add-accessor-bindings/types [types : (List TypeDefinition)] [env : (MultiSet Bytes)])
+    : (MultiSet Bytes)
     (case types
       [(empty) env]
       [(cons (type-definition name _ variants) types)
@@ -155,50 +182,29 @@
       [(cons (variant-definition name _) variants)
        (add-constructor-bindings/variants variants (multi-set-add env name))]))
 
-  (define (add-constructor-bindings/types* [types : (List TypeDefinition)] [env : (Dict Bytes Void)])
-    : (Dict Bytes Void)
-    (case types
-      [(empty) env]
-      [(cons (type-definition name _ variants) types)
-       (add-constructor-bindings/types* types (add-constructor-bindings/variants* variants env))]))
 
-
-  (define (add-constructor-bindings/variants* [variants : (List VariantDefinition)] [env : (Dict Bytes Void)])
-    : (Dict Bytes Void)
-    (case variants
-      [(empty) env]
-      [(cons (variant-definition name _) variants)
-       (add-constructor-bindings/variants* variants (dict-add env name (void)))]))
-
-
-  (define (add-accessor-bindings/variants [variants : (List VariantDefinition)] [env : (Dict Bytes Void)])
-    : (Dict Bytes Void)
+  (define (add-accessor-bindings/variants [variants : (List VariantDefinition)] [env : (MultiSet Bytes)])
+    : (MultiSet Bytes)
     (case variants
       [(empty) env]
       [(cons (variant-definition name fields) variants)
        (add-accessor-bindings/variants variants (add-variant-field-bindings name fields env))]))
 
-  (define (add-variant-field-bindings [variant : Bytes] [fields : (List VariantField)] [env : (Dict Bytes Void)])
-    : (Dict Bytes Void)
+  (define (add-variant-field-bindings [variant : Bytes]
+                                      [fields : (List VariantField)] [env : (MultiSet Bytes)])
+    : (MultiSet Bytes)
     (case fields
       [(empty) env]
       [(cons (variant-field name _) fields)
        (let ([acc-name (bytes-append (varargs list variant #"-" name))])
-         (add-variant-field-bindings variant fields (dict-add env acc-name (void))))]))
+         (add-variant-field-bindings variant fields (multi-set-add env acc-name)))]))
 
-  (define (add-importss-bindings [importss : (List Imports)] [env : (Dict Bytes Void)])
-    : (Dict Bytes Void)
+  (define (add-importss-bindings [importss : (List Imports)] [env : (MultiSet Bytes)])
+    : (MultiSet Bytes)
     (case importss
       [(empty) env]
       [(cons (imports _ _ values _) importss)
-       (add-importss-bindings importss (add-imports-bindings* values env))]))
-
-  (define (add-imports-bindings* [imports : (List Import)] [env : (Dict Bytes Void)])
-    : (Dict Bytes Void)
-    (case imports
-      [(empty) env]
-      [(cons (import _ name) imports)
-       (add-imports-bindings* imports (dict-add env name (void)))]))
+       (add-importss-bindings importss (add-imports-bindings values env))]))
 
   (define (add-importss-pattern-bindings [importss : (List Imports)] [env : (MultiSet Bytes)])
     : (MultiSet Bytes)
