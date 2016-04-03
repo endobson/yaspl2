@@ -153,6 +153,15 @@ yaspl_bootstrap_library(
 )
 
 yaspl_bootstrap_library(
+  name = "multi-set",
+  srcs = ["multi-set.yaspl"],
+  deps = [
+    ":dict",
+  ]
+)
+
+
+yaspl_bootstrap_library(
   name = "numbers",
   srcs = ["numbers.yaspl"],
 )
