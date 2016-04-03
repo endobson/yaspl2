@@ -21,6 +21,10 @@
       #:types (Dict)
       #:values (dict-set dict-add dict-ref make-dict dict-keys)
       #:patterns ())
+    (multi-set
+      #:types (MultiSet)
+      #:values (make-multi-set multi-set-add multi-set-keys)
+      #:patterns ())
     (list
       #:types (List)
       #:values (cons empty list map)
@@ -101,7 +105,7 @@
     (case mod
       [(module _ imports _ types definitions)
        (add-importss-bindings imports
-         (add-constructor-bindings/types types
+         (add-constructor-bindings/types* types
            (add-accessor-bindings/types types
              (add-definitions-bindings definitions
                (make-dict bytes=?)))))]))
@@ -109,10 +113,19 @@
   (define (module-pattern-environment [mod : Module]) : (Dict Bytes Void)
     (case mod
       [(module _ imports _ types definitions)
-       (add-importss-pattern-bindings imports
-         (add-constructor-bindings/types types
-           (make-dict bytes=?))) ]))
+       (multi-set->void-dict
+         (add-importss-pattern-bindings imports
+           (add-constructor-bindings/types types
+             (make-multi-set bytes=?))))]))
 
+  (define (multi-set->void-dict [ms : (MultiSet Bytes)]) : (Dict Bytes Void)
+    (list->void-dict (multi-set-keys ms) (make-dict bytes=?)))
+
+  (define (list->void-dict [l : (List Bytes)] [d : (Dict Bytes Void)]) : (Dict Bytes Void)
+    (case l
+      [(empty) d]
+      [(cons e l)
+       (list->void-dict l (dict-set d e (void)))]))
 
   (define (add-definitions-bindings [defs : (List FunctionDefinition)] [env : (Dict Bytes Void)])
     : (Dict Bytes Void)
@@ -128,19 +141,34 @@
       [(cons (type-definition name _ variants) types)
        (add-accessor-bindings/types types (add-accessor-bindings/variants variants env))]))
 
-  (define (add-constructor-bindings/types [types : (List TypeDefinition)] [env : (Dict Bytes Void)])
-    : (Dict Bytes Void)
+  (define (add-constructor-bindings/types [types : (List TypeDefinition)] [env : (MultiSet Bytes)])
+    : (MultiSet Bytes)
     (case types
       [(empty) env]
       [(cons (type-definition name _ variants) types)
        (add-constructor-bindings/types types (add-constructor-bindings/variants variants env))]))
 
-  (define (add-constructor-bindings/variants [variants : (List VariantDefinition)] [env : (Dict Bytes Void)])
+  (define (add-constructor-bindings/variants [variants : (List VariantDefinition)] [env : (MultiSet Bytes)])
+    : (MultiSet Bytes)
+    (case variants
+      [(empty) env]
+      [(cons (variant-definition name _) variants)
+       (add-constructor-bindings/variants variants (multi-set-add env name))]))
+
+  (define (add-constructor-bindings/types* [types : (List TypeDefinition)] [env : (Dict Bytes Void)])
+    : (Dict Bytes Void)
+    (case types
+      [(empty) env]
+      [(cons (type-definition name _ variants) types)
+       (add-constructor-bindings/types* types (add-constructor-bindings/variants* variants env))]))
+
+
+  (define (add-constructor-bindings/variants* [variants : (List VariantDefinition)] [env : (Dict Bytes Void)])
     : (Dict Bytes Void)
     (case variants
       [(empty) env]
       [(cons (variant-definition name _) variants)
-       (add-constructor-bindings/variants variants (dict-add env name (void)))]))
+       (add-constructor-bindings/variants* variants (dict-add env name (void)))]))
 
 
   (define (add-accessor-bindings/variants [variants : (List VariantDefinition)] [env : (Dict Bytes Void)])
@@ -163,22 +191,29 @@
     (case importss
       [(empty) env]
       [(cons (imports _ _ values _) importss)
-       (add-importss-bindings importss (add-imports-bindings values env))]))
+       (add-importss-bindings importss (add-imports-bindings* values env))]))
 
-  (define (add-imports-bindings [imports : (List Import)] [env : (Dict Bytes Void)])
+  (define (add-imports-bindings* [imports : (List Import)] [env : (Dict Bytes Void)])
     : (Dict Bytes Void)
     (case imports
       [(empty) env]
       [(cons (import _ name) imports)
-       (add-imports-bindings imports (dict-add env name (void)))]))
+       (add-imports-bindings* imports (dict-add env name (void)))]))
 
-  (define (add-importss-pattern-bindings [importss : (List Imports)] [env : (Dict Bytes Void)])
-    : (Dict Bytes Void)
+  (define (add-importss-pattern-bindings [importss : (List Imports)] [env : (MultiSet Bytes)])
+    : (MultiSet Bytes)
     (case importss
       [(empty) env]
       [(cons (imports _ _ _ patterns) importss)
        (add-importss-pattern-bindings importss (add-imports-bindings patterns env))]))
 
+
+  (define (add-imports-bindings [imports : (List Import)] [env : (MultiSet Bytes)])
+    : (MultiSet Bytes)
+    (case imports
+      [(empty) env]
+      [(cons (import _ name) imports)
+       (add-imports-bindings imports (multi-set-add env name))]))
 
   (define (free-variables/definitions
             [defs : (List FunctionDefinition)]

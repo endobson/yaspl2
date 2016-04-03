@@ -561,14 +561,15 @@
           [(fun-ty (list) arg-types body-type)
            (define documented-arg-types
              (for/list ([pre-type (in-list arg-pre-types)])
-               (parse-type/env pre-type (binding-env-types env))))
+               ((parse-type/env (binding-env-types env)) pre-type)))
            (check
              (fun-ty
                empty
                documented-arg-types
                (let ([env (for/fold ([env env]) ([arg (in-list args)] [arg-type documented-arg-types])
                             (binding-env-value-set env arg arg-type))])
-                 ((type-check/env env) body body-type))))]
+                 ((type-check/env env) body body-type)
+                 body-type)))]
           [(fun-ty (list) arg-types body-type)
            (error 'typecheck "Expected a polymorphic function: got a lambda expression")]
           [_

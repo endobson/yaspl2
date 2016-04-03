@@ -371,6 +371,7 @@ yaspl_bootstrap_library(
     ":dict",
     ":list",
     ":maybe",
+    ":multi-set",
     ":source-language",
     ":intermediate-to-module-signature",
     ":tuples",
