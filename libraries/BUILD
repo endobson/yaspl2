@@ -122,7 +122,11 @@ yaspl_bootstrap_library(
 yaspl_library(
   name = "ip",
   srcs = ["ip.yaspl"],
-  deps = [],
+  deps = [
+    ":numbers",
+    ":bytes",
+    ":list",
+  ],
 )
 
 yaspl_bootstrap_library(
@@ -223,6 +227,7 @@ yaspl_library(
   name = "send-udp-message_lib",
   srcs = ["send-udp-message.yaspl"],
   deps = [
+    ":io",
     ":ip",
     ":udp",
     ":tuples",
