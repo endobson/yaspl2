@@ -14,7 +14,7 @@
       #:types (List)
       #:values (empty cons append map list)
       #:patterns (empty cons))
-    (dict make-dict dict-set dict-add-all)
+    (dict make-dict dict-add-all)
     (tuples tuple2)
     (bytes bytes=? bytes-append make-null-terminated)
     (source-language
@@ -114,14 +114,15 @@
       [(trivial-closure-tlo _ _)
        tlo]))
 
-  (define (extract-modules [vals : (List (Either Bytes Module))] [stderr : OutputPort]) : (List Module)
+  (define (extract-modules [vals : (List (Either Bytes Module))]) : (Either Bytes (List Module))
     (case vals
-      [(empty) (empty)]
-      [(cons (right v) vals) (cons v (extract-modules vals stderr))]
+      [(empty) (right (empty))]
+      [(cons (right v) vals)
+       (case (extract-modules vals)
+         [(right vs) (right (cons v vs))]
+         [(left v) (left v)])]
       [(cons (left v) _)
-       (begin
-         (write-line v stderr)
-         (panic #""))]))
+       (left v)]))
 
   (define (extract-sexps [either : (Either Bytes (List Sexp))] [stderr : OutputPort]) : (List Sexp)
     (case either
@@ -153,23 +154,28 @@
             (begin
               (let ([output (open-output-file (make-null-terminated (array-ref args 1)))])
                 (begin
-                  (case (compile-modules
-                          (extract-modules
-                            (map parse-module
-                              (extract-sexps
-                                (parse-sexps (bytes-append (read-module-files 3 args)))
-                                stderr))
-                            stderr)
-                          (cons (prim-signature) (empty))
-                          (prim-implementation))
+                  (case (extract-modules
+                          (map parse-module
+                            (extract-sexps
+                              (parse-sexps (bytes-append (read-module-files 3 args)))
+                              stderr)))
                     [(left v)
                      (begin
                        (write-line v stderr)
                        (panic #""))]
-                    [(right code)
-                     (compile-stack-machine
-                       (bytes-append (varargs list (array-ref args 2) #"_main"))
-                       code
-                       output)])
+                    [(right modules)
+                     (case (compile-modules
+                             modules
+                             (cons (prim-signature) (empty))
+                             (prim-implementation))
+                       [(left v)
+                        (begin
+                          (write-line v stderr)
+                          (panic #""))]
+                       [(right code)
+                        (compile-stack-machine
+                          (bytes-append (varargs list (array-ref args 2) #"_main"))
+                          code
+                          output)])])
                   (close-output-port output)))
               0)))))
