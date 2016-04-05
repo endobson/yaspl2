@@ -26,9 +26,9 @@ yaspl_binary(
 )
 
 yaspl_binary(
-  name = "send-udp-message",
-  main_module = "send_udp_message",
-  deps = [":send-udp-message_lib"]
+  name = "udp-echo-server",
+  main_module = "udp_echo_server",
+  deps = [":udp-echo-server_lib"]
 )
 
 
@@ -223,16 +223,6 @@ yaspl_test(
 )
 
 
-yaspl_library(
-  name = "send-udp-message_lib",
-  srcs = ["send-udp-message.yaspl"],
-  deps = [
-    ":io",
-    ":ip",
-    ":udp",
-    ":tuples",
-  ]
-)
 
 yaspl_bootstrap_library(
   name = "stack-machine-optimizer",
@@ -375,6 +365,17 @@ yaspl_library(
   srcs = ["udp.yaspl"],
   deps = [
     ":ip",
+    ":tuples",
+  ]
+)
+
+yaspl_library(
+  name = "udp-echo-server_lib",
+  srcs = ["udp-echo-server.yaspl"],
+  deps = [
+    ":io",
+    ":ip",
+    ":udp",
     ":tuples",
   ]
 )
