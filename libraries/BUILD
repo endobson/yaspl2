@@ -26,6 +26,12 @@ yaspl_binary(
 )
 
 yaspl_binary(
+  name = "tcp-echo-server",
+  main_module = "tcp_echo_server",
+  deps = [":tcp-echo-server_lib"]
+)
+
+yaspl_binary(
   name = "udp-echo-server",
   main_module = "udp_echo_server",
   deps = [":udp-echo-server_lib"]
@@ -353,6 +359,15 @@ yaspl_bootstrap_library(
     ":sexp-parser",
     ":tuples",
   ],
+)
+
+yaspl_library(
+  name = "tcp-echo-server_lib",
+  srcs = ["tcp-echo-server.yaspl"],
+  deps = [
+    ":io",
+    ":ip",
+  ]
 )
 
 yaspl_bootstrap_library(
