@@ -2,10 +2,14 @@
   (import
     (prim
       #:types (Array Bytes InputPort OutputPort OutputPort Void)
-      #:values (socket sendto shutdown make-bytes bytes-set! write-bytes quotient
-                remainder = void connect bytes-length)
+      #:values (socket sendto bind shutdown listen accept make-bytes bytes-set! write-bytes quotient
+                remainder = void connect bytes-length + * bytes-ref setsockopt)
       #:patterns ())
     (io write-line read-all-bytes write-all-bytes)
+    (tuples
+      #:types (Tuple2)
+      #:values (tuple2)
+      #:patterns (tuple2))
     (ip
       #:types (Ipv4Address)
       #:values (ipv4-address ipv4-address-octet1 ipv4-address-octet2 ipv4-address-octet3 ipv4-address-octet4
@@ -42,18 +46,39 @@
            (bytes-set! bytes 15 0)
            bytes)])))
 
+  (define (tcp-socket-bind [sock : Byte] [address : TcpAddress]) : Void
+    (let ([sock-addr (make-sock-addr address)])
+      (bind sock sock-addr (bytes-length sock-addr))))
+
+  (define (tcp-socket-accept [sock : Byte]) : (Tuple2 Byte (TcpAddress))
+    (let ([sock-addr (make-bytes 16)])
+      (let ([len-buf (make-bytes 4)])
+        (begin
+          (bytes-set! len-buf 0 (bytes-length sock-addr))
+          (let ([new-sock (accept sock sock-addr len-buf)])
+            (let ([ip (ipv4-address
+                        (bytes-ref sock-addr 4)
+                        (bytes-ref sock-addr 5)
+                        (bytes-ref sock-addr 6)
+                        (bytes-ref sock-addr 7))])
+              (let ([port (+ (* 256 (bytes-ref sock-addr 2)) (bytes-ref sock-addr 3))])
+                (tuple2 new-sock (tcp-address ip port)))))))))
+
+
 
   (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Byte
     (let ([sock (socket 2 1 0)])
-      (let ([sock-addr (make-sock-addr (tcp-address (ipv4-address 127 0 0 1) 1026))])
+      (let ([address (tcp-address (ipv4-address 127 0 0 1) 1026)])
         (begin
-          (write-line #"1" stdout)
-          (connect sock sock-addr (bytes-length sock-addr))
-          (write-line #"2" stdout)
-          (write-line #"Hello world" sock)
-          (write-line #"3" stdout)
-          (shutdown sock 1)
-          (write-line #"4" stdout)
-          (write-all-bytes (read-all-bytes sock) stdout)
-          (write-line #"5" stdout)
-          0)))))
+          (let ([buf (make-bytes 4)])
+            (begin
+              (bytes-set! buf 0 255)
+              (setsockopt sock 65535 512 buf 4)))
+          (tcp-socket-bind sock address)
+          (listen sock 5)
+          (case (tcp-socket-accept sock)
+            [(tuple2 new-sock new-sock-addr)
+             (begin
+;               (shutdown new-sock 1)
+               (write-all-bytes (read-all-bytes new-sock) stdout)
+               0)]))))))

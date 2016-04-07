@@ -367,6 +367,7 @@ yaspl_library(
   deps = [
     ":io",
     ":ip",
+    ":tuples",
   ]
 )
 
