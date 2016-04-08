@@ -213,6 +213,7 @@ yaspl_library(
   deps = [
     ":list",
     ":maybe",
+    ":tuples",
   ]
 )
 

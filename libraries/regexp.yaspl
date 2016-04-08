@@ -4,6 +4,10 @@
       #:types ()
       #:values (bytes-length = + >= bytes-ref array-ref make-array)
       #:patterns ())
+    (tuples
+      #:types (Tuple2)
+      #:values (tuple2)
+      #:patterns (tuple2))
     (maybe
       #:types ()
       #:values (just nothing)
@@ -23,12 +27,17 @@
       (alt-regexp [l Regexp] [r Regexp])
       (rep-regexp [v Regexp])
       (group-regexp [v Regexp]))
+    (define-type GroupState
+      (group-state
+        [open (List Byte)]
+        [closed (List (Tuple2 Byte Byte))]))
     (define-type RegexpCommand
       (match-command [regexp Regexp]))
     (define-type RegexpMatcherState
       (regexp-matcher-state
         [b Bytes]
         [index Byte]
+        [groups GroupState]
         [current (List RegexpCommand)]
         [other (Maybe RegexpMatcherState)]))
     (define-type RegexpMatcherResult
@@ -43,7 +52,7 @@
     (regexp-match-full?/inner (initial-state r b) (bytes-length b)))
 
   (define (initial-state [r : Regexp] [b : Bytes]) : RegexpMatcherState
-    (regexp-matcher-state b 0 (cons (match-command r) (empty)) (nothing)))
+    (regexp-matcher-state b 0 (group-state (empty) (empty)) (cons (match-command r) (empty)) (nothing)))
 
 
   (define (regexp-match-full?/inner [s : RegexpMatcherState] [l : Byte]) : Boolean
@@ -58,23 +67,23 @@
 
   (define (run-regexp-match [s : RegexpMatcherState]) : (Maybe RegexpMatcherResult)
     (case s
-      [(regexp-matcher-state _ i (empty) other)
+      [(regexp-matcher-state _ i _ (empty) other)
        (just (regexp-matcher-result i other))]
-      [(regexp-matcher-state b i (cons (match-command r) rs) other)
+      [(regexp-matcher-state b i gs (cons (match-command r) rs) other)
        (case r
          [(empty-regexp)
           (case other
             [(nothing) (nothing)]
             [(just state) (run-regexp-match state)])]
          [(epsilon-regexp)
-          (run-regexp-match (regexp-matcher-state b i rs other))]
+          (run-regexp-match (regexp-matcher-state b i gs rs other))]
          [(bitmask-regexp v)
           (if (>= i (bytes-length b))
               (case other
                 [(nothing) (nothing)]
                 [(just state) (run-regexp-match state)])
               (if (array-ref v (bytes-ref b i))
-                  (run-regexp-match (regexp-matcher-state b (+ 1 i) rs other))
+                  (run-regexp-match (regexp-matcher-state b (+ 1 i) gs rs other))
                   (case other
                     [(nothing) (nothing)]
                     [(just state) (run-regexp-match state)])))]
@@ -84,22 +93,22 @@
                 [(nothing) (nothing)]
                 [(just state) (run-regexp-match state)])
               (if (= (bytes-ref b i) v)
-                  (run-regexp-match (regexp-matcher-state b (+ 1 i) rs other))
+                  (run-regexp-match (regexp-matcher-state b (+ 1 i) gs rs other))
                   (case other
                     [(nothing) (nothing)]
                     [(just state) (run-regexp-match state)])))]
          [(seq-regexp l r)
           (run-regexp-match
-            (regexp-matcher-state b i (cons (match-command l) (cons (match-command r) rs)) other))]
+            (regexp-matcher-state b i gs (cons (match-command l) (cons (match-command r) rs)) other))]
          [(alt-regexp l r)
           (run-regexp-match
             (regexp-matcher-state
-              b i (cons l rs)
-              (just (regexp-matcher-state b i (cons (match-command r) rs) other))))]
+              b i gs (cons l rs)
+              (just (regexp-matcher-state b i gs (cons (match-command r) rs) other))))]
          [(rep-regexp r)
           (run-regexp-match
             (regexp-matcher-state
-              b i (cons r (cons (rep-regexp r) rs))
-              (just (regexp-matcher-state b i rs other))))]
+              b i gs (cons r (cons (rep-regexp r) rs))
+              (just (regexp-matcher-state b i gs rs other))))]
          [(group-regexp r)
-          (run-regexp-match (regexp-matcher-state b i (cons (match-command r) rs) other))])])))
+          (run-regexp-match (regexp-matcher-state b i gs (cons (match-command r) rs) other))])])))
