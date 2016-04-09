@@ -4,6 +4,7 @@
       #:types ()
       #:values (bytes-length = + >= bytes-ref array-ref make-array panic)
       #:patterns ())
+    (bytes subbytes)
     (tuples
       #:types (Tuple2)
       #:values (tuple2)
@@ -14,7 +15,7 @@
       #:patterns (just nothing))
     (list
       #:types ()
-      #:values (cons empty)
+      #:values (cons empty map)
       #:patterns (cons empty)))
   (export regexp-match? empty-regexp epsilon-regexp any-regexp lit-regexp group-regexp
           alt-regexp rep-regexp)
@@ -45,32 +46,44 @@
     (define-type RegexpMatcherResult
       (regexp-matcher-result
         [index Byte]
+        [groups (List Bytes)]
         [other (Maybe RegexpMatcherState)])))
 
   (define (any-regexp) : Regexp
     (bitmask-regexp (make-array 128 #t)))
 
   (define (regexp-match? [r : Regexp] [b : Bytes]) : Boolean
-    (regexp-match-full?/inner (initial-state r b) (bytes-length b)))
+    (case (regexp-match-full/inner (initial-state r b) (bytes-length b))
+      [(nothing) #f]
+      [(just _) #t]))
+
+  (define (regexp-match [r : Regexp] [b : Bytes]) : (Maybe (List Bytes))
+    (regexp-match-full/inner (initial-state r b) (bytes-length b)))
+
 
   (define (initial-state [r : Regexp] [b : Bytes]) : RegexpMatcherState
     (regexp-matcher-state b 0 (group-state (empty) (empty)) (cons (match-command r) (empty)) (nothing)))
 
 
-  (define (regexp-match-full?/inner [s : RegexpMatcherState] [l : Byte]) : Boolean
+  (define (regexp-match-full/inner [s : RegexpMatcherState] [l : Byte]) : (Maybe (List Bytes))
     (case (run-regexp-match s)
-      [(just (regexp-matcher-result i other))
+      [(just (regexp-matcher-result i _ other))
        (if (= i l)
-           #t
+           (just #t)
            (case other
-             [(nothing) #f]
-             [(just state) (regexp-match-full?/inner state l)]))]
-      [(nothing) #f]))
+             [(nothing) (nothing)]
+             [(just state) (regexp-match-full/inner state l)]))]
+      [(nothing) (nothing)]))
+
+  (define (run-extractions [b : Bytes] [groups : (List (Tuple2 Byte Byte))]) : (List Bytes)
+    (map (lambda ([group : (Tuple2 Byte Byte)])
+           (case group
+             [(tuple2 start end) (subbytes b start end)])) groups))
 
   (define (run-regexp-match [s : RegexpMatcherState]) : (Maybe RegexpMatcherResult)
     (case s
-      [(regexp-matcher-state _ i _ (empty) other)
-       (just (regexp-matcher-result i other))]
+      [(regexp-matcher-state b i (group-state _ closed-groups) (empty) other)
+       (just (regexp-matcher-result i (cons (subbytes b 0 i) (run-extractions b closed-groups)) other))]
       [(regexp-matcher-state b i (group-state open-groups closed-groups) (cons (close-group-command) rs) other)
        (run-regexp-match
          (case open-groups
