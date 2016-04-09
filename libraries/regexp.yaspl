@@ -2,7 +2,7 @@
   (import
     (prim
       #:types ()
-      #:values (bytes-length = + >= bytes-ref array-ref make-array panic)
+      #:values (bytes-length = + >= bytes-ref array-ref array-set! make-array panic)
       #:patterns ())
     (bytes subbytes)
     (tuples
@@ -15,10 +15,10 @@
       #:patterns (just nothing))
     (list
       #:types ()
-      #:values (cons empty map)
+      #:values (cons empty map reverse)
       #:patterns (cons empty)))
   (export regexp-match? empty-regexp epsilon-regexp any-regexp lit-regexp group-regexp
-          alt-regexp rep-regexp)
+          alt-regexp rep-regexp regexp-match seq-regexp digit-regexp)
   (types
     (define-type Regexp
       (empty-regexp)
@@ -52,6 +52,22 @@
   (define (any-regexp) : Regexp
     (bitmask-regexp (make-array 128 #t)))
 
+  (define (digit-regexp) : Regexp
+    (let ([array (make-array 128 #f)])
+      (begin
+        (array-set! array 48 #t)
+        (array-set! array 49 #t)
+        (array-set! array 50 #t)
+        (array-set! array 51 #t)
+        (array-set! array 52 #t)
+        (array-set! array 53 #t)
+        (array-set! array 54 #t)
+        (array-set! array 55 #t)
+        (array-set! array 56 #t)
+        (array-set! array 57 #t)
+        (bitmask-regexp array))))
+
+
   (define (regexp-match? [r : Regexp] [b : Bytes]) : Boolean
     (case (regexp-match-full/inner (initial-state r b) (bytes-length b))
       [(nothing) #f]
@@ -67,9 +83,9 @@
 
   (define (regexp-match-full/inner [s : RegexpMatcherState] [l : Byte]) : (Maybe (List Bytes))
     (case (run-regexp-match s)
-      [(just (regexp-matcher-result i _ other))
+      [(just (regexp-matcher-result i groups other))
        (if (= i l)
-           (just #t)
+           (just groups)
            (case other
              [(nothing) (nothing)]
              [(just state) (regexp-match-full/inner state l)]))]
@@ -82,8 +98,12 @@
 
   (define (run-regexp-match [s : RegexpMatcherState]) : (Maybe RegexpMatcherResult)
     (case s
-      [(regexp-matcher-state b i (group-state _ closed-groups) (empty) other)
-       (just (regexp-matcher-result i (cons (subbytes b 0 i) (run-extractions b closed-groups)) other))]
+      [(regexp-matcher-state b i (group-state open-groups closed-groups) (empty) other)
+       (case open-groups
+         [(empty)
+          (just (regexp-matcher-result
+                  i (cons (subbytes b 0 i) (run-extractions b (reverse closed-groups))) other))]
+         [_ (panic #"Groups don't match up correctly")])]
       [(regexp-matcher-state b i (group-state open-groups closed-groups) (cons (close-group-command) rs) other)
        (run-regexp-match
          (case open-groups

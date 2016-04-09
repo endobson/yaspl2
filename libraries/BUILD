@@ -129,9 +129,10 @@ yaspl_library(
   name = "ip",
   srcs = ["ip.yaspl"],
   deps = [
-    ":numbers",
     ":bytes",
     ":list",
+    ":numbers",
+    ":regexp",
   ],
 )
 
