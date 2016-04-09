@@ -3,9 +3,14 @@
     (prim
       #:types (Array Bytes InputPort OutputPort OutputPort Void)
       #:values (socket sendto bind shutdown listen accept make-bytes bytes-set! write-bytes quotient
-                remainder = void connect bytes-length + * bytes-ref setsockopt)
+                remainder = void connect bytes-length + * bytes-ref setsockopt array-length array-ref)
       #:patterns ())
     (io write-line read-all-bytes write-all-bytes)
+    (numbers decimal-bytes->integer)
+    (maybe
+      #:types (Maybe)
+      #:values (just nothing)
+      #:patterns (just nothing))
     (tuples
       #:types (Tuple2)
       #:values (tuple2)
@@ -13,7 +18,7 @@
     (ip
       #:types (Ipv4Address)
       #:values (ipv4-address ipv4-address-octet1 ipv4-address-octet2 ipv4-address-octet3 ipv4-address-octet4
-                ipv4-address->bytes)
+                ipv4-address->bytes bytes->ipv4-address)
       #:patterns ()))
   (export)
   (types
@@ -67,18 +72,28 @@
 
 
   (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Byte
-    (let ([sock (socket 2 1 0)])
-      (let ([address (tcp-address (ipv4-address 127 0 0 1) 1026)])
+    (if (= (array-length args) 3)
+        (case (bytes->ipv4-address (array-ref args 1))
+          [(just ip-addr)
+           (let ([address (tcp-address ip-addr (decimal-bytes->integer (array-ref args 2)))])
+             (let ([sock (socket 2 1 0)])
+               (begin
+                 (let ([buf (make-bytes 4)])
+                   (begin
+                     (bytes-set! buf 0 255)
+                     (setsockopt sock 65535 512 buf 4)))
+                 (tcp-socket-bind sock address)
+                 (listen sock 5)
+                 (case (tcp-socket-accept sock)
+                   [(tuple2 new-sock new-sock-addr)
+                    (begin
+    ;                  (shutdown new-sock 1)
+                      (write-all-bytes (read-all-bytes new-sock) stdout)
+                      0)]))))]
+          [(nothing)
+           (begin
+             (write-line #"Unparsable ip address" stderr)
+             1)])
         (begin
-          (let ([buf (make-bytes 4)])
-            (begin
-              (bytes-set! buf 0 255)
-              (setsockopt sock 65535 512 buf 4)))
-          (tcp-socket-bind sock address)
-          (listen sock 5)
-          (case (tcp-socket-accept sock)
-            [(tuple2 new-sock new-sock-addr)
-             (begin
-;               (shutdown new-sock 1)
-               (write-all-bytes (read-all-bytes new-sock) stdout)
-               0)]))))))
+          (write-line #"Wrong number of arguments" stderr)
+          1))))
