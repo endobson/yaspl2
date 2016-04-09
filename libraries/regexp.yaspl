@@ -2,7 +2,7 @@
   (import
     (prim
       #:types ()
-      #:values (bytes-length = + >= bytes-ref array-ref make-array)
+      #:values (bytes-length = + >= bytes-ref array-ref make-array panic)
       #:patterns ())
     (tuples
       #:types (Tuple2)
@@ -33,7 +33,8 @@
         [open (List Byte)]
         [closed (List (Tuple2 Byte Byte))]))
     (define-type RegexpCommand
-      (match-command [regexp Regexp]))
+      (match-command [regexp Regexp])
+      (close-group-command))
     (define-type RegexpMatcherState
       (regexp-matcher-state
         [b Bytes]
@@ -70,6 +71,13 @@
     (case s
       [(regexp-matcher-state _ i _ (empty) other)
        (just (regexp-matcher-result i other))]
+      [(regexp-matcher-state b i (group-state open-groups closed-groups) (cons (close-group-command) rs) other)
+       (run-regexp-match
+         (case open-groups
+           [(empty) (panic #"Groups don't match up correctly")]
+           [(cons start open-groups)
+            (regexp-matcher-state
+              b i (group-state open-groups (cons (tuple2 start i) closed-groups)) rs other)]))]
       [(regexp-matcher-state b i gs (cons (match-command r) rs) other)
        (case r
          [(empty-regexp)
@@ -112,4 +120,9 @@
               b i gs (cons (match-command r) (cons (match-command (rep-regexp r)) rs))
               (just (regexp-matcher-state b i gs rs other))))]
          [(group-regexp r)
-          (run-regexp-match (regexp-matcher-state b i gs (cons (match-command r) rs) other))])])))
+          (case gs
+            [(group-state open-groups closed-groups)
+             (run-regexp-match
+               (regexp-matcher-state
+                 b i (group-state (cons i open-groups) closed-groups)
+                 (cons (match-command r) (cons (close-group-command) rs)) other))])])])))
