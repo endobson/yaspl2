@@ -1,0 +1,66 @@
+(module tcp
+  (import
+    (prim
+      #:types (Bytes Void)
+      #:values (bind accept make-bytes bytes-set! quotient
+                remainder = void bytes-length + * bytes-ref)
+      #:patterns ())
+    (tuples
+      #:types (Tuple2)
+      #:values (tuple2)
+      #:patterns (tuple2))
+    (ip
+      #:types (Ipv4Address)
+      #:values (ipv4-address
+                ipv4-address-octet1 ipv4-address-octet2 ipv4-address-octet3 ipv4-address-octet4)
+      #:patterns ()))
+  (export
+    TcpAddress
+    tcp-address tcp-socket-bind tcp-socket-accept)
+  (types
+    (define-type TcpAddress
+      (tcp-address [ip Ipv4Address] [port Byte])))
+
+  (define (make-sock-addr [address : TcpAddress]) : Bytes
+    (let ([bytes (make-bytes 16)])
+      (case address
+        [(tcp-address ip-addr port)
+         (begin
+           (bytes-set! bytes 0 0)
+           (bytes-set! bytes 1 2) ;; Family: AF_INET
+           ;; Port 1026
+           (bytes-set! bytes 2 (quotient port 256))
+           (bytes-set! bytes 3 (remainder port 256))
+           ;; IP addr = 0.0.0.0
+           (bytes-set! bytes 4 (ipv4-address-octet1 ip-addr))
+           (bytes-set! bytes 5 (ipv4-address-octet2 ip-addr))
+           (bytes-set! bytes 6 (ipv4-address-octet3 ip-addr))
+           (bytes-set! bytes 7 (ipv4-address-octet4 ip-addr))
+           ;; ZERO
+           (bytes-set! bytes  8 0)
+           (bytes-set! bytes  9 0)
+           (bytes-set! bytes 10 0)
+           (bytes-set! bytes 11 0)
+           (bytes-set! bytes 12 0)
+           (bytes-set! bytes 13 0)
+           (bytes-set! bytes 14 0)
+           (bytes-set! bytes 15 0)
+           bytes)])))
+
+  (define (tcp-socket-bind [sock : Byte] [address : TcpAddress]) : Void
+    (let ([sock-addr (make-sock-addr address)])
+      (bind sock sock-addr (bytes-length sock-addr))))
+
+  (define (tcp-socket-accept [sock : Byte]) : (Tuple2 Byte (TcpAddress))
+    (let ([sock-addr (make-bytes 16)])
+      (let ([len-buf (make-bytes 4)])
+        (begin
+          (bytes-set! len-buf 0 (bytes-length sock-addr))
+          (let ([new-sock (accept sock sock-addr len-buf)])
+            (let ([ip (ipv4-address
+                        (bytes-ref sock-addr 4)
+                        (bytes-ref sock-addr 5)
+                        (bytes-ref sock-addr 6)
+                        (bytes-ref sock-addr 7))])
+              (let ([port (+ (* 256 (bytes-ref sock-addr 2)) (bytes-ref sock-addr 3))])
+                (tuple2 new-sock (tcp-address ip port))))))))))

@@ -364,11 +364,21 @@ yaspl_bootstrap_library(
 )
 
 yaspl_library(
+  name = "tcp",
+  srcs = ["tcp.yaspl"],
+  deps = [
+    ":ip",
+    ":tuples",
+  ]
+)
+
+yaspl_library(
   name = "tcp-echo-server_lib",
   srcs = ["tcp-echo-server.yaspl"],
   deps = [
     ":io",
     ":ip",
+    ":tcp",
     ":tuples",
   ]
 )
