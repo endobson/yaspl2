@@ -32,6 +32,12 @@ yaspl_binary(
 )
 
 yaspl_binary(
+  name = "thread-example",
+  main_module = "thread_example",
+  deps = [":thread-example_lib"]
+)
+
+yaspl_binary(
   name = "udp-echo-server",
   main_module = "udp_echo_server",
   deps = [":udp-echo-server_lib"]
@@ -382,6 +388,16 @@ yaspl_library(
     ":tuples",
   ]
 )
+
+yaspl_library(
+  name = "thread-example_lib",
+  srcs = ["thread-example.yaspl"],
+  deps = [
+    ":io",
+    ":numbers",
+  ]
+)
+
 
 yaspl_bootstrap_library(
   name = "tuples",
