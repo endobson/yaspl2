@@ -221,6 +221,7 @@ yaspl_library(
     ":list",
     ":maybe",
     ":tuples",
+    ":bytes",
   ]
 )
 
