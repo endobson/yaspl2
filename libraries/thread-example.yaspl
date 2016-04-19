@@ -6,10 +6,17 @@
                 mach-task-self mach-reply-port mach-msg mach-port-mod-refs
                 remainder - + * bytes-ref )
       #:patterns ())
-    (io write-line)
+    (io write-line read-all-bytes)
     (numbers integer->hex-bytes))
   (export)
   (types)
+
+
+  (define (loop) : Byte
+    (loop))
+
+  (define (ndr-record) : Byte
+    4294967296)
 
   (define (bytes-ref/quad-le [bytes : Bytes] [offset : offset]) : Byte
     (+ (bytes-ref bytes (+ offset 0))
@@ -62,16 +69,239 @@
                 (write-line (integer->hex-bytes reply-port) stdout)
                 (mach-msg reply-port buffer 3 24 48 0 0)
                 (mach-port-mod-refs request-port reply-port 1 (- 0 1)))))
-          (write-line (integer->hex-bytes (bytes-ref/quad-le buffer 0)) stdout)
-          (write-line (integer->hex-bytes (bytes-ref/quad-le buffer 4)) stdout)
-          (write-line (integer->hex-bytes (bytes-ref/quad-le buffer 8)) stdout)
-          (write-line (integer->hex-bytes (bytes-ref/quad-le buffer 12)) stdout)
-          (write-line (integer->hex-bytes (bytes-ref/quad-le buffer 16)) stdout)
-          (write-line (integer->hex-bytes (bytes-ref/quad-le buffer 20)) stdout)
-          (write-line (integer->hex-bytes (bytes-ref/quad-le buffer 24)) stdout)
-          (write-line (integer->hex-bytes (bytes-ref/quad-le buffer 28)) stdout)
-          (write-line (integer->hex-bytes (bytes-ref/quad-le buffer 32)) stdout)
-          (write-line (integer->hex-bytes (bytes-ref/quad-le buffer 36)) stdout)
-          (write-line (integer->hex-bytes (bytes-ref buffer 38)) stdout)
-          (write-line (integer->hex-bytes (bytes-ref buffer 39)) stdout)))
+          (write-line (integer->hex-bytes (bytes-ref/quad-le buffer 0)) stdout) ;; options
+          (write-line (integer->hex-bytes (bytes-ref/quad-le buffer 4)) stdout) ;; size
+          (write-line (integer->hex-bytes (bytes-ref/quad-le buffer 8)) stdout) ;; remote-port
+          (write-line (integer->hex-bytes (bytes-ref/quad-le buffer 12)) stdout) ;; local-port
+          (write-line (integer->hex-bytes (bytes-ref/quad-le buffer 16)) stdout) ;; voucher-port
+          (write-line (integer->hex-bytes (bytes-ref/quad-le buffer 20)) stdout) ;; message-id
+          (write-line (integer->hex-bytes (bytes-ref/quad-le buffer 24)) stdout) ;; number of descriptors
+          (write-line (integer->hex-bytes (bytes-ref/quad-le buffer 28)) stdout) ;; port-name
+          (write-line (integer->hex-bytes (bytes-ref/quad-le buffer 32)) stdout) ;; padding
+          (write-line (integer->hex-bytes (bytes-ref/quad-le buffer 36)) stdout) ;; half padding
+          (write-line (integer->hex-bytes (bytes-ref buffer 38)) stdout) ;; disposition
+          (write-line (integer->hex-bytes (bytes-ref buffer 39)) stdout) ;; descriptor type
+
+          (write-line #"Starting to write thread state" stdout)
+          (let ([thread-port (bytes-ref/quad-le buffer 28)])
+            (let ([buffer2 (make-bytes 944)])
+              (let ([reply-port (mach-reply-port)])
+                (begin
+                  ;; Set options to 0x1513
+                  (bytes-set! buffer2 0 19)
+                  (bytes-set! buffer2 1 21)
+                  (bytes-set! buffer2 2 0)
+                  (bytes-set! buffer2 3 0)
+                  ;; Set size to 0x0
+                  (bytes-set! buffer2 4 0)
+                  (bytes-set! buffer2 5 0)
+                  (bytes-set! buffer2 6 0)
+                  (bytes-set! buffer2 7 0)
+                  ;; Set remote port
+                  (bytes-set! buffer2 8 (remainder thread-port 256))
+                  (bytes-set! buffer2 9 (remainder (quotient thread-port 256) 256))
+                  (bytes-set! buffer2 10 (remainder (quotient thread-port 65536) 256))
+                  (bytes-set! buffer2 11 (remainder (quotient thread-port 16777216) 256))
+                  ;; Set reply port
+                  (bytes-set! buffer2 12 (remainder reply-port 256))
+                  (bytes-set! buffer2 13 (remainder (quotient reply-port 256) 256))
+                  (bytes-set! buffer2 14 (remainder (quotient reply-port 65536) 256))
+                  (bytes-set! buffer2 15 (remainder (quotient reply-port 16777216) 256))
+                  ;; Set voucher port to MACH_PORT_NULL
+                  (bytes-set! buffer2 16 0)
+                  (bytes-set! buffer2 17 0)
+                  (bytes-set! buffer2 18 0)
+                  (bytes-set! buffer2 19 0)
+                  ;; Set message-id to 0xE14
+                  (bytes-set! buffer2 20 20)
+                  (bytes-set! buffer2 21 14)
+                  (bytes-set! buffer2 22 0)
+                  (bytes-set! buffer2 23 0)
+                  ;; Set NDR record
+                  (bytes-set! buffer2 24 0)
+                  (bytes-set! buffer2 25 0)
+                  (bytes-set! buffer2 26 0)
+                  (bytes-set! buffer2 27 0)
+                  (bytes-set! buffer2 28 1)
+                  (bytes-set! buffer2 29 0)
+                  (bytes-set! buffer2 30 0)
+                  (bytes-set! buffer2 31 0)
+                  ;; Set the state type (x86_THREAD_STATE64 = 4)
+                  (bytes-set! buffer2 32 4)
+                  (bytes-set! buffer2 33 0)
+                  (bytes-set! buffer2 34 0)
+                  (bytes-set! buffer2 35 0)
+                  ;; Set the size of the state (x86_THREAD_STATE64_COUNT = 42, 21 64bit registers)
+                  (bytes-set! buffer2 36 42)
+                  (bytes-set! buffer2 37 0)
+                  (bytes-set! buffer2 38 0)
+                  (bytes-set! buffer2 39 0)
+                  ;; Set up the thread state buffer here
+                  ;; 168-175: rip
+                  (let ([crash-buffer (make-bytes 2)])
+                    (let ([crash (+ crash-buffer 8)])
+                      (begin
+                        (bytes-set! crash-buffer 0 15)
+                        (bytes-set! crash-buffer 1 11)
+                        (bytes-set! buffer2 168 (remainder crash 256))
+                        (bytes-set! buffer2 169 (remainder (quotient crash 256) 256))
+                        (bytes-set! buffer2 170 (remainder (quotient crash 65536) 256))
+                        (bytes-set! buffer2 171 (remainder (quotient crash 16777216) 256))
+                        (bytes-set! buffer2 172 (remainder (quotient (quotient crash 16777216) 256)  256))
+                        (bytes-set! buffer2 173 (remainder (quotient (quotient crash 16777216) 65536) 256))
+                        (bytes-set! buffer2 174 (remainder (quotient (quotient crash 16777216) 16777216) 256))
+                        (bytes-set! buffer2 175 (remainder (quotient (quotient (quotient crash 16777216)
+                                                                               16777216) 256) 256)))))
+
+                  (mach-msg reply-port buffer2 3 208 944 0 0)
+                  (let ([request-port (mach-task-self)])
+                    (mach-port-mod-refs request-port reply-port 1 (- 0 1)))
+
+                  (write-line (integer->hex-bytes (bytes-ref/quad-le buffer2 0)) stdout) ;; options
+                  (write-line (integer->hex-bytes (bytes-ref/quad-le buffer2 4)) stdout) ;; size
+                  (write-line (integer->hex-bytes (bytes-ref/quad-le buffer2 8)) stdout) ;; remote-port
+                  (write-line (integer->hex-bytes (bytes-ref/quad-le buffer2 12)) stdout) ;; local-port
+                  (write-line (integer->hex-bytes (bytes-ref/quad-le buffer2 16)) stdout) ;; voucher-port
+                  (write-line (integer->hex-bytes (bytes-ref/quad-le buffer2 20)) stdout) ;; message-id
+                  
+                  ))))
+
+
+          (write-line #"Starting to get thread state" stdout)
+          (let ([thread-port (bytes-ref/quad-le buffer 28)])
+            (let ([buffer2 (make-bytes 944)])
+              (let ([reply-port (mach-reply-port)])
+                (begin
+                  ;; Set options to 0x1513
+                  (bytes-set! buffer2 0 19)
+                  (bytes-set! buffer2 1 21)
+                  (bytes-set! buffer2 2 0)
+                  (bytes-set! buffer2 3 0)
+                  ;; Set size to 0x0
+                  (bytes-set! buffer2 4 0)
+                  (bytes-set! buffer2 5 0)
+                  (bytes-set! buffer2 6 0)
+                  (bytes-set! buffer2 7 0)
+                  ;; Set remote port
+                  (bytes-set! buffer2 8 (remainder thread-port 256))
+                  (bytes-set! buffer2 9 (remainder (quotient thread-port 256) 256))
+                  (bytes-set! buffer2 10 (remainder (quotient thread-port 65536) 256))
+                  (bytes-set! buffer2 11 (remainder (quotient thread-port 16777216) 256))
+                  ;; Set reply port
+                  (bytes-set! buffer2 12 (remainder reply-port 256))
+                  (bytes-set! buffer2 13 (remainder (quotient reply-port 256) 256))
+                  (bytes-set! buffer2 14 (remainder (quotient reply-port 65536) 256))
+                  (bytes-set! buffer2 15 (remainder (quotient reply-port 16777216) 256))
+                  ;; Set voucher port to MACH_PORT_NULL
+                  (bytes-set! buffer2 16 0)
+                  (bytes-set! buffer2 17 0)
+                  (bytes-set! buffer2 18 0)
+                  (bytes-set! buffer2 19 0)
+                  ;; Set message-id to 0xE13
+                  (bytes-set! buffer2 20 19)
+                  (bytes-set! buffer2 21 14)
+                  (bytes-set! buffer2 22 0)
+                  (bytes-set! buffer2 23 0)
+                  ;; Set NDR record
+                  (bytes-set! buffer2 24 0)
+                  (bytes-set! buffer2 25 0)
+                  (bytes-set! buffer2 26 0)
+                  (bytes-set! buffer2 27 0)
+                  (bytes-set! buffer2 28 1)
+                  (bytes-set! buffer2 29 0)
+                  (bytes-set! buffer2 30 0)
+                  (bytes-set! buffer2 31 0)
+                  ;; Set the state type (x86_THREAD_STATE64 = 4)
+                  (bytes-set! buffer2 32 4)
+                  (bytes-set! buffer2 33 0)
+                  (bytes-set! buffer2 34 0)
+                  (bytes-set! buffer2 35 0)
+                  ;; Set the size of the state (x86_THREAD_STATE64_COUNT = 4)
+                  (bytes-set! buffer2 36 42)
+                  (bytes-set! buffer2 37 0)
+                  (bytes-set! buffer2 38 0)
+                  (bytes-set! buffer2 39 0)
+
+                  (mach-msg reply-port buffer2 3 40 944 0 0)
+                  (let ([request-port (mach-task-self)])
+                    (mach-port-mod-refs request-port reply-port 1 (- 0 1)))
+
+                  (write-line (integer->hex-bytes (bytes-ref/quad-le buffer2 0)) stdout) ;; options
+                  (write-line (integer->hex-bytes (bytes-ref/quad-le buffer2 4)) stdout) ;; size
+                  (write-line (integer->hex-bytes (bytes-ref/quad-le buffer2 8)) stdout) ;; remote-port
+                  (write-line (integer->hex-bytes (bytes-ref/quad-le buffer2 12)) stdout) ;; local-port
+                  (write-line (integer->hex-bytes (bytes-ref/quad-le buffer2 16)) stdout) ;; voucher-port
+                  (write-line (integer->hex-bytes (bytes-ref/quad-le buffer2 20)) stdout) ;; message-id
+                  (write-line #"Unknown data" stdout)
+                  (write-line (integer->hex-bytes (bytes-ref/quad-le buffer2 24)) stdout) ;; message-id
+                  (write-line (integer->hex-bytes (bytes-ref/quad-le buffer2 28)) stdout) ;; message-id
+                  (write-line (integer->hex-bytes (bytes-ref/quad-le buffer2 32)) stdout) ;; message-id
+                  (write-line (integer->hex-bytes (bytes-ref/quad-le buffer2 36)) stdout) ;; Number of fields
+                  (write-line #"Registers" stdout)
+                  (write-line (integer->hex-bytes (bytes-ref/quad-le buffer2 40)) stdout) ;; message-id
+                  (write-line (integer->hex-bytes (bytes-ref/quad-le buffer2 44)) stdout) ;; message-id
+                  (write-line (integer->hex-bytes (bytes-ref/quad-le buffer2 48)) stdout) ;; message-id
+                  (write-line (integer->hex-bytes (bytes-ref/quad-le buffer2 52)) stdout) ;; message-id
+                  (write-line (integer->hex-bytes (bytes-ref/quad-le buffer2 56)) stdout) ;; message-id
+                  (write-line (integer->hex-bytes (bytes-ref/quad-le buffer2 60)) stdout) ;; message-id
+                  (write-line (integer->hex-bytes (bytes-ref/quad-le buffer2 64)) stdout) ;; message-id
+                  (write-line (integer->hex-bytes (bytes-ref/quad-le buffer2 68)) stdout) ;; message-id
+                  (write-line (integer->hex-bytes (bytes-ref/quad-le buffer2 72)) stdout) ;; message-id
+                  (write-line (integer->hex-bytes (bytes-ref/quad-le buffer2 76)) stdout) ;; message-id
+                  (write-line (integer->hex-bytes (bytes-ref/quad-le buffer2 80)) stdout) ;; message-id
+                  (write-line (integer->hex-bytes (bytes-ref/quad-le buffer2 84)) stdout) ;; message-id
+                  
+                  ))))
+
+          (write-line #"Starting up thread" stdout)
+          (let ([thread-port (bytes-ref/quad-le buffer 28)])
+            (let ([buffer2 (make-bytes 44)])
+              (let ([reply-port (mach-reply-port)])
+                (begin
+                  ;; Set options to 0x1513
+                  (bytes-set! buffer2 0 19)
+                  (bytes-set! buffer2 1 21)
+                  (bytes-set! buffer2 2 0)
+                  (bytes-set! buffer2 3 0)
+                  ;; Set size to 0x0
+                  (bytes-set! buffer2 4 0)
+                  (bytes-set! buffer2 5 0)
+                  (bytes-set! buffer2 6 0)
+                  (bytes-set! buffer2 7 0)
+                  ;; Set remote port
+                  (bytes-set! buffer2 8 (remainder thread-port 256))
+                  (bytes-set! buffer2 9 (remainder (quotient thread-port 256) 256))
+                  (bytes-set! buffer2 10 (remainder (quotient thread-port 65536) 256))
+                  (bytes-set! buffer2 11 (remainder (quotient thread-port 16777216) 256))
+                  ;; Set reply port
+                  (bytes-set! buffer2 12 (remainder reply-port 256))
+                  (bytes-set! buffer2 13 (remainder (quotient reply-port 256) 256))
+                  (bytes-set! buffer2 14 (remainder (quotient reply-port 65536) 256))
+                  (bytes-set! buffer2 15 (remainder (quotient reply-port 16777216) 256))
+                  ;; Set voucher port to MACH_PORT_NULL
+                  (bytes-set! buffer2 16 0)
+                  (bytes-set! buffer2 17 0)
+                  (bytes-set! buffer2 18 0)
+                  (bytes-set! buffer2 19 0)
+                  ;; Set message-id to 0xE16
+                  (bytes-set! buffer2 20 22)
+                  (bytes-set! buffer2 21 14)
+                  (bytes-set! buffer2 22 0)
+                  (bytes-set! buffer2 23 0)
+
+                  (mach-msg reply-port buffer2 3 24 44 0 0)
+                  (let ([request-port (mach-task-self)])
+                    (mach-port-mod-refs request-port reply-port 1 (- 0 1)))
+
+                  (write-line (integer->hex-bytes (bytes-ref/quad-le buffer2 0)) stdout) ;; options
+                  (write-line (integer->hex-bytes (bytes-ref/quad-le buffer2 4)) stdout) ;; size
+                  (write-line (integer->hex-bytes (bytes-ref/quad-le buffer2 8)) stdout) ;; remote-port
+                  (write-line (integer->hex-bytes (bytes-ref/quad-le buffer2 12)) stdout) ;; local-port
+                  (write-line (integer->hex-bytes (bytes-ref/quad-le buffer2 16)) stdout) ;; voucher-port
+                  (write-line (integer->hex-bytes (bytes-ref/quad-le buffer2 20)) stdout) ;; message-id
+                  
+                  ))))
+          
+          ))
+      (read-all-bytes stdin)
       0)))
