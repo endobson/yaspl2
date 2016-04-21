@@ -82,6 +82,58 @@
   (define (mach-msg/send-recv [bytes : Bytes] [send-size : Byte] [reply-port : Port]) : Void
     (mach-msg reply-port bytes 3 send-size (bytes-length bytes) 0 0))
 
+  (define (mach-unref-reply-port [reply-port : Byte]) : Void
+    (let ([task-port (mach-task-self)])
+      (mach-port-mod-refs task-port reply-port 1 (- 0 1))))
+
+  (define (terminate-thread [thread : MachThreadPort]) : Void
+    (let ([buffer (make-bytes 24)])
+      (let ([reply-port (mach-reply-port)])
+        (begin
+          (write-mach-message-header
+            (mach-message-header
+              #x1511
+              0
+              thread
+              reply-port
+              0
+              #xE10)
+            buffer)
+          (mach-msg/send-recv buffer 24 reply-port)
+          (mach-unref-reply-port reply-port)))))
+
+  (define (suspend-thread [thread : MachThreadPort]) : Void
+    (let ([buffer (make-bytes 24)])
+      (let ([reply-port (mach-reply-port)])
+        (begin
+          (write-mach-message-header
+            (mach-message-header
+              #x1513
+              0
+              thread
+              reply-port
+              0
+              #xE15)
+            buffer)
+          (mach-msg/send-recv buffer 24 reply-port)
+          (mach-unref-reply-port reply-port)))))
+
+  (define (resume-thread [thread : MachThreadPort]) : Void
+    (let ([buffer (make-bytes 24)])
+      (let ([reply-port (mach-reply-port)])
+        (begin
+          (write-mach-message-header
+            (mach-message-header
+              #x1513
+              0
+              thread
+              reply-port
+              0
+              #xE16)
+            buffer)
+          (mach-msg/send-recv buffer 24 reply-port)
+          (mach-unref-reply-port reply-port)))))
+
 
   (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Byte
     (begin
@@ -101,7 +153,7 @@
                   buffer)
 
                 (mach-msg/send-recv buffer 24 reply-port)
-                (mach-port-mod-refs request-port reply-port 1 (- 0 1)))))
+                (mach-unref-reply-port reply-port ))))
           (debug-mach-message-header (parse-mach-message-header buffer) stdout)
           (case (parse-mach-message-body buffer)
             [(cons (mach-port-descriptor port-name disposition) (empty))
@@ -160,8 +212,7 @@
 
                   (mach-msg/send-recv buffer2 208 reply-port)
 
-                  (let ([request-port (mach-task-self)])
-                    (mach-port-mod-refs request-port reply-port 1 (- 0 1)))
+                  (mach-unref-reply-port reply-port)
 
                   (debug-mach-message-header (parse-mach-message-header buffer2) stdout)))))
 
@@ -189,9 +240,7 @@
                   (bytes-set!/quad-le buffer2 36 42)
 
                   (mach-msg/send-recv buffer2 40 reply-port)
-                  (let ([request-port (mach-task-self)])
-                    (mach-port-mod-refs request-port reply-port 1 (- 0 1)))
-
+                  (mach-unref-reply-port reply-port )
                   (debug-mach-message-header (parse-mach-message-header buffer2) stdout)
 
                   (write-line #"Unknown data" stdout)
@@ -215,62 +264,14 @@
 
                   ))))
 
-          (write-line #"Starting up thread" stdout)
-          (let ([thread-port (bytes-ref/quad-le buffer 28)])
-            (let ([buffer2 (make-bytes 24)])
-              (let ([reply-port (mach-reply-port)])
-                (begin
-                  (write-mach-message-header
-                    (mach-message-header
-                      #x1513
-                      0
-                      thread-port
-                      reply-port
-                      0
-                      #xE16)
-                    buffer2)
+          ;(write-line #"Starting up thread" stdout)
+          ;(resume-thread (bytes-ref/quad-le buffer 28))
 
-                  ;(mach-msg/send-recv buffer2 24 reply-port)
-                  (let ([request-port (mach-task-self)])
-                    (mach-port-mod-refs request-port reply-port 1 (- 0 1)))))))
+          ;(write-line #"Suspending the current thread" stdout)
+          ;(suspend-thread (mach-thread-self))
 
-          (write-line #"Suspending the current thread" stdout)
-          (let ([thread-port (mach-thread-self)])
-            (let ([buffer2 (make-bytes 24)])
-              (let ([reply-port (mach-reply-port)])
-                (begin
-                  (write-mach-message-header
-                    (mach-message-header
-                      #x1513
-                      0
-                      thread-port
-                      reply-port
-                      0
-                      #xE15)
-                    buffer2)
-
-                  ;(mach-msg/send-recv buffer2 24 reply-port)
-                  (let ([request-port (mach-task-self)])
-                    (mach-port-mod-refs request-port reply-port 1 (- 0 1)))))))
-
-          (write-line #"Terminating the current thread" stdout)
-          (let ([thread-port (mach-thread-self)])
-            (let ([buffer2 (make-bytes 24)])
-              (let ([reply-port (mach-reply-port)])
-                (begin
-                  (write-mach-message-header
-                    (mach-message-header
-                      #x1511
-                      0
-                      thread-port
-                      reply-port
-                      0
-                      #xE10)
-                    buffer2)
-
-                  ; (mach-msg/send-recv buffer2 24 reply-port)
-                  (let ([request-port (mach-task-self)])
-                    (mach-port-mod-refs request-port reply-port 1 (- 0 1)))))))
+          ;(write-line #"Terminating the current thread" stdout)
+          ;(terminate-thread (mach-thread-self))
 
           ))
       (read-all-bytes stdin)
