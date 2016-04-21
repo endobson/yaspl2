@@ -2,7 +2,7 @@
   (import
     (prim
       #:types (Array Bytes InputPort OutputPort Byte)
-      #:values (make-bytes bytes-set! quotient
+      #:values (make-bytes bytes-set! bytes-length quotient
                 mach-task-self mach-reply-port mach-msg mach-port-mod-refs
                 - + * bytes-ref =)
       #:patterns ())
@@ -10,10 +10,34 @@
     (bytes bytes-ref/quad-le bytes-set!/quad-le bytes-set!/octo-le)
     (numbers integer->hex-bytes))
   (export)
-  (types)
+  (types
+    (define-type MachMessageHeader
+      (mach-message-header
+        [options Byte]
+        [size Byte]
+        [remote-port Byte]
+        [reply-port Byte]
+        [voucher-port Byte]
+        [message-id Byte])))
+
+
+  (define (write-mach-message-header [hdr : MachMessageHeader] [bytes : Bytes]) : Void
+    (case hdr
+      [(mach-message-header options size remote-port reply-port voucher-port message-id)
+       (begin
+         (bytes-set!/quad-le bytes 0 options)
+         (bytes-set!/quad-le bytes 4 size)
+         (bytes-set!/quad-le bytes 8 remote-port)
+         (bytes-set!/quad-le bytes 12 reply-port)
+         (bytes-set!/quad-le bytes 16 voucher-port)
+         (bytes-set!/quad-le bytes 20 message-id))]))
 
   (define (ndr-record) : Byte
     #x100000000)
+
+  (define (mach-msg/send-recv [bytes : Bytes] [send-size : Byte] [reply-port : Port]) : Void
+    (mach-msg reply-port bytes 3 send-size (bytes-length bytes) 0 0))
+
 
   (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Byte
     (begin
@@ -22,22 +46,17 @@
           (let ([request-port (mach-task-self)])
             (let ([reply-port (mach-reply-port)])
               (begin
-                ;; Set options
-                (bytes-set!/quad-le buffer 0 #x1513)
-                ;; Set size to 0 (as it is unused)
-                (bytes-set!/quad-le buffer 4 0)
-                ;; Set remote port
-                (bytes-set!/quad-le buffer 8 request-port)
-                ;; Set reply port
-                (bytes-set!/quad-le buffer 12 reply-port)
-                ;; Set voucher port to MACH_PORT_NULL
-                (bytes-set!/quad-le buffer 16 0)
-                ;; Set message-id
-                (bytes-set!/quad-le buffer 20 #xD53)
+                (write-mach-message-header
+                  (mach-message-header
+                    #x1513
+                    0
+                    request-port
+                    reply-port
+                    0
+                    #xD53)
+                  buffer)
 
-                (write-line (integer->hex-bytes request-port) stdout)
-                (write-line (integer->hex-bytes reply-port) stdout)
-                (mach-msg reply-port buffer 3 24 48 0 0)
+                (mach-msg/send-recv buffer 24 reply-port)
                 (mach-port-mod-refs request-port reply-port 1 (- 0 1)))))
           (write-line (integer->hex-bytes (bytes-ref/quad-le buffer 0)) stdout) ;; options
           (write-line (integer->hex-bytes (bytes-ref/quad-le buffer 4)) stdout) ;; size
@@ -79,11 +98,27 @@
                   (bytes-set!/quad-le buffer2 36 42)
                   ;; Set up the thread state buffer here
                   ;; 168-175: rip
-                  (let ([crash-buffer (make-bytes 2)])
+                  (let ([crash-buffer (make-bytes 16)])
                     (let ([crash (+ crash-buffer 8)])
                       (begin
-                        (bytes-set! crash-buffer 0 #x0F)
-                        (bytes-set! crash-buffer 1 #x0B)
+                        (bytes-set! crash-buffer 0 #x90)
+                        (bytes-set! crash-buffer 1 #x90)
+                        (bytes-set! crash-buffer 2 #x90)
+                        (bytes-set! crash-buffer 3 #x90)
+
+                        (bytes-set! crash-buffer 4 #xB8)
+                        (bytes-set! crash-buffer 5 #x01)
+                        (bytes-set! crash-buffer 6 #x00)
+                        (bytes-set! crash-buffer 7 #x00)
+                        (bytes-set! crash-buffer 8 #x02)
+                        (bytes-set! crash-buffer 9 #xBF)
+                        (bytes-set! crash-buffer 10 #x0D)
+                        (bytes-set! crash-buffer 11 #x00)
+                        (bytes-set! crash-buffer 12 #x00)
+                        (bytes-set! crash-buffer 13 #x00)
+                        (bytes-set! crash-buffer 14 #x0F)
+                        (bytes-set! crash-buffer 15 #x05)
+
                         (bytes-set!/octo-le buffer2 168 crash))))
 
                   (mach-msg reply-port buffer2 3 208 944 0 0)
@@ -178,12 +213,12 @@
                   (let ([request-port (mach-task-self)])
                     (mach-port-mod-refs request-port reply-port 1 (- 0 1)))
 
-                  (write-line (integer->hex-bytes (bytes-ref/quad-le buffer2 0)) stdout) ;; options
-                  (write-line (integer->hex-bytes (bytes-ref/quad-le buffer2 4)) stdout) ;; size
-                  (write-line (integer->hex-bytes (bytes-ref/quad-le buffer2 8)) stdout) ;; remote-port
-                  (write-line (integer->hex-bytes (bytes-ref/quad-le buffer2 12)) stdout) ;; local-port
-                  (write-line (integer->hex-bytes (bytes-ref/quad-le buffer2 16)) stdout) ;; voucher-port
-                  (write-line (integer->hex-bytes (bytes-ref/quad-le buffer2 20)) stdout) ;; message-id
+                  ;(write-line (integer->hex-bytes (bytes-ref/quad-le buffer2 0)) stdout) ;; options
+                  ;(write-line (integer->hex-bytes (bytes-ref/quad-le buffer2 4)) stdout) ;; size
+                  ;(write-line (integer->hex-bytes (bytes-ref/quad-le buffer2 8)) stdout) ;; remote-port
+                  ;(write-line (integer->hex-bytes (bytes-ref/quad-le buffer2 12)) stdout) ;; local-port
+                  ;(write-line (integer->hex-bytes (bytes-ref/quad-le buffer2 16)) stdout) ;; voucher-port
+                  ;(write-line (integer->hex-bytes (bytes-ref/quad-le buffer2 20)) stdout) ;; message-id
 
                   ))))
 
