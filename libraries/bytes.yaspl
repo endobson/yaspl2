@@ -1,14 +1,16 @@
 (module bytes
   (import
-    (prim 
+    (prim
       #:types (Byte Bytes Boolean Void)
-      #:values (+ - = bytes-set! bytes-ref void make-bytes bytes-length)
+      #:values (+ - = bytes-set! bytes-ref void make-bytes bytes-length remainder quotient *)
       #:patterns ())
     (list
       #:types (List)
       #:values (map)
       #:patterns (cons empty)))
-  (export bytes-copy! bytes=? subbytes bytes-append make-null-terminated)
+  (export bytes-copy! bytes=? subbytes bytes-append make-null-terminated
+          bytes-ref/quad-le bytes-set!/quad-le
+          bytes-set!/octo-le)
   (types)
 
   (define (bytes-copy! [src : Bytes] [s-start : Byte] [s-end : Byte] [dest : Bytes] [d-start : Byte])
@@ -25,39 +27,71 @@
         (bytes-copy! src start end new-bytes 0)
         new-bytes)))
 
- (define (bytes=? [b1 : Bytes] [b2 : Bytes]) : Boolean
-   (if (= (bytes-length b1) (bytes-length b2))
-       (inner-bytes=? b1 b2 0)
-       #f))
- (define (inner-bytes=? [b1 : Bytes] [b2 : Bytes] [offset : Byte]) : Boolean
-   (if (= offset (bytes-length b1))
-       #t
-       (if (= (bytes-ref b1 offset) (bytes-ref b2 offset))
-           (inner-bytes=? b1 b2 (+ 1 offset))
-           #f)))
+  (define (bytes=? [b1 : Bytes] [b2 : Bytes]) : Boolean
+    (if (= (bytes-length b1) (bytes-length b2))
+        (inner-bytes=? b1 b2 0)
+        #f))
+  (define (inner-bytes=? [b1 : Bytes] [b2 : Bytes] [offset : Byte]) : Boolean
+    (if (= offset (bytes-length b1))
+        #t
+        (if (= (bytes-ref b1 offset) (bytes-ref b2 offset))
+            (inner-bytes=? b1 b2 (+ 1 offset))
+            #f)))
 
- (define (sum [nums : (List Byte)]) : Byte
-   (sum-helper nums 0))
- (define (sum-helper [nums : (List Byte)] [acc : Byte]) : Byte
-   (case nums
-     [(empty) acc]
-     [(cons num nums) (sum-helper nums (+ num acc))]))
+  (define (sum [nums : (List Byte)]) : Byte
+    (sum-helper nums 0))
+  (define (sum-helper [nums : (List Byte)] [acc : Byte]) : Byte
+    (case nums
+      [(empty) acc]
+      [(cons num nums) (sum-helper nums (+ num acc))]))
 
 
- (define (bytes-append [bytess : (List Bytes)]) : Bytes
-   (let ([acc (make-bytes (sum (map bytes-length bytess)))])
-     (bytes-append-helper acc 0 bytess)))
- (define (bytes-append-helper [acc : Bytes] [offset : Byte] [bytess : (List Bytes)]) : Bytes
-   (case bytess
-     [(empty) acc]
-     [(cons input bytess)
-      (let ([len (bytes-length input)])
-        (begin
-          (bytes-copy! input 0 len acc offset)
-          (bytes-append-helper acc (+ offset len) bytess)))]))
+  (define (bytes-append [bytess : (List Bytes)]) : Bytes
+    (let ([acc (make-bytes (sum (map bytes-length bytess)))])
+      (bytes-append-helper acc 0 bytess)))
+  (define (bytes-append-helper [acc : Bytes] [offset : Byte] [bytess : (List Bytes)]) : Bytes
+    (case bytess
+      [(empty) acc]
+      [(cons input bytess)
+       (let ([len (bytes-length input)])
+         (begin
+           (bytes-copy! input 0 len acc offset)
+           (bytes-append-helper acc (+ offset len) bytess)))]))
 
- (define (make-null-terminated [bytes : Bytes]) : Bytes
-   (let ([new-bytes (make-bytes (+ (bytes-length bytes) 1))])
-     (begin
-       (bytes-copy! bytes 0 (bytes-length bytes) new-bytes 0)
-       new-bytes))))
+  (define (make-null-terminated [bytes : Bytes]) : Bytes
+    (let ([new-bytes (make-bytes (+ (bytes-length bytes) 1))])
+      (begin
+        (bytes-copy! bytes 0 (bytes-length bytes) new-bytes 0)
+        new-bytes)))
+
+  (define (bytes-ref/quad-le [bytes : Bytes] [offset : Byte]) : Byte
+    (+ (bytes-ref bytes (+ offset 0))
+       (* 256
+          (+ (bytes-ref bytes (+ offset 1))
+              (* 256
+                 (+ (bytes-ref bytes (+ offset 2))
+                    (* 256
+                       (bytes-ref bytes (+ offset 3)))))))))
+
+  (define (bytes-set!/quad-le [bytes : Bytes] [offset : Byte] [v : Byte]) : Void
+    (begin
+      (bytes-set! bytes offset       (remainder v #x100))
+      (bytes-set! bytes (+ offset 1) (remainder (arithmetic-shift-left v 8) #x100))
+      (bytes-set! bytes (+ offset 2) (remainder (arithmetic-shift-left v 16) #x100))
+      (bytes-set! bytes (+ offset 3) (remainder (arithmetic-shift-left v 24) #x100))))
+
+  (define (arithmetic-shift-left [v : Byte] [amount : Byte]) : Byte
+    (if (= amount 0)
+        v
+        (arithmetic-shift-left (quotient v 2) (- amount 1))))
+
+  (define (bytes-set!/octo-le [bytes : Bytes] [offset : Byte] [v : Byte]) : Void
+    (begin
+      (bytes-set! bytes offset       (remainder v #x100))
+      (bytes-set! bytes (+ offset 1) (remainder (arithmetic-shift-left v 8) #x100))
+      (bytes-set! bytes (+ offset 2) (remainder (arithmetic-shift-left v 16) #x100))
+      (bytes-set! bytes (+ offset 3) (remainder (arithmetic-shift-left v 24) #x100))
+      (bytes-set! bytes (+ offset 4) (remainder (arithmetic-shift-left v 32) #x100))
+      (bytes-set! bytes (+ offset 5) (remainder (arithmetic-shift-left v 40) #x100))
+      (bytes-set! bytes (+ offset 6) (remainder (arithmetic-shift-left v 48) #x100))
+      (bytes-set! bytes (+ offset 7) (remainder (arithmetic-shift-left v 56) #x100)))))

@@ -87,7 +87,7 @@
 (define (parse-expression sexp)
   (define parse parse-expression)
   (match sexp
-    [(? byte? num) (byte& num)]
+    [(? exact-integer? num) (byte& num)]
     [(? (and/c bytes? immutable?) bytes) (bytes& bytes)]
     [(? boolean? bool) (boolean& bool)]
     [(? symbol? sym) (variable& sym)]
