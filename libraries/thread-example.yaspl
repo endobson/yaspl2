@@ -4,9 +4,13 @@
       #:types (Array Bytes InputPort OutputPort Byte)
       #:values (make-bytes bytes-set! bytes-length quotient
                 mach-task-self mach-reply-port mach-msg mach-port-mod-refs
-                - + * bytes-ref =)
+                - + * bytes-ref = panic)
       #:patterns ())
     (io write-line read-all-bytes)
+    (list
+      #:types (List)
+      #:values (cons empty)
+      #:patterns (cons empty))
     (bytes bytes-ref/quad-le bytes-set!/quad-le bytes-set!/octo-le)
     (numbers integer->hex-bytes))
   (export)
@@ -18,7 +22,11 @@
         [remote-port Byte]
         [reply-port Byte]
         [voucher-port Byte]
-        [message-id Byte])))
+        [message-id Byte]))
+    (define-type MachMessageDescriptor
+      (mach-port-descriptor
+        [name Byte]
+        [disposition Byte])))
 
 
   (define (write-mach-message-header [hdr : MachMessageHeader] [bytes : Bytes]) : Void
@@ -51,9 +59,25 @@
          (write-line (integer->hex-bytes voucher-port) out)
          (write-line (integer->hex-bytes message-id) out))]))
 
+  (define (parse-mach-message-body [bytes : Bytes]) : (List MachMessageDescriptor)
+    (parse-mach-message-body/loop bytes 28 (bytes-ref/quad-le bytes 24)))
+
+  (define (parse-mach-message-body/loop [bytes : Bytes] [offset : Byte] [num-descriptors : Byte])
+    : (List MachMessageDescriptor)
+    (if (= 0 num-descriptors)
+        (empty)
+        (cons
+          (let ([descriptor-type (bytes-ref bytes (+ offset 11))])
+            (if (= descriptor-type 0)
+                (mach-port-descriptor
+                  (bytes-ref/quad-le bytes offset)
+                  (bytes-ref bytes (+ offset 10)))
+                (panic #"Bad MachMessageDescriptor")))
+          (parse-mach-message-body/loop bytes (+ offset 12) (- num-descriptors 1)))))
 
   (define (ndr-record) : Byte
     #x100000000)
+
 
   (define (mach-msg/send-recv [bytes : Bytes] [send-size : Byte] [reply-port : Port]) : Void
     (mach-msg reply-port bytes 3 send-size (bytes-length bytes) 0 0))
@@ -79,12 +103,12 @@
                 (mach-msg/send-recv buffer 24 reply-port)
                 (mach-port-mod-refs request-port reply-port 1 (- 0 1)))))
           (debug-mach-message-header (parse-mach-message-header buffer) stdout)
-          (write-line (integer->hex-bytes (bytes-ref/quad-le buffer 24)) stdout) ;; number of descriptors
-          (write-line (integer->hex-bytes (bytes-ref/quad-le buffer 28)) stdout) ;; port-name
-          (write-line (integer->hex-bytes (bytes-ref/quad-le buffer 32)) stdout) ;; padding
-          (write-line (integer->hex-bytes (bytes-ref/quad-le buffer 36)) stdout) ;; half padding
-          (write-line (integer->hex-bytes (bytes-ref buffer 38)) stdout) ;; disposition
-          (write-line (integer->hex-bytes (bytes-ref buffer 39)) stdout) ;; descriptor type
+          (case (parse-mach-message-body buffer)
+            [(cons (mach-port-descriptor port-name disposition) (empty))
+             (begin
+               (write-line (integer->hex-bytes port-name) stdout)
+               (write-line (integer->hex-bytes disposition) stdout))]
+            [_ (panic #"Bad MachMessageBody")])
 
           (write-line #"Starting to write thread state" stdout)
           (let ([thread-port (bytes-ref/quad-le buffer 28)])
