@@ -27,7 +27,26 @@
     (define-type MachMessageDescriptor
       (mach-port-descriptor
         [name Byte]
-        [disposition Byte])))
+        [disposition Byte]))
+    (define-type X86ThreadState64
+      (x86-thread-state-64
+        [rax Byte]
+        [rbx Byte]
+        [rcx Byte]
+        [rdx Byte]
+        [rdi Byte]
+        [rsi Byte]
+        [rbp Byte]
+        [rsp Byte]
+        [r8 Byte]
+        [r9 Byte]
+        [r10 Byte]
+        [r11 Byte]
+        [r12 Byte]
+        [r13 Byte]
+        [r14 Byte]
+        [r15 Byte]
+        [rip Byte])))
 
 
   (define (write-mach-message-header [hdr : MachMessageHeader] [bytes : Bytes]) : Void
@@ -75,6 +94,36 @@
                   (bytes-ref bytes (+ offset 10)))
                 (panic #"Bad MachMessageDescriptor")))
           (parse-mach-message-body/loop bytes (+ offset 12) (- num-descriptors 1)))))
+
+
+  (define (write-x86-thread-state-64 [state : X86ThreadState64] [bytes : Bytes]) : Void
+    (case state
+      [(x86-thread-state-64 rax rbx rcx rdx rdi rsi rbp rsp r8 r9 r10 r11 r12 r13 r14 r15 rip)
+       (begin
+         ;; Set NDR record
+         (bytes-set!/octo-le bytes 24 (ndr-record))
+         ;; Set the state type (x86_THREAD_STATE64 = 4)
+         (bytes-set!/quad-le bytes 32 4)
+         ;; Set the size of the state (x86_THREAD_STATE64_COUNT = 42, 21 64bit registers)
+         (bytes-set!/quad-le bytes 36 42)
+         ;; Set the registers
+         (bytes-set!/octo-le bytes 40 rax)
+         (bytes-set!/octo-le bytes 48 rbx)
+         (bytes-set!/octo-le bytes 56 rcx)
+         (bytes-set!/octo-le bytes 64 rdx)
+         (bytes-set!/octo-le bytes 72 rdi)
+         (bytes-set!/octo-le bytes 80 rsi)
+         (bytes-set!/octo-le bytes 88 rbp)
+         (bytes-set!/octo-le bytes 96 rsp)
+         (bytes-set!/octo-le bytes 104 r8)
+         (bytes-set!/octo-le bytes 112 r9)
+         (bytes-set!/octo-le bytes 120 r10)
+         (bytes-set!/octo-le bytes 128 r11)
+         (bytes-set!/octo-le bytes 136 r12)
+         (bytes-set!/octo-le bytes 144 r13)
+         (bytes-set!/octo-le bytes 152 r14)
+         (bytes-set!/octo-le bytes 160 r15)
+         (bytes-set!/octo-le bytes 168 rip))]))
 
   (define (ndr-record) : Byte
     #x100000000)
@@ -141,142 +190,76 @@
         (func)
         (terminate-thread (mach-thread-self)))))
 
+  (define (create-thread) : MachThreadPort
+    (let ([buffer (make-bytes 48)])
+      (begin
+        (let ([task-port (mach-task-self)])
+          (let ([reply-port (mach-reply-port)])
+            (begin
+              (write-mach-message-header
+                (mach-message-header
+                  #x1513
+                  0
+                  task-port
+                  reply-port
+                  0
+                  #xD53)
+                buffer)
+              (mach-msg/send-recv buffer 24 reply-port)
+              (mach-unref-reply-port reply-port))))
+        (case (parse-mach-message-body buffer)
+          [(cons (mach-port-descriptor port-name _) (empty))
+           port-name]
+          [_ (panic #"Bad MachMessageBody")]))))
+
+  (define (thread-set-function! [thread : MachThreadPort] [fun : (-> Void)]) : Void
+    (let ([buffer (make-bytes 208)])
+      (let ([reply-port (mach-reply-port)])
+        (begin
+          (write-mach-message-header
+            (mach-message-header
+              #x1513
+              0
+              thread
+              reply-port
+              0
+              #xE14)
+            buffer)
+
+          (write-x86-thread-state-64 
+            (x86-thread-state-64
+              (thread-start fun)
+              0
+              0
+              0
+              0
+              0
+              (make-bytes #x10000)
+              (+ (make-bytes #x10000) #x10000)
+              0
+              0
+              0
+              0
+              0
+              0
+              0
+              0
+              thread-bootstrap-address)
+            buffer)
+
+          (mach-msg/send-recv buffer 208 reply-port)
+          (mach-unref-reply-port reply-port)))))
+
+  (define (spawn [fun : (-> Void)]) : Void
+    (let ([thread (create-thread)])
+      (begin
+        (thread-set-function! thread fun)
+        (resume-thread thread))))
+
   (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Byte
     (begin
-      (let ([buffer (make-bytes 48)])
-        (begin
-          (let ([request-port (mach-task-self)])
-            (let ([reply-port (mach-reply-port)])
-              (begin
-                (write-mach-message-header
-                  (mach-message-header
-                    #x1513
-                    0
-                    request-port
-                    reply-port
-                    0
-                    #xD53)
-                  buffer)
-
-                (mach-msg/send-recv buffer 24 reply-port)
-                (mach-unref-reply-port reply-port ))))
-          (debug-mach-message-header (parse-mach-message-header buffer) stdout)
-          (case (parse-mach-message-body buffer)
-            [(cons (mach-port-descriptor port-name disposition) (empty))
-             (begin
-               (write-line (integer->hex-bytes port-name) stdout)
-               (write-line (integer->hex-bytes disposition) stdout))]
-            [_ (panic #"Bad MachMessageBody")])
-
-          (write-line #"Starting to write thread state" stdout)
-          (let ([thread-port (bytes-ref/quad-le buffer 28)])
-            (let ([buffer2 (make-bytes 208)])
-              (let ([reply-port (mach-reply-port)])
-                (begin
-                  (write-mach-message-header
-                    (mach-message-header
-                      #x1513
-                      0
-                      thread-port
-                      reply-port
-                      0
-                      #xE14)
-                    buffer2)
-
-
-                  ;; Set NDR record
-                  (bytes-set!/octo-le buffer2 24 (ndr-record))
-                  ;; Set the state type (x86_THREAD_STATE64 = 4)
-                  (bytes-set!/quad-le buffer2 32 4)
-                  ;; Set the size of the state (x86_THREAD_STATE64_COUNT = 42, 21 64bit registers)
-                  (bytes-set!/quad-le buffer2 36 42)
-                  ;; Set up the thread state buffer here
-                  (bytes-set!/octo-le buffer2 40 ;; rax
-                    (thread-start
-                      (lambda ()
-                        (write-line #"Starting thread" stdout))))
-
-                  (bytes-set!/octo-le buffer2 48 #x2) ;; rbx
-                  (bytes-set!/octo-le buffer2 56 #x3) ;; rcx
-                  (bytes-set!/octo-le buffer2 64 #x4) ;; rdx
-                  (bytes-set!/octo-le buffer2 72 #x5) ;; rdi
-                  (bytes-set!/octo-le buffer2 80 #x6) ;; rsi
-                  (bytes-set!/octo-le buffer2 88 (make-bytes #x10000)) ;; rbp
-                  (bytes-set!/octo-le buffer2 96 (+ (make-bytes #x10000) #x10000)) ;; rsp
-                  (bytes-set!/octo-le buffer2 104 #x9) ;; r8
-                  (bytes-set!/octo-le buffer2 112 #xA) ;; r9
-                  (bytes-set!/octo-le buffer2 120 #xB) ;; r10
-                  (bytes-set!/octo-le buffer2 128 #xC) ;; r11
-                  (bytes-set!/octo-le buffer2 136 #xD) ;; r12
-                  (bytes-set!/octo-le buffer2 144 #xE) ;; r13
-                  (bytes-set!/octo-le buffer2 152 #xF) ;; r14
-                  (bytes-set!/octo-le buffer2 160 #x10) ;; r15
-                  (bytes-set!/octo-le buffer2 168 thread-bootstrap-address)
-                  ;; 168 rip
-
-                  (mach-msg/send-recv buffer2 208 reply-port)
-
-                  (mach-unref-reply-port reply-port)
-
-                  (debug-mach-message-header (parse-mach-message-header buffer2) stdout)))))
-
-
-          (write-line #"Starting to get thread state" stdout)
-          (let ([thread-port (bytes-ref/quad-le buffer 28)])
-            (let ([buffer2 (make-bytes 216)])
-              (let ([reply-port (mach-reply-port)])
-                (begin
-                  (write-mach-message-header
-                    (mach-message-header
-                      #x1513
-                      0
-                      thread-port
-                      reply-port
-                      0
-                      #xE13)
-                    buffer2)
-
-                  ;; Set NDR record
-                  (bytes-set!/octo-le buffer2 24 (ndr-record))
-                  ;; Set the state type (x86_THREAD_STATE64 = 4)
-                  (bytes-set!/quad-le buffer2 32 4)
-                  ;; Set the size of the state (x86_THREAD_STATE64_COUNT = 42, 21 64bit registers)
-                  (bytes-set!/quad-le buffer2 36 42)
-
-                  (mach-msg/send-recv buffer2 40 reply-port)
-                  (mach-unref-reply-port reply-port )
-                  (debug-mach-message-header (parse-mach-message-header buffer2) stdout)
-
-                  (write-line #"Unknown data" stdout)
-                  (write-line (integer->hex-bytes (bytes-ref/quad-le buffer2 24)) stdout) ;; message-id
-                  (write-line (integer->hex-bytes (bytes-ref/quad-le buffer2 28)) stdout) ;; message-id
-                  (write-line (integer->hex-bytes (bytes-ref/quad-le buffer2 32)) stdout) ;; message-id
-                  (write-line (integer->hex-bytes (bytes-ref/quad-le buffer2 36)) stdout) ;; Number of fields
-                  (write-line #"Registers" stdout)
-                  (write-line (integer->hex-bytes (bytes-ref/quad-le buffer2 40)) stdout) ;; message-id
-                  (write-line (integer->hex-bytes (bytes-ref/quad-le buffer2 44)) stdout) ;; message-id
-                  (write-line (integer->hex-bytes (bytes-ref/quad-le buffer2 48)) stdout) ;; message-id
-                  (write-line (integer->hex-bytes (bytes-ref/quad-le buffer2 52)) stdout) ;; message-id
-                  (write-line (integer->hex-bytes (bytes-ref/quad-le buffer2 56)) stdout) ;; message-id
-                  (write-line (integer->hex-bytes (bytes-ref/quad-le buffer2 60)) stdout) ;; message-id
-                  (write-line (integer->hex-bytes (bytes-ref/quad-le buffer2 64)) stdout) ;; message-id
-                  (write-line (integer->hex-bytes (bytes-ref/quad-le buffer2 68)) stdout) ;; message-id
-                  (write-line (integer->hex-bytes (bytes-ref/quad-le buffer2 72)) stdout) ;; message-id
-                  (write-line (integer->hex-bytes (bytes-ref/quad-le buffer2 76)) stdout) ;; message-id
-                  (write-line (integer->hex-bytes (bytes-ref/quad-le buffer2 80)) stdout) ;; message-id
-                  (write-line (integer->hex-bytes (bytes-ref/quad-le buffer2 84)) stdout) ;; message-id
-
-                  ))))
-
-          (write-line #"Starting up thread" stdout)
-          (resume-thread (bytes-ref/quad-le buffer 28))
-
-          ;(write-line #"Suspending the current thread" stdout)
-          ;(suspend-thread (mach-thread-self))
-
-          ;(write-line #"Terminating the current thread" stdout)
-          ;(terminate-thread (bytes-ref/quad-le buffer 28))
-
-          ))
+      (spawn
+        (lambda ()
+          (write-line #"Other-Thread" stdout)))
       (read-all-bytes stdin)
       0)))
