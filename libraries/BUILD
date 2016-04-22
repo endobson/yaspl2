@@ -164,6 +164,18 @@ yaspl_bootstrap_library(
   deps = [":maybe"]
 )
 
+yaspl_library(
+  name = "mach",
+  srcs = ["mach.yaspl"],
+  deps = [
+    ":bytes",
+    ":io",
+    ":list",
+    ":numbers",
+  ]
+)
+
+
 yaspl_bootstrap_library(
   name = "maybe",
   srcs = ["maybe.yaspl"],
@@ -395,7 +407,7 @@ yaspl_library(
   srcs = ["thread-example.yaspl"],
   deps = [
     ":io",
-    ":numbers",
+    ":mach",
   ]
 )
 
