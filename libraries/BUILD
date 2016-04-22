@@ -44,6 +44,17 @@ yaspl_binary(
 )
 
 
+yaspl_library(
+  name = "buffered-port",
+  srcs = ["buffered-port.yaspl"],
+  deps = [
+    ":bytes",
+    ":maybe",
+    ":tuples"
+  ]
+)
+
+
 yaspl_bootstrap_library(
   name = "bytes",
   srcs = ["bytes.yaspl"],
