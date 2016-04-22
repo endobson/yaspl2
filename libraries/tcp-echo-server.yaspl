@@ -3,6 +3,7 @@
     (prim
       #:types (Array Bytes InputPort OutputPort OutputPort Void)
       #:values (socket sendto bind shutdown listen accept make-bytes bytes-set! write-bytes quotient
+                close-output-port
                 remainder = void connect bytes-length + * bytes-ref array-length array-ref)
       #:patterns ())
     (io write-line read-all-bytes write-all-bytes)
@@ -11,6 +12,7 @@
       #:types (Maybe)
       #:values (just nothing)
       #:patterns (just nothing))
+    (mach spawn)
     (tuples
       #:types (Tuple2)
       #:values (tuple2)
@@ -23,6 +25,17 @@
   (export)
   (types)
 
+  (define (accept-loop [sock : Socket] [stdout : OutputPort]) : Void
+    (case (tcp-socket-accept sock)
+      [(tuple2 new-sock new-sock-addr)
+       (begin
+         (spawn
+           (lambda ()
+             (begin
+               (write-all-bytes (read-all-bytes new-sock) stdout)
+               (close-output-port new-sock))))
+         (accept-loop sock stdout))]))
+
   (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Byte
     (if (= (array-length args) 3)
         (case (bytes->ipv4-address (array-ref args 1))
@@ -33,11 +46,7 @@
                  (tcp-socket-set-reuse-address sock #t)
                  (tcp-socket-bind sock address)
                  (listen sock 5)
-                 (case (tcp-socket-accept sock)
-                   [(tuple2 new-sock new-sock-addr)
-                    (begin
-                      (write-all-bytes (read-all-bytes new-sock) stdout)
-                      0)]))))]
+                 (accept-loop sock stdout))))]
           [(nothing)
            (begin
              (write-line #"Unparsable ip address" stderr)
