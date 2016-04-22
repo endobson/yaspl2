@@ -4,6 +4,7 @@
       #:types (Array Bytes InputPort OutputPort Byte)
       #:values (make-bytes bytes-set! bytes-length quotient
                 mach-task-self mach-thread-self mach-reply-port mach-msg mach-port-mod-refs
+                thread-bootstrap-address
                 - + * bytes-ref = panic)
       #:patterns ())
     (io write-line read-all-bytes)
@@ -134,6 +135,11 @@
           (mach-msg/send-recv buffer 24 reply-port)
           (mach-unref-reply-port reply-port)))))
 
+  (define (thread-start [func : (-> Void)]) : (-> Void)
+    (lambda ()
+      (begin
+        (func)
+        (terminate-thread (mach-thread-self)))))
 
   (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Byte
     (begin
@@ -185,30 +191,28 @@
                   ;; Set the size of the state (x86_THREAD_STATE64_COUNT = 42, 21 64bit registers)
                   (bytes-set!/quad-le buffer2 36 42)
                   ;; Set up the thread state buffer here
-                  ;; 168-175: rip
-                  (let ([crash-buffer (make-bytes 16)])
-                    (let ([crash (+ crash-buffer 8)])
-                      (begin
-                        (bytes-set! crash-buffer 0 #x90)
-                        (bytes-set! crash-buffer 1 #x90)
-                        (bytes-set! crash-buffer 2 #x90)
-                        (bytes-set! crash-buffer 3 #x90)
-                        (bytes-set! crash-buffer 4 #xB8)
-                        (bytes-set! crash-buffer 5 #x01)
-                        (bytes-set! crash-buffer 6 #x00)
-                        (bytes-set! crash-buffer 7 #x00)
-                        (bytes-set! crash-buffer 8 #x02)
-                        (bytes-set! crash-buffer 9 #xBF)
-                        (bytes-set! crash-buffer 10 #x0D)
-                        (bytes-set! crash-buffer 11 #x00)
-                        (bytes-set! crash-buffer 12 #x00)
-                        (bytes-set! crash-buffer 13 #x00)
-                        (bytes-set! crash-buffer 14 #x0F)
-                        (bytes-set! crash-buffer 15 #x05)
+                  (bytes-set!/octo-le buffer2 40 ;; rax
+                    (thread-start
+                      (lambda ()
+                        (write-line #"Starting thread" stdout))))
 
-                        (bytes-set!/octo-le buffer2 168 crash))))
-
-                  (bytes-set!/octo-le buffer2 40 #x0EADBEEF)
+                  (bytes-set!/octo-le buffer2 48 #x2) ;; rbx
+                  (bytes-set!/octo-le buffer2 56 #x3) ;; rcx
+                  (bytes-set!/octo-le buffer2 64 #x4) ;; rdx
+                  (bytes-set!/octo-le buffer2 72 #x5) ;; rdi
+                  (bytes-set!/octo-le buffer2 80 #x6) ;; rsi
+                  (bytes-set!/octo-le buffer2 88 (make-bytes #x10000)) ;; rbp
+                  (bytes-set!/octo-le buffer2 96 (+ (make-bytes #x10000) #x10000)) ;; rsp
+                  (bytes-set!/octo-le buffer2 104 #x9) ;; r8
+                  (bytes-set!/octo-le buffer2 112 #xA) ;; r9
+                  (bytes-set!/octo-le buffer2 120 #xB) ;; r10
+                  (bytes-set!/octo-le buffer2 128 #xC) ;; r11
+                  (bytes-set!/octo-le buffer2 136 #xD) ;; r12
+                  (bytes-set!/octo-le buffer2 144 #xE) ;; r13
+                  (bytes-set!/octo-le buffer2 152 #xF) ;; r14
+                  (bytes-set!/octo-le buffer2 160 #x10) ;; r15
+                  (bytes-set!/octo-le buffer2 168 thread-bootstrap-address)
+                  ;; 168 rip
 
                   (mach-msg/send-recv buffer2 208 reply-port)
 
@@ -264,14 +268,14 @@
 
                   ))))
 
-          ;(write-line #"Starting up thread" stdout)
-          ;(resume-thread (bytes-ref/quad-le buffer 28))
+          (write-line #"Starting up thread" stdout)
+          (resume-thread (bytes-ref/quad-le buffer 28))
 
           ;(write-line #"Suspending the current thread" stdout)
           ;(suspend-thread (mach-thread-self))
 
           ;(write-line #"Terminating the current thread" stdout)
-          ;(terminate-thread (mach-thread-self))
+          ;(terminate-thread (bytes-ref/quad-le buffer 28))
 
           ))
       (read-all-bytes stdin)
