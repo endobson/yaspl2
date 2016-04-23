@@ -6,7 +6,7 @@
                 close-output-port panic
                 remainder = void connect bytes-length + * bytes-ref array-length array-ref)
       #:patterns ())
-    (io write-line read-all-bytes write-all-bytes)
+    (io write-line read-all-bytes write-all-bytes newline)
     (buffered-port
       #:types (BufferedPort)
       #:values (make-buffered-port read-crlf-line)
@@ -18,11 +18,12 @@
       #:patterns (just nothing))
     (regexp
       #:types (Regexp)
-      #:values (any-regexp group-regexp rep-regexp regexp-match epsilon-regexp seq-regexp lit-regexp)
+      #:values (any-regexp group-regexp rep-regexp regexp-match epsilon-regexp seq-regexp lit-regexp
+                non-greedy-rep-regexp)
       #:patterns ())
     (list
       #:types (List)
-      #:values (cons empty length reverse)
+      #:values (cons empty length reverse map)
       #:patterns (cons empty))
     (mach spawn)
     (tuples
@@ -67,7 +68,20 @@
        (just resource)]
       [(just _) (panic #"Bad status regexp return")]))
 
+  ;; This mostly works but should be tightend up
+  (define (request-header-regexp) : Regexp
+    (seq-regexp
+      (group-regexp (non-greedy-rep-regexp (any-regexp)))
+      (seq-regexp
+        (bytes-regexp #":")
+        (group-regexp (rep-regexp (any-regexp))))))
 
+  (define (parse-request-header [header-line : Bytes]) : (Maybe (Tuple2 Bytes Bytes))
+    (case (regexp-match (request-header-regexp) header-line)
+      [(nothing) (nothing)]
+      [(just (cons _ (cons header-name (cons header-value (empty)))))
+       (just (tuple2 header-name header-value))]
+      [(just _) (panic #"Bad header regexp return")]))
 
 
   (define (read-loop [buffered-port : BufferedPort] [lines : (List Bytes)] [sock : Socket] [stdout : OutputPort]) : Void
@@ -91,6 +105,16 @@
                    (write-line resource sock)]
                   [(nothing)
                    (panic #"Unparseable resource")])
+                (map 
+                  (lambda ([header-line : Bytes])
+                    (case (parse-request-header header-line)
+                      [(just (tuple2 header-name header-value))
+                       (begin
+                         (write-all-bytes header-name sock)
+                         (write-all-bytes #":" sock)
+                         (write-all-bytes header-value sock)
+                         (newline sock))]))
+                  header-lines)
                 (write-line (integer->decimal-bytes (length header-lines)) sock)
                 (close-output-port sock))])
            (if eof
