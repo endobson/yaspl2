@@ -26,9 +26,9 @@ yaspl_binary(
 )
 
 yaspl_binary(
-  name = "tcp-echo-server",
-  main_module = "tcp_echo_server",
-  deps = [":tcp-echo-server_lib"]
+  name = "http-server",
+  main_module = "http_server",
+  deps = [":http-server_lib"]
 )
 
 yaspl_binary(
@@ -123,6 +123,20 @@ yaspl_bootstrap_library(
     ":source-language",
   ]
 )
+
+yaspl_library(
+  name = "http-server_lib",
+  srcs = ["http-server.yaspl"],
+  deps = [
+    ":buffered-port",
+    ":io",
+    ":ip",
+    ":mach",
+    ":tcp",
+    ":tuples",
+  ]
+)
+
 
 yaspl_bootstrap_library(
   name = "intermediate-language",
@@ -398,19 +412,6 @@ yaspl_library(
   srcs = ["tcp.yaspl"],
   deps = [
     ":ip",
-    ":tuples",
-  ]
-)
-
-yaspl_library(
-  name = "tcp-echo-server_lib",
-  srcs = ["tcp-echo-server.yaspl"],
-  deps = [
-    ":buffered-port",
-    ":io",
-    ":ip",
-    ":mach",
-    ":tcp",
     ":tuples",
   ]
 )
