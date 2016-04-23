@@ -406,6 +406,7 @@ yaspl_library(
   name = "tcp-echo-server_lib",
   srcs = ["tcp-echo-server.yaspl"],
   deps = [
+    ":buffered-port",
     ":io",
     ":ip",
     ":mach",

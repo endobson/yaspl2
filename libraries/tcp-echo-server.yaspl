@@ -7,6 +7,10 @@
                 remainder = void connect bytes-length + * bytes-ref array-length array-ref)
       #:patterns ())
     (io write-line read-all-bytes write-all-bytes)
+    (buffered-port
+      #:types (BufferedPort)
+      #:values (make-buffered-port read-crlf-line)
+      #:patterns (line-result))
     (numbers decimal-bytes->integer)
     (maybe
       #:types (Maybe)
@@ -25,15 +29,41 @@
   (export)
   (types)
 
+  (define (write-crlf [out : OutputPort]) : Void
+    (let ([bytes (make-bytes 2)])
+      (begin
+        (bytes-set! bytes 0 #x0D)
+        (bytes-set! bytes 1 #x0A)
+        (write-all-bytes bytes out))))
+
+
+  (define (read-loop [buffered-port : BufferedPort] [sock : Socket] [stdout : OutputPort]) : Void
+    (case (read-crlf-line buffered-port)
+      [(line-result bytes eof buffered-port)
+       (begin
+         (write-line bytes stdout)
+         (if (= (bytes-length bytes) 0)
+             (begin
+               (write-all-bytes #"HTTP/1.1 200 OK" sock)
+               (write-crlf sock)
+               (write-all-bytes #"Content-Type: text/plain" sock)
+               (write-crlf sock)
+               (write-all-bytes #"Connection: close" sock)
+               (write-crlf sock)
+               (write-crlf sock)
+               (write-line #"foobar" sock)
+               (close-output-port sock))
+             (if eof
+                 (close-output-port sock)
+                 (read-loop buffered-port sock stdout))))]))
+
   (define (accept-loop [sock : Socket] [stdout : OutputPort]) : Void
     (case (tcp-socket-accept sock)
       [(tuple2 new-sock new-sock-addr)
        (begin
          (spawn
            (lambda ()
-             (begin
-               (write-all-bytes (read-all-bytes new-sock) stdout)
-               (close-output-port new-sock))))
+             (read-loop (make-buffered-port new-sock) new-sock stdout)))
          (accept-loop sock stdout))]))
 
   (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Byte
