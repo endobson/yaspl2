@@ -3,7 +3,7 @@
     (prim
       #:types (Array Bytes InputPort OutputPort OutputPort Void)
       #:values (socket sendto bind shutdown listen accept make-bytes bytes-set! write-bytes quotient
-                close-output-port
+                close-output-port panic
                 remainder = void connect bytes-length + * bytes-ref array-length array-ref)
       #:patterns ())
     (io write-line read-all-bytes write-all-bytes)
@@ -11,11 +11,19 @@
       #:types (BufferedPort)
       #:values (make-buffered-port read-crlf-line)
       #:patterns (line-result))
-    (numbers decimal-bytes->integer)
+    (numbers decimal-bytes->integer integer->decimal-bytes)
     (maybe
       #:types (Maybe)
       #:values (just nothing)
       #:patterns (just nothing))
+    (regexp
+      #:types (Regexp)
+      #:values (any-regexp group-regexp rep-regexp regexp-match epsilon-regexp seq-regexp lit-regexp)
+      #:patterns ())
+    (list
+      #:types (List)
+      #:values (cons empty length reverse)
+      #:patterns (cons empty))
     (mach spawn)
     (tuples
       #:types (Tuple2)
@@ -36,26 +44,58 @@
         (bytes-set! bytes 1 #x0A)
         (write-all-bytes bytes out))))
 
+  (define (bytes-regexp [bytes : Bytes]) : Regexp
+    (bytes-regexp/loop bytes 0))
 
-  (define (read-loop [buffered-port : BufferedPort] [sock : Socket] [stdout : OutputPort]) : Void
+  (define (bytes-regexp/loop [bytes : Bytes] [offset : Byte]) : Regexp
+    (if (= offset (bytes-length bytes))
+        (epsilon-regexp)
+        (seq-regexp (lit-regexp (bytes-ref bytes offset))
+                    (bytes-regexp/loop bytes (+ 1 offset)))))
+
+  (define (request-line-regexp) : Regexp
+    (seq-regexp
+      (bytes-regexp #"GET ")
+      (seq-regexp
+        (group-regexp (seq-regexp (bytes-regexp #"/") (rep-regexp (any-regexp))))
+        (bytes-regexp #" HTTP/1.1"))))
+
+  (define (parse-request-line [request-line : Bytes]) : (Maybe Bytes)
+    (case (regexp-match (request-line-regexp) request-line)
+      [(nothing) (nothing)]
+      [(just (cons _ (cons resource (empty))))
+       (just resource)]
+      [(just _) (panic #"Bad status regexp return")]))
+
+
+
+
+  (define (read-loop [buffered-port : BufferedPort] [lines : (List Bytes)] [sock : Socket] [stdout : OutputPort]) : Void
     (case (read-crlf-line buffered-port)
       [(line-result bytes eof buffered-port)
-       (begin
-         (write-line bytes stdout)
-         (if (= (bytes-length bytes) 0)
-             (begin
-               (write-all-bytes #"HTTP/1.1 200 OK" sock)
-               (write-crlf sock)
-               (write-all-bytes #"Content-Type: text/plain" sock)
-               (write-crlf sock)
-               (write-all-bytes #"Connection: close" sock)
-               (write-crlf sock)
-               (write-crlf sock)
-               (write-line #"foobar" sock)
-               (close-output-port sock))
-             (if eof
-                 (close-output-port sock)
-                 (read-loop buffered-port sock stdout))))]))
+       (if (= (bytes-length bytes) 0)
+           (case (reverse lines)
+             [(empty)
+              (close-output-port sock)]
+             [(cons request-line header-lines)
+              (begin
+                (write-all-bytes #"HTTP/1.1 200 OK" sock)
+                (write-crlf sock)
+                (write-all-bytes #"Content-Type: text/plain" sock)
+                (write-crlf sock)
+                (write-all-bytes #"Connection: close" sock)
+                (write-crlf sock)
+                (write-crlf sock)
+                (case (parse-request-line request-line)
+                  [(just resource)
+                   (write-line resource sock)]
+                  [(nothing)
+                   (panic #"Unparseable resource")])
+                (write-line (integer->decimal-bytes (length header-lines)) sock)
+                (close-output-port sock))])
+           (if eof
+               (close-output-port sock)
+               (read-loop buffered-port (cons bytes lines) sock stdout)))]))
 
   (define (accept-loop [sock : Socket] [stdout : OutputPort]) : Void
     (case (tcp-socket-accept sock)
@@ -63,7 +103,7 @@
        (begin
          (spawn
            (lambda ()
-             (read-loop (make-buffered-port new-sock) new-sock stdout)))
+             (read-loop (make-buffered-port new-sock) (empty) new-sock stdout)))
          (accept-loop sock stdout))]))
 
   (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Byte
