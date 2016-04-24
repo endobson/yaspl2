@@ -236,38 +236,40 @@
          (write-all-bytes (integer->decimal-bytes index) output)
          (print-cases cases output))]))
 
+  (define (extract-top-level-objects [offset : Byte] [args : (Array Bytes)] [stderr : OutputPort])
+    : (Either Bytes (List TopLevelObject))
+    (case (extract-modules
+            (map parse-module
+              (extract-sexps
+                (parse-sexps (bytes-append (read-module-files 3 args)))
+                stderr)))
+      [(left v)
+       (left v)]
+      [(right modules)
+       (compile-modules
+         modules
+         (cons (prim-signature) (empty))
+         (prim-implementation))]))
+
   (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Byte
     (if (< (array-length args) 3)
         (begin
           (write-line #"Module/Function name not supplied" stderr)
           1)
-        (case (extract-modules
-                (map parse-module
-                  (extract-sexps
-                    (parse-sexps (bytes-append (read-module-files 3 args)))
-                    stderr)))
+        (case (extract-top-level-objects 3 args stderr) 
           [(left v)
            (begin
              (write-line v stderr)
              1)]
-          [(right modules)
-           (case (compile-modules
-                   modules
-                   (cons (prim-signature) (empty))
-                   (prim-implementation))
-             [(left v)
+          [(right code)
+           (case (find-function
+                   (bytes-append (varargs list (array-ref args 1) #"_" (array-ref args 2)))
+                   code)
+             [(left msg)
               (begin
-                (write-line v stderr)
-                (panic #""))]
-             [(right code)
-              (case (find-function
-                      (bytes-append (varargs list (array-ref args 1) #"_" (array-ref args 2)))
-                      code)
-                [(left msg)
-                 (begin
-                   (write-line msg stderr)
-                   1)]
-                [(right func)
-                 (begin
-                   (print-function (optimize-stack-function func) stdout)
-                   0)])])]))))
+                (write-line msg stderr)
+                1)]
+             [(right func)
+              (begin
+                (print-function (optimize-stack-function func) stdout)
+                0)])]))))
