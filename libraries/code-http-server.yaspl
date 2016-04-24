@@ -17,6 +17,10 @@
       #:values (just nothing)
       #:patterns (just nothing))
     (bytes bytes-copy! bytes-append)
+    (join-list
+      #:types (JoinList)
+      #:values (append-jl single-jl snoc-jl cons-jl jl->list)
+      #:patterns ())
     (regexp
       #:types (Regexp)
       #:values (any-regexp group-regexp rep-regexp regexp-match epsilon-regexp seq-regexp lit-regexp
@@ -41,16 +45,55 @@
       #:values (bytes->ipv4-address)
       #:patterns ()))
   (export)
-  (types)
+  (types
+    (define-type HtmlElement
+      (html-element [head HeadElement] [body BodyElement]))
+    (define-type HeadElement
+      (head-element [title (Maybe TitleElement)]))
+    (define-type TitleElement
+      (title-element [contents Bytes]))
+    (define-type BodyElement
+      (body-element [contents Bytes])))
+
+  (define (double-quote-bytes) : Bytes
+    (let ([bytes (make-bytes 1)])
+      (begin
+        (bytes-set! bytes 0 34)
+        bytes)))
+
+  (define (html-document->xml-bytes [e : HtmlElement]) : Bytes
+    (bytes-append
+      (jl->list
+        (cons-jl #"<?xml version="
+          (cons-jl (double-quote-bytes)
+            (cons-jl #"1.0"
+              (cons-jl (double-quote-bytes) 
+                (cons-jl #" encoding="
+                  (cons-jl (double-quote-bytes) 
+                    (cons-jl #"UTF-8"
+                      (cons-jl (double-quote-bytes) 
+                        (cons-jl #"?>" (html-element->xml-bytes e)))))))))))))
 
 
-  (define (add-newline [bytes : Bytes]) : Bytes
-    (let ([length (bytes-length bytes)])
-      (let ([new-bytes (make-bytes (+ 1 length))])
-        (begin
-          (bytes-copy! bytes 0 length new-bytes 0)
-          (bytes-set! new-bytes length 10)
-          new-bytes))))
+  (define (html-element->xml-bytes [e : HtmlElement]) : (JoinList Bytes)
+    (case e
+      [(html-element head body)
+       (cons-jl #"<html xmlns="
+         (cons-jl (double-quote-bytes) 
+           (cons-jl #"http://www.w3.org/1999/xhtml"
+             (cons-jl (double-quote-bytes) (cons-jl #">"
+               (snoc-jl
+                 (append-jl (head-element->xml-bytes head)
+                            (body-element->xml-bytes body))
+                 #"</html>"))))))]))
+
+  (define (head-element->xml-bytes [e : HeadElement]) : (JoinList Bytes)
+    (single-jl #"<head></head>"))
+
+  (define (body-element->xml-bytes [e : BodyElement]) : (JoinList Bytes)
+    (case e
+      [(body-element content)
+       (cons-jl #"<body>" (snoc-jl (single-jl content) #"</body>"))]))
 
   (define (request-handler [request : HttpRequest]) : HttpResponse
     (case request
@@ -58,16 +101,11 @@
        (http-response
          200
          #"OK"
-         #"text/plain"
-         (let ([header-lines
-                (map
-                  (lambda ([header : RequestHeader])
-                    (case header
-                      [(http-request-header name value )
-                       (bytes-append (varargs list name #":" value))]))
-                  headers)])
-             (bytes-append (map add-newline (cons resource header-lines)))))]))
-
+         #"application/xhtml+xml"
+         (html-document->xml-bytes
+           (html-element
+             (head-element (nothing))
+             (body-element #"foobar"))))]))
 
   (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Byte
     (if (= (array-length args) 3)

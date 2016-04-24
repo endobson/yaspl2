@@ -135,6 +135,7 @@ yaspl_library(
   srcs = ["code-http-server.yaspl"],
   deps = [
     ":http-server_lib",
+    ":join-list",
   ],
 )
 
