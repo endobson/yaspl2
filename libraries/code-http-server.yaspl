@@ -4,7 +4,7 @@
       #:types (Array Bytes InputPort OutputPort OutputPort Void)
       #:values (socket sendto bind shutdown listen accept make-bytes bytes-set! write-bytes quotient
                 close-output-port panic
-                remainder = void connect bytes-length + * bytes-ref array-length array-ref)
+                remainder < = void connect bytes-length + * bytes-ref array-length array-ref)
       #:patterns ())
     (io write-line read-all-bytes write-all-bytes newline)
     (buffered-port
@@ -12,6 +12,10 @@
       #:values (make-buffered-port read-crlf-line)
       #:patterns (line-result))
     (numbers decimal-bytes->integer integer->decimal-bytes)
+    (either
+      #:types (Either)
+      #:values ()
+      #:patterns (left right))
     (maybe
       #:types (Maybe)
       #:values (just nothing)
@@ -19,16 +23,20 @@
     (bytes bytes-copy! bytes-append)
     (join-list
       #:types (JoinList)
-      #:values (append-jl single-jl snoc-jl cons-jl jl->list)
+      #:values (append-jl single-jl snoc-jl cons-jl jl->list empty-jl)
       #:patterns ())
     (regexp
       #:types (Regexp)
       #:values (any-regexp group-regexp rep-regexp regexp-match epsilon-regexp seq-regexp lit-regexp
                 non-greedy-rep-regexp)
       #:patterns ())
+    (stack-machine
+      #:types (TopLevelObject)
+      #:values ()
+      #:patterns (stack-function function-tlo trivial-closure-tlo))
     (list
       #:types (List)
-      #:values (cons empty length reverse map list)
+      #:values (cons empty length reverse map list foldl)
       #:patterns (cons empty))
     (mach spawn)
     (tuples
@@ -36,6 +44,7 @@
       #:values (tuple2)
       #:patterns (tuple2))
     (tcp tcp-address tcp-socket-bind tcp-socket-accept tcp-socket-set-reuse-address)
+    (print-stack-function extract-top-level-objects)
     (http-server 
       #:types (Ipv4Address)
       #:values (run-http-server http-response)
@@ -95,36 +104,62 @@
       [(body-element content)
        (cons-jl #"<body>" (snoc-jl (single-jl content) #"</body>"))]))
 
-  (define (request-handler [request : HttpRequest]) : HttpResponse
-    (case request
-      [(http-request resource headers)
-       (case resource
-         [#"/"
-          (http-response
-            200
-            #"OK"
-            #"application/xhtml+xml"
-            (html-document->xml-bytes
-              (html-element
-                (head-element (nothing))
-                (body-element #"foobar"))))]
-         [_
-          (http-response
-            404
-            #"Not Found"
-            #"text/plain"
-            #"Not Found")])]))
+  (define (top-level-objects->xml-bytes [objects : (List TopLevelObject)]) : Bytes
+    (bytes-append
+      (jl->list
+        (foldl append-jl (map top-level-object->xml-bytes objects) (empty-jl)))))
+
+  (define (top-level-object->xml-bytes [object : TopLevelObject]) : Bytes
+    (case object
+      [(function-tlo (stack-function name _)) 
+       (cons-jl #"<div>"
+         (snoc-jl
+           (single-jl name)
+           #"</div>"))]
+      [(trivial-closure-tlo name _)
+       (cons-jl #"<div>"
+         (snoc-jl
+           (single-jl name)
+           #"</div>"))]))
+       
+
+  (define (make-request-handler [objects : (List TopLevelObject)]) : HttpResponse
+    (lambda ([request : HttpRequest])
+      (case request
+        [(http-request resource headers)
+         (case resource
+           [#"/"
+            (http-response
+              200
+              #"OK"
+              #"application/xhtml+xml"
+              (html-document->xml-bytes
+                (html-element
+                  (head-element (nothing))
+                  (body-element (top-level-objects->xml-bytes objects)))))]
+           [_
+            (http-response
+              404
+              #"Not Found"
+              #"text/plain"
+              #"Not Found")])])))
 
   (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Byte
-    (if (= (array-length args) 3)
+    (if (< (array-length args) 3)
+        (begin
+          (write-line #"Wrong number of arguments" stderr)
+          1)
         (case (bytes->ipv4-address (array-ref args 1))
           [(just ip-addr)
            (let ([address (tcp-address ip-addr (decimal-bytes->integer (array-ref args 2)))])
-             (run-http-server address request-handler))]
+             (case (extract-top-level-objects 3 args stderr)
+               [(left v)
+                (begin
+                  (write-line v stderr)
+                  1)]
+               [(right objects)
+                (run-http-server address (make-request-handler objects))]))]
           [(nothing)
            (begin
              (write-line #"Unparsable ip address" stderr)
-             1)])
-        (begin
-          (write-line #"Wrong number of arguments" stderr)
-          1))))
+             1)]))))

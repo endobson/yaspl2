@@ -136,6 +136,8 @@ yaspl_library(
   deps = [
     ":http-server_lib",
     ":join-list",
+    ":print-stack-function_lib",
+    ":stack-machine",
   ],
 )
 
