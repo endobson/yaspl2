@@ -16,6 +16,7 @@
       #:types (Maybe)
       #:values (just nothing)
       #:patterns (just nothing))
+    (bytes bytes-copy! bytes-append)
     (regexp
       #:types (Regexp)
       #:values (any-regexp group-regexp rep-regexp regexp-match epsilon-regexp seq-regexp lit-regexp
@@ -23,7 +24,7 @@
       #:patterns ())
     (list
       #:types (List)
-      #:values (cons empty length reverse map)
+      #:values (cons empty length reverse map list)
       #:patterns (cons empty))
     (mach spawn)
     (tuples
@@ -36,7 +37,19 @@
       #:values (bytes->ipv4-address)
       #:patterns ()))
   (export)
-  (types)
+  (types
+    (define-type HttpResponse
+      (http-response
+        [status-code Byte]
+        [status-text Bytes]
+        [content-type Bytes]
+        [contents Bytes]))
+    (define-type HttpRequest
+      (http-request
+        [path Bytes]
+        [headers (List HttpRequestHeader)]))
+    (define-type HttpRequestHeader
+      (http-request-header [name Bytes] [value Bytes])))
 
   (define (write-crlf [out : OutputPort]) : Void
     (let ([bytes (make-bytes 2)])
@@ -83,6 +96,48 @@
        (just (tuple2 header-name header-value))]
       [(just _) (panic #"Bad header regexp return")]))
 
+  (define (write-http-response [response : HttpResponse] [out : OutputPort]) : Void
+    (case response
+      [(http-response status-code status-text content-type body)
+       (begin
+         (write-all-bytes #"HTTP/1.1" out)
+         (write-all-bytes (integer->decimal-bytes status-code) out)
+         (write-all-bytes #" " out)
+         (write-all-bytes status-text out)
+         (write-crlf out)
+         (write-all-bytes #"Content-Type: " out)
+         (write-all-bytes content-type out)
+         (write-crlf out)
+         (write-all-bytes #"Connection: close" out)
+         (write-crlf out)
+         (write-crlf out)
+         (write-all-bytes body out))]))
+
+
+  (define (add-newline [bytes : Bytes]) : Bytes
+    (let ([length (bytes-length bytes)])
+      (let ([new-bytes (make-bytes (+ 1 length))])
+        (begin
+          (bytes-copy! bytes 0 length new-bytes 0)
+          (bytes-set! new-bytes length 10)
+          new-bytes))))
+
+  (define (request-handler [request : HttpRequest]) : HttpResponse
+    (case request
+      [(http-request resource headers)
+       (http-response
+         200
+         #"OK"
+         #"text/plain"
+         (let ([header-lines
+                (map
+                  (lambda ([header : RequestHeader])
+                    (case header
+                      [(http-request-header name value )
+                       (bytes-append (varargs list name #":" value))]))
+                  headers)])
+             (bytes-append (map add-newline (cons resource header-lines)))))]))
+
 
   (define (read-loop [buffered-port : BufferedPort] [lines : (List Bytes)] [sock : Socket] [stdout : OutputPort]) : Void
     (case (read-crlf-line buffered-port)
@@ -92,31 +147,20 @@
              [(empty)
               (close-output-port sock)]
              [(cons request-line header-lines)
-              (begin
-                (write-all-bytes #"HTTP/1.1 200 OK" sock)
-                (write-crlf sock)
-                (write-all-bytes #"Content-Type: text/plain" sock)
-                (write-crlf sock)
-                (write-all-bytes #"Connection: close" sock)
-                (write-crlf sock)
-                (write-crlf sock)
-                (case (parse-request-line request-line)
-                  [(just resource)
-                   (write-line resource sock)]
-                  [(nothing)
-                   (panic #"Unparseable resource")])
-                (map 
-                  (lambda ([header-line : Bytes])
-                    (case (parse-request-header header-line)
-                      [(just (tuple2 header-name header-value))
-                       (begin
-                         (write-all-bytes header-name sock)
-                         (write-all-bytes #":" sock)
-                         (write-all-bytes header-value sock)
-                         (newline sock))]))
-                  header-lines)
-                (write-line (integer->decimal-bytes (length header-lines)) sock)
-                (close-output-port sock))])
+              (let ([request
+                     (http-request
+                       (case (parse-request-line request-line)
+                         [(just resource) resource]
+                         [(nothing) (panic #"Unparseable resource")])
+                       (map
+                         (lambda ([header-line : Bytes])
+                           (case (parse-request-header header-line)
+                             [(just request-header) request-header ]
+                             [(nothing) (panic #"Unparseable header")]))
+                         header-lines))])
+                (begin
+                  (write-http-response (request-handler request) sock)
+                  (close-output-port sock)))])
            (if eof
                (close-output-port sock)
                (read-loop buffered-port (cons bytes lines) sock stdout)))]))
