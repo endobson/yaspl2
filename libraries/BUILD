@@ -18,17 +18,22 @@ yaspl_binary(
   deps = [":compiler_lib"]
 )
 
-
 yaspl_binary(
-  name = "print-stack-function",
-  main_module = "print_stack_function",
-  deps = [":print-stack-function_lib"]
+  name = "code-http-server",
+  main_module = "code_http_server",
+  deps = [":code-http-server_lib"]
 )
 
 yaspl_binary(
   name = "http-server",
   main_module = "http_server",
   deps = [":http-server_lib"]
+)
+
+yaspl_binary(
+  name = "print-stack-function",
+  main_module = "print_stack_function",
+  deps = [":print-stack-function_lib"]
 )
 
 yaspl_binary(
@@ -122,6 +127,15 @@ yaspl_bootstrap_library(
     ":set",
     ":source-language",
   ]
+)
+
+
+yaspl_library(
+  name = "code-http-server_lib",
+  srcs = ["code-http-server.yaspl"],
+  deps = [
+    ":http-server_lib",
+  ],
 )
 
 yaspl_library(

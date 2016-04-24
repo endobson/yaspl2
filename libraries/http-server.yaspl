@@ -36,7 +36,7 @@
       #:types (Ipv4Address)
       #:values (bytes->ipv4-address)
       #:patterns ()))
-  (export)
+  (export run-http-server http-request http-response http-request-header)
   (types
     (define-type HttpResponse
       (http-response
@@ -100,7 +100,7 @@
     (case response
       [(http-response status-code status-text content-type body)
        (begin
-         (write-all-bytes #"HTTP/1.1" out)
+         (write-all-bytes #"HTTP/1.1 " out)
          (write-all-bytes (integer->decimal-bytes status-code) out)
          (write-all-bytes #" " out)
          (write-all-bytes status-text out)
@@ -139,7 +139,8 @@
              (bytes-append (map add-newline (cons resource header-lines)))))]))
 
 
-  (define (read-loop [buffered-port : BufferedPort] [lines : (List Bytes)] [sock : Socket] [stdout : OutputPort]) : Void
+  (define (read-loop [buffered-port : BufferedPort] [lines : (List Bytes)] [sock : Socket]
+                     [request-handler : (-> HttpRequest HttpResponse)]) : Void
     (case (read-crlf-line buffered-port)
       [(line-result bytes eof buffered-port)
        (if (= (bytes-length bytes) 0)
@@ -163,28 +164,32 @@
                   (close-output-port sock)))])
            (if eof
                (close-output-port sock)
-               (read-loop buffered-port (cons bytes lines) sock stdout)))]))
+               (read-loop buffered-port (cons bytes lines) sock request-handler)))]))
 
-  (define (accept-loop [sock : Socket] [stdout : OutputPort]) : Void
+  (define (accept-loop [sock : Socket] [request-handler : (-> HttpRequest HttpResponse)]) : Void
     (case (tcp-socket-accept sock)
       [(tuple2 new-sock new-sock-addr)
        (begin
          (spawn
            (lambda ()
-             (read-loop (make-buffered-port new-sock) (empty) new-sock stdout)))
-         (accept-loop sock stdout))]))
+             (read-loop (make-buffered-port new-sock) (empty) new-sock request-handler)))
+         (accept-loop sock request-handler))]))
+
+  (define (run-http-server [address : TcpAddress] [request-handler : (-> HttpRequest HttpResponse)]) : Void
+    (let ([sock (socket 2 1 0)])
+       (begin
+         (tcp-socket-set-reuse-address sock #t)
+         (tcp-socket-bind sock address)
+         (listen sock 5)
+         (accept-loop sock request-handler))))
+
 
   (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Byte
     (if (= (array-length args) 3)
         (case (bytes->ipv4-address (array-ref args 1))
           [(just ip-addr)
            (let ([address (tcp-address ip-addr (decimal-bytes->integer (array-ref args 2)))])
-             (let ([sock (socket 2 1 0)])
-               (begin
-                 (tcp-socket-set-reuse-address sock #t)
-                 (tcp-socket-bind sock address)
-                 (listen sock 5)
-                 (accept-loop sock stdout))))]
+             (run-http-server address request-handler))]
           [(nothing)
            (begin
              (write-line #"Unparsable ip address" stderr)

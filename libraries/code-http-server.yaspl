@@ -1,0 +1,84 @@
+(module code-http-server
+  (import
+    (prim
+      #:types (Array Bytes InputPort OutputPort OutputPort Void)
+      #:values (socket sendto bind shutdown listen accept make-bytes bytes-set! write-bytes quotient
+                close-output-port panic
+                remainder = void connect bytes-length + * bytes-ref array-length array-ref)
+      #:patterns ())
+    (io write-line read-all-bytes write-all-bytes newline)
+    (buffered-port
+      #:types (BufferedPort)
+      #:values (make-buffered-port read-crlf-line)
+      #:patterns (line-result))
+    (numbers decimal-bytes->integer integer->decimal-bytes)
+    (maybe
+      #:types (Maybe)
+      #:values (just nothing)
+      #:patterns (just nothing))
+    (bytes bytes-copy! bytes-append)
+    (regexp
+      #:types (Regexp)
+      #:values (any-regexp group-regexp rep-regexp regexp-match epsilon-regexp seq-regexp lit-regexp
+                non-greedy-rep-regexp)
+      #:patterns ())
+    (list
+      #:types (List)
+      #:values (cons empty length reverse map list)
+      #:patterns (cons empty))
+    (mach spawn)
+    (tuples
+      #:types (Tuple2)
+      #:values (tuple2)
+      #:patterns (tuple2))
+    (tcp tcp-address tcp-socket-bind tcp-socket-accept tcp-socket-set-reuse-address)
+    (http-server 
+      #:types (Ipv4Address)
+      #:values (run-http-server http-response)
+      #:patterns (http-request http-request-header))
+    (ip
+      #:types (Ipv4Address)
+      #:values (bytes->ipv4-address)
+      #:patterns ()))
+  (export)
+  (types)
+
+
+  (define (add-newline [bytes : Bytes]) : Bytes
+    (let ([length (bytes-length bytes)])
+      (let ([new-bytes (make-bytes (+ 1 length))])
+        (begin
+          (bytes-copy! bytes 0 length new-bytes 0)
+          (bytes-set! new-bytes length 10)
+          new-bytes))))
+
+  (define (request-handler [request : HttpRequest]) : HttpResponse
+    (case request
+      [(http-request resource headers)
+       (http-response
+         200
+         #"OK"
+         #"text/plain"
+         (let ([header-lines
+                (map
+                  (lambda ([header : RequestHeader])
+                    (case header
+                      [(http-request-header name value )
+                       (bytes-append (varargs list name #":" value))]))
+                  headers)])
+             (bytes-append (map add-newline (cons resource header-lines)))))]))
+
+
+  (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Byte
+    (if (= (array-length args) 3)
+        (case (bytes->ipv4-address (array-ref args 1))
+          [(just ip-addr)
+           (let ([address (tcp-address ip-addr (decimal-bytes->integer (array-ref args 2)))])
+             (run-http-server address request-handler))]
+          [(nothing)
+           (begin
+             (write-line #"Unparsable ip address" stderr)
+             1)])
+        (begin
+          (write-line #"Wrong number of arguments" stderr)
+          1))))
