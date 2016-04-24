@@ -20,7 +20,7 @@
       #:types (Maybe)
       #:values (just nothing)
       #:patterns (just nothing))
-    (bytes bytes-copy! bytes-append)
+    (bytes bytes-copy! bytes-append bytes=? subbytes)
     (join-list
       #:types (JoinList)
       #:values (append-jl single-jl snoc-jl cons-jl jl->list empty-jl)
@@ -121,6 +121,18 @@
          (snoc-jl
            (single-jl name)
            #"</div>"))]))
+
+  (define (find-function [name : Bytes] [objects : (List TopLevelObject)]) : (Maybe StackFunction)
+    (case objects
+      [(empty) (nothing)]
+      [(cons (function-tlo func) objects)
+       (case func
+         [(stack-function func-name _)
+          (if (bytes=? name func-name)
+              (just func)
+              (find-function name objects))])]
+      [(cons (trivial-closure-tlo _ _) objects)
+       (find-function name objects)]))
        
 
   (define (make-request-handler [objects : (List TopLevelObject)]) : HttpResponse
@@ -137,12 +149,21 @@
                 (html-element
                   (head-element (nothing))
                   (body-element (top-level-objects->xml-bytes objects)))))]
-           [_
-            (http-response
-              404
-              #"Not Found"
-              #"text/plain"
-              #"Not Found")])])))
+           [path
+            (let ([name (subbytes path 1 (bytes-length path))])
+              (case (find-function name objects)
+                [(nothing)
+                 (http-response
+                   404
+                   #"Not Found"
+                   #"text/plain"
+                   #"Not Found")]
+                [(just function)
+                 (http-response
+                   200
+                   #"OK"
+                   #"text/plain"
+                   name)]))])])))
 
   (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Byte
     (if (< (array-length args) 3)
