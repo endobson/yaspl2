@@ -63,6 +63,7 @@ def _bin_impl(ctx):
     command = "ld -arch x86_64 " +
     "-macosx_version_min 10.11 " +
     "-static " +
+    "-no_uuid " +
     "-sectcreate __DATA __data /dev/null " +
     "%s -o %s" % (
       ctx.outputs.object.path,
@@ -110,6 +111,7 @@ def _test_impl(ctx):
     command = "ld -arch x86_64 " +
     "-macosx_version_min 10.11 " +
     "-static " +
+    "-no_uuid " +
     "-sectcreate __DATA __data /dev/null " +
     "%s -o %s" % (
       ctx.outputs.object.path,
