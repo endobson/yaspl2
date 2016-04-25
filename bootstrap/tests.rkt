@@ -143,6 +143,7 @@
                 "/usr/bin/env" "as" asm "-o" object)
               (check-subprocess* #:error-message "Linker failed."
                 "/usr/bin/env" "ld" "-arch" "x86_64" "-macosx_version_min" "10.11"
+                "-sectcreate" "__DATA" "__data" "/dev/null"
                 "-static" object "-o" binary)
 
               (define input (open-input-bytes stdin))

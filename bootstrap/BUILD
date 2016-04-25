@@ -214,6 +214,7 @@ genrule(
   cmd = "ld -arch x86_64 " +
     "-macosx_version_min 10.11 " +
     "-static " +
+    "-sectcreate __DATA __data /dev/null " +
     "$(location bootstrap_compiler.o) -o $(location bootstrap_compiler)"
 )
 
