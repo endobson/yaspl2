@@ -23,7 +23,7 @@
     (bytes bytes-copy! bytes-append bytes=? subbytes)
     (join-list
       #:types (JoinList)
-      #:values (append-jl single-jl snoc-jl cons-jl jl->list empty-jl append-jl*)
+      #:values (append-jl single-jl snoc-jl cons-jl jl->list empty-jl append-jl* join-list)
       #:patterns ())
     (regexp
       #:types (Regexp)
@@ -62,7 +62,13 @@
     (define-type TitleElement
       (title-element [contents Bytes]))
     (define-type BodyElement
-      (body-element [contents Bytes])))
+      (body-element [contents (List Node)]))
+
+    (define-type Node
+      (element-node [tag-name Bytes] [attributes (Listof Attribute)] [children (Listof Node)])
+      (text-node [contents (JoinList Bytes)]))
+    (define-type Attribute
+      (attribute [name Bytes] [value Bytes])))
 
   (define (double-quote-bytes) : Bytes
     (let ([bytes (make-bytes 1)])
@@ -101,26 +107,31 @@
 
   (define (body-element->xml-bytes [e : BodyElement]) : (JoinList Bytes)
     (case e
-      [(body-element content)
-       (cons-jl #"<body>" (snoc-jl (single-jl content) #"</body>"))]))
+      [(body-element child-nodes)
+       (varargs append-jl*
+         (single-jl #"<body>")
+         (foldl append-jl (map node->xml-bytes child-nodes) (empty-jl))
+         (single-jl#"</body>"))]))
 
-  (define (top-level-objects->xml-bytes [objects : (List TopLevelObject)]) : Bytes
-    (bytes-append
-      (jl->list
-        (foldl append-jl (map top-level-object->xml-bytes objects) (empty-jl)))))
+  (define (node->xml-bytes [e : BodyElement]) : (JoinList Bytes)
+    (case e
+      [(element-node tag (empty) child-nodes)
+       (varargs append-jl*
+          (varargs join-list #"<" tag #">")
+          (foldl append-jl (map node->xml-bytes child-nodes) (empty-jl))
+          (varargs join-list #"</" tag #">"))]
+      [(element-node tag _ child-nodes)
+       (panic #"Attributes not implemented yet.")]
+      [(text-node contents)
+       contents]))
 
-  (define (top-level-object->xml-bytes [object : TopLevelObject]) : Bytes
+
+  (define (top-level-object->node [object : TopLevelObject]) : Bytes
     (case object
       [(function-tlo (stack-function name _)) 
-       (cons-jl #"<div>"
-         (snoc-jl
-           (single-jl name)
-           #"</div>"))]
+       (element-node #"div" (empty) (cons (text-node (single-jl name)) (empty)))]
       [(trivial-closure-tlo name _)
-       (cons-jl #"<div>"
-         (snoc-jl
-           (single-jl name)
-           #"</div>"))]))
+       (element-node #"div" (empty) (cons (text-node (single-jl name)) (empty)))]))
 
   (define (find-function [name : Bytes] [objects : (List TopLevelObject)]) : (Maybe StackFunction)
     (case objects
@@ -148,7 +159,7 @@
               (html-document->xml-bytes
                 (html-element
                   (head-element (nothing))
-                  (body-element (top-level-objects->xml-bytes objects)))))]
+                  (body-element (map top-level-object->node objects)))))]
            [path
             (let ([name (subbytes path 1 (bytes-length path))])
               (case (find-function name objects)
@@ -167,12 +178,15 @@
                      (html-element
                        (head-element (nothing))
                        (body-element
-                         (bytes-append
-                           (jl->list
-                             (varargs append-jl*
-                               (single-jl #"<pre><code>")
-                               (function->bytes function)
-                               (single-jl #"</code></pre>"))))))))]))])])))
+                         (cons
+                           (element-node #"pre" (empty)
+                             (cons
+                               (element-node #"code" (empty)
+                                 (cons
+                                   (text-node (function->bytes function))
+                                   (empty)))
+                               (empty)))
+                           (empty))))))]))])])))
 
   (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Byte
     (if (< (array-length args) 3)
