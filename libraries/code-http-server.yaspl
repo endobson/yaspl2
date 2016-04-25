@@ -36,7 +36,7 @@
       #:patterns (stack-function function-tlo trivial-closure-tlo))
     (list
       #:types (List)
-      #:values (cons empty length reverse map list foldl)
+      #:values (cons empty length reverse map list)
       #:patterns (cons empty))
     (mach spawn)
     (tuples
@@ -55,9 +55,6 @@
       #:patterns ()))
   (export)
   (types
-    (define-type HtmlElement
-      (html-element [head Node] [body Node]))
-
     (define-type Node
       (element-node [tag-name Bytes] [attributes (Listof Attribute)] [children (Listof Node)])
       (text-node [contents (JoinList Bytes)]))
@@ -70,7 +67,7 @@
         (bytes-set! bytes 0 34)
         bytes)))
 
-  (define (html-document->xml-bytes [e : HtmlElement]) : Bytes
+  (define (document->xml-bytes [node : Node]) : Bytes
     (bytes-append
       (jl->list
         (cons-jl #"<?xml version="
@@ -81,20 +78,13 @@
                   (cons-jl (double-quote-bytes) 
                     (cons-jl #"UTF-8"
                       (cons-jl (double-quote-bytes) 
-                        (cons-jl #"?>" (html-element->xml-bytes e)))))))))))))
+                        (cons-jl #"?>" (node->xml-bytes node)))))))))))))
 
 
-  (define (html-element->xml-bytes [e : HtmlElement]) : (JoinList Bytes)
-    (case e
-      [(html-element head body)
-       (cons-jl #"<html xmlns="
-         (cons-jl (double-quote-bytes) 
-           (cons-jl #"http://www.w3.org/1999/xhtml"
-             (cons-jl (double-quote-bytes) (cons-jl #">"
-               (snoc-jl
-                 (append-jl (node->xml-bytes head)
-                            (node->xml-bytes body))
-                 #"</html>"))))))]))
+  (define (a) (concat-jl [l : (List (JoinList a))]) : (JoinList a)
+    (case l
+      [(empty) (empty-jl)]
+      [(cons e l) (append-jl e (concat-jl l))]))
 
 
   (define (node->xml-bytes [v : Node]) : (JoinList Bytes)
@@ -102,9 +92,9 @@
       [(element-node tag attributes child-nodes)
        (varargs append-jl*
           (varargs join-list #"<" tag)
-          (foldl append-jl (map attribute->xml-bytes attributes) (empty-jl))
+          (concat-jl (map attribute->xml-bytes attributes))
           (single-jl #">")
-          (foldl append-jl (map node->xml-bytes child-nodes) (empty-jl))
+          (concat-jl (map node->xml-bytes child-nodes))
           (varargs join-list #"</" tag #">"))]
       [(text-node contents)
        contents]))
@@ -122,6 +112,16 @@
          (single-jl (double-quote-bytes)))]))
 
 
+  (define (html [head : Node] [body : Node]) : (JoinList Bytes)
+    (element-node
+      #"html"
+      (cons (attribute (single-jl #"xmlns") (single-jl #"http://www.w3.org/1999/xhtml")) (empty))
+      (cons head (cons body (empty)))))
+  (define (head) : Node
+    (element-node #"head" (empty) (empty)))
+  (define (body [children : (List Node)]) : Node
+    (element-node #"body" (empty) children))
+
   (define (pre [child : Node]) : Node
     (element-node #"pre" (empty) (cons child (empty))))
   (define (code [child : Node]) : Node
@@ -132,10 +132,6 @@
     (element-node #"a"
       (cons (attribute (single-jl #"href") uri) (empty))
       (cons contents (empty))))
-  (define (body [children : (List Node)]) : Node
-    (element-node #"body" (empty) children))
-  (define (head) : Node
-    (element-node #"head" (empty) (empty)))
 
   (define (top-level-object->node [object : TopLevelObject]) : Bytes
     (case object
@@ -167,8 +163,8 @@
               200
               #"OK"
               #"application/xhtml+xml"
-              (html-document->xml-bytes
-                (html-element
+              (document->xml-bytes
+                (html
                   (head)
                   (body (map top-level-object->node objects)))))]
            [path
@@ -185,8 +181,8 @@
                    200
                    #"OK"
                    #"application/xhtml+xml"
-                   (html-document->xml-bytes
-                     (html-element
+                   (document->xml-bytes
+                     (html
                        (head)
                        (body
                          (cons
