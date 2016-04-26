@@ -7,7 +7,7 @@
     (prim-implementation prim-implementation)
     (list
       #:types (List)
-      #:values (cons-head append list)
+      #:values (cons-head append list map)
       #:patterns (empty cons))
     (numbers integer->decimal-bytes)
     (io read-all-bytes write-all-bytes newline write-line)
@@ -38,7 +38,20 @@
       #:values ()
       #:patterns (left right)))
   (export compile-stack-machine)
-  (types)
+  (types
+    (define-type AssemblyCommand
+      (directive-cmd [directive AssemblerDirective])
+      (instruction-cmd [instruction Instruction]))
+    (define-type AssemblerDirective
+      (section-directive [segment-name Bytes] [section-name Bytes])
+      (global-directive [name Bytes])
+      (label-directive [name Bytes]))
+    (define-type Instruction
+      (nop)
+      (movq [literal Byte] [register Register]))
+    (define-type Register
+      (rdi)
+      (rsi)))
 
   (define (compile-stack-machine
             [main-function-name : Bytes]
@@ -48,15 +61,49 @@
       (write-start main-function-name output)
       (write-objects objects output)))
 
+  (define (assembly-command->bytes [cmd : AssemblyCommand]) : (JoinList Bytes)
+    (case cmd
+      [(directive-cmd directive) (assembler-directive->bytes directive)]
+      [(instruction-cmd instruction) (instruction->assembly-bytes instruction)]))
+
+  (define (assembler-directive->bytes [dir : AssemblerDirective]) : (JoinList Bytes)
+    (case dir
+      [(section-directive seg sect)
+       (varargs join-list  #".section " seg #"," sect)]
+      [(global-directive name)
+       (varargs join-list  #".global " name)]
+      [(label-directive name)
+       (varargs join-list  name #":")]))
+
+  (define (instruction->assembly-bytes [inst : Instruction]) : (JoinList Bytes)
+    (case inst
+      [(nop)
+       (single-jl #"nop")]
+      [(movq byte reg)
+       (varargs join-list
+          #"movq $"
+          (integer->decimal-bytes byte)
+          #", "
+          (register->bytes reg))]))
+
+  (define (register->bytes [reg : Register]) : Bytes
+    (case reg
+      [(rdi) #"rdi"]
+      [(rsi) #"rsi"]))
 
 
   (define (write-start [main-function-name : Bytes] [output : OutputPort]) : Void
     (begin
-      (write-line #".section __TEXT,__text" output)
-      (write-line #".global start" output)
-      (write-line #"start:" output)
-      (write-line #"nop" output)
-      (write-line #"start_break:" output)
+      (write-lines
+        (map
+          assembly-command->bytes
+          (varargs list
+            (directive-cmd (section-directive #"__TEXT" #"__text"))
+            (directive-cmd (global-directive #"start"))
+            (directive-cmd (label-directive #"start"))
+            (instruction-cmd (nop))
+            (directive-cmd (label-directive #"start_break"))))
+        output)
       ;; Allocate Heap (Call mmap)
       ;; No fixed address desired
       (write-line #"movq $0x0, %rdi" output)
@@ -597,7 +644,7 @@
           (single-jl #"pop %r9")  ;; Timeout
           (single-jl #"pop %r10") ;; Recv size
           (single-jl #"pop %rdx") ;; Send size
-          (single-jl #"pop %rsi") ;; Options 
+          (single-jl #"pop %rsi") ;; Options
           (single-jl #"pop %rdi") ;; Buffer
           (single-jl #"addq $0x8, %rdi") ;; Adjust past buffer's length field
           (single-jl #"pop %r8") ;; Reply-port
@@ -926,7 +973,7 @@
          (write-all-bytes (integer->decimal-bytes false-index) output)
          (newline output))]
       [(variant-switch cases)
-       (begin 
+       (begin
          (write-line #"mov (%rsp), %rax" output)
          (write-variant-switch fun-name cases output))]))
 
