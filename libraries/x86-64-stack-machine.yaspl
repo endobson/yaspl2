@@ -19,7 +19,7 @@
       #:types (Sexp)
       #:values (parse-sexp)
       #:patterns ())
-    (bytes bytes-copy! subbytes)
+    (bytes bytes-copy! subbytes bytes-append)
     (stack-machine
       #:types (StackFunction StackBasicBlock StackCmd StackTerminal VariantCases TopLevelObject)
       #:values (stack-function-blocks stack-basic-block-cmds)
@@ -142,6 +142,21 @@
 
   (define (write-assembly-commands [cmds : (List AssemblyCommand)] [output : OutputPort]) : Void
     (write-lines (map assembly-command->bytes cmds) output))
+
+  (define (write-prim-assembly-function
+            [name : Bytes]
+            [output : OutputPort]
+            [instructions : (List Instruction)]) : Void
+    (write-assembly-commands
+      (append
+        (varargs list
+          (directive-cmd (section-directive #"__TEXT" #"__const"))
+          (directive-cmd (label-directive (bytes-append (varargs list #"prim_" name #"_closure"))))
+          (directive-cmd (quad-directive (bytes-append (varargs list #"prim_" name))))
+          (directive-cmd (section-directive #"__TEXT" #"__text"))
+          (directive-cmd (label-directive (bytes-append (varargs list #"prim_" name)))))
+        (map instruction-cmd instructions))
+      output))
 
 
   (define (write-start [main-function-name : Bytes] [output : OutputPort]) : Void
@@ -713,21 +728,15 @@
         output)
 
       ;; and
-      (write-assembly-commands
+      (write-prim-assembly-function #"and" output
         (varargs list
-          (directive-cmd (section-directive #"__TEXT" #"__const"))
-          (directive-cmd (label-directive #"prim_and_closure"))
-          (directive-cmd (quad-directive #"prim_and"))
-          (directive-cmd (section-directive #"__TEXT" #"__text"))
-          (directive-cmd (label-directive #"prim_and"))
-          (instruction-cmd (pop (rbx))) ;; Return address
-          (instruction-cmd (pop (rax))) ;; Ignored closure
-          (instruction-cmd (pop (rax))) ;; Argument 2
-          (instruction-cmd (pop (rcx))) ;; Argument 1
-          (instruction-cmd (and (rcx) (rax)))
-          (instruction-cmd (push (rbx)))
-          (instruction-cmd (ret)))
-        output)
+          (pop (rbx)) ;; Return address
+          (pop (rax)) ;; Ignored closure
+          (pop (rax)) ;; Argument 2
+          (pop (rcx)) ;; Argument 1
+          (and (rcx) (rax))
+          (push (rbx))
+          (ret)))
       ;; or
       (write-lines
         (varargs list
