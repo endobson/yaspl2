@@ -44,14 +44,34 @@
       (instruction-cmd [instruction Instruction]))
     (define-type AssemblerDirective
       (section-directive [segment-name Bytes] [section-name Bytes])
-      (global-directive [name Bytes])
-      (label-directive [name Bytes]))
+      (global-directive [label Bytes])
+      (label-directive [name Bytes])
+      (quad-directive [label Bytes]))
     (define-type Instruction
+      (and [reg1 Register] [reg2 Register])
+      (movq [literal Byte] [register Register])
       (nop)
-      (movq [literal Byte] [register Register]))
+      (pop [register Register])
+      (push [register Register])
+      (ret))
     (define-type Register
+      (rax)
+      (rbx)
+      (rcx)
+      (rdx)
       (rdi)
-      (rsi)))
+      (rsi)
+      (rbp)
+      (rsp)
+      (r8)
+      (r9)
+      (r10)
+      (r11)
+      (r12)
+      (r13)
+      (r14)
+      (r15)
+      (rip)))
 
   (define (compile-stack-machine
             [main-function-name : Bytes]
@@ -69,40 +89,70 @@
   (define (assembler-directive->bytes [dir : AssemblerDirective]) : (JoinList Bytes)
     (case dir
       [(section-directive seg sect)
-       (varargs join-list  #".section " seg #"," sect)]
-      [(global-directive name)
-       (varargs join-list  #".global " name)]
+       (varargs join-list #".section " seg #"," sect)]
+      [(global-directive label)
+       (varargs join-list #".global " label)]
       [(label-directive name)
-       (varargs join-list  name #":")]))
+       (varargs join-list name #":")]
+      [(quad-directive label)
+       (varargs join-list #".quad " label)]))
 
   (define (instruction->assembly-bytes [inst : Instruction]) : (JoinList Bytes)
     (case inst
-      [(nop)
-       (single-jl #"nop")]
+      [(and reg1 reg2)
+       (varargs join-list
+          #"and "
+          (register->bytes reg1)
+          #", "
+          (register->bytes reg2))]
       [(movq byte reg)
        (varargs join-list
           #"movq $"
           (integer->decimal-bytes byte)
           #", "
-          (register->bytes reg))]))
+          (register->bytes reg))]
+      [(nop)
+       (single-jl #"nop")]
+      [(pop reg)
+       (varargs join-list #"pop " (register->bytes reg))]
+      [(push reg)
+       (varargs join-list #"push " (register->bytes reg))]
+      [(ret)
+       (single-jl #"ret")]))
 
   (define (register->bytes [reg : Register]) : Bytes
     (case reg
-      [(rdi) #"rdi"]
-      [(rsi) #"rsi"]))
+      [(rax) #"%rax"]
+      [(rbx) #"%rbx"]
+      [(rcx) #"%rcx"]
+      [(rdx) #"%rdx"]
+      [(rdi) #"%rdi"]
+      [(rsi) #"%rsi"]
+      [(rbp) #"%rbp"]
+      [(rsp) #"%rsp"]
+      [(r8) #"%r8"]
+      [(r9) #"%r9"]
+      [(r10) #"%r10"]
+      [(r11) #"%r11"]
+      [(r12) #"%r12"]
+      [(r13) #"%r13"]
+      [(r14) #"%r14"]
+      [(r15) #"%r15"]
+      [(rip) #"%rip"]))
+
+  (define (write-assembly-commands [cmds : (List AssemblyCommand)] [output : OutputPort]) : Void
+    (write-lines (map assembly-command->bytes cmds) output))
 
 
   (define (write-start [main-function-name : Bytes] [output : OutputPort]) : Void
     (begin
-      (write-lines
-        (map
-          assembly-command->bytes
-          (varargs list
-            (directive-cmd (section-directive #"__TEXT" #"__text"))
-            (directive-cmd (global-directive #"start"))
-            (directive-cmd (label-directive #"start"))
-            (instruction-cmd (nop))
-            (directive-cmd (label-directive #"start_break"))))
+      (write-assembly-commands
+        (varargs list
+          (directive-cmd (section-directive #"__TEXT" #"__text"))
+          (directive-cmd (global-directive #"start"))
+          (directive-cmd (label-directive #"start"))
+          (instruction-cmd (nop))
+          (directive-cmd (label-directive #"start_break")))
         output)
       ;; Allocate Heap (Call mmap)
       ;; No fixed address desired
@@ -663,20 +713,20 @@
         output)
 
       ;; and
-      (write-lines
+      (write-assembly-commands
         (varargs list
-          (single-jl #".section __TEXT,__const")
-          (single-jl #"prim_and_closure: ")
-          (single-jl #".quad prim_and")
-          (single-jl #".section __TEXT,__text")
-          (single-jl #"prim_and:")
-          (single-jl #"pop %rbx") ;; Return address
-          (single-jl #"pop %rax") ;; Ignored closure
-          (single-jl #"pop %rax") ;; Argument 2
-          (single-jl #"pop %rcx") ;; Argument 1
-          (single-jl #"and %rcx, %rax")
-          (single-jl #"push %rbx")
-          (single-jl #"ret"))
+          (directive-cmd (section-directive #"__TEXT" #"__const"))
+          (directive-cmd (label-directive #"prim_and_closure"))
+          (directive-cmd (quad-directive #"prim_and"))
+          (directive-cmd (section-directive #"__TEXT" #"__text"))
+          (directive-cmd (label-directive #"prim_and"))
+          (instruction-cmd (pop (rbx))) ;; Return address
+          (instruction-cmd (pop (rax))) ;; Ignored closure
+          (instruction-cmd (pop (rax))) ;; Argument 2
+          (instruction-cmd (pop (rcx))) ;; Argument 1
+          (instruction-cmd (and (rcx) (rax)))
+          (instruction-cmd (push (rbx)))
+          (instruction-cmd (ret)))
         output)
       ;; or
       (write-lines
