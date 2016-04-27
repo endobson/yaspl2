@@ -48,6 +48,7 @@
       (label-directive [name Bytes])
       (quad-directive [label Bytes]))
     (define-type Instruction
+      (add [rmi RegMemImm] [reg Register])
       (and [reg1 Register] [reg2 Register])
       (or [reg1 Register] [reg2 Register])
       (movb [r Register] [rmi RegMemImm])
@@ -56,7 +57,8 @@
       (nop)
       (pop [register Register])
       (push [register Register])
-      (ret))
+      (ret)
+      (ud2))
     (define-type Register
       ;; 8 Bit registers
       (al)
@@ -133,7 +135,7 @@
       (rip))
     (define-type RegMemImm
       (rmi-register [r Register])
-      (rmi-direct-memory [reg Register])
+      (rmi-direct-memory [reg Register] [offset Byte])
       (rmi-scaled-memory [reg Register] [scale Byte] [index-reg Register] [offset Byte])
       (rmi-immediate [v Byte])))
 
@@ -163,6 +165,13 @@
 
   (define (instruction->assembly-bytes [inst : Instruction]) : (JoinList Bytes)
     (case inst
+      [(add rmi reg)
+       (varargs join-list
+          #"add "
+          (rmi->bytes rmi)
+          #", "
+          (register->bytes reg))]
+
       [(and reg1 reg2)
        (varargs join-list
           #"and "
@@ -200,7 +209,9 @@
       [(push reg)
        (varargs join-list #"push " (register->bytes reg))]
       [(ret)
-       (single-jl #"ret")]))
+       (single-jl #"ret")]
+      [(ud2)
+       (single-jl #"ud2")]))
 
   (define (register->bytes [reg : Register]) : Bytes
     (case reg
@@ -281,8 +292,8 @@
   (define (rmi->bytes [rmi : RegMemImm]) : Bytes
     (case rmi
       [(rmi-register r) (register->bytes r)]
-      [(rmi-direct-memory reg)
-       (bytes-append (varargs list #"(" (register->bytes reg) #")"))]
+      [(rmi-direct-memory reg offset)
+       (bytes-append (varargs list (integer->decimal-bytes offset) #"(" (register->bytes reg) #")"))]
       [(rmi-scaled-memory reg scale index offset)
        (bytes-append
          (varargs list
@@ -299,8 +310,8 @@
 
   (define (reg [r : Register]) : RegMemImm
     (rmi-register r))
-  (define (mem [r : Register]) : RegMemImm
-    (rmi-direct-memory r))
+  (define (mem [r : Register] [offset : Byte]) : RegMemImm
+    (rmi-direct-memory r offset))
   (define (imm [v : Byte]) : RegMemImm
     (rmi-immediate v))
   (define (scaled [r : Register] [scale : Byte] [index : Register] [offset : Byte]) : RegMemImm
@@ -971,7 +982,7 @@
           (pop (rbx)) ;; Return address
           (pop (rax)) ;; Ignored closure
           (pop (rax)) ;; Argument 1
-          (movq (mem (rax)) (rax))
+          (movq (mem (rax) 0) (rax))
           (push (rbx))
           (ret)))
 
@@ -1002,35 +1013,23 @@
         output)
 
       ;; void
-      (write-lines
+      (write-prim-assembly-function #"void" output
         (varargs list
-          (single-jl #".section __TEXT,__const")
-          (single-jl #"prim_void_closure: ")
-          (single-jl #".quad prim_void")
-          (single-jl #".section __TEXT,__text")
-          (single-jl #"prim_void:")
-          (single-jl #"pop %rbx") ;; Return address
-          (single-jl #"pop %rax") ;; Ignored closure
-          (single-jl #"push %rbx") ;; Return address
-          (single-jl #"movq $0, %rax")
-          (single-jl #"ret"))
-        output)
+          (pop (rbx)) ;; Return address
+          (pop (rax)) ;; Ignored closure
+          (push (rbx)) ;; Return address
+          (movq (imm 0) (rax))
+          (ret)))
 
       ;; panic
-      (write-lines
+      (write-prim-assembly-function #"panic" output
         (varargs list
-          (single-jl #".section __TEXT,__const")
-          (single-jl #"prim_panic_closure: ")
-          (single-jl #".quad prim_panic")
-          (single-jl #".section __TEXT,__text")
-          (single-jl #"prim_panic:")
-          (single-jl #"movq 24(%rsp), %rax")
-          (single-jl #"add $8, %rax")
-          (single-jl #"ud2"))
-        output)
+          (movq (mem (rsp) 0) (rax))
+          (add (imm 8) (rax))
+          (ud2)))
 
-          ;; These are not native functions, but just native subroutines
-          ;; They do not follow standard calling conventions
+      ;; These are not native functions, but just native subroutines
+      ;; They do not follow standard calling conventions
 
       ;; make-array-from-stack
       (write-lines
