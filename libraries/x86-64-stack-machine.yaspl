@@ -49,6 +49,7 @@
       (quad-directive [label Bytes]))
     (define-type Instruction
       (and [reg1 Register] [reg2 Register])
+      (or [reg1 Register] [reg2 Register])
       (movq [literal Byte] [register Register])
       (nop)
       (pop [register Register])
@@ -71,7 +72,12 @@
       (r13)
       (r14)
       (r15)
-      (rip)))
+      (rip))
+    (define-type RegMemImm
+      (rmi-register [r Register])
+      (rmi-direct-memory [reg Register])
+      (rmi-scaled-memory [reg Register] [scale Byte] [index-reg Register] [offset Byte])
+      (rmi-immediate [v Byte])))
 
   (define (compile-stack-machine
             [main-function-name : Bytes]
@@ -113,6 +119,12 @@
           (register->bytes reg))]
       [(nop)
        (single-jl #"nop")]
+      [(or reg1 reg2)
+       (varargs join-list
+          #"or "
+          (register->bytes reg1)
+          #", "
+          (register->bytes reg2))]
       [(pop reg)
        (varargs join-list #"pop " (register->bytes reg))]
       [(push reg)
@@ -139,6 +151,35 @@
       [(r14) #"%r14"]
       [(r15) #"%r15"]
       [(rip) #"%rip"]))
+
+  (define (rmi->bytes [rmi : RegMemImm]) : Bytes
+    (case rmi
+      [(rmi-register r) (register->bytes r)]
+      [(rmi-direct-memory reg)
+       (bytes-append (varargs list #"(" (register->bytes reg) #")"))]
+      [(rmi-scaled-memory reg scale index offset)
+       (bytes-append
+         (varargs list
+           #"$"
+           (integer->decimal-bytes offset)
+           #"("
+           (register->bytes reg)
+           #", "
+           (register->bytes index)
+           #", $"
+           (integer->decimal-bytes scale)
+           #")"))]
+      [(rmi-immediate v)
+       (bytes-append (varargs list #"$" (integer->decimal-bytes v)))]))
+
+  (define (reg [r : Register]) : RegMemImm
+    (rmi-register r))
+  (define (mem [r : Register]) : RegMemImm
+    (rmi-direct-memory r))
+  (define (imm [v : Byte]) : RegMemImm
+    (rmi-immediate v))
+  (define (scaled [r : Register] [scale : Byte] [index : Register] [offset : Byte]) : RegMemImm
+    (rmi-scaled-memory r scale index offset))
 
   (define (write-assembly-commands [cmds : (List AssemblyCommand)] [output : OutputPort]) : Void
     (write-lines (map assembly-command->bytes cmds) output))
@@ -738,21 +779,15 @@
           (push (rbx))
           (ret)))
       ;; or
-      (write-lines
+      (write-prim-assembly-function #"or" output
         (varargs list
-          (single-jl #".section __TEXT,__const")
-          (single-jl #"prim_or_closure: ")
-          (single-jl #".quad prim_or")
-          (single-jl #".section __TEXT,__text")
-          (single-jl #"prim_or:")
-          (single-jl #"pop %rbx") ;; Return address
-          (single-jl #"pop %rax") ;; Ignored closure
-          (single-jl #"pop %rax") ;; Argument 2
-          (single-jl #"pop %rcx") ;; Argument 1
-          (single-jl #"or %rcx, %rax")
-          (single-jl #"push %rbx")
-          (single-jl #"ret"))
-        output)
+          (pop (rbx)) ;; Return address
+          (pop (rax)) ;; Ignored closure
+          (pop (rax)) ;; Argument 2
+          (pop (rcx)) ;; Argument 1
+          (or (rcx) (rax))
+          (push (rbx))
+          (ret)))
 
 
       ;; bytes-ref
