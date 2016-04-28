@@ -50,6 +50,7 @@
     (define-type Instruction
       (add [rmi RegMemImm] [reg Register])
       (and [reg1 Register] [reg2 Register])
+      (jb [label Bytes])
       (or [reg1 Register] [reg2 Register])
       (movb [r Register] [rmi RegMemImm])
       (movq [rmi RegMemImm] [register Register])
@@ -58,6 +59,8 @@
       (pop [register Register])
       (push [register Register])
       (ret)
+      (sub [rmi RegMemImm] [reg Register])
+      (syscall)
       (ud2))
     (define-type Register
       ;; 8 Bit registers
@@ -178,6 +181,8 @@
           (register->bytes reg1)
           #", "
           (register->bytes reg2))]
+      [(jb label)
+       (varargs join-list #"jb " label)]
       [(movb reg rmi)
        (varargs join-list
           #"movb "
@@ -208,6 +213,14 @@
        (varargs join-list #"pop " (register->bytes reg))]
       [(push reg)
        (varargs join-list #"push " (register->bytes reg))]
+      [(sub rmi reg)
+       (varargs join-list
+          #"sub "
+          (rmi->bytes rmi)
+          #", "
+          (register->bytes reg))]
+      [(syscall)
+       (single-jl #"syscall")]
       [(ret)
        (single-jl #"ret")]
       [(ud2)
@@ -424,34 +437,27 @@
 
 
       ;; write-bytes
-      (write-lines
+      (write-prim-assembly-function #"write_bytes" output
         (varargs list
-          (single-jl #".section __TEXT,__const")
-          (single-jl #"prim_write_bytes_closure: ")
-          (single-jl #".quad prim_write_bytes")
-          (single-jl #".section __TEXT,__text")
-          (single-jl #"prim_write_bytes:")
-          (single-jl #"pop %rbx") ;; Return address
-          (single-jl #"pop %rax") ;; Ignored closure
-          (single-jl #"pop %rdx") ;; Argument 4
-          (single-jl #"pop %rcx") ;; Argument 3
-          (single-jl #"pop %rdi") ;; Argument 2
-          (single-jl #"pop %rsi") ;; Argument 1
+          (pop (rbx)) ;; Return address
+          (pop (rax)) ;; Ignored closure
+          (pop (rdx)) ;; Argument 4
+          (pop (rcx)) ;; Argument 3
+          (pop (rdi)) ;; Argument 2
+          (pop (rsi)) ;; Argument 1
           ;; %rdi is the file descriptor
           ;; Make $rsi the start of the buffer
-          (single-jl #"add $8, %rsi")
-          (single-jl #"add %rcx, %rsi")
+          (add (imm 8) (rsi))
+          (add (reg (rcx)) (rsi))
           ;; Make %rdx the length to write
-          (single-jl #"sub %rcx, %rdx")
-          (single-jl #"movq $0x2000004, %rax")
-          (single-jl #"syscall")
-          (single-jl #"jb prim_write_bytes_panic")
-          (single-jl #"push %rbx")
-          (single-jl #"ret")
-          (single-jl #"prim_write_bytes_panic:")
-          (single-jl #"ud2"))
-          ;; No return
-        output)
+          (sub (reg (rcx)) (rdx))
+          (movq (imm #x2000004) (rax))
+          (syscall)
+          (jb #"prim_write_bytes_panic")
+          (push (rbx))
+          (ret)))
+      (write-line #"prim_write_bytes_panic:" output)
+      (write-line #"ud2" output)
 
       ;; read-bytes
       (write-lines
