@@ -348,6 +348,19 @@
         (map instruction-cmd instructions))
       output))
 
+  (define (write-prim-assembly-function/panic
+            [name : Bytes]
+            [output : OutputPort]
+            [instructions : (List Instruction)]) : Void
+    (begin
+      (write-prim-assembly-function name output instructions)
+      (write-assembly-commands
+        (varargs list
+          (directive-cmd (label-directive (bytes-append (varargs list #"prim_" name #"_panic"))))
+          (instruction-cmd (ud2)))
+        output)))
+
+
 
   (define (write-start [main-function-name : Bytes] [output : OutputPort]) : Void
     (begin
@@ -437,7 +450,7 @@
 
 
       ;; write-bytes
-      (write-prim-assembly-function #"write_bytes" output
+      (write-prim-assembly-function/panic #"write_bytes" output
         (varargs list
           (pop (rbx)) ;; Return address
           (pop (rax)) ;; Ignored closure
@@ -456,38 +469,27 @@
           (jb #"prim_write_bytes_panic")
           (push (rbx))
           (ret)))
-      (write-line #"prim_write_bytes_panic:" output)
-      (write-line #"ud2" output)
 
       ;; read-bytes
-      (write-lines
+      (write-prim-assembly-function/panic #"read_bytes" output
         (varargs list
-          (single-jl #".section __TEXT,__const")
-          (single-jl #"prim_read_bytes_closure: ")
-          (single-jl #".quad prim_read_bytes")
-          (single-jl #".section __TEXT,__text")
-          (single-jl #"prim_read_bytes:")
-          (single-jl #"pop %rbx") ;; Return address
-          (single-jl #"pop %rax") ;; Ignored closure
-          (single-jl #"pop %rdx") ;; Argument 4
-          (single-jl #"pop %rcx") ;; Argument 3
-          (single-jl #"pop %rdi") ;; Argument 2
-          (single-jl #"pop %rsi") ;; Argument 1
+          (pop (rbx)) ;; Return address
+          (pop (rax)) ;; Ignored closure
+          (pop (rdx)) ;; Argument 4
+          (pop (rcx)) ;; Argument 3
+          (pop (rdi)) ;; Argument 2
+          (pop (rsi)) ;; Argument 1
           ;; %rdi is the file descriptor
           ;; Make $rsi the start of the buffer
-          (single-jl #"add $8, %rsi")
-          (single-jl #"add %rcx, %rsi")
+          (add (imm 8) (rsi))
+          (add (reg (rcx)) (rsi))
           ;; Make %rdx the length to read
-          (single-jl #"sub %rcx, %rdx")
-          (single-jl #"movq $0x2000003, %rax")
-          (single-jl #"syscall")
-          (single-jl #"jb prim_read_bytes_panic")
-          (single-jl #"push %rbx")
-          (single-jl #"ret")
-          (single-jl #"prim_read_bytes_panic:")
-          (single-jl #"ud2"))
-          ;; No return
-        output)
+          (sub (reg (rcx)) (rdx))
+          (movq (imm #x2000003) (rax))
+          (syscall)
+          (jb #"prim_read_bytes_panic")
+          (push (rbx))
+          (ret)))
 
       ;; open-input-file
       (write-lines
