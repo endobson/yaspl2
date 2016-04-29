@@ -49,20 +49,23 @@
       (quad-directive [label Bytes]))
     (define-type Instruction
       (add [rmi RegMemImm] [reg Register])
-      (and [reg1 Register] [reg2 Register])
+      (and [reg1 RegMemImm] [reg2 Register])
       (cmp [rmi RegMemImm] [reg2 Register])
       (jb [label Bytes])
       (je [label Bytes])
       (jne [label Bytes])
-      (or [reg1 Register] [reg2 Register])
-      (movb [r Register] [rmi RegMemImm])
+      (lahf)
+      (movb [rmi1 RegMemImm] [rmi2 RegMemImm])
       (movq [rmi RegMemImm] [register Register])
       (movzb [rmi RegMemImm] [r Register])
       (nop)
+      (or [reg1 Register] [reg2 Register])
       (pop [register Register])
       (push [register Register])
       (pushq [v Byte])
+      (repe-cmpsb)
       (ret)
+      (shr [reg1 Register] [reg2 Register])
       (sub [rmi RegMemImm] [reg Register])
       (syscall)
       (ud2))
@@ -178,12 +181,12 @@
           (rmi->bytes rmi)
           #", "
           (register->bytes reg))]
-      [(and reg1 reg2)
+      [(and rmi reg)
        (varargs join-list
           #"and "
-          (register->bytes reg1)
+          (rmi->bytes rmi)
           #", "
-          (register->bytes reg2))]
+          (register->bytes reg))]
       [(cmp rmi reg)
        (varargs join-list
           #"add "
@@ -196,12 +199,14 @@
        (varargs join-list #"je " label)]
       [(jne label)
        (varargs join-list #"jne " label)]
-      [(movb reg rmi)
+      [(lahf)
+       (single-jl #"lahf")]
+      [(movb rmi1 rmi2)
        (varargs join-list
           #"movb "
-          (register->bytes reg)
+          (rmi->bytes rmi1)
           #", "
-          (rmi->bytes rmi))]
+          (rmi->bytes rmi2))]
       [(movq rmi reg)
        (varargs join-list
           #"movq "
@@ -228,16 +233,24 @@
        (varargs join-list #"push " (register->bytes reg))]
       [(pushq v)
        (varargs join-list #"pushq $" (integer->decimal-bytes v))]
+      [(repe-cmpsb)
+       (single-jl #"repe cmpsb")]
+      [(ret)
+       (single-jl #"ret")]
       [(sub rmi reg)
        (varargs join-list
           #"sub "
           (rmi->bytes rmi)
           #", "
           (register->bytes reg))]
+      [(shr reg1 reg2)
+       (varargs join-list
+          #"shr "
+          (register->bytes reg1)
+          #", "
+          (register->bytes reg2))]
       [(syscall)
        (single-jl #"syscall")]
-      [(ret)
-       (single-jl #"ret")]
       [(ud2)
        (single-jl #"ud2")]))
 
@@ -779,7 +792,7 @@
           (pop (rax)) ;; Ignored closure
           (pop (rax)) ;; Argument 2
           (pop (rcx)) ;; Argument 1
-          (and (rcx) (rax))
+          (and (reg (rcx)) (rax))
           (push (rbx))
           (ret)))
       ;; or
@@ -840,7 +853,7 @@
           (pop (rdx)) ;; Argument 3
           (pop (rcx)) ;; Argument 2
           (pop (rax)) ;; Argument 1
-          (movb (dl) (scaled (rax) 1 (rcx) 8))
+          (movb (reg (dl)) (scaled (rax) 1 (rcx) 8))
           (movq (imm 0) (rax))
           (push (rbx))
           (ret)))
@@ -855,27 +868,21 @@
           (ret)))
 
       ;; bytes-equal?
-      (write-lines
+      (write-prim-assembly-function #"bytes_equal" output
         (varargs list
-          (single-jl #".section __TEXT,__const")
-          (single-jl #"prim_bytes_equal_closure: ")
-          (single-jl #".quad prim_bytes_equal")
-          (single-jl #".section __TEXT,__text")
-          (single-jl #"prim_bytes_equal:")
-          (single-jl #"pop %rbx") ;; Return address
-          (single-jl #"pop %rax") ;; Ignored closure
-          (single-jl #"pop %rdi") ;; Argument 2
-          (single-jl #"pop %rsi") ;; Argument 1
-          (single-jl #"movq (%rsi), %rcx")
-          (single-jl #"add $8, %rcx")
-          (single-jl #"repe cmpsb")
-          (single-jl #"lahf")
-          (single-jl #"mov $14, %cl")
-          (single-jl #"shr %cl, %ax")
-          (single-jl #"and $1, %rax")
-          (single-jl #"push %rbx")
-          (single-jl #"ret"))
-        output)
+          (pop (rbx)) ;; Return address
+          (pop (rax)) ;; Ignored closure
+          (pop (rdi)) ;; Argument 2
+          (pop (rsi)) ;; Argument 1
+          (movq (mem (rsi) 0) (rcx))
+          (add (imm 8) (rcx))
+          (repe-cmpsb)
+          (lahf)
+          (movb (imm 14) (reg (cl)))
+          (shr (cl) (ax))
+          (and (imm 1) (rax))
+          (push (rbx))
+          (ret)))
 
       ;; void
       (write-prim-assembly-function #"void" output
