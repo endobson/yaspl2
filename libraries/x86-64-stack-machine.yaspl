@@ -52,9 +52,12 @@
       (and [reg1 RegMemImm] [reg2 Register])
       (cmovz [rmi RegMemImm] [reg Register])
       (cmp [rmi RegMemImm] [reg Register])
+      (dec [reg Register])
       (jb [label Bytes])
       (je [label Bytes])
       (jne [label Bytes])
+      (jnz [label Bytes])
+      (leaq [rmi RegMemImm] [reg Register])
       (lahf)
       (movb [rmi1 RegMemImm] [rmi2 RegMemImm])
       (movq [rmi1 RegMemImm] [rmi2 RegMemImm])
@@ -200,14 +203,24 @@
           (rmi->bytes rmi)
           #", "
           (register->bytes reg))]
+      [(dec reg)
+       (varargs join-list #"dec " (register->bytes reg))]
       [(jb label)
        (varargs join-list #"jb " label)]
       [(je label)
        (varargs join-list #"je " label)]
       [(jne label)
        (varargs join-list #"jne " label)]
+      [(jnz label)
+       (varargs join-list #"jnz " label)]
       [(lahf)
        (single-jl #"lahf")]
+      [(leaq rmi reg)
+       (varargs join-list
+          #"leaq "
+          (rmi->bytes rmi)
+          #", "
+          (register->bytes reg))]
       [(movb rmi1 rmi2)
        (varargs join-list
           #"movb "
@@ -394,6 +407,18 @@
           (directive-cmd (label-directive (bytes-append (varargs list #"prim_" name #"_panic"))))
           (instruction-cmd (ud2)))
         output)))
+
+  (define (write-block
+            [name : Bytes]
+            [output : OutputPort]
+            [instructions : (List Instruction)]) : Void
+    (write-assembly-commands
+      (append
+        (varargs list
+          (directive-cmd (label-directive name)))
+        (map instruction-cmd instructions))
+      output))
+
 
 
 
@@ -910,27 +935,27 @@
       ;; They do not follow standard calling conventions
 
       ;; make-array-from-stack
-      (write-lines
+      (write-block #"prim_make_array_from_stack" output
         (varargs list
-          (single-jl #"prim_make_array_from_stack:")
-          (single-jl #"pop %rbx") ;; Return address
-          (single-jl #"pop %rcx") ;; num-args
-          (single-jl #"mov %rbp, %rax")
-          (single-jl #"mov %rcx, (%rbp)")
-          (single-jl #"leaq (%rbp, %rcx, 8), %rbp")
-          (single-jl #"leaq 8(%rbp), %rdx")
-          (single-jl #"cmp $0, %rcx")
-          (single-jl #"je prim_make_array_from_stack_loop_end")
-          (single-jl #"prim_make_array_from_stack_loop_start:")
-          (single-jl #"popq (%rbp)")
-          (single-jl #"sub $8, %rbp")
-          (single-jl #"dec %rcx")
-          (single-jl #"jnz prim_make_array_from_stack_loop_start")
-          (single-jl #"prim_make_array_from_stack_loop_end:")
-          (single-jl #"mov %rdx, %rbp")
-          (single-jl #"push %rbx")
-          (single-jl #"ret"))
-        output)
+          (pop (reg (rbx))) ;; Return address
+          (pop (reg (rcx))) ;; num-args
+          (movq (reg (rbp)) (reg (rax)))
+          (movq (reg (rcx)) (mem (rbp) 0))
+          (leaq (scaled (rbp) 8 (rcx) 0) (rbp))
+          (leaq (mem (rbp) 8) (rdx))
+          (cmp (imm 0) (rcx))
+          (je #"prim_make_array_from_stack_loop_end")))
+      (write-block #"prim_make_array_from_stack_loop_start" output
+        (varargs list
+          (pop (mem (rbp) 0))
+          (sub (imm 8) (rbp))
+          (dec (rcx))
+          (jnz #"prim_make_array_from_stack_loop_start")))
+      (write-block #"prim_make_array_from_stack_loop_end" output
+        (varargs list
+          (movq (reg (rdx)) (reg (rbp)))
+          (push (rbx))
+          (ret)))
 
       ;; variant-panic
       (write-lines
