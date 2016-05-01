@@ -55,6 +55,7 @@
       (cmovz [rmi RegMemImm] [reg Register])
       (cmp [rmi RegMemImm] [reg Register])
       (dec [reg Register])
+      (inc [reg Register])
       (jb [label Bytes])
       (je [label Bytes])
       (jne [label Bytes])
@@ -65,11 +66,14 @@
       (movq [rmi1 RegMemImm] [rmi2 RegMemImm])
       (movzb [rmi RegMemImm] [r Register])
       (nop)
+      (not [reg Register])
       (or [reg1 Register] [reg2 Register])
       (pop [rmi RegMemImm])
       (push [register Register])
       (pushq [v Byte])
+      (rep-movsb)
       (repe-cmpsb)
+      (repne-scasb)
       (ret)
       (shr [reg1 Register] [reg2 Register])
       (sub [rmi RegMemImm] [reg Register])
@@ -211,6 +215,8 @@
           (register->bytes reg))]
       [(dec reg)
        (varargs join-list #"dec " (register->bytes reg))]
+      [(inc reg)
+       (varargs join-list #"inc " (register->bytes reg))]
       [(jb label)
        (varargs join-list #"jb " label)]
       [(je label)
@@ -247,6 +253,8 @@
           (register->bytes reg))]
       [(nop)
        (single-jl #"nop")]
+      [(not reg)
+       (varargs join-list #"not " (register->bytes reg))]
       [(or reg1 reg2)
        (varargs join-list
           #"or "
@@ -259,8 +267,12 @@
        (varargs join-list #"push " (register->bytes reg))]
       [(pushq v)
        (varargs join-list #"pushq $" (integer->decimal-bytes v))]
+      [(rep-movsb)
+       (single-jl #"rep movsb")]
       [(repe-cmpsb)
        (single-jl #"repe cmpsb")]
+      [(repne-scasb)
+       (single-jl #"repne scasb")]
       [(ret)
        (single-jl #"ret")]
       [(sub rmi reg)
@@ -471,29 +483,31 @@
       (write-line #"cmp %r11, %r8" output)
       (write-line #"je start_copy_args_end" output)
       (write-line #"cld" output)
-      (write-line #"start_copy_args_start:" output)
-      (write-line #"popq %r9" output) ; r9 is the current string
+      (write-block #"start_copy_args_start" output
+        (varargs list
+          (pop (reg (r9))) ; r9 is now the current string
 
-      ;; Count string length
-      (write-line #"mov %r9, %rdi" output)
-      (write-line #"mov $0, %al" output)
-      (write-line #"mov $-1, %rcx" output)
-      (write-line #"repne scasb" output)
-      (write-line #"not %rcx" output)
-      (write-line #"dec %rcx" output)
+          ;; Count string length
+          (movq (reg (r9)) (reg (rdi)))
+          (movb (imm 0) (reg (al)))
+          (movq (imm (- 0 1)) (reg (rcx)))
+          (repne-scasb)
+          (not (rcx))
+          (dec (rcx))
 
-      ;; Copy bytes
-      (write-line #"movq %rbp, 8(%r10, %r11, 8)" output)
-      (write-line #"movq %rcx, (%rbp)" output)
-      (write-line #"add $8, %rbp" output)
-      (write-line #"mov %r9, %rsi" output)
-      (write-line #"mov %rbp, %rdi" output)
-      (write-line #"rep movsb" output)
-      (write-line #"mov %rdi, %rbp" output)
+          ;; Copy bytes
+          (movq (reg (rbp)) (scaled (r10) 8 (r11) 8))
+          (movq (reg (rcx)) (mem (rbp) 0))
+          (add (imm 8) (rbp))
+          (movq (reg (r9)) (reg (rsi)))
+          (movq (reg (rbp)) (reg (rdi)))
+          (rep-movsb)
+          (movq (reg (rdi)) (reg (rbp)))
+          (inc (r11))
+          (cmp (reg (r11)) (r8))
+          (jne #"start_copy_args_start")))
 
-      (write-line #"inc %r11" output)
-      (write-line #"cmp %r11, %r8" output)
-      (write-line #"jne start_copy_args_start" output)
+
 
       ;; Call main and then exit
       (write-block #"start_copy_args_end" output
