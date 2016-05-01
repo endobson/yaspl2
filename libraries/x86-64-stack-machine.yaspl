@@ -50,6 +50,7 @@
     (define-type Instruction
       (add [rmi RegMemImm] [reg Register])
       (and [reg1 RegMemImm] [reg2 Register])
+      (call [label Bytes])
       (call/indirect [rmi RegMemImm])
       (cmovz [rmi RegMemImm] [reg Register])
       (cmp [rmi RegMemImm] [reg Register])
@@ -192,6 +193,10 @@
           (rmi->bytes rmi)
           #", "
           (register->bytes reg))]
+      [(call label)
+       (varargs join-list #"call " label)]
+      [(call/indirect rmi)
+       (varargs join-list #"callq *" (rmi->bytes rmi))]
       [(cmovz rmi reg)
        (varargs join-list
           #"cmovz "
@@ -204,8 +209,6 @@
           (rmi->bytes rmi)
           #", "
           (register->bytes reg))]
-      [(call/indirect rmi)
-       (varargs join-list #"callq *" (rmi->bytes rmi))]
       [(dec reg)
        (varargs join-list #"dec " (register->bytes reg))]
       [(jb label)
@@ -491,24 +494,22 @@
       (write-line #"inc %r11" output)
       (write-line #"cmp %r11, %r8" output)
       (write-line #"jne start_copy_args_start" output)
-      (write-line #"start_copy_args_end:" output)
 
       ;; Call main and then exit
-      (write-lines
+      (write-block #"start_copy_args_end" output
         (varargs list
-          (single-jl #"pushq %r10")
-          (single-jl #"pushq $0")
-          (single-jl #"pushq $1")
-          (single-jl #"pushq $2")
-          (single-jl #"pushq $0") ;; Bogus closure
-          (varargs join-list #"call " main-function-name #"_code" )
-          (single-jl #"mov %rax, %rdi")
-          (single-jl #"movq $0x2000001, %rax")
-          (single-jl #"syscall")
-          (single-jl #"prim_start_panic:")
-          (single-jl #"ud2"))
-        output)
-      ;; No return
+          (push (r10))
+          (pushq 0)
+          (pushq 1)
+          (pushq 2)
+          (pushq 0) ;; Bogus closure
+          (call (bytes-append (varargs list main-function-name #"_code")))
+          (movq (reg (rax)) (reg (rdi)))
+          (movq (imm #x2000001) (reg (rax)))
+          (syscall)))
+      (write-block #"prim_start_panic" output
+        (varargs list
+          (ud2)))
 
 
 
