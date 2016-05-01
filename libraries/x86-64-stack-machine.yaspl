@@ -13,7 +13,7 @@
     (io read-all-bytes write-all-bytes newline write-line)
     (join-list
       #:types (JoinList)
-      #:values (jl->list single-jl join-list)
+      #:values (jl->list single-jl join-list empty-jl cons-jl append-jl*)
       #:patterns ())
     (sexp-parser
       #:types (Sexp)
@@ -1215,10 +1215,12 @@
            (pushq (reg (rax)))))]
 
       [(create-closure-cmd n)
-       (begin
-         (write-line #"mov %rbp, %rax" output)
-         (copy-objects (+ n 1) output)
-         (write-line #"push %rax" output))]
+       (write-instructions output
+         (jl->list
+           (varargs append-jl*
+             (single-jl (movq (reg (rbp)) (reg (rax))))
+             (copy-objects (+ n 1))
+             (single-jl (pushq (reg (rax)))))))]
       [(fun-call-cmd _)
        (begin
          (write-line #"mov (%rsp), %rax" output)
@@ -1320,15 +1322,14 @@
          (write-line #"movq %rdx, %rax" output)
          (write-line #"push %rax" output))]
       [(alloc-variant-cmd tag fields)
-       (begin
-         (write-line #"mov %rbp, %rax" output)
-         (write-all-bytes #"movq $" output)
-         (write-all-bytes (integer->decimal-bytes tag) output)
-         (write-all-bytes #", (%rbp)" output)
-         (newline output)
-         (write-line #"add $8, %rbp" output)
-         (copy-objects fields output)
-         (write-line #"push %rax" output))]
+       (write-instructions output
+         (jl->list
+           (varargs append-jl*
+             (single-jl (movq (reg (rbp)) (reg (rax))))
+             (single-jl (movq (imm tag) (mem (rbp) 0)))
+             (single-jl (add (imm 8) (rbp)))
+             (copy-objects fields)
+             (single-jl (pushq (reg (rax)))))))]
       [(variant-ref-cmd tag field)
        (begin
          (write-line #"pop %rax" output)
@@ -1342,13 +1343,14 @@
 
   ;; Generates assembly to copy n objects from the top of the stack to the
   ;; memory starting at %rbp. %rbp ends up pointing right after after the last object written.
-  (define (copy-objects [n : Byte] [output : OutputPort]) : Void
+  (define (copy-objects [n : Byte]) : (JoinList Instruction)
     (if (> n 0)
-        (begin
-          (write-line #"pop (%rbp)" output)
-          (write-line #"add $8, %rbp" output)
-          (copy-objects (- n 1) output))
-        (void)))
+        (cons-jl
+          (pop (mem (rbp) 0))
+          (cons-jl
+            (add (imm 8) (rbp))
+            (copy-objects (- n 1))))
+        (empty-jl)))
 
 
 
