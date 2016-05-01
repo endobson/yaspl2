@@ -1138,236 +1138,217 @@
     (case cmds
       [(empty) (void)]
       [(cons cmd cmds)
-       (case cmd
-         [(dup-cmd offset)
-          (begin
-            (write-all-bytes #"push " output)
-            (write-all-bytes (integer->decimal-bytes (* offset 8)) output)
-            (write-line #"(%rsp)" output)
-            (write-commands cmds output))]
-         [(dup-free-var-cmd offset index)
-          (begin
-            (write-all-bytes #"mov " output)
-            (write-all-bytes (integer->decimal-bytes (* offset 8)) output)
-            (write-line #"(%rsp), %rax" output)
-            (write-all-bytes #"push " output)
-            (write-all-bytes (integer->decimal-bytes (* (+ 1 index) 8)) output)
-            (write-line #"(%rax)" output)
-            (write-commands cmds output))]
-         [(swap-cmd)
-          (begin
-            (write-line #"pop %rax" output)
-            (write-line #"pop %rbx" output)
-            (write-line #"push %rax" output)
-            (write-line #"push %rbx" output)
-            (write-commands cmds output))]
-         [(pop-cmd)
-          (begin
-            (write-line #"pop %rax" output)
-            (write-commands cmds output))]
-         [(num-lit-cmd v)
-          ;; TODO fix when yaspl supports larger literals
-          (let ([max-lit
-                 (let ([shift (+ #xFF 1)])
-                   (+ (* shift (+ (* shift (+ (* shift #xFF) #xFF)) #xFF)) #xFF))])
-            (begin
-              (if (> v max-lit)
-                  (begin
-                    (write-all-bytes #"mov $" output)
-                    (write-all-bytes (integer->decimal-bytes v) output)
-                    (write-all-bytes #", %rax" output)
-                    (newline output)
-                    (write-line #"push %rax" output))
-                  (begin
-                    (write-all-bytes #"pushq $" output)
-                    (write-all-bytes (integer->decimal-bytes v) output)
-                    (newline output)))
-            (write-commands cmds output)))]
-         [(boolean-lit-cmd v)
-          (begin
-            (if v
-                (write-line #"push $1" output)
-                (write-line #"push $0" output))
-            (write-commands cmds output))]
-         ;; TODO put the bytes not directly in the instruction stream
-         [(bytes-lit-cmd v)
-          (begin
-            (write-line #".byte 0xe9" output)
-            (write-all-bytes #".long " output)
-            (write-all-bytes (integer->decimal-bytes (+ 8 (bytes-length v))) output)
-            (newline output)
-            (write-all-bytes #".8byte " output)
-            (write-all-bytes (integer->decimal-bytes (bytes-length v)) output)
-            (newline output)
-            (let ([quote (let ([buf (make-bytes 1)]) (begin (bytes-set! buf 0 34) buf))])
-              (begin
-                (write-all-bytes #".ascii " output)
-                (write-all-bytes quote output)
-                (write-all-bytes v output)
-                (write-all-bytes quote output)))
-            (newline output)
-            ;; Need to account for the 7 bytes of leaq
-            (write-all-bytes #"leaq -" output)
-            (write-all-bytes (integer->decimal-bytes (+ 15 (bytes-length v))) output)
-            (write-line #"(%rip), %rax" output)
-            (write-line #"push %rax" output)
-            (write-commands cmds output))]
-          [(bytes-cmp-cmd)
+       (begin
+         (write-command cmd output)
+         (write-commands cmds output))]))
+
+
+  (define (write-command [cmd : StackCmd] [output : OutputPort]) : Void
+    (case cmd
+      [(dup-cmd offset)
+       (begin
+         (write-all-bytes #"push " output)
+         (write-all-bytes (integer->decimal-bytes (* offset 8)) output)
+         (write-line #"(%rsp)" output))]
+      [(dup-free-var-cmd offset index)
+       (begin
+         (write-all-bytes #"mov " output)
+         (write-all-bytes (integer->decimal-bytes (* offset 8)) output)
+         (write-line #"(%rsp), %rax" output)
+         (write-all-bytes #"push " output)
+         (write-all-bytes (integer->decimal-bytes (* (+ 1 index) 8)) output)
+         (write-line #"(%rax)" output))]
+      [(swap-cmd)
+       (begin
+         (write-line #"pop %rax" output)
+         (write-line #"pop %rbx" output)
+         (write-line #"push %rax" output)
+         (write-line #"push %rbx" output))]
+      [(pop-cmd)
+       (begin
+         (write-line #"pop %rax" output))]
+      [(num-lit-cmd v)
+       ;; TODO fix when yaspl supports larger literals
+       (let ([max-lit
+              (let ([shift (+ #xFF 1)])
+                (+ (* shift (+ (* shift (+ (* shift #xFF) #xFF)) #xFF)) #xFF))])
+         (begin
+           (if (> v max-lit)
+               (begin
+                 (write-all-bytes #"mov $" output)
+                 (write-all-bytes (integer->decimal-bytes v) output)
+                 (write-all-bytes #", %rax" output)
+                 (newline output)
+                 (write-line #"push %rax" output))
+               (begin
+                 (write-all-bytes #"pushq $" output)
+                 (write-all-bytes (integer->decimal-bytes v) output)
+                 (newline output)))))]
+      [(boolean-lit-cmd v)
+       (begin
+         (if v
+             (write-line #"push $1" output)
+             (write-line #"push $0" output)))]
+      ;; TODO put the bytes not directly in the instruction stream
+      [(bytes-lit-cmd v)
+       (begin
+         (write-line #".byte 0xe9" output)
+         (write-all-bytes #".long " output)
+         (write-all-bytes (integer->decimal-bytes (+ 8 (bytes-length v))) output)
+         (newline output)
+         (write-all-bytes #".8byte " output)
+         (write-all-bytes (integer->decimal-bytes (bytes-length v)) output)
+         (newline output)
+         (let ([quote (let ([buf (make-bytes 1)]) (begin (bytes-set! buf 0 34) buf))])
            (begin
-             (write-line #"push $0" output) ; Bogus closure
-             (write-line #"call prim_bytes_equal" output)
-             (write-line #"push %rax" output)
-             (write-commands cmds output))]
+             (write-all-bytes #".ascii " output)
+             (write-all-bytes quote output)
+             (write-all-bytes v output)
+             (write-all-bytes quote output)))
+         (newline output)
+         ;; Need to account for the 7 bytes of leaq
+         (write-all-bytes #"leaq -" output)
+         (write-all-bytes (integer->decimal-bytes (+ 15 (bytes-length v))) output)
+         (write-line #"(%rip), %rax" output)
+         (write-line #"push %rax" output))]
+       [(bytes-cmp-cmd)
+        (begin
+          (write-line #"push $0" output) ; Bogus closure
+          (write-line #"call prim_bytes_equal" output)
+          (write-line #"push %rax" output))]
 
-         [(load-global-cmd name)
-          (begin
-            (write-all-bytes #"leaq " output)
-            (write-all-bytes name output)
-            (write-line #"(%rip), %rax" output)
-            (write-line #"push %rax" output)
-            (write-commands cmds output))]
+      [(load-global-cmd name)
+       (begin
+         (write-all-bytes #"leaq " output)
+         (write-all-bytes name output)
+         (write-line #"(%rip), %rax" output)
+         (write-line #"push %rax" output))]
 
-         [(create-closure-cmd n)
-          (begin
-            (write-line #"mov %rbp, %rax" output)
-            (copy-objects (+ n 1) output)
-            (write-line #"push %rax" output)
-            (write-commands cmds output))]
-         [(fun-call-cmd _)
-          (begin
-            (write-line #"mov (%rsp), %rax" output)
-            (write-line #"mov (%rax), %rax" output)
-            (write-line #"callq *%rax" output)
-            (write-line #"push %rax" output)
-            (write-commands cmds output))]
-         [(known-fun-call-cmd name _)
-          (begin
-            (write-line #"push $0" output) ; Bogus closure
-            (write-all-bytes #"callq " output)
-            (write-all-bytes name output)
-            (newline output)
-            (write-line #"push %rax" output)
-            (write-commands cmds output))]
+      [(create-closure-cmd n)
+       (begin
+         (write-line #"mov %rbp, %rax" output)
+         (copy-objects (+ n 1) output)
+         (write-line #"push %rax" output))]
+      [(fun-call-cmd _)
+       (begin
+         (write-line #"mov (%rsp), %rax" output)
+         (write-line #"mov (%rax), %rax" output)
+         (write-line #"callq *%rax" output)
+         (write-line #"push %rax" output))]
+      [(known-fun-call-cmd name _)
+       (begin
+         (write-line #"push $0" output) ; Bogus closure
+         (write-all-bytes #"callq " output)
+         (write-all-bytes name output)
+         (newline output)
+         (write-line #"push %rax" output))]
 
-         [(make-array-cmd)
-          (begin
-            (write-line #"pop %rax" output)
-            (write-line #"pop %rcx" output)
-            (write-line #"mov %rbp, %rdx" output)
-            (write-line #"mov %rcx, (%rbp)" output)
-            (write-line #"add $8, %rbp" output)
-            (write-line #"mov %rbp, %rdi" output)
-            (write-line #"rep stosq" output)
-            (write-line #"mov %rdi, %rbp" output)
-            (write-line #"push %rdx" output)
-            (write-commands cmds output))]
-         [(make-array-from-stack-cmd num-args)
-          (begin
-            (write-all-bytes #"pushq $" output)
-            (write-all-bytes (integer->decimal-bytes num-args) output)
-            (newline output)
-            (write-line #"call prim_make_array_from_stack" output)
-            (write-line #"push %rax" output)
-            (write-commands cmds output))]
-         [(array-length-cmd)
-          (begin
-            (write-line #"pop %rax" output)
-            (write-line #"push (%rax)" output)
-            (write-commands cmds output))]
-         [(array-ref-cmd)
-          (begin
-            (write-line #"pop %rcx" output)
-            (write-line #"pop %rax" output)
-            (write-line #"push 8(%rax, %rcx, 8)" output)
-            (write-commands cmds output))]
-         [(array-set!-cmd)
-          (begin
-            (write-line #"pop %rdx" output)
-            (write-line #"pop %rcx" output)
-            (write-line #"pop %rax" output)
-            (write-line #"mov %rdx, 8(%rax, %rcx, 8)" output)
-            (write-line #"push $0" output)
-            (write-commands cmds output))]
+      [(make-array-cmd)
+       (begin
+         (write-line #"pop %rax" output)
+         (write-line #"pop %rcx" output)
+         (write-line #"mov %rbp, %rdx" output)
+         (write-line #"mov %rcx, (%rbp)" output)
+         (write-line #"add $8, %rbp" output)
+         (write-line #"mov %rbp, %rdi" output)
+         (write-line #"rep stosq" output)
+         (write-line #"mov %rdi, %rbp" output)
+         (write-line #"push %rdx" output))]
+      [(make-array-from-stack-cmd num-args)
+       (begin
+         (write-all-bytes #"pushq $" output)
+         (write-all-bytes (integer->decimal-bytes num-args) output)
+         (newline output)
+         (write-line #"call prim_make_array_from_stack" output)
+         (write-line #"push %rax" output))]
+      [(array-length-cmd)
+       (begin
+         (write-line #"pop %rax" output)
+         (write-line #"push (%rax)" output))]
+      [(array-ref-cmd)
+       (begin
+         (write-line #"pop %rcx" output)
+         (write-line #"pop %rax" output)
+         (write-line #"push 8(%rax, %rcx, 8)" output))]
+      [(array-set!-cmd)
+       (begin
+         (write-line #"pop %rdx" output)
+         (write-line #"pop %rcx" output)
+         (write-line #"pop %rax" output)
+         (write-line #"mov %rdx, 8(%rax, %rcx, 8)" output)
+         (write-line #"push $0" output))]
 
-         [(bin-logic-math-cmd op)
-          (begin
-            (write-line #"pop %rax" output) ;; Argument 2
-            (write-line #"pop %rcx" output) ;; Argument 1
-            (write-line #"cmpq %rax, %rcx" output)
-            (case op
-              [(less-than-op)
-               (write-line #"setl %al" output)]
-              [(less-than-or-equal-op)
-               (write-line #"setle %al" output)]
-              [(equal-op)
-               (write-line #"sete %al" output)]
-              [(greater-than-or-equal-op)
-               (write-line #"setge %al" output)]
-              [(greater-than-op)
-               (write-line #"setg %al" output)])
-            (write-line #"movzx %al, %rax" output)
-            (write-line #"push %rax" output)
-            (write-commands cmds output))]
-         [(bin-math-cmd (bin-add-op))
-          (begin
-            (write-line #"pop %rax" output) ;; Argument 2
-            (write-line #"pop %rcx" output) ;; Argument 1
-            (write-line #"addq %rcx, %rax" output)
-            (write-line #"pushq %rax" output)
-            (write-commands cmds output))]
-         [(bin-math-cmd (bin-sub-op))
-          (begin
-            (write-line #"pop %rcx" output) ;; Argument 2
-            (write-line #"pop %rax" output) ;; Argument 1
-            (write-line #"subq %rcx, %rax" output)
-            (write-line #"push %rax" output)
-            (write-commands cmds output))]
-         [(bin-math-cmd (bin-mult-op))
-          (begin
-            (write-line #"pop %rax" output) ;; Argument 2
-            (write-line #"pop %rcx" output) ;; Argument 1
-            (write-line #"imulq %rcx" output)
-            (write-line #"push %rax" output)
-            (write-commands cmds output))]
-         [(bin-math-cmd (bin-quotient-op))
-          (begin
-            (write-line #"pop %rcx" output) ;; Argument 2
-            (write-line #"pop %rax" output) ;; Argument 1
-            (write-line #"movq $0, %rdx" output)
-            (write-line #"idiv %rcx" output)
-            (write-line #"push %rax" output)
-            (write-commands cmds output))]
-         [(bin-math-cmd (bin-remainder-op))
-          (begin
-            (write-line #"pop %rcx" output) ;; Argument 2
-            (write-line #"pop %rax" output) ;; Argument 1
-            (write-line #"movq $0, %rdx" output)
-            (write-line #"idiv %rcx" output)
-            (write-line #"movq %rdx, %rax" output)
-            (write-line #"push %rax" output)
-            (write-commands cmds output))]
-         [(alloc-variant-cmd tag fields)
-          (begin
-            (write-line #"mov %rbp, %rax" output)
-            (write-all-bytes #"movq $" output)
-            (write-all-bytes (integer->decimal-bytes tag) output)
-            (write-all-bytes #", (%rbp)" output)
-            (newline output)
-            (write-line #"add $8, %rbp" output)
-            (copy-objects fields output)
-            (write-line #"push %rax" output)
-            (write-commands cmds output))]
-         [(variant-ref-cmd tag field)
-          (begin
-            (write-line #"pop %rax" output)
-            (write-all-bytes #"cmpq $" output)
-            (write-all-bytes (integer->decimal-bytes tag) output)
-            (write-line #", (%rax)" output)
-            (write-line #"jne prim_variant_panic" output)
-            (write-all-bytes #"pushq " output)
-            (write-all-bytes (integer->decimal-bytes (+ (* 8 field) 8)) output)
-            (write-line #"(%rax)" output)
-            (write-commands cmds output))])]))
+      [(bin-logic-math-cmd op)
+       (begin
+         (write-line #"pop %rax" output) ;; Argument 2
+         (write-line #"pop %rcx" output) ;; Argument 1
+         (write-line #"cmpq %rax, %rcx" output)
+         (case op
+           [(less-than-op)
+            (write-line #"setl %al" output)]
+           [(less-than-or-equal-op)
+            (write-line #"setle %al" output)]
+           [(equal-op)
+            (write-line #"sete %al" output)]
+           [(greater-than-or-equal-op)
+            (write-line #"setge %al" output)]
+           [(greater-than-op)
+            (write-line #"setg %al" output)])
+         (write-line #"movzx %al, %rax" output)
+         (write-line #"push %rax" output))]
+      [(bin-math-cmd (bin-add-op))
+       (begin
+         (write-line #"pop %rax" output) ;; Argument 2
+         (write-line #"pop %rcx" output) ;; Argument 1
+         (write-line #"addq %rcx, %rax" output)
+         (write-line #"pushq %rax" output))]
+      [(bin-math-cmd (bin-sub-op))
+       (begin
+         (write-line #"pop %rcx" output) ;; Argument 2
+         (write-line #"pop %rax" output) ;; Argument 1
+         (write-line #"subq %rcx, %rax" output)
+         (write-line #"push %rax" output))]
+      [(bin-math-cmd (bin-mult-op))
+       (begin
+         (write-line #"pop %rax" output) ;; Argument 2
+         (write-line #"pop %rcx" output) ;; Argument 1
+         (write-line #"imulq %rcx" output)
+         (write-line #"push %rax" output))]
+      [(bin-math-cmd (bin-quotient-op))
+       (begin
+         (write-line #"pop %rcx" output) ;; Argument 2
+         (write-line #"pop %rax" output) ;; Argument 1
+         (write-line #"movq $0, %rdx" output)
+         (write-line #"idiv %rcx" output)
+         (write-line #"push %rax" output))]
+      [(bin-math-cmd (bin-remainder-op))
+       (begin
+         (write-line #"pop %rcx" output) ;; Argument 2
+         (write-line #"pop %rax" output) ;; Argument 1
+         (write-line #"movq $0, %rdx" output)
+         (write-line #"idiv %rcx" output)
+         (write-line #"movq %rdx, %rax" output)
+         (write-line #"push %rax" output))]
+      [(alloc-variant-cmd tag fields)
+       (begin
+         (write-line #"mov %rbp, %rax" output)
+         (write-all-bytes #"movq $" output)
+         (write-all-bytes (integer->decimal-bytes tag) output)
+         (write-all-bytes #", (%rbp)" output)
+         (newline output)
+         (write-line #"add $8, %rbp" output)
+         (copy-objects fields output)
+         (write-line #"push %rax" output))]
+      [(variant-ref-cmd tag field)
+       (begin
+         (write-line #"pop %rax" output)
+         (write-all-bytes #"cmpq $" output)
+         (write-all-bytes (integer->decimal-bytes tag) output)
+         (write-line #", (%rax)" output)
+         (write-line #"jne prim_variant_panic" output)
+         (write-all-bytes #"pushq " output)
+         (write-all-bytes (integer->decimal-bytes (+ (* 8 field) 8)) output)
+         (write-line #"(%rax)" output))]))
 
   ;; Generates assembly to copy n objects from the top of the stack to the
   ;; memory starting at %rbp. %rbp ends up pointing right after after the last object written.
