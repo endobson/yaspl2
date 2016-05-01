@@ -52,6 +52,7 @@
       (and [reg1 RegMemImm] [reg2 Register])
       (call [label Bytes])
       (call/indirect [rmi RegMemImm])
+      (cld)
       (cmovz [rmi RegMemImm] [reg Register])
       (cmp [rmi RegMemImm] [reg Register])
       (dec [reg Register])
@@ -201,6 +202,8 @@
        (varargs join-list #"call " label)]
       [(call/indirect rmi)
        (varargs join-list #"callq *" (rmi->bytes rmi))]
+      [(cld)
+       (single-jl #"cld")]
       [(cmovz rmi reg)
        (varargs join-list
           #"cmovz "
@@ -433,6 +436,7 @@
     (write-assembly-commands
       (append
         (varargs list
+          (directive-cmd (section-directive #"__TEXT" #"__text"))
           (directive-cmd (label-directive name)))
         (map instruction-cmd instructions))
       output))
@@ -444,45 +448,50 @@
     (begin
       (write-assembly-commands
         (varargs list
-          (directive-cmd (section-directive #"__TEXT" #"__text"))
-          (directive-cmd (global-directive #"start"))
-          (directive-cmd (label-directive #"start"))
-          (instruction-cmd (nop))
-          (directive-cmd (label-directive #"start_break")))
+          (directive-cmd (global-directive #"start")))
         output)
-      ;; Allocate Heap (Call mmap)
-      ;; No fixed address desired
-      (write-line #"movq $0x0, %rdi" output)
-      ;; We want a large heap
-      (write-line #"movq $0x20000000, %rsi" output)
-      ;; 0x1 = PROT_READ
-      ;; 0x2 = PROT_WRITE
-      (write-line #"movq $0x7, %rdx" output)
-      ;; 0x0002 = MAP_SHARED
-      ;; 0x1000 = MAP_ANON
-      (write-line #"movq $0x1002, %r10" output)
-      ;; FD = -1 for no flags
-      (write-line #"movq $-0x1, %r8" output)
-      ;; offset which is ignored because of MAP_ANON
-      (write-line #"movq $0x0, %r9" output)
-      ;; C5 is mmap, plus 0x2000000 because xnu
-      (write-line #"movq $0x20000c5, %rax" output)
-      (write-line #"syscall" output)
-      (write-line #"jb prim_start_panic" output)
-      ;; Save heap to %rbp which is our bump pointer
-      (write-line #"movq %rax, %rbp" output)
 
-      ;; Construct args
-      (write-line #"popq %r8" output) ; r8 is the number of c strings
-      (write-line #"movq %rbp, %r10" output) ; r10 is the array of bytes
-      (write-line #"movq $0, %r11" output) ; r11 is the index of the current string
+      (write-block #"start" output
+        (varargs list
+          (nop)))
 
-      (write-line #"movq %r8, (%rbp)" output)
-      (write-line #"lea 8(%rbp, %r8, 8), %rbp" output)
+      (write-block #"start_break" output
+        (varargs list
+          ;; Allocate Heap (Call mmap)
+          ;; No fixed address desired
+          (movq (imm 0) (reg (rdi)))
+          ;; We want a large heap
+          (movq (imm #x20000000) (reg (rsi)))
+          ;; 0x1 = PROT_READ
+          ;; 0x2 = PROT_WRITE
+          ;; 0x4 = PROT_EXEC
+          (movq (imm #x7) (reg (rdx)))
+          ;; 0x0002 = MAP_SHARED
+          ;; 0x1000 = MAP_ANON
+          (movq (imm #x1002) (reg (r10)))
+          ;; FD = -1 for no flags
+          (movq (imm (- 0 1)) (reg (r8)))
+          ;; offset which is ignored because of MAP_ANON
+          (movq (imm 0) (reg (r9)))
+          ;; 0xC5 is mmap, plus 0x2000000 because xnu
+          (movq (imm #x20000C5) (reg (rax)))
+          (syscall)
+          (jb #"prim_start_panic")
+          ;; Save heap to %rbp which is our bump pointer
+          (movq (reg (rax)) (reg (rbp)))
 
-      (write-line #"cmp %r11, %r8" output)
-      (write-line #"je start_copy_args_end" output)
-      (write-line #"cld" output)
+          ;; Construct args
+          (pop (reg (r8))) ; r8 is the number of c strings
+          (movq (reg (rbp)) (reg (r10))) ; r10 is the array of bytes
+          (movq (imm 0) (reg (r11))) ; r11 is the index of the current string
+
+          (movq (reg (r8)) (mem (rbp) 0))
+          (leaq (scaled (rbp) 8 (r8) 8) (rbp))
+
+          (cmp (reg (r11)) (r8))
+          (je #"start_copy_args_end")
+          (cld)))
+
       (write-block #"start_copy_args_start" output
         (varargs list
           (pop (reg (r9))) ; r9 is now the current string
