@@ -7,7 +7,7 @@
     (prim-implementation prim-implementation)
     (list
       #:types (List)
-      #:values (cons-head append list map)
+      #:values (cons-head append list map empty cons)
       #:patterns (empty cons))
     (numbers integer->decimal-bytes)
     (io read-all-bytes write-all-bytes newline write-line)
@@ -62,6 +62,7 @@
       (inc [reg Register])
       (jb [label Bytes])
       (je [label Bytes])
+      (jmp [label Bytes])
       (jne [label Bytes])
       (jnz [label Bytes])
       (leaq [rmi RegMemImm] [reg Register])
@@ -241,6 +242,8 @@
        (varargs join-list #"jb " label)]
       [(je label)
        (varargs join-list #"je " label)]
+      [(jmp label)
+       (varargs join-list #"jmp " label)]
       [(jne label)
        (varargs join-list #"jne " label)]
       [(jnz label)
@@ -1065,36 +1068,21 @@
       [(variant-switch cases)
        (begin
          (write-line #"mov (%rsp), %rax" output)
-         (write-variant-switch fun-name cases output))]))
+         (write-instructions output (convert-variant-switch fun-name cases)))]))
 
   ;; The current value is in %rax.
-  (define (write-variant-switch
-            [fun-name : Bytes]
-            [cases : VariantCases]
-            [output : OutputPort]) : Void
+  (define (convert-variant-switch [fun-name : Bytes] [cases : VariantCases]) : (List Instruction)
     (case cases
       [(no-catch-all-case)
-       (write-line #"ud2" output)]
+       (cons (ud2) (empty))]
       [(catch-all-case block)
-       (begin
-         (write-all-bytes #"jmp " output)
-         (write-all-bytes fun-name output)
-         (write-all-bytes #"_" output)
-         (write-all-bytes (integer->decimal-bytes block) output)
-         (newline output))]
+       (cons (jmp (bytes-append (varargs list fun-name #"_" (integer->decimal-bytes block)))) (empty))]
       [(variant-case tag block cases)
-       (begin
-         (write-all-bytes #"cmpq $" output)
-         (write-all-bytes (integer->decimal-bytes tag) output)
-         (write-all-bytes #", (%rax)" output)
-         (newline output)
-         (write-all-bytes #"je " output)
-         (write-all-bytes fun-name output)
-         (write-all-bytes #"_" output)
-         (write-all-bytes (integer->decimal-bytes block) output)
-         (newline output)
-         (write-variant-switch fun-name cases output))]))
-
+       (cons
+         (cmpq (imm tag) (mem (rax) 0))
+         (cons
+           (je (bytes-append (varargs list fun-name #"_" (integer->decimal-bytes block))))
+           (convert-variant-switch fun-name cases)))]))
 
   (define (write-pop-function-arguments [num-args : Byte] [output : OutputPort]) : Void
     (if (= 0 num-args)
