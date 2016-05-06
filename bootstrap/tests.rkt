@@ -605,6 +605,32 @@
 
 
 
+      (compiler-test #:mod 'compiler
+        #"(module main
+            (import (prim +))
+            (export)
+            (types)
+            (define (z [a : Byte] [b : Byte] [c : Byte] [d : Byte] [e : Byte] [f : Byte] [g : Byte]
+                       [h : Byte]) : Byte
+              h)
+            (define (main) : Byte
+              (z 0 1 2 3 4 5 6 (+ 3 4))))"
+        #:exit-code 7)
+
+
+      (compiler-test #:mod 'compiler
+        #"(module main
+            (import (prim +))
+            (export)
+            (types
+              (define-type Z
+                (z [a Byte] [b Byte] [c Byte] [d Byte] [e Byte] [f Byte] [g Byte] [h Byte])))
+            (define (main) : Byte
+              (z-h (z 0 1 2 3 4 5 6 (+ 3 5)))))"
+        #:exit-code 8)
+
+
+
       )))
 
 (break-enabled #f)
