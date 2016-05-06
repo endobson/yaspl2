@@ -1017,7 +1017,7 @@
          (write-all-bytes #":" output)
          (newline output)
          (write-instructions output (jl->list (convert-commands cmds)))
-         (write-terminal fun-name terminal output))]))
+         (write-instructions output (convert-terminal fun-name terminal)))]))
 
   (define (a) (for-each [f : (a -> Void)] [l : (List a)]) : Void
     (case l
@@ -1037,38 +1037,26 @@
           (newline output)))
       lines))
 
-  (define (write-terminal [fun-name : Bytes] [terminal : StackTerminal] [output : OutputPort]) : Void
+  (define (convert-terminal [fun-name : Bytes] [terminal : StackTerminal]) : (List Instruction)
     (case terminal
       [(return num-args)
-       (begin
-         (write-line #"pop %rax" output) ;; Return value
-         (write-pop-function-arguments num-args output)
-         (write-line #"ret" output))]
+       (varargs list
+         (pop (reg (rax)))
+         (add (imm (* 8 num-args)) (rsp))
+         (ret))]
       [(uncond-jmp index)
-       (begin
-         (write-all-bytes #"jmp " output)
-         (write-all-bytes fun-name output)
-         (write-all-bytes #"_" output)
-         (write-all-bytes (integer->decimal-bytes index) output)
-         (newline output))]
+       (cons (jmp (bytes-append (varargs list fun-name #"_" (integer->decimal-bytes index))))
+             (empty))]
       [(boolean-jmp true-index false-index)
-       (begin
-         (write-line #"pop %rax" output)
-         (write-line #"cmpq $0, %rax" output)
-         (write-all-bytes #"jne " output)
-         (write-all-bytes fun-name output)
-         (write-all-bytes #"_" output)
-         (write-all-bytes (integer->decimal-bytes true-index) output)
-         (newline output)
-         (write-all-bytes #"jmp " output)
-         (write-all-bytes fun-name output)
-         (write-all-bytes #"_" output)
-         (write-all-bytes (integer->decimal-bytes false-index) output)
-         (newline output))]
+       (varargs list
+       (pop (reg (rax)))
+       (cmpq (imm 0) (reg (rax)))
+       (jne (bytes-append (varargs list fun-name #"_" (integer->decimal-bytes true-index))))
+       (jmp (bytes-append (varargs list fun-name #"_" (integer->decimal-bytes false-index)))))]
       [(variant-switch cases)
-       (begin
-         (write-line #"mov (%rsp), %rax" output)
-         (write-instructions output (convert-variant-switch fun-name cases)))]))
+       (cons
+         (movq (mem (rsp) 0) (reg (rax)))
+         (convert-variant-switch fun-name cases))]))
 
   ;; The current value is in %rax.
   (define (convert-variant-switch [fun-name : Bytes] [cases : VariantCases]) : (List Instruction)
