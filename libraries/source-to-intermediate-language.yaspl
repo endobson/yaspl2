@@ -27,6 +27,7 @@
       #:types
         ((Module i:Module)
          (FunctionDefinition i:FunctionDefinition)
+         (BytesConstant i:BytesConstant)
          (Expression i:Expression)
          (CaseClause i:CaseClause)
          ClosureConstant)
@@ -45,7 +46,8 @@
          (let-expr i:let-expr)
          (case-expr i:case-expr)
          (case-clause i:case-clause)
-         closure-constant)
+         closure-constant
+         bytes-constant)
       #:patterns (closure-constant))
     (source-language
       #:types (Module FunctionDefinition Expression CaseClause PreType)
@@ -58,23 +60,21 @@
     (define-type Environment
       (environment))
     (define-type State
-      (state [funcs (List i:FunctionDefinition)] [counter Byte])))
+      (state [funcs (List i:FunctionDefinition)] [bytes (List i:BytesConstant)] [counter Byte])))
 
   (define (source->intermediate [mod : Module]) : i:Module
     (case mod
       [(module name imports exports types definitions)
-       (i:module
-         name
-         imports
-         exports
-         types
-         (state-funcs
-           (convert-function-definitions
-             definitions
-             (environment)
-             (state (empty) 0)))
-         (create-closures definitions (empty))
-         (empty))]))
+       (case (convert-function-definitions definitions (environment) (state (empty) (empty) 0))
+         [(state funcs byte-constants _)
+          (i:module
+            name
+            imports
+            exports
+            types
+            funcs
+            (create-closures definitions (empty))
+            byte-constants)])]))
 
   (define (create-closures
             [funs : (List FunctionDefinition)]
@@ -118,7 +118,13 @@
     : (Tuple2 i:Expression State)
     (case expr
       [(byte-literal v) (tuple2 (i:byte-literal v) acc)]
-      [(bytes-literal v) (tuple2 (i:bytes-literal v) acc)]
+      [(bytes-literal v)
+       (case (get-next-index acc)
+         [(tuple2 index acc)
+          (let ([constant-name
+                  (bytes-append (cons #"bytes_" (cons (integer->decimal-bytes index) (empty))))])
+            (tuple2 (i:bytes-literal v)
+                    (add-bytes-constant constant-name v acc)))])]
       [(boolean-literal v) (tuple2 (i:boolean-literal v) acc)]
       ;; TODO handle this correctly
       [(var-expr v) (tuple2 (i:local-var-expr v) acc)]
@@ -216,10 +222,15 @@
 
   (define (add-function [func : i:FunctionDefinition] [acc : State]) : State
     (case acc
-      [(state funcs counter)
-       (state (cons func funcs) counter)]))
+      [(state funcs bytes counter)
+       (state (cons func funcs) bytes counter)]))
+
+  (define (add-bytes-constant [name : Bytes] [value : Bytes] [acc : State]) : State
+    (case acc
+      [(state funcs bytes counter)
+       (state funcs (cons (bytes-constant name value) bytes) counter)]))
 
   (define (get-next-index [acc : State]) : (Tuple2 Byte State)
     (case acc
-      [(state funcs counter)
-       (tuple2 counter (state funcs (+ 1 counter)))])))
+      [(state funcs bytes counter)
+       (tuple2 counter (state funcs bytes (+ 1 counter)))])))
