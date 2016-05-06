@@ -13,7 +13,7 @@
     (io read-all-bytes write-all-bytes newline write-line)
     (join-list
       #:types (JoinList)
-      #:values (jl->list single-jl join-list empty-jl cons-jl append-jl*)
+      #:values (jl->list single-jl join-list empty-jl cons-jl append-jl append-jl*)
       #:patterns ())
     (sexp-parser
       #:types (Sexp)
@@ -1013,7 +1013,7 @@
          (write-all-bytes (integer->decimal-bytes index) output)
          (write-all-bytes #":" output)
          (newline output)
-         (write-commands cmds output)
+         (write-instructions output (jl->list (convert-commands cmds)))
          (write-terminal fun-name terminal output))]))
 
   (define (a) (for-each [f : (a -> Void)] [l : (List a)]) : Void
@@ -1103,242 +1103,215 @@
           (write-line #"pop %rcx" output)
           (write-pop-function-arguments (- num-args 1) output))))
 
-  (define (write-commands [cmds : (List StackCmd)] [output : OutputPort]) : Void
+  (define (convert-commands [cmds : (List StackCmd)]) : (JoinList Instruction)
     (case cmds
-      [(empty) (void)]
+      [(empty) (empty-jl)]
       [(cons cmd cmds)
-       (begin
-         (write-command cmd output)
-         (write-commands cmds output))]))
+       (append-jl
+         (convert-command cmd)
+         (convert-commands cmds))]))
 
 
-  (define (write-command [cmd : StackCmd] [output : OutputPort]) : Void
+  (define (convert-command [cmd : StackCmd]) : (JoinList Instruction)
     (case cmd
       [(dup-cmd offset)
-       (write-instructions output
-         (varargs list
-           (pushq (mem (rsp) (* offset 8)))))]
+       (varargs join-list
+         (pushq (mem (rsp) (* offset 8))))]
       [(dup-free-var-cmd offset index)
-       (write-instructions output
-         (varargs list
-           (pushq (mem (r11) (* (+ 1 index) 8)))))]
+       (varargs join-list
+         (pushq (mem (r11) (* (+ 1 index) 8))))]
       [(swap-cmd)
-       (write-instructions output
-         (varargs list
-           (pop (reg (rax)))
-           (pop (reg (rbx)))
-           (pushq (reg (rax)))
-           (pushq (reg (rbx)))))]
+       (varargs join-list
+         (pop (reg (rax)))
+         (pop (reg (rbx)))
+         (pushq (reg (rax)))
+         (pushq (reg (rbx))))]
       [(pop-cmd)
-       (write-instructions output
-         (varargs list
-           (pop (reg (rax)))))]
+       (varargs join-list
+         (pop (reg (rax))))]
       [(num-lit-cmd v)
        ;; TODO fix when yaspl supports larger literals
-       (write-instructions output
-         (let ([max-lit
-                (let ([shift (+ #xFF 1)])
-                  (+ (* shift (+ (* shift (+ (* shift #xFF) #xFF)) #xFF)) #xFF))])
-           (if (> v max-lit)
-               (varargs list
-                 (movq (imm v) (reg (rax)))
-                 (pushq (reg (rax))))
-               (varargs list
-                 (pushq (imm v))))))]
+       (let ([max-lit
+              (let ([shift (+ #xFF 1)])
+                (+ (* shift (+ (* shift (+ (* shift #xFF) #xFF)) #xFF)) #xFF))])
+         (if (> v max-lit)
+             (varargs join-list
+               (movq (imm v) (reg (rax)))
+               (pushq (reg (rax))))
+             (varargs join-list
+               (pushq (imm v)))))]
       [(boolean-lit-cmd v)
-       (write-instructions output
-         (varargs list
-           (pushq (imm (if v 1 0)))))]
+       (varargs join-list
+         (pushq (imm (if v 1 0))))]
       ;; TODO put the bytes not directly in the instruction stream
       [(bytes-cmp-cmd)
-       (write-instructions output
-         (varargs list
-           (pop (reg (rdi))) ;; Argument 2
-           (pop (reg (rsi))) ;; Argument 1
-           (movq (mem (rsi) 0) (reg (rcx)))
-           (add (imm 8) (rcx))
-           (repe-cmpsb)
-           (sete (al))
-           (movzb (reg (al)) (rax))
-           (pushq (reg (rax)))))]
+       (varargs join-list
+         (pop (reg (rdi))) ;; Argument 2
+         (pop (reg (rsi))) ;; Argument 1
+         (movq (mem (rsi) 0) (reg (rcx)))
+         (add (imm 8) (rcx))
+         (repe-cmpsb)
+         (sete (al))
+         (movzb (reg (al)) (rax))
+         (pushq (reg (rax))))]
 
       [(load-global-cmd name)
-       (write-instructions output
-         (varargs list
-           (leaq/rel name (rip) (rax))
-           (pushq (reg (rax)))))]
+       (varargs join-list
+         (leaq/rel name (rip) (rax))
+         (pushq (reg (rax))))]
 
       [(create-closure-cmd n)
-       (write-instructions output
-         (jl->list
-           (varargs append-jl*
-             (single-jl (movq (reg (rbp)) (reg (rax))))
-             (copy-objects (+ n 1))
-             (single-jl (pushq (reg (rax)))))))]
+       (varargs append-jl*
+         (single-jl (movq (reg (rbp)) (reg (rax))))
+         (copy-objects (+ n 1))
+         (single-jl (pushq (reg (rax)))))]
       [(fun-call-cmd n)
-       (write-instructions output
-         (jl->list
-           (varargs append-jl*
-             (if (>= n 1)
-                 (single-jl (movq (mem (rsp) (- (* 8 n) #x00)) (reg (rdi))))
-                 (empty-jl))
-             (if (>= n 2)
-                 (single-jl (movq (mem (rsp) (- (* 8 n) #x08)) (reg (rsi))))
-                 (empty-jl))
-             (if (>= n 3)
-                 (single-jl (movq (mem (rsp) (- (* 8 n) #x10)) (reg (rdx))))
-                 (empty-jl))
-             (if (>= n 4)
-                 (single-jl (movq (mem (rsp) (- (* 8 n) #x18)) (reg (rcx))))
-                 (empty-jl))
-             (if (>= n 5)
-                 (single-jl (movq (mem (rsp) (- (* 8 n) #x20)) (reg (r8))))
-                 (empty-jl))
-             (if (>= n 6)
-                 (single-jl (movq (mem (rsp) (- (* 8 n) #x28)) (reg (r9))))
-                 (empty-jl))
-             (if (>= n 7)
-                 (cons-jl
-                   (movq (reg (rbp)) (reg (r10)))
-                   (copy-extra-arguments 6 n))
-                 (empty-jl))
-             (varargs join-list
-               (movq (mem (rsp) 0) (reg (rax)))
-               (movq (reg (rax)) (mem (rsp) (* 8 n)))
-               (add (imm (* 8 n)) (rsp))
-               (movq (mem (rsp) 0) (reg (rax)))
-               (movq (reg (r11)) (mem (rsp) 0))
-               (movq (reg (rax)) (reg (r11)))
-               (movq (mem (rax) 0) (reg (rax)))
-               (call/indirect (reg (rax)))
-               ;; Read back the closure and then overwrite it
-               (movq (mem (rsp) 0) (reg (r11)))
-               (movq (reg (rax)) (mem (rsp) 0))))))]
-      [(known-fun-call-cmd name _)
-       (write-instructions output
-         (varargs list
-           (pushq (reg (r11)))
-           (call name)
+       (varargs append-jl*
+         (if (>= n 1)
+             (single-jl (movq (mem (rsp) (- (* 8 n) #x00)) (reg (rdi))))
+             (empty-jl))
+         (if (>= n 2)
+             (single-jl (movq (mem (rsp) (- (* 8 n) #x08)) (reg (rsi))))
+             (empty-jl))
+         (if (>= n 3)
+             (single-jl (movq (mem (rsp) (- (* 8 n) #x10)) (reg (rdx))))
+             (empty-jl))
+         (if (>= n 4)
+             (single-jl (movq (mem (rsp) (- (* 8 n) #x18)) (reg (rcx))))
+             (empty-jl))
+         (if (>= n 5)
+             (single-jl (movq (mem (rsp) (- (* 8 n) #x20)) (reg (r8))))
+             (empty-jl))
+         (if (>= n 6)
+             (single-jl (movq (mem (rsp) (- (* 8 n) #x28)) (reg (r9))))
+             (empty-jl))
+         (if (>= n 7)
+             (cons-jl
+               (movq (reg (rbp)) (reg (r10)))
+               (copy-extra-arguments 6 n))
+             (empty-jl))
+         (varargs join-list
+           (movq (mem (rsp) 0) (reg (rax)))
+           (movq (reg (rax)) (mem (rsp) (* 8 n)))
+           (add (imm (* 8 n)) (rsp))
+           (movq (mem (rsp) 0) (reg (rax)))
+           (movq (reg (r11)) (mem (rsp) 0))
+           (movq (reg (rax)) (reg (r11)))
+           (movq (mem (rax) 0) (reg (rax)))
+           (call/indirect (reg (rax)))
+           ;; Read back the closure and then overwrite it
            (movq (mem (rsp) 0) (reg (r11)))
            (movq (reg (rax)) (mem (rsp) 0))))]
+      [(known-fun-call-cmd name _)
+       (varargs join-list
+         (pushq (reg (r11)))
+         (call name)
+         (movq (mem (rsp) 0) (reg (r11)))
+         (movq (reg (rax)) (mem (rsp) 0)))]
 
       [(make-array-cmd)
-       (write-instructions output
-         (varargs list
-           (pop (reg (rax)))
-           (pop (reg (rcx)))
-           (movq (reg (rbp)) (reg (rdx)))
-           (movq (reg (rcx)) (mem (rbp) 0))
-           (add (imm 8) (rbp))
-           (movq (reg (rbp)) (reg (rdi)))
-           (rep-stosq)
-           (movq (reg (rdi)) (reg (rbp)))
-           (pushq (reg (rdx)))))]
+       (varargs join-list
+         (pop (reg (rax)))
+         (pop (reg (rcx)))
+         (movq (reg (rbp)) (reg (rdx)))
+         (movq (reg (rcx)) (mem (rbp) 0))
+         (add (imm 8) (rbp))
+         (movq (reg (rbp)) (reg (rdi)))
+         (rep-stosq)
+         (movq (reg (rdi)) (reg (rbp)))
+         (pushq (reg (rdx))))]
       [(make-array-from-stack-cmd num-args)
-       (write-instructions output
-         (varargs list
-           (movq (imm num-args) (reg (rcx)))
-           (movq (reg (rsp)) (reg (rsi)))
-           (movq (reg (rbp)) (reg (rax)))
-           (leaq (scaled (rsp) 8 (rcx) 0) (rsp))
-           (movq (reg (rcx)) (mem (rbp) 0))
-           (leaq (mem (rbp) 8) (rdi))
-           (leaq (scaled (rbp) 8 (rcx) 8) (rbp))
-           (cld)
-           (rep-movsq)
-           (pushq (reg (rax)))))]
+       (varargs join-list
+         (movq (imm num-args) (reg (rcx)))
+         (movq (reg (rsp)) (reg (rsi)))
+         (movq (reg (rbp)) (reg (rax)))
+         (leaq (scaled (rsp) 8 (rcx) 0) (rsp))
+         (movq (reg (rcx)) (mem (rbp) 0))
+         (leaq (mem (rbp) 8) (rdi))
+         (leaq (scaled (rbp) 8 (rcx) 8) (rbp))
+         (cld)
+         (rep-movsq)
+         (pushq (reg (rax))))]
       [(array-length-cmd)
-       (write-instructions output
-         (varargs list
-           (pop (reg (rax)))
-           (pushq (mem (rax) 0))))]
+       (varargs join-list
+         (pop (reg (rax)))
+         (pushq (mem (rax) 0)))]
       [(array-ref-cmd)
-       (write-instructions output
-         (varargs list
-           (pop (reg (rcx)))
-           (pop (reg (rax)))
-           (pushq (scaled (rax) 8 (rcx) 8))))]
+       (varargs join-list
+         (pop (reg (rcx)))
+         (pop (reg (rax)))
+         (pushq (scaled (rax) 8 (rcx) 8)))]
       [(array-set!-cmd)
-       (write-instructions output
-         (varargs list
-           (pop (reg (rdx)))
-           (pop (reg (rcx)))
-           (pop (reg (rax)))
-           (movq (reg (rdx)) (scaled (rax) 8 (rcx) 8))
-           (pushq (imm 0))))]
+       (varargs join-list
+         (pop (reg (rdx)))
+         (pop (reg (rcx)))
+         (pop (reg (rax)))
+         (movq (reg (rdx)) (scaled (rax) 8 (rcx) 8))
+         (pushq (imm 0)))]
 
       [(bin-logic-math-cmd op)
-       (write-instructions output
-         (varargs list
-           (pop (reg (rax))) ;; Argument 2
-           (pop (reg (rcx))) ;; Argument 1
-           (cmpq (reg (rax)) (reg (rcx)))
-           (case op
-             [(less-than-op)
-              (setl (al))]
-             [(less-than-or-equal-op)
-              (setle (al))]
-             [(equal-op)
-              (sete (al))]
-             [(greater-than-or-equal-op)
-              (setge (al))]
-             [(greater-than-op)
-              (setg (al))])
-           (movzb (reg (al)) (rax))
-           (pushq (reg (rax)))))]
+       (varargs join-list
+         (pop (reg (rax))) ;; Argument 2
+         (pop (reg (rcx))) ;; Argument 1
+         (cmpq (reg (rax)) (reg (rcx)))
+         (case op
+           [(less-than-op)
+            (setl (al))]
+           [(less-than-or-equal-op)
+            (setle (al))]
+           [(equal-op)
+            (sete (al))]
+           [(greater-than-or-equal-op)
+            (setge (al))]
+           [(greater-than-op)
+            (setg (al))])
+         (movzb (reg (al)) (rax))
+         (pushq (reg (rax))))]
       [(bin-math-cmd (bin-add-op))
-       (write-instructions output
-         (varargs list
-           (pop (reg (rax)))
-           (pop (reg (rcx)))
-           (add (reg (rcx)) (rax))
-           (pushq (reg (rax)))))]
+       (varargs join-list
+         (pop (reg (rax)))
+         (pop (reg (rcx)))
+         (add (reg (rcx)) (rax))
+         (pushq (reg (rax))))]
       [(bin-math-cmd (bin-sub-op))
-       (write-instructions output
-         (varargs list
-           (pop (reg (rcx)))
-           (pop (reg (rax)))
-           (sub (reg (rcx)) (rax))
-           (pushq (reg (rax)))))]
+       (varargs join-list
+         (pop (reg (rcx)))
+         (pop (reg (rax)))
+         (sub (reg (rcx)) (rax))
+         (pushq (reg (rax))))]
       [(bin-math-cmd (bin-mult-op))
-       (write-instructions output
-         (varargs list
-           (pop (reg (rax)))
-           (pop (reg (rcx)))
-           (imulq (rcx))
-           (pushq (reg (rax)))))]
+       (varargs join-list
+         (pop (reg (rax)))
+         (pop (reg (rcx)))
+         (imulq (rcx))
+         (pushq (reg (rax))))]
       [(bin-math-cmd (bin-quotient-op))
-       (write-instructions output
-         (varargs list
-           (pop (reg (rcx)))
-           (pop (reg (rax)))
-           (movq (imm 0) (reg (rdx)))
-           (idivq (rcx))
-           (pushq (reg (rax)))))]
+       (varargs join-list
+         (pop (reg (rcx)))
+         (pop (reg (rax)))
+         (movq (imm 0) (reg (rdx)))
+         (idivq (rcx))
+         (pushq (reg (rax))))]
       [(bin-math-cmd (bin-remainder-op))
-       (write-instructions output
-         (varargs list
-           (pop (reg (rcx)))
-           (pop (reg (rax)))
-           (movq (imm 0) (reg (rdx)))
-           (idivq (rcx))
-           (pushq (reg (rdx)))))]
+       (varargs join-list
+         (pop (reg (rcx)))
+         (pop (reg (rax)))
+         (movq (imm 0) (reg (rdx)))
+         (idivq (rcx))
+         (pushq (reg (rdx))))]
       [(alloc-variant-cmd tag fields)
-       (write-instructions output
-         (jl->list
-           (varargs append-jl*
-             (single-jl (movq (reg (rbp)) (reg (rax))))
-             (single-jl (movq (imm tag) (mem (rbp) 0)))
-             (single-jl (add (imm 8) (rbp)))
-             (copy-objects fields)
-             (single-jl (pushq (reg (rax)))))))]
+       (varargs append-jl*
+         (single-jl (movq (reg (rbp)) (reg (rax))))
+         (single-jl (movq (imm tag) (mem (rbp) 0)))
+         (single-jl (add (imm 8) (rbp)))
+         (copy-objects fields)
+         (single-jl (pushq (reg (rax)))))]
       [(variant-ref-cmd tag field)
-       (write-instructions output
-         (varargs list
-           (pop (reg (rax)))
-           (cmpq (imm tag) (mem (rax) 0))
-           (jne #"prim_variant_panic")
-           (pushq (mem (rax) (+ (* 8 field) 8)))))]))
+       (varargs join-list
+         (pop (reg (rax)))
+         (cmpq (imm tag) (mem (rax) 0))
+         (jne #"prim_variant_panic")
+         (pushq (mem (rax) (+ (* 8 field) 8))))]))
 
 
   ;; Generates assembly to copy `args` arguments from the top of the stack to the
