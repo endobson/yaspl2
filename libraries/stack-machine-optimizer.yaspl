@@ -48,7 +48,7 @@
       #:patterns (
           stack-function stack-basic-block boolean-jmp uncond-jmp variant-switch return
           no-catch-all-case catch-all-case variant-case num-lit-cmd boolean-lit-cmd
-          dup-cmd variant-ref-cmd pop-cmd function-tlo))
+          dup-cmd variant-ref-cmd pop-cmd function-tlo trivial-closure-tlo))
     (prim-implementation prim-implementation)
     (either
       #:types (Either)
@@ -59,23 +59,33 @@
 
 
   (define (optimize-tlos [tlos : (List TopLevelObject)]) : (List TopLevelObject)
-    (map optimize-tlo tlos))
+    (let ([known-funcs (build-known-function-dict tlos (make-dict bytes=?))])
+      (map (lambda ([tlo : TopLevelObject]) (optimize-tlo known-funcs tlo)) tlos)))
 
 
-  (define (optimize-tlo [tlo : TopLevelObject]) : TopLevelObject
+  (define (optimize-tlo [known-funcs : (Dict Bytes Bytes)] [tlo : TopLevelObject]) : TopLevelObject
     (case tlo
       [(function-tlo func)
-       (function-tlo (optimize-stack-function func))]
+       (function-tlo (optimize-stack-function known-funcs func))]
       [_
        tlo]))
 
+  (define (build-known-function-dict [tlos : (List TopLevelObject)]
+                                     [dict : (Dict Bytes Bytes)]) : (Dict Bytes Bytes)
+    (case tlos
+      [(empty) dict]
+      [(cons (trivial-closure-tlo name fun-name) tlos)
+       (build-known-function-dict tlos (dict-add dict name fun-name))]
+      [(cons _ tlos)
+       (build-known-function-dict tlos dict)]))
 
-  (define (optimize-stack-function [fun : StackFunction]) : StackFunction
+
+  (define (optimize-stack-function [known-funcs : (Dict Bytes Bytes)] [fun : StackFunction]) : StackFunction
     (case fun
       [(stack-function name num-args blocks)
        (stack-function name num-args
          (remove-unreachable-blocks
-           (peephole-optimize-blocks
+           (peephole-optimize-blocks known-funcs
              (inline-singlely-used-blocks
                (optimize-trivial-blocks
                  (optimize-known-boolean-jumps
@@ -282,22 +292,28 @@
       [(catch-all-case index) (cons index (empty))]
       [(variant-case _ index cases) (cons index (cases->indices cases))]))
 
-  (define (peephole-optimize-blocks [blocks : (List StackBasicBlock)]) : (List StackBasicBlock)
-    (map peephole-optimize-block blocks))
+  (define (peephole-optimize-blocks [known-funcs : (Dict Bytes Bytes)] [blocks : (List StackBasicBlock)]) : (List StackBasicBlock)
+    (map (lambda ([block : StackBasicBlock])
+           (peephole-optimize-block known-funcs block))
+         blocks))
 
-  (define (peephole-optimize-block [block : StackBasicBlock]) : StackBasicBlock
+  (define (peephole-optimize-block
+            [known-funcs : (Dict Bytes Bytes)]
+            [block : StackBasicBlock]) : StackBasicBlock
     (case block
       [(stack-basic-block cmds term)
-       (stack-basic-block (peephole-optimize-commands (empty) cmds) term)]))
+       (stack-basic-block (peephole-optimize-commands known-funcs (empty) cmds) term)]))
 
-  (define (peephole-optimize-commands [rev-cmds : (List StackCmd)] [cmds : (List StackCmd)])
+  (define (peephole-optimize-commands
+            [known-funcs : (Dict Bytes Bytes)]
+            [rev-cmds : (List StackCmd)] [cmds : (List StackCmd)])
     : (List StackCmd)
     (case (tuple2 rev-cmds cmds)
       [(tuple2 (cons (pop-cmd) (cons (variant-ref-cmd _ _) rev-cmds)) cmds)
-       (peephole-optimize-commands rev-cmds (cons (pop-cmd) cmds))]
+       (peephole-optimize-commands known-funcs rev-cmds (cons (pop-cmd) cmds))]
       [(tuple2 (cons (pop-cmd) (cons (dup-cmd 0) rev-cmds)) cmds)
-       (peephole-optimize-commands rev-cmds cmds)]
+       (peephole-optimize-commands known-funcs rev-cmds cmds)]
       [(tuple2 rev-cmds (cons cmd cmds))
-       (peephole-optimize-commands (cons cmd rev-cmds) cmds)]
+       (peephole-optimize-commands known-funcs (cons cmd rev-cmds) cmds)]
       [(tuple2 rev-cmds (empty))
        (reverse rev-cmds)])))
