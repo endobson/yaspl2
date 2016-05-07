@@ -51,7 +51,7 @@
       #:patterns (http-request http-request-header))
     (x86-64-stack-machine 
       #:types (AssemblyFragment)
-      #:values (convert-objects)
+      #:values (convert-objects assembly-commands->bytes fragment->commands)
       #:patterns (function-fragment address-fragment bytes-fragment ))
     (ip
       #:types (Ipv4Address)
@@ -167,7 +167,25 @@
               (find-function name objects))])]
       [(cons _ objects)
        (find-function name objects)]))
-       
+
+
+  (define (find-fragment [name : Bytes] [fragments : (List AssemblyFragment)]) : (Maybe Fragment)
+    (case fragments
+      [(empty) (nothing)]
+      [(cons frag fragments)
+       (case frag
+         [(function-fragment name2 _)
+          (if (bytes=? name name2)
+              (just frag)
+              (find-fragment name fragments))]
+         [(address-fragment name2 _)
+          (if (bytes=? name name2)
+              (just frag)
+              (find-fragment name fragments))]
+         [(bytes-fragment name2 _)
+          (if (bytes=? name name2)
+              (just frag)
+              (find-fragment name fragments))])]))
 
   (define (make-request-handler
             [objects : (List TopLevelObject)]
@@ -186,9 +204,9 @@
                   (head)
                   (body
                     (varargs list
-                       (div (link (single-jl #"/stack/") (text-node (single-jl #"stack"))))
-                       (div (link (single-jl #"/assembly/") (text-node (single-jl #"assembly")))))))))]
-           [#"/assembly/"
+                       (div (link (single-jl #"/stack") (text-node (single-jl #"stack"))))
+                       (div (link (single-jl #"/assembly") (text-node (single-jl #"assembly")))))))))]
+           [#"/assembly"
             (http-response
               200
               #"OK"
@@ -197,7 +215,7 @@
                 (html
                   (head)
                   (body (map fragment->node fragments)))))]
-           [#"/stack/"
+           [#"/stack"
             (http-response
               200
               #"OK"
@@ -208,14 +226,14 @@
                   (body (map top-level-object->node objects)))))]
            [path
             (let ([name (subbytes path 1 (bytes-length path))])
-              (case (find-function name objects)
+              (case (find-fragment name fragments)
                 [(nothing)
                  (http-response
                    404
                    #"Not Found"
                    #"text/plain"
                    #"Not Found")]
-                [(just function)
+                [(just fragment)
                  (http-response
                    200
                    #"OK"
@@ -225,8 +243,32 @@
                        (head)
                        (body
                          (cons
-                           (pre (code (text-node (function->bytes function))))
-                           (empty))))))]))])])))
+                           (pre (code (text-node (assembly-commands->bytes
+                                                   (fragment->commands fragment)))))
+                           (empty))
+                         ))))]))]
+          ; [path
+          ;  (let ([name (subbytes path 1 (bytes-length path))])
+          ;    (case (find-function name objects)
+          ;      [(nothing)
+          ;       (http-response
+          ;         404
+          ;         #"Not Found"
+          ;         #"text/plain"
+          ;         #"Not Found")]
+          ;      [(just function)
+          ;       (http-response
+          ;         200
+          ;         #"OK"
+          ;         #"application/xhtml+xml"
+          ;         (document->xml-bytes
+          ;           (html
+          ;             (head)
+          ;             (body
+          ;               (cons
+          ;                 (pre (code (text-node (function->bytes function))))
+          ;                 (empty))))))]))]
+           )])))
 
   (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Byte
     (if (< (array-length args) 3)
