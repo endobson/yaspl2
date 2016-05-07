@@ -1208,12 +1208,38 @@
            ;; Read back the closure and then overwrite it
            (movq (mem (rsp) 0) (reg (r11)))
            (movq (reg (rax)) (mem (rsp) 0))))]
-      [(known-fun-call-cmd name _)
-       (varargs join-list
-         (pushq (reg (r11)))
-         (call name)
-         (movq (mem (rsp) 0) (reg (r11)))
-         (movq (reg (rax)) (mem (rsp) 0)))]
+      [(known-fun-call-cmd name n)
+       (varargs append-jl*
+         (if (>= n 1)
+             (single-jl (movq (mem (rsp) (- (* 8 n) #x08)) (reg (rdi))))
+             (empty-jl))
+         (if (>= n 2)
+             (single-jl (movq (mem (rsp) (- (* 8 n) #x10)) (reg (rsi))))
+             (empty-jl))
+         (if (>= n 3)
+             (single-jl (movq (mem (rsp) (- (* 8 n) #x18)) (reg (rdx))))
+             (empty-jl))
+         (if (>= n 4)
+             (single-jl (movq (mem (rsp) (- (* 8 n) #x20)) (reg (rcx))))
+             (empty-jl))
+         (if (>= n 5)
+             (single-jl (movq (mem (rsp) (- (* 8 n) #x28)) (reg (r8))))
+             (empty-jl))
+         (if (>= n 6)
+             (single-jl (movq (mem (rsp) (- (* 8 n) #x30)) (reg (r9))))
+             (empty-jl))
+         (if (>= n 7)
+             (cons-jl
+               (movq (reg (rbp)) (reg (r10)))
+               (copy-extra-arguments* 6 n))
+             (empty-jl))
+         (varargs join-list
+           (add (imm (* 8 n)) (rsp))
+           (pushq (reg (r11)))
+           (call name)
+           ;; Read back the closure and then overwrite it
+           (movq (mem (rsp) 0) (reg (r11)))
+           (movq (reg (rax)) (mem (rsp) 0))))]
 
       [(make-array-cmd)
        (varargs join-list
@@ -1333,6 +1359,21 @@
             (cons-jl
               (add (imm 8) (rbp))
               (copy-extra-arguments (+ 1 arg) args))))))
+
+  ;; Generates assembly to copy `args` arguments from the top of the stack to the
+  ;; memory starting at %rbp. %rbp ends up pointing right after after the last argument written.
+  ;; Dirties %rax
+  (define (copy-extra-arguments* [arg : Byte] [args : Byte]) : (JoinList Instruction)
+    (if (= arg args)
+        (empty-jl)
+        (cons-jl
+          (movq (mem (rsp) (* (- args (+ arg 1)) 8)) (reg (rax)))
+          (cons-jl
+            (movq (reg (rax)) (mem (rbp) 0))
+            (cons-jl
+              (add (imm 8) (rbp))
+              (copy-extra-arguments* (+ 1 arg) args))))))
+
 
   ;; Generates assembly to install `args` arguments from %r10 ontop of the stack
   (define (install-extra-arguments [arg : Byte] [args : Byte]) : (JoinList Instruction)
