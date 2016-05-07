@@ -44,7 +44,8 @@
 
     (define-type AssemblyFragment
       (function-fragment [name Bytes] [blocks (List BasicBlock)])
-      (address-fragment [name Bytes] [value Bytes]))
+      (address-fragment [name Bytes] [value Bytes])
+      (bytes-fragment [name Bytes] [value Bytes]))
     (define-type BasicBlock
       (basic-block [name Bytes] [instructions (List Instruction)]))
 
@@ -55,7 +56,9 @@
       (section-directive [segment-name Bytes] [section-name Bytes])
       (global-directive [label Bytes])
       (label-directive [name Bytes])
-      (quad-directive [label Bytes]))
+      (quad-directive/label [label Bytes])
+      (quad-directive/integer [value Byte])
+      (ascii-directive [value Bytes]))
     (define-type Instruction
       (add [rmi RegMemImm] [reg Register])
       (and [reg1 RegMemImm] [reg2 Register])
@@ -203,8 +206,17 @@
        (varargs join-list #".global " label)]
       [(label-directive name)
        (varargs join-list name #":")]
-      [(quad-directive label)
-       (varargs join-list #".quad " label)]))
+      [(quad-directive/label label)
+       (varargs join-list #".quad " label)]
+      [(quad-directive/integer value)
+       (varargs join-list #".quad " (integer->decimal-bytes value))]
+      [(ascii-directive value)
+       (let ([quote (let ([buf (make-bytes 1)]) (begin (bytes-set! buf 0 34) buf))])
+         (varargs join-list
+           #".ascii "
+           quote
+           value
+           quote))]))
 
   (define (instruction->assembly-bytes [inst : Instruction]) : (JoinList Bytes)
     (case inst
@@ -467,7 +479,7 @@
         (varargs list
           (directive-cmd (section-directive #"__TEXT" #"__const"))
           (directive-cmd (label-directive (bytes-append (varargs list #"prim_" name #"_closure"))))
-          (directive-cmd (quad-directive (bytes-append (varargs list #"prim_" name))))
+          (directive-cmd (quad-directive/label (bytes-append (varargs list #"prim_" name))))
           (directive-cmd (section-directive #"__TEXT" #"__text"))
           (directive-cmd (label-directive (bytes-append (varargs list #"prim_" name)))))
         (map instruction-cmd instructions))
@@ -939,30 +951,12 @@
          (write-objects objects output))]
       [(cons (bytes-tlo name value) objects)
        (begin
-         (write-bytes-constant name value output)
+         (write-fragment (bytes-fragment name value) output)
          (write-objects objects output))]
       [(cons (trivial-closure-tlo name fun-name) objects)
        (begin
          (write-fragment (address-fragment name fun-name) output)
          (write-objects objects output))]))
-
-  (define (write-bytes-constant [name : Bytes] [value : Bytes] [output : OutputPort]) : Void
-    (begin
-      (write-line #".section __DATA,__data" output)
-      (write-all-bytes name output)
-      (write-all-bytes #":" output)
-      (newline output)
-      (write-all-bytes #".8byte " output)
-      (write-all-bytes (integer->decimal-bytes (bytes-length value)) output)
-      (newline output)
-      (let ([quote (let ([buf (make-bytes 1)]) (begin (bytes-set! buf 0 34) buf))])
-        (begin
-          (write-all-bytes #".ascii " output)
-          (write-all-bytes quote output)
-          (write-all-bytes value output)
-          (write-all-bytes quote output)))
-      (newline output)))
-
 
   (define (convert-function [fun : StackFunction]) : AssemblyFragment
     (case fun
@@ -1010,7 +1004,15 @@
          (varargs list
            (directive-cmd (section-directive #"__TEXT" #"__const"))
            (directive-cmd (label-directive name))
-           (directive-cmd (quad-directive value)))
+           (directive-cmd (quad-directive/label value)))
+         output)]
+      [(bytes-fragment name value)
+       (write-assembly-commands
+         (varargs list
+           (directive-cmd (section-directive #"__TEXT" #"__const"))
+           (directive-cmd (label-directive name))
+           (directive-cmd (quad-directive/integer (bytes-length value)))
+           (directive-cmd (ascii-directive value)))
          output)]))
 
 
