@@ -40,6 +40,13 @@
       #:patterns (left right)))
   (export compile-stack-machine)
   (types
+
+
+    (define-type AssemblyFragment
+      (function-fragment [name Bytes] [blocks (List BasicBlock)]))
+    (define-type BasicBlock
+      (basic-block [name Bytes] [instructions (List Instruction)]))
+
     (define-type AssemblyCommand
       (directive-cmd [directive AssemblerDirective])
       (instruction-cmd [instruction Instruction]))
@@ -997,30 +1004,38 @@
                (if (>= num-args 7)
                    (install-extra-arguments 0 (- num-args 6))
                    (empty-jl)))))
-         (write-basic-blocks name 0 blocks output))]))
+         (write-basic-blocks (convert-basic-blocks name 0 blocks) output))]))
 
-  (define (write-basic-blocks [fun-name : Bytes] [index : Byte] [blocks : (List StackBasicBlock)] [output : OutputPort]) : Void
+  (define (write-basic-blocks [blocks : (List BasicBlock)] [output : OutputPort]) : Void
     (case blocks
       [(empty) (void)]
-      [(cons block blocks)
+      [(cons (basic-block name instructions) blocks)
        (begin
-         (write-basic-block fun-name index block output)
-         (write-basic-blocks fun-name (+ index 1) blocks output))]))
+         (write-assembly-commands
+           (cons (directive-cmd (label-directive name)) (empty))
+           output)
+         (write-instructions output instructions)
+         (write-basic-blocks blocks output))]))
 
-  (define (write-basic-block [fun-name : Bytes] [index : Byte] [block : StackBasicBlock] [output : OutputPort]) : Void
+  (define (convert-basic-blocks [fun-name : Bytes] [index : Byte] [blocks : (List StackBasicBlock)])
+    : (List BasicBlock)
+    (case blocks
+      [(empty) (empty)]
+      [(cons block blocks)
+       (cons
+         (convert-basic-block fun-name index block)
+         (convert-basic-blocks fun-name (+ index 1) blocks))]))
+
+  (define (convert-basic-block [fun-name : Bytes] [index : Byte] [block : StackBasicBlock])
+    : BasicBlock
     (case block
       [(stack-basic-block cmds terminal)
-       (write-assembly-commands
-         (cons
-           (directive-cmd
-             (label-directive
-               (bytes-append (varargs list fun-name #"_" (integer->decimal-bytes index)))))
-           (map instruction-cmd
-             (jl->list
-               (append-jl
-                 (convert-commands cmds)
-                 (convert-terminal fun-name terminal)))))
-         output)]))
+       (basic-block
+         (bytes-append (varargs list fun-name #"_" (integer->decimal-bytes index)))
+         (jl->list
+           (append-jl
+             (convert-commands cmds)
+             (convert-terminal fun-name terminal))))]))
 
 
   (define (a) (for-each [f : (a -> Void)] [l : (List a)]) : Void
