@@ -49,6 +49,10 @@
       #:types (Ipv4Address)
       #:values (run-http-server http-response)
       #:patterns (http-request http-request-header))
+    (x86-64-stack-machine 
+      #:types (AssemblyFragment)
+      #:values (convert-objects)
+      #:patterns (function-fragment address-fragment bytes-fragment ))
     (ip
       #:types (Ipv4Address)
       #:values (bytes->ipv4-address)
@@ -133,7 +137,7 @@
       (cons (attribute (single-jl #"href") uri) (empty))
       (cons contents (empty))))
 
-  (define (top-level-object->node [object : TopLevelObject]) : Bytes
+  (define (top-level-object->node [object : TopLevelObject]) : Node
     (case object
       [(function-tlo (stack-function name _ _)) 
        (div (link (single-jl name) (text-node (single-jl name))))]
@@ -141,6 +145,16 @@
        (div (link (single-jl name) (text-node (single-jl name))))]
       [(trivial-closure-tlo name _)
        (div (link (single-jl name) (text-node (single-jl name))))]))
+
+  (define (fragment->node [fragment : AssemblyFragment]) : Node
+    (case fragment
+      [(function-fragment name _) 
+       (div (link (single-jl name) (text-node (single-jl name))))]
+      [(address-fragment name _)
+       (div (link (single-jl name) (text-node (single-jl name))))]
+      [(bytes-fragment name _)
+       (div (link (single-jl name) (text-node (single-jl name))))]))
+
 
   (define (find-function [name : Bytes] [objects : (List TopLevelObject)]) : (Maybe StackFunction)
     (case objects
@@ -155,7 +169,9 @@
        (find-function name objects)]))
        
 
-  (define (make-request-handler [objects : (List TopLevelObject)]) : HttpResponse
+  (define (make-request-handler
+            [objects : (List TopLevelObject)]
+            [fragments : (List AssemblyFragment)]) : HttpResponse
     (lambda ([request : HttpRequest])
       (case request
         [(http-request resource headers)
@@ -170,9 +186,9 @@
                   (head)
                   (body
                     (varargs list
-                       (link (single-jl #"/stack") (text-node (single-jl #"stack")))
-                       (link (single-jl #"/assembly") (text-node (single-jl #"assembly"))))))))]
-           [#"/stack"
+                       (div (link (single-jl #"/stack/") (text-node (single-jl #"stack"))))
+                       (div (link (single-jl #"/assembly/") (text-node (single-jl #"assembly")))))))))]
+           [#"/assembly/"
             (http-response
               200
               #"OK"
@@ -180,8 +196,8 @@
               (document->xml-bytes
                 (html
                   (head)
-                  (body (map top-level-object->node objects)))))]
-           [#"/assembly"
+                  (body (map fragment->node fragments)))))]
+           [#"/stack/"
             (http-response
               200
               #"OK"
@@ -226,7 +242,7 @@
                   (write-line v stderr)
                   1)]
                [(right objects)
-                (run-http-server address (make-request-handler objects))]))]
+                (run-http-server address (make-request-handler objects (convert-objects objects)))]))]
           [(nothing)
            (begin
              (write-line #"Unparsable ip address" stderr)
