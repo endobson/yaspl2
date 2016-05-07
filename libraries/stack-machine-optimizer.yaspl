@@ -19,6 +19,10 @@
       #:types (Dict)
       #:values (make-dict dict-set dict-add dict-replace dict-ref)
       #:patterns ())
+    (set
+      #:types (Set)
+      #:values (make-set set-add set-member?)
+      #:patterns ())
     (tuples
       #:types ()
       #:values (tuple2)
@@ -44,7 +48,8 @@
       #:types (StackFunction StackBasicBlock StackCmd StackTerminal VariantCases BinMathOp
                BinLogicMathOp TopLevelObject)
       #:values (stack-function stack-basic-block boolean-jmp uncond-jmp variant-switch
-                catch-all-case variant-case pop-cmd dup-cmd known-fun-call-cmd function-tlo)
+                catch-all-case variant-case pop-cmd dup-cmd known-fun-call-cmd function-tlo
+                no-catch-all-case)
       #:patterns (
           stack-function stack-basic-block boolean-jmp uncond-jmp variant-switch return
           no-catch-all-case catch-all-case variant-case num-lit-cmd boolean-lit-cmd
@@ -86,11 +91,12 @@
       [(stack-function name num-args blocks)
        (stack-function name num-args
          (remove-unreachable-blocks
-           (peephole-optimize-blocks known-funcs
-             (inline-singlely-used-blocks
-               (optimize-trivial-blocks
-                 (optimize-known-boolean-jumps
-                   (optimize-trivial-blocks blocks)))))))]))
+           (optimize-dead-blocks
+             (peephole-optimize-blocks known-funcs
+               (inline-singlely-used-blocks
+                 (optimize-trivial-blocks
+                   (optimize-known-boolean-jumps
+                     (optimize-trivial-blocks blocks))))))))]))
 
   (define (optimize-trivial-blocks [blocks : (List StackBasicBlock)]) : (List StackBasicBlock)
     (let ([trivial-block-dict (compute-trivial-blocks blocks 0 (make-dict =))])
@@ -123,6 +129,57 @@
           (cons (stack-basic-block cmds (uncond-jmp target)) (replace-trivial-blocks blocks dict))])]
       [(cons block blocks)
        (cons block (replace-trivial-blocks blocks dict))]))
+
+
+  (define (optimize-dead-blocks [blocks : (List StackBasicBlock)]) : (List StackBasicBlock)
+    (let ([dead-blocks (compute-dead-blocks blocks 0 (make-set =))])
+      (replace-dead-blocks blocks dead-blocks)))
+
+  (define (compute-dead-blocks
+            [blocks : (List StackBasicBlock)]
+            [index : Byte]
+            [set : (Set Byte)]) : (Set Byte)
+    (case blocks
+      [(empty) set]
+      [(cons (stack-basic-block cmds (variant-switch (no-catch-all-case))) blocks)
+       (if (all-pop-cmds? cmds)
+           (compute-dead-blocks
+             blocks
+             (+ 1 index)
+             (set-add set index))
+           (compute-dead-blocks blocks (+ 1 index) set))]
+      [(cons _ blocks)
+       (compute-dead-blocks blocks (+ 1 index) set)]))
+
+  (define (all-pop-cmds? [cmds : (List StackCmd)]) : Boolean
+    (case cmds
+      [(empty) #t]
+      [(cons (pop-cmd) cmds)
+       (all-pop-cmds? cmds)]
+      [(cons _ cmds) #f]))
+
+  (define (replace-dead-blocks
+            [blocks : (List StackBasicBlock)]
+            [set : (Set Byte)]) : (List StackBasicBlock)
+    (case blocks
+      [(empty) (empty)]
+      [(cons (stack-basic-block cmds (variant-switch cases)) blocks)
+       (cons
+         (stack-basic-block cmds (variant-switch (replace-dead-block/cases cases set)))
+         (replace-dead-blocks blocks set))]
+      [(cons block blocks)
+       (cons block (replace-dead-blocks blocks set))]))
+
+  (define (replace-dead-block/cases [cases : VariantCases] [set : (Set Byte)]) : VariantCases
+    (case cases
+      [(variant-case tag index cases)
+       (variant-case tag index (replace-dead-block/cases cases set))]
+      [(catch-all-case index)
+       (if (set-member? set index)
+           (no-catch-all-case)
+           cases)]
+      [(no-catch-all-case) cases]))
+
 
   (define (optimize-known-boolean-jumps [blocks : (List StackBasicBlock)]) : (List StackBasicBlock)
     (map optimize-known-boolean-jumps/block blocks))
