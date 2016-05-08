@@ -13,7 +13,7 @@
     (io read-all-bytes write-all-bytes newline write-line)
     (join-list
       #:types (JoinList)
-      #:values (jl->list single-jl join-list empty-jl cons-jl append-jl append-jl*)
+      #:values (jl->list single-jl join-list empty-jl cons-jl append-jl append-jl* map-jl)
       #:patterns ())
     (sexp-parser
       #:types (Sexp)
@@ -47,7 +47,7 @@
       (address-fragment [name Bytes] [value Bytes])
       (bytes-fragment [name Bytes] [value Bytes]))
     (define-type BasicBlock
-      (basic-block [name Bytes] [instructions (List Instruction)]))
+      (basic-block [name Bytes] [instructions (JoinList Instruction)]))
 
     (define-type AssemblyCommand
       (directive-cmd [directive AssemblerDirective])
@@ -972,29 +972,28 @@
        (function-fragment name
          (cons
            (basic-block name
-             (jl->list
-               (varargs append-jl*
-                 (if (>= num-args 1)
-                     (single-jl (pushq (reg (rdi))))
-                     (empty-jl))
-                 (if (>= num-args 2)
-                     (single-jl (pushq (reg (rsi))))
-                     (empty-jl))
-                 (if (>= num-args 3)
-                     (single-jl (pushq (reg (rdx))))
-                     (empty-jl))
-                 (if (>= num-args 4)
-                     (single-jl (pushq (reg (rcx))))
-                     (empty-jl))
-                 (if (>= num-args 5)
-                     (single-jl (pushq (reg (r8))))
-                     (empty-jl))
-                 (if (>= num-args 6)
-                     (single-jl (pushq (reg (r9))))
-                     (empty-jl))
-                 (if (>= num-args 7)
-                     (install-extra-arguments 0 (- num-args 6))
-                     (empty-jl)))))
+             (varargs append-jl*
+               (if (>= num-args 1)
+                   (single-jl (pushq (reg (rdi))))
+                   (empty-jl))
+               (if (>= num-args 2)
+                   (single-jl (pushq (reg (rsi))))
+                   (empty-jl))
+               (if (>= num-args 3)
+                   (single-jl (pushq (reg (rdx))))
+                   (empty-jl))
+               (if (>= num-args 4)
+                   (single-jl (pushq (reg (rcx))))
+                   (empty-jl))
+               (if (>= num-args 5)
+                   (single-jl (pushq (reg (r8))))
+                   (empty-jl))
+               (if (>= num-args 6)
+                   (single-jl (pushq (reg (r9))))
+                   (empty-jl))
+               (if (>= num-args 7)
+                   (install-extra-arguments 0 (- num-args 6))
+                   (empty-jl))))
            (convert-basic-blocks name 0 blocks)))]))
 
   (define (write-fragments [fragments : (List AssemblyFragment)] [output : OutputPort]) : Void
@@ -1013,7 +1012,7 @@
       [(function-fragment _ blocks)
        (cons 
          (directive-cmd (section-directive #"__TEXT" #"__text"))
-         (basic-blocks->commands blocks))]
+         (jl->list (basic-blocks->commands blocks)))]
       [(address-fragment name value)
        (varargs list
          (directive-cmd (section-directive #"__TEXT" #"__const"))
@@ -1026,13 +1025,13 @@
          (directive-cmd (quad-directive/integer (bytes-length value)))
          (directive-cmd (ascii-directive value)))]))
 
-  (define (basic-blocks->commands [blocks : (List BasicBlock)]) : (List AssemblyCommand)
+  (define (basic-blocks->commands [blocks : (List BasicBlock)]) : (JoinList AssemblyCommand)
     (case blocks
-      [(empty) (empty)]
+      [(empty) (empty-jl)]
       [(cons (basic-block name instructions) blocks)
-       (cons (directive-cmd (label-directive name))
-         (append
-           (map instruction-cmd instructions)
+       (cons-jl (directive-cmd (label-directive name))
+         (append-jl
+           (map-jl instruction-cmd instructions)
            (basic-blocks->commands blocks)))]))
 
 
@@ -1051,10 +1050,9 @@
       [(stack-basic-block cmds terminal)
        (basic-block
          (bytes-append (varargs list fun-name #"_" (integer->decimal-bytes index)))
-         (jl->list
-           (append-jl
-             (convert-commands cmds)
-             (convert-terminal fun-name terminal))))]))
+         (append-jl
+           (convert-commands cmds)
+           (convert-terminal fun-name terminal)))]))
 
 
   (define (a) (for-each [f : (a -> Void)] [l : (List a)]) : Void
