@@ -4,6 +4,7 @@
   "parser-structs.rkt"
   racket/match
   racket/list
+  racket/set
   (only-in racket/contract/base and/c))
 (provide
   parse-module)
@@ -52,6 +53,12 @@
 ;; TODO support renaming
 (define (parse-exports exports)
   (match exports
+   [(list
+      #:types (list (? symbol? types) ...)
+      #:values (list (? symbol? functions) ...)
+      #:patterns (list (? symbol? patterns) ...))
+    (let ([exports (set->list (list->set (append types functions patterns)))])
+      (map export& exports exports))]
    [(list (? symbol? exports) ...)
     (map export& exports exports)]))
 
