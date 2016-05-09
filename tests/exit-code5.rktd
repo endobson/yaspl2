@@ -1,6 +1,9 @@
 (module exit-code5
   (import (prim +))
-  (export main)
+  (export
+    #:types ()
+    #:values (main)
+    #:patterns ())
   (types)
   (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Byte
     (+ 2 3)))

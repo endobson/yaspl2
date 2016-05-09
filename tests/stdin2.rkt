@@ -2,7 +2,10 @@
   (import
     (numbers decimal-bytes->integer)
     (io read-all-bytes))
-  (export main)
+  (export
+    #:types ()
+    #:values (main)
+    #:patterns ())
   (types)
 
   (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Byte

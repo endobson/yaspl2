@@ -1,7 +1,10 @@
 (module box1
   (import
     (prim box unbox set-box! +))
-  (export main)
+  (export
+    #:types ()
+    #:values (main)
+    #:patterns ())
   (types)
 
   (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Byte

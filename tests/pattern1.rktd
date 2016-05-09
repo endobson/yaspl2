@@ -2,7 +2,10 @@
   (import
     (prim +)
     (io read-all-bytes write-all-bytes))
-  (export main)
+  (export
+    #:types ()
+    #:values (main)
+    #:patterns ())
   (types
     (define-type Foo
       (foo-a)

@@ -53,14 +53,14 @@
 ;; TODO support renaming
 (define (parse-exports exports)
   (match exports
+   [(list)
+    (list)]
    [(list
       #:types (list (? symbol? types) ...)
       #:values (list (? symbol? functions) ...)
       #:patterns (list (? symbol? patterns) ...))
     (let ([exports (set->list (list->set (append types functions patterns)))])
-      (map export& exports exports))]
-   [(list (? symbol? exports) ...)
-    (map export& exports exports)]))
+      (map export& exports exports))]))
 
 (define (parse-type-definitions types)
   (define (parse-variant variant)

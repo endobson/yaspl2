@@ -1,7 +1,10 @@
 (module echo1
   (import
     (prim make-bytes write-bytes read-bytes bytes-ref + - = void))
-  (export main)
+  (export
+    #:types ()
+    #:values (main)
+    #:patterns ())
   (types)
 
   (define (loop [in : InputPort] [out : OutputPort] [size : Byte]) : Void

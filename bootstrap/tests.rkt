@@ -412,7 +412,10 @@
       (compiler-test #:mod 'compiler
         #"(module other
             (import)
-            (export foo)
+            (export
+              #:types ()
+              #:values (foo)
+              #:patterns ())
             (types)
             (define (foo) : Byte 5))
           (module main
@@ -425,7 +428,10 @@
       (compiler-test #:mod 'compiler
         #"(module other
             (import)
-            (export foo)
+            (export
+              #:types ()
+              #:values (foo)
+              #:patterns ())
             (types
               (define-type Foo
                 (foo))))
@@ -460,7 +466,7 @@
       (compiler-test #:mod 'compiler
         #"(module main
             (import (prim >))
-            (export main)
+            (export)
             (types)
             (define (main) : Byte (if (> 3 5) 2 3)))"
         #:exit-code 3)

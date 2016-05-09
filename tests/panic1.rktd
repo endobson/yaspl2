@@ -1,6 +1,9 @@
 (module panic1
   (import (prim panic make-bytes))
-  (export main)
+  (export
+    #:types ()
+    #:values (main)
+    #:patterns ())
   (types)
   (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Byte
     (panic (make-bytes 3))))

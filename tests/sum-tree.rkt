@@ -1,6 +1,9 @@
 (module sum-tree
   (import (prim +))
-  (export main)
+  (export
+    #:types ()
+    #:values (main)
+    #:patterns ())
   (types
     (define-type Tree
       (node [v Byte] [left Tree] [right Tree])
