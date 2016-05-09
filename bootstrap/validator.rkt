@@ -281,10 +281,16 @@
          (match-define (export& in-name out-name) export)
          (values out-name (hash-ref type-env in-name (void-ty)))))
 
-     ;; TODO define a mechanism for exporting types and limit this to the exported types
      (define exported-type-bindings
-       (for/hash ([ind-sig (in-list module-inductive-signatures)])
-         (values (inductive-signature-name ind-sig) ind-sig)))
+       (for/hash ([export (exports&-types exports)])
+         (match-define (export& in-name out-name) export)
+         (values
+           out-name
+           (or
+             (for/first ([ind-sig (in-list module-inductive-signatures)]
+                         #:when (equal? (inductive-signature-name ind-sig) in-name))
+               ind-sig)
+             (error 'bad-export "No datatype with name ~a" in-name)))))
 
 
 
