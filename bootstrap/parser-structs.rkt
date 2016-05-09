@@ -4,6 +4,7 @@
 
 (struct module& (name imports exports types definitions))
 
+(struct exports& (types values patterns))
 (struct export& (in-name out-name))
 ;; TODO change the order to match others
 (struct imports& (types values patterns))

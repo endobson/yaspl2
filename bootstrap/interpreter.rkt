@@ -71,7 +71,7 @@
     (set-box! env-box (environment (hash-copy/immutable local-env)
                                    (hash-copy/immutable local-pattern-env)))
 
-    (for ([export (in-list (module&-exports module))])
+    (for ([export (in-list (exports&-values (module&-exports module)))])
       (match-define (export& in-name out-name) export)
       (define local-val (hash-ref local-env in-name #f))
       (when local-val

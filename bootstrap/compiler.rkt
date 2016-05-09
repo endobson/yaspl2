@@ -130,7 +130,7 @@
                         (hash-set env a t))
                       body))])))
 
-      (for ([export (in-list (module&-exports module))])
+      (for ([export (in-list (exports&-values (module&-exports module)))])
         (match-define (export& in-name out-name) export)
         (define local-val (hash-ref local-env in-name #f))
         (when local-val

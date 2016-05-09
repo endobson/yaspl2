@@ -276,9 +276,8 @@
                ((type-check/env (binding-env values inductive-signatures pattern-env type-name-env))
                 body result-type))])]))
 
-     ;; TODO limit this to only exported values not types
      (define exported-value-bindings
-       (for/hash ([export exports])
+       (for/hash ([export (exports&-values exports)])
          (match-define (export& in-name out-name) export)
          (values out-name (hash-ref type-env in-name (void-ty)))))
 

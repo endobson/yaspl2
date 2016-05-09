@@ -57,10 +57,12 @@
     (list)]
    [(list
       #:types (list (? symbol? types) ...)
-      #:values (list (? symbol? functions) ...)
+      #:values (list (? symbol? values) ...)
       #:patterns (list (? symbol? patterns) ...))
-    (let ([exports (set->list (list->set (append types functions patterns)))])
-      (map export& exports exports))]))
+    (exports&
+      (map export& types types)
+      (map export& values values)
+      (map export& patterns patterns))]))
 
 (define (parse-type-definitions types)
   (define (parse-variant variant)
