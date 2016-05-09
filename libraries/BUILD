@@ -241,8 +241,12 @@ yaspl_bootstrap_library(
   name = "prim-implementation",
   srcs = ["prim-implementation.yaspl"],
   deps = [
+    ":dict",
+    ":bytes",
+    ":intermediate-to-module-signature",
     ":list",
     ":stack-machine",
+    ":tuples",
   ]
 )
 
