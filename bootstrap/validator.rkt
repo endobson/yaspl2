@@ -238,7 +238,10 @@
                (hash-set!
                  mut-pattern-env
                  local-name
-                 (hash-ref (module-signature-patterns (hash-ref module-signatures src-mod)) exported-name))]))
+                 (hash-ref (module-signature-patterns (hash-ref module-signatures src-mod)) exported-name
+                           (lambda () (error 'import-pattern
+                                             "No pattern '~s' exported by ~s. (Imported by ~s)"
+                                             exported-name src-mod module-name))))]))
            mut-pattern-env)))
 
 
@@ -292,19 +295,13 @@
                ind-sig)
              (error 'bad-export "No datatype with name ~a" in-name)))))
 
-
-
-     ;; TODO limit this to the exported patterns
      (define exported-pattern-bindings
-       (for/fold ([acc (hash)]) ([type-def (in-list type-defs)])
-         (hash-union acc
-           (match type-def
-             [(define-type& type-name type-vars variants)
-              (for/hash ([variant (in-list variants)])
-                (define name (variant&-name variant))
-                (values
-                  name
-                  (hash-ref pattern-env name)))]))))
+       (for/hash ([export (exports&-patterns exports)])
+         (match-define (export& in-name out-name) export)
+         (values out-name (hash-ref pattern-env in-name
+                                    (lambda () (error 'export-pattern
+                                                      "No pattern '~s' exported by ~s"
+                                                      in-name module-name))))))
 
      (module-signature
        module-name
