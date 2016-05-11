@@ -2,7 +2,7 @@
   (import
     (prim
       #:types (Bytes Byte InputPort OutputPort Void Array)
-      #:values (bytes-length make-bytes * + - = <= >= panic void > bytes-set!)
+      #:values (bytes-length bytes-ref * + - = <= >= panic void >)
       #:patterns ())
     (prim-implementation prim-implementation)
     (list
@@ -204,10 +204,7 @@
        (append-jl
          (assembly-command->bytes cmd)
          (cons-jl
-           (let ([bytes (make-bytes 1)])
-             (begin
-               (bytes-set! bytes 0 10)
-               bytes))
+           #"\n"
            (assembly-commands->bytes cmds)))]))
 
 
@@ -229,12 +226,28 @@
       [(quad-directive/integer value)
        (varargs join-list #".quad " (integer->decimal-bytes value))]
       [(ascii-directive value)
-       (let ([quote (let ([buf (make-bytes 1)]) (begin (bytes-set! buf 0 34) buf))])
-         (varargs join-list
-           #".ascii "
-           quote
-           value
-           quote))]))
+       (varargs append-jl*
+         (single-jl #".ascii \"")
+         (escape-bytes value 0 0)
+         (single-jl #"\""))]))
+
+  (define (escape-bytes [src : Bytes] [start : Byte] [cur : Byte]) : (JoinList Bytes)
+    (if (= cur (bytes-length src))
+        (single-jl (subbytes src start cur))
+        (let ([byte (bytes-ref src cur)])
+          (if (= byte 10) ;; newline
+              (cons-jl
+                (subbytes src start cur)
+                (cons-jl #"\\n" (escape-bytes src (+ 1 cur) (+ 1 cur))))
+              (if (= byte 34) ;; double quote
+                  (cons-jl
+                    (subbytes src start cur)
+                    (cons-jl #"\\\"" (escape-bytes src (+ 1 cur) (+ 1 cur))))
+                  (if (= byte 92) ;; backslash
+                      (cons-jl
+                        (subbytes src start cur)
+                        (cons-jl #"\\\\" (escape-bytes src (+ 1 cur) (+ 1 cur))))
+                      (escape-bytes src start (+ 1 cur))))))))
 
   (define (instruction->assembly-bytes [inst : Instruction]) : (JoinList Bytes)
     (case inst
