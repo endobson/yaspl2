@@ -12,7 +12,7 @@
       #:patterns (just nothing))
     (list
       #:types (List)
-      #:values (empty cons append map list)
+      #:values (empty cons append map list reverse)
       #:patterns (empty cons))
     (dict make-dict dict-add-all)
     (tuples tuple2)
@@ -87,18 +87,6 @@
       [(cons (left v) _)
        (left v)]))
 
-  (define (extract-sexps [either : (Either Bytes (List Sexp))] [stderr : OutputPort]) : (List Sexp)
-    (case either
-      [(left v)
-       (begin
-         (write-line v stderr)
-         (panic v))]
-      [(right (empty))
-       (begin
-         (write-line #"No provided modules" stderr)
-         (panic #""))]
-      [(right sexps) sexps]))
-
   (define (read-module-files [index : Byte] [modules : (Array Bytes)]) : (List Bytes)
     (if (= index (array-length modules))
         (empty)
@@ -114,34 +102,38 @@
             (begin
               (write-line #"No module name supplied" stderr)
               1)
-            (let ([output (open-output-file (make-null-terminated (array-ref args 1)))])
-              (let ([exit-code
-                     (case (extract-modules
-                             (map parse-module
-                               (extract-sexps
-                                 (parse-sexps (bytes-append (read-module-files 3 args)))
-                                 stderr)))
+            (case (parse-sexps (bytes-append (read-module-files 3 args)))
+              [(left v)
+               (begin
+                 (write-line v stderr)
+                 1)]
+              [(right sexps)
+               (case (extract-modules (map parse-module sexps))
+                 [(left v)
+                  (begin
+                    (write-line v stderr)
+                    1)]
+                 [(right modules)
+                  (case (reverse modules)
+                    [(empty)
+                     (begin
+                       (write-line #"No provided modules" stderr)
+                       1)]
+                    [(cons main-module other-modules)
+                     (case (compile-main-module
+                             main-module
+                             (reverse other-modules)
+                             (cons (prim-signature) (empty)))
                        [(left v)
                         (begin
                           (write-line v stderr)
                           1)]
-                       [(right modules)
-                        (case (compile-main-module
-                                modules
-                                (cons (prim-signature) (empty))
-                                (prim-implementation))
-                          [(left v)
-                           (begin
-                             (write-line v stderr)
-                             1)]
-                          [(right code)
-                           (begin
-                             (compile-stack-machine
-                               (bytes-append (varargs list (array-ref args 2) #"_main"))
-                               code
-                               output)
-                             0)])])])
-                  (begin
-                    (close-output-port output)
-                    exit-code)))))))
-
+                       [(right code)
+                        (let ([output (open-output-file (make-null-terminated (array-ref args 1)))])
+                          (begin
+                            (compile-stack-machine
+                              (bytes-append (varargs list (array-ref args 2) #"_main"))
+                              code
+                              output)
+                            (close-output-port output)
+                            0))])])])])))))
