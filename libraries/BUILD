@@ -365,10 +365,10 @@ yaspl_test(
   srcs = ["set-test.yaspl"],
   deps = [
     ":boolean",
-    ":io",
     ":list",
     ":maybe",
     ":set",
+    ":yunit",
   ]
 )
 
@@ -537,3 +537,13 @@ yaspl_bootstrap_library(
     ":stack-machine",
   ]
 )
+
+yaspl_library(
+  name = "yunit",
+  srcs = ["yunit.yaspl"],
+  deps = [
+    ":io",
+    ":list",
+  ]
+)
+
