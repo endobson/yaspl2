@@ -1,4 +1,4 @@
-(module compiler
+(module library-compiler
   (import
     (prim
       #:types (Bytes Byte InputPort OutputPort Array)
@@ -48,18 +48,25 @@
       #:patterns (left right)))
   (export
     #:types ()
-    #:values (main compile-modules extract-modules extract-sexps read-module-files prim-signature)
+    #:values (main)
     #:patterns ())
   (types)
 
-  (define (compile-modules
+  (define (compile-main-module
+            [main-module : Module]
             [mods : (List Module)]
-            [sigs : (List ModuleSignature)]
-            [funcs : (List TopLevelObject)])
+            [sigs : (List ModuleSignature)])
     : (Either Bytes (List TopLevelObject))
     (case mods
       [(empty)
-       (right (optimize-tlos funcs))]
+       (case (validate-module main-module sigs)
+         [(just v)
+          (left v)]
+         [(nothing)
+          (case (compile-module (source->intermediate main-module) sigs)
+            [(left v) (left v)]
+            [(right (compiled-module funcs _))
+             (right (optimize-tlos funcs))])])]
       [(cons mod mods)
        (case (validate-module mod sigs)
          [(just v)
@@ -67,8 +74,8 @@
          [(nothing)
           (case (compile-module (source->intermediate mod) sigs)
             [(left v) (left v)]
-            [(right (compiled-module new-funcs sig))
-             (compile-modules mods (cons sig sigs) (append new-funcs funcs))])])]))
+            [(right (compiled-module _ sig))
+             (compile-main-module main-module mods (cons sig sigs))])])]))
 
   (define (extract-modules [vals : (List (Either Bytes Module))]) : (Either Bytes (List Module))
     (case vals
@@ -119,7 +126,7 @@
                           (write-line v stderr)
                           1)]
                        [(right modules)
-                        (case (compile-modules
+                        (case (compile-main-module
                                 modules
                                 (cons (prim-signature) (empty))
                                 (prim-implementation))
@@ -137,3 +144,4 @@
                   (begin
                     (close-output-port output)
                     exit-code)))))))
+

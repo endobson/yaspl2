@@ -31,6 +31,12 @@ yaspl_binary(
 )
 
 yaspl_binary(
+  name = "library-compiler",
+  main_module = "library_compiler",
+  deps = [":library-compiler_lib"]
+)
+
+yaspl_binary(
   name = "print-stack-function",
   main_module = "print_stack_function",
   deps = [":print-stack-function_lib"]
@@ -198,6 +204,28 @@ yaspl_bootstrap_library(
     ":io",
     ":numbers",
   ]
+)
+
+yaspl_bootstrap_library(
+  name = "library-compiler_lib",
+  srcs = ["library-compiler.yaspl"],
+  deps = [
+    ":bytes",
+    ":dict",
+    ":either",
+    ":io",
+    ":list",
+    ":maybe",
+    ":prim-implementation",
+    ":sexp-parser",
+    ":source-language",
+    ":intermediate-to-stack",
+    ":stack-machine",
+    ":stack-machine-optimizer",
+    ":tuples",
+    ":validator",
+    ":x86-64-stack-machine",
+ ]
 )
 
 yaspl_bootstrap_library(
