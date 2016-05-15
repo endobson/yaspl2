@@ -56,6 +56,12 @@ yaspl_binary(
 
 
 yaspl_library(
+  name = "boolean",
+  srcs = ["boolean.yaspl"],
+)
+
+
+yaspl_library(
   name = "buffered-port",
   srcs = ["buffered-port.yaspl"],
   deps = [
@@ -316,6 +322,7 @@ yaspl_test(
   main_module = "regexp_test",
   srcs = ["regexp-test.yaspl"],
   deps = [
+    ":boolean",
     ":io",
     ":list",
     ":maybe",
@@ -357,6 +364,7 @@ yaspl_test(
   main_module = "set_test",
   srcs = ["set-test.yaspl"],
   deps = [
+    ":boolean",
     ":io",
     ":list",
     ":maybe",
