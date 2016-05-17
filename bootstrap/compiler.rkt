@@ -15,8 +15,6 @@
   racket/match)
 (provide
   run-program
-  module&-name
-  topo-sort
   (struct-out program-result))
 
 
@@ -67,7 +65,7 @@
 (define (compile-modules modules)
   (define (make-primitive-environment)
     (hash-copy
-      (for/hash ([(prim-name prim-val) (in-hash supported-compiled-primitives)])
+      (for/hash ([(prim-name prim-val) (in-hash supported-primitives)])
         (values (full-name 'prim prim-name) prim-val))))
 
   ;; Mapping to identifiers
