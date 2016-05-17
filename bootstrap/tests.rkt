@@ -192,38 +192,6 @@
     (list
       run-test-files-suite
 
-      (yaspl-test #:module-name 'sexp-parser #:stdin #"" #:exit-code 1 #:stderr #"End of input\n")
-      (yaspl-test #:module-name 'sexp-parser #:stdin #"(" #:exit-code 1 
-                  #:stderr #"Unexpected end of input.\n")
-      (yaspl-test #:module-name 'sexp-parser #:stdin #")" #:exit-code 1
-                  #:stderr #"Unexpected ).\n")
-      (yaspl-test #:module-name 'sexp-parser #:stdin #"()" #:exit-code 0)
-      (yaspl-test #:module-name 'sexp-parser #:stdin #"(()" #:exit-code 1
-                  #:stderr #"Unexpected end of input.\n")
-      (yaspl-test #:module-name 'sexp-parser #:stdin #"(()())" #:exit-code 0)
-      (yaspl-test #:module-name 'sexp-parser #:stdin #"( ( ()(( )  )\n )( ))" #:exit-code 0)
-      (yaspl-test #:module-name 'sexp-parser #:stdin #"+" #:exit-code 0)
-      (yaspl-test #:module-name 'sexp-parser #:stdin #"(+ (+))" #:exit-code 0)
-      (yaspl-test #:module-name 'sexp-parser #:stdin #"2" #:exit-code 0)
-      (yaspl-test #:module-name 'sexp-parser #:stdin #"23" #:exit-code 0)
-      (yaspl-test #:module-name 'sexp-parser #:stdin #"456" #:exit-code 0)
-      (yaspl-test #:module-name 'sexp-parser #:stdin #"(+ 2 3)" #:exit-code 0)
-      (yaspl-test #:module-name 'sexp-parser #:stdin #"#:foo" #:exit-code 0)
-      (yaspl-test #:module-name 'sexp-parser #:stdin #"#\"foo\"" #:exit-code 0)
-      (yaspl-test #:module-name 'sexp-parser #:stdin #";.&\na" #:exit-code 0)
-      (yaspl-test #:module-name 'sexp-parser #:stdin #"(a;.&\na)" #:exit-code 0)
-      (yaspl-test #:module-name 'sexp-parser #:stdin #"#t" #:exit-code 0)
-      (yaspl-test #:module-name 'sexp-parser #:stdin #"(#t)" #:exit-code 0)
-
-
-      (yaspl-test #:module-name 'sexp-parser #:stdin #"[]" #:exit-code 0)
-      (yaspl-test #:module-name 'sexp-parser #:stdin #"[[]()]" #:exit-code 0)
-      (yaspl-test #:module-name 'sexp-parser #:stdin #"[)" #:exit-code 1
-                  #:stderr #"Unexpected ).\n")
-      (yaspl-test #:module-name 'sexp-parser #:stdin #"(]" #:exit-code 1
-                  #:stderr #"Unexpected ].\n")
-
-
       (compiler-test #:mod 'compiler
         #"(module main (import) (export) (types)
             (define (main) : Byte 0))"

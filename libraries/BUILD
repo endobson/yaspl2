@@ -225,8 +225,6 @@ yaspl_test(
   ]
 )
 
-
-
 yaspl_bootstrap_library(
   name = "library-compiler_lib",
   srcs = ["library-compiler.yaspl"],
@@ -399,6 +397,20 @@ yaspl_bootstrap_library(
     ":numbers",
   ]
 )
+
+yaspl_test(
+  name = "sexp-parser-test",
+  main_module = "sexp_parser_test",
+  srcs = ["sexp-parser-test.yaspl"],
+  deps = [
+    ":boolean",
+    ":either",
+    ":list",
+    ":sexp-parser",
+    ":yunit",
+  ]
+)
+
 
 yaspl_bootstrap_library(
   name = "source-language",
