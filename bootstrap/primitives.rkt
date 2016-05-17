@@ -20,36 +20,27 @@
 (begin-for-syntax
 
   (define-syntax-class prim-ty
-    #:attributes (constructor ty)
+    #:attributes (ty)
     (pattern (~datum Byte)
-      #:with constructor #'identity*
       #:with ty #'(byte-ty))
     (pattern (~datum Bytes)
-      #:with constructor #'identity*
       #:with ty #'(bytes-ty))
     (pattern (~datum Boolean)
-      #:with constructor #'identity*
       #:with ty #'(boolean-ty))
     (pattern (~datum InputPort)
-      #:with constructor #'identity*
       #:with ty #'(input-port-ty))
     (pattern (~datum OutputPort)
-      #:with constructor #'identity*
       #:with ty #'(output-port-ty))
 
     (pattern ((~datum Box) v:id)
-      #:with constructor #'identity*
       #:with ty #'(box-ty (type-var-ty 'v)))
     (pattern ((~datum Array) v:id)
-      #:with constructor #'identity*
       #:with ty #'(array-ty (type-var-ty 'v)))
     (pattern ((~datum type-var) v:id)
-      #:with constructor #'identity*
       #:with ty #'(type-var-ty 'v))
 
     ;; These should not be used for arg types
     (pattern (~datum Void)
-      #:with constructor #'identity*
       #:with ty #'(void-ty)))
 
 
@@ -58,41 +49,20 @@
     #:attributes (name impl ty)
     (pattern ((name:id (args:id (~datum :) types:prim-ty) ...)
               (~datum :) result-type:prim-ty body:expr ...+)
-      #:with impl
-        (with-syntax ([(arg-temps ...) (generate-temporaries #'(args ...))])
-          #'(lambda (arg-temps ...)
-              (match* (arg-temps ...)
-                [((types.constructor args) ...)
-                 (result-type.constructor (let () body ...))])))
+      #:with impl #'(lambda (args ...) body ...)
 
       #:with ty #'(fun-ty empty (list types.ty ...) result-type.ty))
     (pattern ((type-vars:id ...)
               (name:id (args:id (~datum :) types:prim-ty) ...)
               (~datum :) result-type:prim-ty body:expr ...+)
-      #:with impl
-        (with-syntax ([(arg-temps ...) (generate-temporaries #'(args ...))])
-          #'(lambda (arg-temps ...)
-              (match* (arg-temps ...)
-                [((types.constructor args) ...)
-                 (result-type.constructor (let () body ...))])))
+      #:with impl #'(lambda (args ...) body ...)
       #:with ty #'(fun-ty (list 'type-vars ...) (list types.ty ...) result-type.ty))
     (pattern ((type-vars:id ...)
               (name:id (args:id (~datum :) types:prim-ty) ...)
               (~datum :) result-type:prim-ty #:error message:expr)
       #:with impl
-        (with-syntax ([(arg-temps ...) (generate-temporaries #'(args ...))])
-          #'(lambda (arg-temps ...)
-              (match* (arg-temps ...)
-                [((types.constructor args) ...)
-                 ((exit-parameter)
-                  (error-sentinal message))])))
+        #'(lambda (args ...) ((exit-parameter) (error-sentinal message)))
       #:with ty #'(fun-ty (list 'type-vars ...) (list types.ty ...) result-type.ty))))
-
-(define-match-expander
-  identity*
-  (syntax-parser [(_ v:id) #'(var v)])
-  (syntax-parser [(_ exprs ...) #'((λ (x) x) exprs ...)]))
-
 
 (define prim-types
   (hash
