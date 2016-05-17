@@ -212,6 +212,21 @@ yaspl_bootstrap_library(
   ]
 )
 
+yaspl_test(
+  name = "lexer-test",
+  main_module = "lexer_test",
+  srcs = ["lexer-test.yaspl"],
+  deps = [
+    ":boolean",
+    ":either",
+    ":list",
+    ":lexer",
+    ":yunit",
+  ]
+)
+
+
+
 yaspl_bootstrap_library(
   name = "library-compiler_lib",
   srcs = ["library-compiler.yaspl"],

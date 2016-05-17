@@ -192,17 +192,6 @@
     (list
       run-test-files-suite
 
-      (yaspl-test #:module-name 'lexer #:stdin #"((((" #:exit-code 0)
-      (yaspl-test #:module-name 'lexer #:stdin #"()()()" #:exit-code 0)
-      (yaspl-test #:module-name 'lexer #:stdin #"(()" #:exit-code 0)
-      (yaspl-test #:module-name 'lexer #:stdin #"aaaa" #:exit-code 0)
-      (yaspl-test #:module-name 'lexer #:stdin #"#" #:exit-code 1)
-      (yaspl-test #:module-name 'lexer #:stdin #"#:foo" #:exit-code 0)
-      (yaspl-test #:module-name 'lexer #:stdin #"#\"foo" #:exit-code 1)
-      (yaspl-test #:module-name 'lexer #:stdin #"#\"foo\"" #:exit-code 0)
-      (yaspl-test #:module-name 'lexer #:stdin #"a;.&\na" #:exit-code 0)
-
-
       (yaspl-test #:module-name 'sexp-parser #:stdin #"" #:exit-code 1 #:stderr #"End of input\n")
       (yaspl-test #:module-name 'sexp-parser #:stdin #"(" #:exit-code 1 
                   #:stderr #"Unexpected end of input.\n")

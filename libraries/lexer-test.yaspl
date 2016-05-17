@@ -1,0 +1,59 @@
+(module lexer-test
+  (import
+    (prim
+      #:types (Array Bytes InputPort OutputPort Void)
+      #:values (void =)
+      #:patterns ())
+    (boolean not)
+    (yunit
+      #:types () 
+      #:values (yunit/main test-case)
+      #:patterns ())
+    (lexer
+      #:types (Lexer Lexeme)
+      #:values (make-lexer run-lexer lex-result-v)
+      #:patterns (lex-result end-of-input bad-input))
+    (either
+      #:types (Either)
+      #:values (left right)
+      #:patterns (left right))
+    (list
+      #:types (List)
+      #:values (list cons empty reverse length)
+      #:patterns ()))
+  (export)
+  (types)
+
+  (define (lex-all [bytes : Bytes]) : (Either Void (List Lexeme))
+    (lex-all/run (make-lexer bytes) (empty)))
+  (define (lex-all/run [lexer : Lexer] [lexemes : (List Lexeme)]) : (Either Void (List Lexeme))
+    (case (run-lexer lexer)
+      [(lex-result v lexer) (lex-all/run lexer (cons v lexemes))]
+      [(end-of-input) (right (reverse lexemes))]
+      [(bad-input) (left (void))]))
+
+  (define (count-lexemes [bytes : Bytes] [expected-count : Byte]) : (-> Boolean)
+    (lambda ()
+      (case (lex-all bytes)
+        [(left _) #f]
+        [(right lexemes) (= (length lexemes) expected-count)])))
+
+  (define (unlexable [bytes : Bytes]) : (-> Boolean)
+    (lambda ()
+      (case (lex-all bytes)
+        [(left _) #t]
+        [(right _) #f])))
+
+
+  (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Byte
+    (yunit/main stderr
+      (varargs list
+        (test-case #"left parens" (count-lexemes #"((((" 4))
+        (test-case #"matching parens" (count-lexemes #"()()()" 6))
+        (test-case #"unmatched parens" (count-lexemes #"(()" 3))
+        (test-case #"symbol" (count-lexemes #"aaaa" 1))
+        (test-case #"keyword" (count-lexemes #"#:foo" 1))
+        (test-case #"bytes" (count-lexemes #"#\"foo\"" 1))
+        (test-case #"comment" (count-lexemes #"a;.&\na" 3))
+        (test-case #"unmatched quotes" (unlexable #"#\"foo"))
+        (test-case #"unclosed hash" (unlexable #"#"))))))
