@@ -202,6 +202,17 @@ yaspl_bootstrap_library(
   deps = [":list"]
 )
 
+yaspl_test(
+  name = "large-function-test",
+  main_module = "large_function_test",
+  srcs = ["large-function-test.yaspl"],
+  deps = [
+    ":list",
+    ":yunit",
+  ]
+)
+
+
 yaspl_bootstrap_library(
   name = "lexer",
   srcs = ["lexer.yaspl"],
