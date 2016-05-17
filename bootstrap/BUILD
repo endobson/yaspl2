@@ -3,21 +3,11 @@ package(
   default_visibility = ["//visibility:public"]
 )
 
-racket_test(
-  name = "tests_test",
-  main_module = ":tests.rkt",
-  data = [
-    "//libraries:compiler_library_files",
-    "//tests:files"
-  ],
-  deps = [":tests"],
-)
-
 racket_binary(
   name = "compiler-compiler_bin",
   main_module = 
     ":compiler-compiler.rkt",
-  data = glob(["tests/*"]) + [
+  data = [
     "//libraries:compiler_library_files"
   ],
   deps = [":compiler-compiler"],
@@ -115,18 +105,6 @@ racket_library(
     ":utils",
     ":topo-sort",
     ":primitives",
-  ]
-)
-
-racket_library(
-  name = "tests",
-  srcs = [
-    "tests.rkt"
-  ],
-  deps = [
-    ":interpreter",
-    ":libraries",
-    ":parser",
   ]
 )
 
