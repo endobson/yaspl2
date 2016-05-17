@@ -59,30 +59,33 @@
     (pattern ((name:id (args:id (~datum :) types:prim-ty) ...)
               (~datum :) result-type:prim-ty body:expr ...+)
       #:with impl
-        #'(lambda args-v
-             (match args-v
-               [(list (types.constructor args) ...)
-                (result-type.constructor (let () body ...))]))
+        (with-syntax ([(arg-temps ...) (generate-temporaries #'(args ...))])
+          #'(lambda (arg-temps ...)
+              (match* (arg-temps ...)
+                [((types.constructor args) ...)
+                 (result-type.constructor (let () body ...))])))
 
       #:with ty #'(fun-ty empty (list types.ty ...) result-type.ty))
     (pattern ((type-vars:id ...)
               (name:id (args:id (~datum :) types:prim-ty) ...)
               (~datum :) result-type:prim-ty body:expr ...+)
       #:with impl
-        #'(lambda args-v
-            (match args-v
-              [(list (types.constructor args) ...)
-               (result-type.constructor (let () body ...))]))
+        (with-syntax ([(arg-temps ...) (generate-temporaries #'(args ...))])
+          #'(lambda (arg-temps ...)
+              (match* (arg-temps ...)
+                [((types.constructor args) ...)
+                 (result-type.constructor (let () body ...))])))
       #:with ty #'(fun-ty (list 'type-vars ...) (list types.ty ...) result-type.ty))
     (pattern ((type-vars:id ...)
               (name:id (args:id (~datum :) types:prim-ty) ...)
               (~datum :) result-type:prim-ty #:error message:expr)
       #:with impl
-        #'(lambda args-v
-            (match args-v
-              [(list (types.constructor args) ...)
-               ((exit-parameter)
-                (error-sentinal message))]))
+        (with-syntax ([(arg-temps ...) (generate-temporaries #'(args ...))])
+          #'(lambda (arg-temps ...)
+              (match* (arg-temps ...)
+                [((types.constructor args) ...)
+                 ((exit-parameter)
+                  (error-sentinal message))])))
       #:with ty #'(fun-ty (list 'type-vars ...) (list types.ty ...) result-type.ty))))
 
 (define-match-expander
