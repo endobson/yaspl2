@@ -39,7 +39,7 @@
           ,main-fun-id)
       ns))
 
-  (define process-args (array-val (list->vector (map bytes-val (cons #"/binary-path" supplied-args)))))
+  (define process-args (list->vector (cons #"/binary-path" supplied-args)))
   (define stdin (open-input-bytes stdin-bytes 'stderr))
   (define stdout (open-output-bytes 'stdout))
   (define stderr (open-output-bytes 'stderr))
@@ -47,10 +47,10 @@
   (define return-val
     (let/ec exit-k
       (parameterize ([exit-parameter exit-k])
-        (main-fun process-args (prim-port-val stdin) (prim-port-val stdout) (prim-port-val stderr)))))
+        (main-fun process-args stdin stdout stderr))))
 
   (program-result
-    (if (error-sentinal? return-val) 255 (byte-val-v return-val))
+    (if (error-sentinal? return-val) 255 return-val)
     (and (error-sentinal? return-val) (error-sentinal-info return-val))
     (get-output-bytes stdout)
     (get-output-bytes stderr)))
@@ -143,11 +143,11 @@
 (define (compile-expr pat-env env expr)
   (match expr
     [(byte& v)
-     `(,#'byte-val ',v)]
+     `',v]
     [(bytes& v)
-     `(,#'bytes-val ',v)]
+     `',v]
     [(boolean& v)
-     `(,#'boolean-val ',v)]
+     `',v]
     [(variable& v)
      (hash-ref env v (lambda () (error 'compile-expr "Unbound variables ~a" v)))]
     [(app& op args)
@@ -157,13 +157,12 @@
     [(varargs-app& op args)
      `(,#'#%app
         ,(compile-expr pat-env env op)
-        (,#'#%app ,#'array-val
-                  (,#'#%app ,#'vector
-                            ,@(for/list ([arg (in-list args)])
-                                (compile-expr pat-env env arg)))))]
+        (,#'#%app ,#'vector
+                  ,@(for/list ([arg (in-list args)])
+                      (compile-expr pat-env env arg))))]
 
     [(if& cond true false)
-     `(,#'if ,`(,#'boolean-val-v ,(compile-expr pat-env env cond))
+     `(,#'if ,(compile-expr pat-env env cond)
            ,(compile-expr pat-env env true)
            ,(compile-expr pat-env env false))]
     [(begin& first-expr exprs)
@@ -210,9 +209,9 @@
   (define (recur p env)
     (match p
       [(bytes-pattern& bytes)
-       (values `(,#'bytes-val ,bytes) env)]
+       (values bytes env)]
       [(byte-pattern& byte)
-       (values `(,#'byte-val ,byte) env)]
+       (values byte env)]
       [(variable-pattern& var)
        (define id (generate-temporary var))
        (values id (hash-set env var id))]

@@ -4,12 +4,12 @@
 
 (struct value () #:transparent)
 (struct function-val value (args env-box body) #:transparent)
-(struct void-val value () #:transparent)
-(struct byte-val value (v) #:transparent)
-(struct boolean-val value (v) #:transparent)
-(struct bytes-val value (v) #:transparent)
-(struct box-val value (v) #:transparent)
-(struct array-val value (v) #:transparent)
+;(struct void-val value () #:transparent)
+;(struct byte-val value (v) #:transparent)
+;(struct boolean-val value (v) #:transparent)
+;(struct bytes-val value (v) #:transparent)
+;(struct box-val value (v) #:transparent)
+;(struct array-val value (v) #:transparent)
 
 (struct error-sentinal (info) #:transparent)
 

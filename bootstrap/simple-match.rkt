@@ -19,7 +19,7 @@
       [(bytes-pattern& bytes)
        (define matcher-id (generate-temporary))
        (define matcher
-         #`(lambda (v sk fk) (if (and (bytes-val? v) (equal? (bytes-val-v v) #,bytes)) (sk) (fk))))
+         #`(lambda (v sk fk) (if (and (bytes? v) (equal? v #,bytes)) (sk) (fk))))
        (pat-fields
          matcher-id
          (list #`(#,matcher-id #,matcher))
@@ -27,7 +27,7 @@
       [(byte-pattern& byte)
        (define matcher-id (generate-temporary))
        (define matcher
-         #`(lambda (v sk fk) (if (and (byte-val? v) (equal? (byte-val-v v) #,byte)) (sk) (fk))))
+         #`(lambda (v sk fk) (if (and (exact-integer? v) (equal? v #,byte)) (sk) (fk))))
        (pat-fields
          matcher-id
          (list #`(#,matcher-id #,matcher))

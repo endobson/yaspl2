@@ -22,26 +22,26 @@
   (define-syntax-class prim-ty
     #:attributes (constructor ty)
     (pattern (~datum Byte)
-      #:with constructor #'byte-val
+      #:with constructor #'identity*
       #:with ty #'(byte-ty))
     (pattern (~datum Bytes)
-      #:with constructor #'bytes-val
+      #:with constructor #'identity*
       #:with ty #'(bytes-ty))
     (pattern (~datum Boolean)
-      #:with constructor #'boolean-val
+      #:with constructor #'identity*
       #:with ty #'(boolean-ty))
     (pattern (~datum InputPort)
-      #:with constructor #'prim-port-val
+      #:with constructor #'identity*
       #:with ty #'(input-port-ty))
     (pattern (~datum OutputPort)
-      #:with constructor #'prim-port-val
+      #:with constructor #'identity*
       #:with ty #'(output-port-ty))
 
     (pattern ((~datum Box) v:id)
-      #:with constructor #'box-val
+      #:with constructor #'identity*
       #:with ty #'(box-ty (type-var-ty 'v)))
     (pattern ((~datum Array) v:id)
-      #:with constructor #'array-val
+      #:with constructor #'identity*
       #:with ty #'(array-ty (type-var-ty 'v)))
     (pattern ((~datum type-var) v:id)
       #:with constructor #'identity*
@@ -49,7 +49,7 @@
 
     ;; These should not be used for arg types
     (pattern (~datum Void)
-      #:with constructor #'(λ (_) (void-val))
+      #:with constructor #'identity*
       #:with ty #'(void-ty)))
 
 
