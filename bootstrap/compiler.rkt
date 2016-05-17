@@ -58,7 +58,8 @@
 (define define-sym (datum->syntax #'define 'define))
 (define app-sym (datum->syntax #'#%plain-app '#%plain-app))
 (define lambda-sym (datum->syntax #'lambda 'lambda))
-(define list-ref-sym (datum->syntax #'list-ref 'list-ref))
+(define vector-sym (datum->syntax #'vector 'vector))
+(define vector-ref-sym (datum->syntax #'vector-ref 'vector-ref))
 (define variant-val-sym (datum->syntax #'variant-val 'variant-val))
 (define variant-val-fields-sym (datum->syntax #'variant-val-fields 'variant-val-fields))
 
@@ -98,14 +99,16 @@
             (hash-set! local-pattern-env variant-name variant-name)
 
             (cons
-              `(,define-sym (,constructor-id . vs) (,app-sym ,variant-val-sym ',variant-name vs))
+              (with-syntax ([vs (generate-temporaries (variant&-fields variant))])
+                `(,define-sym (,constructor-id . ,#'vs)
+                   (,app-sym ,variant-val-sym ',variant-name (,app-sym ,vector-sym . ,#'vs))))
               (for/list ([field (variant&-fields variant)] [index (in-naturals)])
                 (define field-name (variant-field&-name field))
                 (define field-id (generate-temporary field-name))
                 (hash-set! local-env
                   (string->symbol (format "~a-~a" variant-name field-name))
                   field-id)
-                `(,define-sym (,field-id v) (,app-sym ,list-ref-sym (,app-sym ,variant-val-fields-sym v) ',index)))))))
+                `(,define-sym (,field-id v) (,app-sym ,vector-ref-sym (,app-sym ,variant-val-fields-sym v) ',index)))))))
 
 
       (for ([(name _) (in-hash (module&-definitions module))])

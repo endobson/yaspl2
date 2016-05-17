@@ -64,9 +64,7 @@
                                   (loop (rest fields-list) (rest field-temps) (add1 i) (append new-vars vars))])
                       (values
                         #`(#,matcher-id
-                           (unsafe-car
-                             #,(for/fold ([expr #'(variant-val-fields v)]) ([_ (in-range i)])
-                                 #`(unsafe-cdr #,expr)))
+                           (vector-ref (variant-val-fields v) '#,i)
                            (lambda (#,@(map cdr new-vars)) #,form)
                            fk)
                         full-vars))])))])
