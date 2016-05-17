@@ -323,10 +323,9 @@ yaspl_test(
   srcs = ["regexp-test.yaspl"],
   deps = [
     ":boolean",
-    ":io",
     ":list",
-    ":maybe",
     ":regexp",
+    ":yunit",
   ]
 )
 
