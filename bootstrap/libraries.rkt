@@ -1,8 +1,9 @@
 #lang racket/base
 
 (require
-  "interpreter.rkt"
   "parser.rkt"
+  "parser-structs.rkt"
+  "topo-sort.rkt"
   "validator.rkt"
   "primitives.rkt"
   racket/runtime-path

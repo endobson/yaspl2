@@ -95,29 +95,16 @@ racket_library(
 )
 
 racket_library(
-  name = "interpreter",
-  srcs = [
-    "interpreter.rkt"
-  ],
-  deps = [
-    ":parser-structs",
-    ":machine-structs",
-    ":utils",
-    ":topo-sort",
-    ":primitives",
-  ]
-)
-
-racket_library(
   name = "libraries",
   srcs = [
     "libraries.rkt"
   ],
   deps = [
-    ":interpreter",
     ":parser",
-    ":validator",
+    ":parser-structs",
     ":primitives",
+    ":topo-sort",
+    ":validator",
   ]
 )
 
