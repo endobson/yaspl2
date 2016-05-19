@@ -146,6 +146,12 @@ _bootstrap_compiler = attr.label(
  allow_files=True
 )
 
+_bootstrap_library_compiler = attr.label(
+ default=Label("//bootstrap:bootstrap_library_compiler"),
+ executable=True,
+ allow_files=True
+)
+
 yaspl_library = rule(
   implementation = _lib_impl,
   outputs = {
@@ -158,7 +164,8 @@ yaspl_library = rule(
       non_empty=True
     ),
     "deps": _deps_attr,
-    "_compiler": _bootstrap_compiler
+    "_compiler": _bootstrap_compiler,
+    "_library_compiler": _bootstrap_library_compiler
   }
 )
 
@@ -173,7 +180,8 @@ yaspl_binary = rule(
     "main_module": attr.string(mandatory=True),
     "srcs": attr.label_list(),
     "deps": _deps_attr,
-    "_compiler": _bootstrap_compiler
+    "_compiler": _bootstrap_compiler,
+    "_library_compiler": _bootstrap_library_compiler
   }
 )
 

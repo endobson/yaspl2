@@ -14,13 +14,14 @@ racket_binary(
 )
 
 racket_binary(
-  name = "library-compiler_bin",
+  name = "library-compiler-compiler_bin",
   main_module =
-    ":library-compiler.rkt",
+    ":library-compiler-compiler.rkt",
   data = [
+    "//libraries:compiler_library_files",
     "//libraries:library_compiler_library_files"
   ],
-  deps = [":library-compiler"],
+  deps = [":library-compiler-compiler"],
 )
 
 racket_library(
@@ -36,9 +37,9 @@ racket_library(
 
 
 racket_library(
-  name = "library-compiler",
+  name = "library-compiler-compiler",
   srcs = [
-    "library-compiler.rkt"
+    "library-compiler-compiler.rkt"
   ],
   deps = [
     ":compiler",
@@ -203,6 +204,35 @@ genrule(
     "-sectcreate __DATA __data /dev/null " +
     "$(location bootstrap_compiler.o) -o $(location bootstrap_compiler)"
 )
+
+genrule(
+  name = "gen_bootstrap_library_compiler",
+  tools = [":library-compiler-compiler_bin"],
+  outs = ["bootstrap_library_compiler.s"],
+  cmd = "$(location :library-compiler-compiler_bin) $@"
+)
+
+genrule(
+  name = "assemble_bootstrap_library_compiler",
+  srcs = ["bootstrap_library_compiler.s"],
+  outs = ["bootstrap_library_compiler.o"],
+  cmd = "as $(location bootstrap_library_compiler.s) -o $(location bootstrap_library_compiler.o)"
+)
+
+
+genrule(
+  name = "link_bootstrap_library_compiler",
+  srcs = ["bootstrap_library_compiler.o"],
+  outs = ["bootstrap_library_compiler"],
+  executable = 1,
+  output_to_bindir = 1,
+  cmd = "ld -arch x86_64 " +
+    "-macosx_version_min 10.11 " +
+    "-static " +
+    "-sectcreate __DATA __data /dev/null " +
+    "$(location bootstrap_library_compiler.o) -o $(location bootstrap_library_compiler)"
+)
+
 
 sh_test(
   name = "compile-compiler-test",
