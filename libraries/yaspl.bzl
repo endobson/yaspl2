@@ -14,7 +14,7 @@ def _lib_impl(ctx):
   ctx.action(
     outputs = [ctx.outputs.asm],
     mnemonic = "YasplCompile",
-    executable = ctx.executable._compiler,
+    executable = ctx.executable._library_compiler,
     arguments = [
       ctx.outputs.asm.path,
       "unknown",
