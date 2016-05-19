@@ -282,6 +282,18 @@ yaspl_library(
 
 
 yaspl_bootstrap_library(
+  name = "main-stub",
+  srcs = ["main-stub.yaspl"],
+  deps = [
+    ":bytes",
+    ":io",
+    ":list",
+    ":x86-64-stack-machine",
+  ]
+)
+
+
+yaspl_bootstrap_library(
   name = "maybe",
   srcs = ["maybe.yaspl"],
 )
