@@ -15,10 +15,7 @@ def _lib_impl(ctx):
     outputs = [ctx.outputs.asm],
     mnemonic = "YasplCompile",
     executable = ctx.executable._library_compiler,
-    arguments = [
-      ctx.outputs.asm.path,
-      "unknown",
-    ] + list(transitive_src_paths)
+    arguments = [ctx.outputs.asm.path] + list(transitive_src_paths)
   )
 
   return struct(
