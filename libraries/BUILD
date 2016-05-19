@@ -10,6 +10,11 @@ filegroup(
   data = [":compiler_lib.srcs", ":compiler_lib.src.list"]
 )
 
+filegroup(
+  name = "library_compiler_library_files",
+  visibility = ["//visibility:public"],
+  data = [":library-compiler_lib.srcs", ":library-compiler_lib.src.list"]
+)
 
 
 yaspl_binary(

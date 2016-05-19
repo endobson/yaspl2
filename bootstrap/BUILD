@@ -5,7 +5,7 @@ package(
 
 racket_binary(
   name = "compiler-compiler_bin",
-  main_module = 
+  main_module =
     ":compiler-compiler.rkt",
   data = [
     "//libraries:compiler_library_files"
@@ -13,11 +13,32 @@ racket_binary(
   deps = [":compiler-compiler"],
 )
 
+racket_binary(
+  name = "library-compiler_bin",
+  main_module =
+    ":library-compiler.rkt",
+  data = [
+    "//libraries:library_compiler_library_files"
+  ],
+  deps = [":library-compiler"],
+)
 
 racket_library(
   name = "compiler-compiler",
   srcs = [
     "compiler-compiler.rkt"
+  ],
+  deps = [
+    ":compiler",
+    ":libraries"
+  ]
+)
+
+
+racket_library(
+  name = "library-compiler",
+  srcs = [
+    "library-compiler.rkt"
   ],
   deps = [
     ":compiler",
