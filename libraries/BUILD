@@ -16,6 +16,12 @@ filegroup(
   data = [":library-compiler_lib.srcs", ":library-compiler_lib.src.list"]
 )
 
+filegroup(
+  name = "main_stub_library_files",
+  visibility = ["//visibility:public"],
+  data = [":main-stub_lib.srcs", ":main-stub_lib.src.list"]
+)
+
 
 yaspl_binary(
   name = "compiler",

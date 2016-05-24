@@ -24,6 +24,19 @@ racket_binary(
   deps = [":library-compiler-compiler"],
 )
 
+racket_binary(
+  name = "main-stub-compiler_bin",
+  main_module =
+    ":main-stub-compiler.rkt",
+  data = [
+    "//libraries:compiler_library_files",
+    "//libraries:main_stub_library_files"
+  ],
+  deps = [":main-stub-compiler"],
+)
+
+
+
 racket_library(
   name = "compiler-compiler",
   srcs = [
@@ -46,6 +59,18 @@ racket_library(
     ":libraries"
   ]
 )
+
+racket_library(
+  name = "main-stub-compiler",
+  srcs = [
+    "main-stub-compiler.rkt"
+  ],
+  deps = [
+    ":compiler",
+    ":libraries"
+  ]
+)
+
 
 
 racket_library(
@@ -232,6 +257,36 @@ genrule(
     "-sectcreate __DATA __data /dev/null " +
     "$(location bootstrap_library_compiler.o) -o $(location bootstrap_library_compiler)"
 )
+
+
+genrule(
+  name = "gen_bootstrap_main_stub",
+  tools = [":main-stub-compiler_bin"],
+  outs = ["bootstrap_main_stub.s"],
+  cmd = "$(location :main-stub-compiler_bin) $@"
+)
+
+genrule(
+  name = "assemble_bootstrap_main_stub",
+  srcs = ["bootstrap_main_stub.s"],
+  outs = ["bootstrap_main_stub.o"],
+  cmd = "as $(location bootstrap_main_stub.s) -o $(location bootstrap_main_stub.o)"
+)
+
+
+genrule(
+  name = "link_bootstrap_main_stub",
+  srcs = ["bootstrap_main_stub.o"],
+  outs = ["bootstrap_main_stub"],
+  executable = 1,
+  output_to_bindir = 1,
+  cmd = "ld -arch x86_64 " +
+    "-macosx_version_min 10.11 " +
+    "-static " +
+    "-sectcreate __DATA __data /dev/null " +
+    "$(location bootstrap_main_stub.o) -o $(location bootstrap_main_stub)"
+)
+
 
 
 sh_test(
