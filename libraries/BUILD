@@ -42,6 +42,13 @@ yaspl_binary(
 )
 
 yaspl_binary(
+  name = "main-stub",
+  main_module = "main_stub",
+  deps = [":main-stub_lib"]
+)
+
+
+yaspl_binary(
   name = "print-stack-function",
   main_module = "print_stack_function",
   deps = [":print-stack-function_lib"]
@@ -282,7 +289,7 @@ yaspl_library(
 
 
 yaspl_bootstrap_library(
-  name = "main-stub",
+  name = "main-stub_lib",
   srcs = ["main-stub.yaspl"],
   deps = [
     ":bytes",
