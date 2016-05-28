@@ -344,7 +344,6 @@ yaspl_library(
   deps = [
     ":bytes",
     ":compiler_lib",
-    ":dict",
     ":either",
     ":io",
     ":list",
@@ -352,7 +351,6 @@ yaspl_library(
     ":sexp-parser",
     ":source-language",
     ":intermediate-to-stack",
-    ":stack-machine-optimizer",
     ":stack-machine",
     ":tuples",
  ]
