@@ -301,6 +301,7 @@ yaspl_bootstrap_library(
     ":bytes",
     ":io",
     ":list",
+    ":stack-machine-optimizer",
     ":x86-64-stack-machine",
   ]
 )
