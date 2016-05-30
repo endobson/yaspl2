@@ -151,14 +151,6 @@ _src_deps_attr = attr.label_list(
   providers = ["yaspl_transitive_srcs"],
 )
 
-
-
-_bootstrap_compiler = attr.label(
- default=Label("//bootstrap:bootstrap_compiler"),
- executable=True,
- allow_files=True
-)
-
 _bootstrap_library_compiler = attr.label(
  default=Label("//bootstrap:bootstrap_library_compiler"),
  executable=True,
@@ -202,23 +194,20 @@ yaspl_binary = rule(
   }
 )
 
-yaspl_test = rule(
-  implementation = _test_impl,
+
+yaspl_prim_test = rule(
+  implementation = _bin_impl,
   outputs = {
     "asm": "%{name}.s",
+    "main_stub_asm": "%{name}_main.s",
     "object": "%{name}.o",
   },
   executable = True,
   test=True,
   attrs = {
     "main_module": attr.string(mandatory=True),
-    "srcs": attr.label_list(
-      allow_files=_yaspl_src_file_type,
-      mandatory=True,
-      non_empty=True
-    ),
-    "deps": _asm_src_deps_attr,
-    "_compiler": _bootstrap_compiler
+    "deps": _asm_deps_attr,
+    "_main_stub": _bootstrap_main_stub,
   }
 )
 
@@ -234,6 +223,20 @@ yaspl_srcs = rule(
     "deps": _src_deps_attr,
   }
 )
+
+
+def yaspl_test(name, main_module, srcs=[], deps=[]):
+  yaspl_library(
+    name = name + "_lib",
+    srcs = srcs,
+    deps = deps
+  )
+
+  yaspl_prim_test(
+    name = name,
+    main_module = main_module,
+    deps = [name + "_lib"]
+  )
 
 
 def yaspl_bootstrap_library(name, srcs, deps=[]):
