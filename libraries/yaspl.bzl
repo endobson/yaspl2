@@ -139,9 +139,19 @@ def _test_impl(ctx):
   )
 
 _yaspl_src_file_type = FileType([".yaspl"])
-_deps_attr = attr.label_list(
+_asm_src_deps_attr = attr.label_list(
+  providers = ["yaspl_transitive_asms", "yaspl_transitive_srcs"],
+)
+
+_asm_deps_attr = attr.label_list(
+  providers = ["yaspl_transitive_asms"],
+)
+
+_src_deps_attr = attr.label_list(
   providers = ["yaspl_transitive_srcs"],
 )
+
+
 
 _bootstrap_compiler = attr.label(
  default=Label("//bootstrap:bootstrap_compiler"),
@@ -172,8 +182,7 @@ yaspl_library = rule(
       mandatory=True,
       non_empty=True
     ),
-    "deps": _deps_attr,
-    "_compiler": _bootstrap_compiler,
+    "deps": _asm_src_deps_attr,
     "_library_compiler": _bootstrap_library_compiler
   }
 )
@@ -188,9 +197,7 @@ yaspl_binary = rule(
   executable = True,
   attrs = {
     "main_module": attr.string(mandatory=True),
-    "srcs": attr.label_list(),
-    "deps": _deps_attr,
-    "_compiler": _bootstrap_compiler,
+    "deps": _asm_deps_attr,
     "_main_stub": _bootstrap_main_stub,
   }
 )
@@ -210,7 +217,7 @@ yaspl_test = rule(
       mandatory=True,
       non_empty=True
     ),
-    "deps": _deps_attr,
+    "deps": _asm_src_deps_attr,
     "_compiler": _bootstrap_compiler
   }
 )
@@ -224,7 +231,7 @@ yaspl_srcs = rule(
     "srcs": attr.label_list(
       allow_files=_yaspl_src_file_type,
     ),
-    "deps": _deps_attr,
+    "deps": _src_deps_attr,
   }
 )
 
