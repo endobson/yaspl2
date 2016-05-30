@@ -49,9 +49,7 @@ def _src_impl(ctx):
 
 def _bin_impl(ctx):
 
-  transitive_srcs = _transitive_srcs(ctx)
   transitive_asms = _transitive_asms(ctx)
-  transitive_src_paths = [src.path for src in transitive_srcs]
   transitive_asm_paths = [asm.path for asm in transitive_asms]
 
   ctx.action(
@@ -103,10 +101,6 @@ def _bin_impl(ctx):
     )
   )
 
-  return struct(
-    yaspl_transitive_srcs = transitive_srcs
-  )
-
 def _test_impl(ctx):
 
   transitive_srcs = _transitive_srcs(ctx)
@@ -148,12 +142,6 @@ def _test_impl(ctx):
       ctx.outputs.object.path
     )
   )
-
-
-  return struct(
-    yaspl_transitive_srcs = transitive_srcs
-  )
-
 
 _yaspl_src_file_type = FileType([".yaspl"])
 _deps_attr = attr.label_list(
