@@ -9,7 +9,6 @@ def _transitive_asms(ctx):
   transitive_asms = set(order="link")
   for dep in ctx.attr.deps:
     transitive_asms += dep.yaspl_transitive_asms
-  transitive_asms += [ctx.outputs.asm]
   return transitive_asms
 
 
@@ -30,7 +29,7 @@ def _lib_impl(ctx):
 
   return struct(
     yaspl_transitive_srcs = transitive_srcs,
-    yaspl_transitive_asms = transitive_asms
+    yaspl_transitive_asms = transitive_asms + [ctx.outputs.asm]
   )
 
 def _src_impl(ctx):
@@ -49,42 +48,38 @@ def _src_impl(ctx):
 
 def _bin_impl(ctx):
 
-  transitive_asms = _transitive_asms(ctx)
-  transitive_asm_paths = [asm.path for asm in transitive_asms]
-
   ctx.action(
     inputs = [ctx.executable._main_stub],
-    outputs = [ctx.outputs.asm],
+    outputs = [ctx.outputs.main_stub_asm],
     mnemonic = "YasplGenerateMain",
     executable = ctx.executable._main_stub,
     arguments = [
-      ctx.outputs.asm.path,
+      ctx.outputs.main_stub_asm.path,
       ctx.attr.main_module,
     ]
   )
 
+  input_asms = list(_transitive_asms(ctx)) + [ctx.outputs.main_stub_asm]
+  input_asm_paths = [asm.path for asm in input_asms]
   ctx.action(
-    inputs = list(transitive_asms),
-    outputs = [ctx.outputs.asm3],
+    inputs = input_asms,
+    outputs = [ctx.outputs.asm],
     mnemonic = "YasplCombineAssembly",
     command = "cat %s > %s" % (
-      " ".join(transitive_asm_paths),
-      ctx.outputs.asm3.path
+      " ".join(input_asm_paths),
+      ctx.outputs.asm.path
     )
   )
 
   ctx.action(
-    inputs = [ctx.outputs.asm3],
+    inputs = [ctx.outputs.asm],
     outputs = [ctx.outputs.object],
     mnemonic = "YasplAssemble",
     command = "as %s -o %s" % (
-      ctx.outputs.asm3.path,
+      ctx.outputs.asm.path,
       ctx.outputs.object.path
     )
   )
-
-
-
 
   ctx.action(
     inputs = [ctx.outputs.object],
@@ -187,7 +182,7 @@ yaspl_binary = rule(
   implementation = _bin_impl,
   outputs = {
     "asm": "%{name}.s",
-    "asm3": "%{name}3.s",
+    "main_stub_asm": "%{name}_main.s",
     "object": "%{name}.o",
   },
   executable = True,
