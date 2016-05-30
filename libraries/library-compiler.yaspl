@@ -14,7 +14,10 @@
       #:types (List)
       #:values (empty cons append map list reverse)
       #:patterns (empty cons))
-    (dict make-dict dict-add-all)
+    (dict
+      #:types (Dict)
+      #:values (make-dict dict-add-all dict-add)
+      #:patterns ())
     (tuples tuple2)
     (bytes bytes=? bytes-append make-null-terminated)
     (source-language
@@ -55,7 +58,8 @@
   (define (compile-main-module
             [main-module : Module]
             [mods : (List Module)]
-            [sigs : (List ModuleSignature)])
+            [sigs : (List ModuleSignature)]
+            [known-funcs : (Dict Bytes Bytes)])
     : (Either Bytes (List TopLevelObject))
     (case mods
       [(empty)
@@ -66,7 +70,7 @@
           (case (compile-module (source->intermediate main-module) sigs)
             [(left v) (left v)]
             [(right (compiled-module funcs sig))
-             (right (optimize-tlos funcs (cons sig sigs)))])])]
+             (right (optimize-tlos funcs (add-known-functions funcs known-funcs)))])])]
       [(cons mod mods)
        (case (validate-module mod sigs)
          [(just v)
@@ -74,8 +78,20 @@
          [(nothing)
           (case (compile-module (source->intermediate mod) sigs)
             [(left v) (left v)]
-            [(right (compiled-module _ sig))
-             (compile-main-module main-module mods (cons sig sigs))])])]))
+            [(right (compiled-module tlos sig))
+             (compile-main-module main-module mods (cons sig sigs)
+                                  (add-known-functions tlos known-funcs))])])]))
+
+  (define (add-known-functions [tlos : (List TopLevelObject)]
+                               [dict : (Dict Bytes Bytes)]) : (Dict Bytes Bytes)
+    (case tlos
+      [(empty) dict]
+      [(cons (trivial-closure-tlo name fun-name) tlos)
+       (add-known-functions tlos (dict-add dict name fun-name))]
+      [(cons _ tlos)
+       (add-known-functions tlos dict)]))
+
+
 
   (define (extract-modules [vals : (List (Either Bytes Module))]) : (Either Bytes (List Module))
     (case vals
@@ -119,7 +135,8 @@
                  (case (compile-main-module
                          main-module
                          (reverse other-modules)
-                         (cons (prim-signature) (empty)))
+                         (cons (prim-signature) (empty))
+                         (make-dict bytes=?))
                    [(left v)
                     (begin
                       (write-line v stderr)
