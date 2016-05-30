@@ -32,7 +32,7 @@
     (source-language
       #:types (Module Expression CaseClause Pattern FunctionDefinition TypeDefinition
                       VariantDefinition VariantField Imports Import PreType)
-      #:values (module-definitions module-name)
+      #:values (module-definitions module-name module-types)
       #:patterns (byte-literal bytes-literal boolean-literal var-expr if-expr begin-expr app-expr
                   varargs-app-expr let-expr case-expr case-clause bytes-pattern byte-pattern
                   lambda-expr
@@ -55,7 +55,10 @@
        (case (validate-module/free-variables mod env)
          [(just v) (just v)]
          [(nothing)
-          (validate-module/free-patterns mod pat-env)])]))
+          (case (validate-module/free-patterns mod pat-env)
+            [(just v) (just v)]
+            [(nothing)
+             (validate-module/free-types mod type-env)])])]))
 
 
   (define (validate-module/duplicate-imports [mod : Module])
@@ -101,6 +104,19 @@
 
   (define (multi-set->set [ms : (MultiSet Bytes)]) : (Set Bytes)
     (set-add-all (make-set bytes=?) (multi-set-keys ms)))
+
+
+  (define (validate-module/free-types [mod : Module] [env : (Set Bytes)]) : (Maybe Bytes)
+    (let ([free-types
+            (free-types/type-definitions (module-types mod) env
+              (free-types/definitions (module-definitions mod) env (make-set bytes=?)))])
+      (case (set->list free-types)
+        [(empty) (nothing)]
+        [keys
+          (let ([first-line
+                  (bytes-append
+                     (varargs list #"Unbound types in module " (module-name mod) #":"))])
+            (just (bytes-append (map add-newline (cons first-line (map indent keys))))))])))
 
 
   (define (validate-module/free-variables [mod : Module] [env : (Set Bytes)]) : (Maybe Bytes)
@@ -273,6 +289,53 @@
        (free-patterns/definitions defs env (free-patterns body env acc))]))
 
 
+  (define (free-types/definitions
+            [defs : (List FunctionDefinition)]
+            [env : (Set Bytes)]
+            [acc : (Set Bytes)]) : (Set Bytes)
+    (case defs
+      [(empty) acc]
+      [(cons (function-definition _ type _ _) defs)
+       (free-types/definitions defs env (free-types/type type env acc))]))
+
+
+  (define (free-types/type-definitions
+            [defs : (List TypeDefinition)]
+            [env : (Set Bytes)]
+            [acc : (Set Bytes)]) : (Set Bytes)
+    (case defs
+      [(empty) acc]
+      [(cons (type-definition name vars variants) defs)
+       (free-types/type-definitions defs env
+          (free-types/variants variants
+                               (set-add-all
+                                 env
+                                 (case vars
+                                   [(nothing) (empty)]
+                                   [(just v) v]))
+                               acc))]))
+
+  (define (free-types/variants
+            [variants : (List VariantDefinition)]
+            [env : (Set Bytes)]
+            [acc : (Set Bytes)]) : (Set Bytes)
+    (case variants
+      [(empty) acc]
+      [(cons (variant-definition name fields) variants)
+       (free-types/variants variants env (free-types/variant-fields fields env acc))]))
+
+
+  (define (free-types/variant-fields
+            [fields : (List VariantField)]
+            [env : (Set Bytes)]
+            [acc : (Set Bytes)]) : (Set Bytes)
+    (case fields
+      [(empty) acc]
+      [(cons (variant-field _ type) fields)
+       (free-types/variant-fields fields env (free-types/type type env acc))]))
+
+
+
   (define (extract-arg [arg+ty : (Tuple2 Bytes PreType)]) : Bytes
     (case arg+ty
       [(tuple2 arg _)
@@ -391,4 +454,8 @@
     : (Set Bytes)
     (case ps
       [(empty) acc]
-      [(cons p ps) (free-patterns/patterns ps env (free-patterns/pattern p env acc))])))
+      [(cons p ps) (free-patterns/patterns ps env (free-patterns/pattern p env acc))]))
+
+  (define (free-types/type [type : PreType] [env : (Set Bytes)] [acc : (Set Bytes)])
+    : (Set Bytes)
+    acc)) ;; TODO
