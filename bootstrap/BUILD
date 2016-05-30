@@ -286,14 +286,3 @@ genrule(
     "-sectcreate __DATA __data /dev/null " +
     "$(location bootstrap_main_stub.o) -o $(location bootstrap_main_stub)"
 )
-
-
-
-sh_test(
-  name = "compile-compiler-test",
-  srcs = ["compile-compiler-test.sh"],
-  data = [
-    ":bootstrap_compiler.s",
-    "//libraries:compiler.s"
-  ],
-)

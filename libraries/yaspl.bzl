@@ -5,13 +5,23 @@ def _transitive_srcs(ctx):
   transitive_srcs += ctx.files.srcs
   return transitive_srcs
 
+def _transitive_asms(ctx):
+  transitive_asms = set(order="link")
+  for dep in ctx.attr.deps:
+    transitive_asms += dep.yaspl_transitive_asms
+  transitive_asms += [ctx.outputs.asm]
+  return transitive_asms
+
+
 
 def _lib_impl(ctx):
 
   transitive_srcs = _transitive_srcs(ctx)
+  transitive_asms = _transitive_asms(ctx)
   transitive_src_paths = [src.path for src in transitive_srcs]
 
   ctx.action(
+    inputs = list(transitive_srcs) + [ctx.executable._library_compiler],
     outputs = [ctx.outputs.asm],
     mnemonic = "YasplCompile",
     executable = ctx.executable._library_compiler,
@@ -19,7 +29,8 @@ def _lib_impl(ctx):
   )
 
   return struct(
-    yaspl_transitive_srcs = transitive_srcs
+    yaspl_transitive_srcs = transitive_srcs,
+    yaspl_transitive_asms = transitive_asms
   )
 
 def _src_impl(ctx):
@@ -39,18 +50,42 @@ def _src_impl(ctx):
 def _bin_impl(ctx):
 
   transitive_srcs = _transitive_srcs(ctx)
+  transitive_asms = _transitive_asms(ctx)
   transitive_src_paths = [src.path for src in transitive_srcs]
+  transitive_asm_paths = [asm.path for asm in transitive_asms]
 
   ctx.action(
-    inputs = list(transitive_srcs),
+    inputs = [ctx.executable._main_stub],
     outputs = [ctx.outputs.asm],
-    mnemonic = "YasplCompile",
-    executable = ctx.executable._compiler,
+    mnemonic = "YasplGenerateMain",
+    executable = ctx.executable._main_stub,
     arguments = [
       ctx.outputs.asm.path,
       ctx.attr.main_module,
-    ] + transitive_src_paths
+    ]
   )
+
+  ctx.action(
+    inputs = list(transitive_asms),
+    outputs = [ctx.outputs.asm3],
+    mnemonic = "YasplCombineAssembly",
+    command = "cat %s > %s" % (
+      " ".join(transitive_asm_paths),
+      ctx.outputs.asm3.path
+    )
+  )
+
+  ctx.action(
+    inputs = [ctx.outputs.asm3],
+    outputs = [ctx.outputs.object],
+    mnemonic = "YasplAssemble",
+    command = "as %s -o %s" % (
+      ctx.outputs.asm3.path,
+      ctx.outputs.object.path
+    )
+  )
+
+
 
 
   ctx.action(
@@ -67,18 +102,6 @@ def _bin_impl(ctx):
       ctx.outputs.executable.path
     )
   )
-
-
-  ctx.action(
-    inputs = [ctx.outputs.asm],
-    outputs = [ctx.outputs.object],
-    mnemonic = "YasplAssemble",
-    command = "as %s -o %s" % (
-      ctx.outputs.asm.path,
-      ctx.outputs.object.path
-    )
-  )
-
 
   return struct(
     yaspl_transitive_srcs = transitive_srcs
@@ -149,6 +172,12 @@ _bootstrap_library_compiler = attr.label(
  allow_files=True
 )
 
+_bootstrap_main_stub = attr.label(
+ default=Label("//bootstrap:bootstrap_main_stub"),
+ executable=True,
+ allow_files=True
+)
+
 yaspl_library = rule(
   implementation = _lib_impl,
   outputs = {
@@ -170,6 +199,7 @@ yaspl_binary = rule(
   implementation = _bin_impl,
   outputs = {
     "asm": "%{name}.s",
+    "asm3": "%{name}3.s",
     "object": "%{name}.o",
   },
   executable = True,
@@ -178,7 +208,7 @@ yaspl_binary = rule(
     "srcs": attr.label_list(),
     "deps": _deps_attr,
     "_compiler": _bootstrap_compiler,
-    "_library_compiler": _bootstrap_library_compiler
+    "_main_stub": _bootstrap_main_stub,
   }
 )
 
