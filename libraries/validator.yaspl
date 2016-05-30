@@ -66,7 +66,14 @@
          (let ([pattern-env (module-pattern-environment mod)])
            (case (find-duplicates pattern-env)
              [(empty)
-              (right (tuple2 (multi-set->set env) (multi-set->set pattern-env)))]
+              (let ([type-env (module-type-environment mod)])
+                (case (find-duplicates type-env)
+                  [(empty) (right (tuple2 (multi-set->set env) (multi-set->set pattern-env)))]
+                  [imports
+                   (let ([first-line
+                           (bytes-append
+                              (varargs list #"Duplicate type imports in module " (module-name mod) #":"))])
+                     (left (bytes-append (map add-newline (cons first-line (map indent imports))))))]))]
              [imports
               (let ([first-line
                       (bytes-append
@@ -133,6 +140,12 @@
           (bytes-set! new-bytes 1 32)
           new-bytes))))
 
+  (define (module-type-environment [mod : Module]) : (MultiSet Bytes)
+    (case mod
+      [(module _ imports _ types definitions)
+       (add-importss-type-bindings imports
+         (add-type-definitions-bindings types
+           (make-multi-set bytes=?)))]))
 
   (define (module-environment [mod : Module]) : (MultiSet Bytes)
     (case mod
@@ -171,6 +184,14 @@
       [(cons (type-definition name _ variants) types)
        (add-constructor-bindings/types types (add-constructor-bindings/variants variants env))]))
 
+
+  (define (add-type-definitions-bindings [types : (List TypeDefinition)] [env : (MultiSet Bytes)])
+    : (MultiSet Bytes)
+    (case types
+      [(empty) env]
+      [(cons (type-definition name _ _) types)
+       (add-type-definitions-bindings types (multi-set-add env name))]))
+
   (define (add-constructor-bindings/variants [variants : (List VariantDefinition)] [env : (MultiSet Bytes)])
     : (MultiSet Bytes)
     (case variants
@@ -194,6 +215,13 @@
       [(cons (variant-field name _) fields)
        (let ([acc-name (bytes-append (varargs list variant #"-" name))])
          (add-variant-field-bindings variant fields (multi-set-add env acc-name)))]))
+
+  (define (add-importss-type-bindings [importss : (List Imports)] [env : (MultiSet Bytes)])
+    : (MultiSet Bytes)
+    (case importss
+      [(empty) env]
+      [(cons (imports _ types _ _) importss)
+       (add-importss-type-bindings importss (add-imports-bindings types env))]))
 
   (define (add-importss-bindings [importss : (List Imports)] [env : (MultiSet Bytes)])
     : (MultiSet Bytes)
