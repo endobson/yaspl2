@@ -32,7 +32,7 @@
     (source-language
       #:types (Module Expression CaseClause Pattern FunctionDefinition TypeDefinition
                       VariantDefinition VariantField Imports Import PreType)
-      #:values (module-definitions module-name module-types variant-field-type)
+      #:values (module-definitions module-name module-types variant-field-type case-clause-expr)
       #:patterns (byte-literal bytes-literal boolean-literal var-expr if-expr begin-expr app-expr
                   varargs-app-expr let-expr case-expr case-clause bytes-pattern byte-pattern
                   lambda-expr
@@ -297,9 +297,10 @@
             [acc : (Set Bytes)]) : (Set Bytes)
     (case defs
       [(empty) acc]
-      [(cons (function-definition _ type _ _) defs)
-       ;; Start checking the expression
-       (free-types/definitions defs env (free-types/type type env acc))]))
+      [(cons (function-definition _ type _ expr) defs)
+       (free-types/definitions defs env
+         (free-types/expr expr env
+           (free-types/type type env acc)))]))
 
 
   (define (free-types/type-definitions
@@ -332,6 +333,12 @@
     (case arg+ty
       [(tuple2 arg _)
        arg]))
+
+  (define (extract-ty [arg+ty : (Tuple2 Bytes PreType)]) : PreType
+    (case arg+ty
+      [(tuple2 _ ty)
+       ty]))
+
 
   (define (free-variables [expr : Expression] [env : (Set Bytes)] [acc : (Set Bytes)])
     : (Set Bytes)
@@ -470,4 +477,37 @@
        (let ([acc (free-types/types args env acc)])
          (if (set-member? env constructor)
              acc
-             (set-add acc constructor)))])))
+             (set-add acc constructor)))]))
+
+  (define (free-types/expr [expr : Expression] [env : (Set Bytes)] [acc : (Set Bytes)])
+    : (Set Bytes)
+    (case expr
+      [(byte-literal _) acc]
+      [(bytes-literal _) acc]
+      [(boolean-literal _) acc]
+      [(var-expr _) acc]
+      [(if-expr c t f)
+       (free-types/exprs (cons c (cons t (cons f (empty)))) env acc)]
+      [(begin-expr e es)
+       (free-types/exprs (cons e es) env acc)]
+      [(app-expr op args)
+       (free-types/exprs (cons op args) env acc)]
+      [(varargs-app-expr op args)
+       (free-types/exprs (cons op args) env acc)]
+      [(let-expr name expr body)
+       (free-types/exprs (cons body (cons expr (empty))) env acc)]
+      [(case-expr expr clauses)
+       (free-types/exprs (cons expr (map case-clause-expr clauses)) env acc)]
+      [(lambda-expr args+tys body)
+       (free-types/types
+         (map extract-ty args+tys)
+         env
+         (free-types/expr body env acc))]))
+
+
+  (define (free-types/exprs [exprs : (List Expression)] [env : (Set Bytes)] [acc : (Set Bytes)])
+    : (Set Bytes)
+    (case exprs
+      [(empty) acc]
+      [(cons expr exprs)
+       (free-types/exprs exprs env (free-types/expr expr env acc))])))
