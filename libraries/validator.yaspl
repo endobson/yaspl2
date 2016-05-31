@@ -32,12 +32,13 @@
     (source-language
       #:types (Module Expression CaseClause Pattern FunctionDefinition TypeDefinition
                       VariantDefinition VariantField Imports Import PreType)
-      #:values (module-definitions module-name module-types)
+      #:values (module-definitions module-name module-types variant-field-type)
       #:patterns (byte-literal bytes-literal boolean-literal var-expr if-expr begin-expr app-expr
                   varargs-app-expr let-expr case-expr case-clause bytes-pattern byte-pattern
                   lambda-expr
                   variable-pattern ignore-pattern abstraction-pattern function-definition
-                  module imports import variant-definition variant-field type-definition))
+                  module imports import variant-definition variant-field type-definition
+                  var-pre-type fun-pre-type type-app-pre-type))
     (intermediate-to-module-signature
       #:types (ModuleSignature)
       #:values ()
@@ -58,7 +59,8 @@
           (case (validate-module/free-patterns mod pat-env)
             [(just v) (just v)]
             [(nothing)
-             (validate-module/free-types mod type-env)])])]))
+             ;; TODO remove hack of adding -> binding here.
+             (validate-module/free-types mod (set-add type-env #"->"))])])]))
 
 
   (define (validate-module/duplicate-imports [mod : Module])
@@ -296,6 +298,7 @@
     (case defs
       [(empty) acc]
       [(cons (function-definition _ type _ _) defs)
+       ;; Start checking the expression
        (free-types/definitions defs env (free-types/type type env acc))]))
 
 
@@ -322,18 +325,7 @@
     (case variants
       [(empty) acc]
       [(cons (variant-definition name fields) variants)
-       (free-types/variants variants env (free-types/variant-fields fields env acc))]))
-
-
-  (define (free-types/variant-fields
-            [fields : (List VariantField)]
-            [env : (Set Bytes)]
-            [acc : (Set Bytes)]) : (Set Bytes)
-    (case fields
-      [(empty) acc]
-      [(cons (variant-field _ type) fields)
-       (free-types/variant-fields fields env (free-types/type type env acc))]))
-
+       (free-types/variants variants env (free-types/types (map variant-field-type fields) env acc))]))
 
 
   (define (extract-arg [arg+ty : (Tuple2 Bytes PreType)]) : Bytes
@@ -456,6 +448,26 @@
       [(empty) acc]
       [(cons p ps) (free-patterns/patterns ps env (free-patterns/pattern p env acc))]))
 
+  (define (free-types/types [types : (List PreType)] [env : (Set Bytes)] [acc : (Set Bytes)])
+    : (Set Bytes)
+    (case types
+      [(empty) acc]
+      [(cons type types)
+       (free-types/types types env (free-types/type type env acc))]))
+
   (define (free-types/type [type : PreType] [env : (Set Bytes)] [acc : (Set Bytes)])
     : (Set Bytes)
-    acc)) ;; TODO
+    (case type
+      [(var-pre-type v)
+       (if (set-member? env v)
+             acc
+             (set-add acc v))]
+      [(fun-pre-type type-vars args result)
+       (let ([env (set-add-all env type-vars)])
+         (free-types/types args env
+            (free-types/type result env acc)))]
+      [(type-app-pre-type constructor args)
+       (let ([acc (free-types/types args env acc)])
+         (if (set-member? env constructor)
+             acc
+             (set-add acc constructor)))])))
