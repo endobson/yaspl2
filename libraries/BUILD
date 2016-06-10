@@ -554,6 +554,15 @@ yaspl_bootstrap_library(
   srcs = ["tuples.yaspl"],
 )
 
+yaspl_bootstrap_library(
+  name = "types",
+  srcs = ["types.yaspl"],
+  deps = [
+    ":list",
+  ]
+)
+
+
 yaspl_library(
   name = "udp",
   srcs = ["udp.yaspl"],
