@@ -196,6 +196,18 @@ yaspl_bootstrap_library(
 )
 
 yaspl_bootstrap_library(
+  name = "intermediate-to-static-module-signature",
+  srcs = ["intermediate-to-static-module-signature.yaspl"],
+  deps = [
+    ":bytes",
+    ":dict",
+    ":intermediate-language",
+    ":types",
+  ]
+)
+
+
+yaspl_bootstrap_library(
   name = "io",
   srcs = ["io.yaspl"],
   deps = [
