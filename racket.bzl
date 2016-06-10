@@ -20,11 +20,13 @@ def _bin_impl(ctx):
     'SCRIPT_DIR="`pwd`";\n' +
     'popd  > /dev/null\n' +
     'unset PLTCOMPILEDROOTS\n' +
-    'exec "$SCRIPT_DIR/%s.runfiles/%s" -U ' % (
+    'exec "$SCRIPT_DIR/%s.runfiles/%s/%s" -U ' % (
        ctx.label.name,
+       ctx.workspace_name,
        _racket_binary_path(ctx)) +
-    '-u "$SCRIPT_DIR/%s.runfiles/%s" "$@"\n'% (
+    '-u "$SCRIPT_DIR/%s.runfiles/%s/%s" "$@"\n'% (
        ctx.label.name,
+       ctx.workspace_name,
        script_path)
   )
 
