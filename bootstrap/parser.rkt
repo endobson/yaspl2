@@ -54,7 +54,7 @@
 (define (parse-exports exports)
   (match exports
    [(list)
-    (list)]
+    (exports& empty empty empty) ]
    [(list
       #:types (list (? symbol? types) ...)
       #:values (list (? symbol? values) ...)

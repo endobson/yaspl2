@@ -192,6 +192,7 @@ yaspl_bootstrap_library(
     ":list",
     ":tuples",
     ":source-language",
+    ":types",
   ]
 )
 
