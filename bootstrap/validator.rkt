@@ -64,7 +64,7 @@
            [(case-clause& pattern expr)
             (define binders (pattern-binding-variables pattern empty))
             (when (check-duplicates binders)
-              (error 'ensure-no-free-variables "Duplicate binder in ~a" binders))
+              (raise-user-error 'ensure-no-free-variables "Duplicate binder in ~a" binders))
             ((recur/env (set-union env (list->set binders))) expr)]))]))
 
 
@@ -113,11 +113,11 @@
      (match (hash-ref type-env constructor)
        [(data-ty-constructor mod-name ty-name arg-kinds)
         (unless (= (length args) (length arg-kinds))
-          (error 'parse-type "Type constructor applied to wrong number of arguments"))
+          (raise-user-error 'parse-type "Type constructor applied to wrong number of arguments"))
         (data-ty mod-name ty-name (map parse-type args))]
        [(array-ty-constructor)
         (unless (= (length args) 1)
-          (error 'parse-type "Array type constructor applied to wrong number of arguments"))
+          (raise-user-error 'parse-type "Array type constructor applied to wrong number of arguments"))
         (array-ty (parse-type (first args)))])]))
 
 (define (construct-module-signature module module-signatures)
@@ -144,9 +144,10 @@
                       (match (hash-ref (module-signature-types (hash-ref module-signatures src-mod))
                                        exported-name
                                        (lambda ()
-                                         (error 'validator 
-                                                "Module ~s doesn`t have exported type ~a"
-                                                src-mod exported-name)))
+                                         (raise-user-error
+                                           'validator 
+                                           "Module ~s doesn`t have exported type ~a"
+                                           src-mod exported-name)))
                         [(inductive-signature orig-mod-name ty-name #f variants)
                          (data-ty orig-mod-name ty-name empty)]
                         [(inductive-signature orig-mod-name ty-name type-vars variants)
@@ -196,9 +197,10 @@
                      (hash-ref (module-signature-exports (hash-ref module-signatures src-mod))
                                exported-name
                                (lambda ()
-                                 (error 'validator 
-                                        "Error validating ~s: Module ~s doesn`t have exported value ~a"
-                                        module-name src-mod exported-name))))]))
+                                 (raise-user-error
+                                   'validator 
+                                   "Error validating ~s: Module ~s doesn`t have exported value ~a"
+                                   module-name src-mod exported-name))))]))
 
 
 
@@ -239,9 +241,10 @@
                  mut-pattern-env
                  local-name
                  (hash-ref (module-signature-patterns (hash-ref module-signatures src-mod)) exported-name
-                           (lambda () (error 'import-pattern
-                                             "No pattern '~s' exported by ~s. (Imported by ~s)"
-                                             exported-name src-mod module-name))))]))
+                           (lambda () (raise-user-error
+                                        'import-pattern
+                                        "No pattern '~s' exported by ~s. (Imported by ~s)"
+                                        exported-name src-mod module-name))))]))
            mut-pattern-env)))
 
 
@@ -293,15 +296,16 @@
              (for/first ([ind-sig (in-list module-inductive-signatures)]
                          #:when (equal? (inductive-signature-name ind-sig) in-name))
                ind-sig)
-             (error 'bad-export "No datatype with name ~a" in-name)))))
+             (raise-user-error 'bad-export "No datatype with name ~a" in-name)))))
 
      (define exported-pattern-bindings
        (for/hash ([export (exports&-patterns exports)])
          (match-define (export& in-name out-name) export)
          (values out-name (hash-ref pattern-env in-name
-                                    (lambda () (error 'export-pattern
-                                                      "No pattern '~s' exported by ~s"
-                                                      in-name module-name))))))
+                                    (lambda () (raise-user-error
+                                                 'export-pattern
+                                                 "No pattern '~s' exported by ~s"
+                                                 in-name module-name))))))
 
      (module-signature
        module-name
@@ -459,8 +463,9 @@
        actual-type]
       [else
        (unless (equal? actual-type expected-type)
-         (error 'type-check "Types don't match: Got ~s but expected ~s in ~s"
-                actual-type expected-type expr))]))
+         (raise-user-error
+           'type-check "Types don't match: Got ~s but expected ~s in ~s"
+           actual-type expected-type expr))]))
   (match expr
     [(byte& _) (check (byte-ty))]
     [(bytes& _) (check (bytes-ty))]
@@ -484,9 +489,9 @@
         (match-define-values (type-vars (cons body-type arg-types))
           (freshen-types stale-type-vars (cons stale-body-type stale-arg-types)))
         (unless (equal? (length arg-types) (length args))
-          (error 'type-check "Cannot apply function: Got ~s but expected ~s arguments"
-                 (length args)
-                 (length arg-types)))
+          (raise-user-error 'type-check "Cannot apply function: Got ~s but expected ~s arguments"
+                           (length args)
+                           (length arg-types)))
         (cond
           [(unknown-ty? type)
            (cond
@@ -515,11 +520,11 @@
         (match-define-values (type-vars (cons body-type arg-types))
           (freshen-types stale-type-vars (cons stale-body-type stale-arg-types)))
         (unless (equal? (length arg-types) 1)
-          (error 'type-check "Cannot varags apply function: It has ~s arguments."
-                 (length arg-types)))
+          (raise-user-error 'type-check "Cannot varags apply function: It has ~s arguments."
+                            (length arg-types)))
         (unless (array-ty? (first arg-types))
-          (error 'type-check "Cannot varags apply function: Its argument (~s) isn't an array."
-                 (first arg-types)))
+          (raise-user-error 'type-check "Cannot varags apply function: Its argument (~s) isn't an array."
+                            (first arg-types)))
         (match-define (array-ty element-ty) (first arg-types))
         (cond
           [(unknown-ty? type)
@@ -573,9 +578,9 @@
                  ((type-check/env env) body body-type)
                  body-type)))]
           [(fun-ty (list) arg-types body-type)
-           (error 'typecheck "Expected a polymorphic function: got a lambda expression")]
+           (raise-user-error 'typecheck "Expected a polymorphic function: got a lambda expression")]
           [_
-           (error 'typecheck "Expected a non function: got a lambda expression")])])]
+           (raise-user-error 'typecheck "Expected a non function: got a lambda expression")])])]
     [(case& expr clauses)
      (check-patterns-complete/not-useless env (map case-clause&-pattern clauses))
 
@@ -603,7 +608,7 @@
 
      (when (unknown-ty? type)
        (unless (= (set-count types) 1)
-         (error 'type-infer "Case clauses have conflicting result types"))
+         (raise-user-error 'type-infer "Case clauses have conflicting result types"))
        (set-first types))]))
 
 (define (fresh-ty-var sym)
@@ -759,10 +764,10 @@
       (define-values (unmatched matched)
         (abstract-match/many pattern incoming-abstract-values))
       (when (set-empty? matched)
-        (error 'pattern-match "Unmatchable pattern: ~s" pattern))
+        (raise-user-error 'pattern-match "Unmatchable pattern: ~s" pattern))
       unmatched))
   (unless (set-empty? unmatched)
-    (error 'pattern-match "Unmatched values: ~s in ~s" unmatched patterns)))
+    (raise-user-error 'pattern-match "Unmatched values: ~s in ~s" unmatched patterns)))
 
 
 
