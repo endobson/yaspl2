@@ -40,6 +40,10 @@
       #:types (ModuleSignature)
       #:values ()
       #:patterns ())
+    (intermediate-to-static-module-signature
+      #:types (StaticModuleSignature)
+      #:values (module->static-module-signature)
+      #:patterns ())
     (source-to-intermediate-language source->intermediate)
     (stack-machine-optimizer optimize-tlos)
     (x86-64-stack-machine write-fragments convert-objects)
@@ -58,6 +62,7 @@
   (define (compile-main-module
             [main-module : Module]
             [mods : (List Module)]
+            [static-sigs : (List StaticModuleSignature)]
             [sigs : (List ModuleSignature)]
             [known-funcs : (Dict Bytes Bytes)])
     : (Either Bytes (List TopLevelObject))
@@ -76,11 +81,15 @@
          [(just v)
           (left v)]
          [(nothing)
-          (case (compile-module (source->intermediate mod (empty)) sigs)
-            [(left v) (left v)]
-            [(right (compiled-module tlos sig))
-             (compile-main-module main-module mods (cons sig sigs)
-                                  (add-known-functions tlos known-funcs))])])]))
+          (let ([intermediate (source->intermediate mod static-sigs)])
+            (let ([static-sig (module->static-module-signature intermediate static-sigs)])
+              (case (compile-module intermediate sigs)
+                [(left v) (left v)]
+                [(right (compiled-module tlos sig))
+                 (compile-main-module main-module mods
+                                      (cons static-sig static-sigs)
+                                      (cons sig sigs)
+                                      (add-known-functions tlos known-funcs))])))])]))
 
   (define (add-known-functions [tlos : (List TopLevelObject)]
                                [dict : (Dict Bytes Bytes)]) : (Dict Bytes Bytes)
@@ -135,6 +144,7 @@
                  (case (compile-main-module
                          main-module
                          (reverse other-modules)
+                         (empty)
                          (cons (prim-signature) (empty))
                          (add-known-functions (prim-implementation) (make-dict bytes=?)))
                    [(left v)
