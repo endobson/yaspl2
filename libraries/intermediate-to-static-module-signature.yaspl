@@ -4,13 +4,14 @@
       #:types (Bytes)
       #:values (panic)
       #:patterns ())
+    (bytes bytes-append)
     (maybe
       #:types ()
       #:values ()
       #:patterns (nothing just))
     (list
       #:types (List)
-      #:values (empty map)
+      #:values (empty map list)
       #:patterns (empty cons))
     (types
       #:types (Type)
@@ -26,12 +27,12 @@
       #:values ()
       #:patterns (module))
     (source-language
-      #:types (Imports TypeDefinition Exports)
+      #:types (Imports TypeDefinition Exports Import)
       #:values ()
-      #:patterns (type-definition)))
+      #:patterns (type-definition import imports)))
   (export
     #:types (StaticModuleSignature)
-    #:values (module->static-module-signature)
+    #:values (static-module-signature module->static-module-signature)
     #:patterns ())
   (types
     (define-type StaticModuleSignature
@@ -65,8 +66,9 @@
   (define (module-type-environment [mod : Module] [sigs : (List StaticModuleSignature)])
     : (Dict Bytes Type)
     (case mod
-      [(module name _ _ types _ _ _)
-       (add-type-definitions name types (make-dict bytes=?))]))
+      [(module name importss _ types _ _ _)
+       (add-imported-types/importss importss sigs
+         (add-type-definitions name types (make-dict bytes=?)))]))
 
   (define (add-type-definitions [mod-name : Bytes] [types : (List TypeDefinition)] [env : (Dict Bytes Type)])
     : (Dict Bytes Type)
@@ -82,4 +84,37 @@
          mod-name
          types
          (dict-add env name
-            (type-constructor mod-name name (map (lambda ([v : Bytes]) (star-kind)) syms))))])))
+            (type-constructor mod-name name (map (lambda ([v : Bytes]) (star-kind)) syms))))]))
+
+  (define (add-imported-types/importss
+            [importss : (List Imports)]
+            [sigs : (List StaticModuleSignature)]
+            [env : (Dict Bytes Type)])
+    : (Dict Bytes Type)
+    (case importss
+      [(empty) env]
+      [(cons (imports module-name types _ _) importss)
+       (add-imported-types/importss
+         importss
+         sigs
+         (add-imported-types module-name types
+           (static-module-signature-type-bindings (lookup-signature module-name sigs)) env))]))
+
+  (define (add-imported-types
+            [module-name : Bytes]
+            [types : (List Import)]
+            [external-types : (Dict Bytes Type)]
+            [env : (Dict Bytes Type)])
+    : (Dict Bytes Type)
+    (case types
+      [(empty) env]
+      [(cons (import external-name local-name) types)
+       (add-imported-types
+         module-name
+         types
+         external-types
+         (dict-add env local-name
+            (case (dict-ref external-types external-name)
+              [(nothing) (panic (bytes-append (varargs list #"No type " external-name #" exported by "
+                                                       module-name)))]
+              [(just type) type])))])))
