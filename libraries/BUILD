@@ -203,6 +203,7 @@ yaspl_bootstrap_library(
     ":bytes",
     ":dict",
     ":intermediate-language",
+    ":list",
     ":types",
   ]
 )
@@ -482,11 +483,18 @@ yaspl_bootstrap_library(
   name = "source-to-intermediate-language",
   srcs = ["source-to-intermediate-language.yaspl"],
   deps = [
+    ":bytes",
     ":dict",
     ":free-variables",
     ":intermediate-language",
+    ":intermediate-to-static-module-signature",
+    ":list",
+    ":maybe",
+    ":numbers",
+    ":set",
     ":source-language",
     ":tuples",
+    ":types",
   ]
 )
 
