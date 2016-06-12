@@ -40,6 +40,10 @@
       #:types (ModuleSignature)
       #:values (module-signature)
       #:patterns ())
+    (intermediate-to-static-module-signature
+      #:types (StaticModuleSignature)
+      #:values (module->static-module-signature)
+      #:patterns ())
     (source-to-intermediate-language source->intermediate)
     (stack-machine-optimizer optimize-tlos)
     (x86-64-stack-machine compile-stack-machine)
@@ -57,6 +61,7 @@
 
   (define (compile-modules
             [mods : (List Module)]
+            [static-sigs : (List StaticModuleSignature)]
             [sigs : (List ModuleSignature)]
             [funcs : (List TopLevelObject)])
     : (Either Bytes (List TopLevelObject))
@@ -68,10 +73,12 @@
          [(just v)
           (left v)]
          [(nothing)
-          (case (compile-module (source->intermediate mod (empty)) sigs)
-            [(left v) (left v)]
-            [(right (compiled-module new-funcs sig))
-             (compile-modules mods (cons sig sigs) (append new-funcs funcs))])])]))
+          (let ([intermediate (source->intermediate mod static-sigs)])
+            (let ([static-sig (module->static-module-signature intermediate static-sigs)])
+              (case (compile-module intermediate sigs)
+                [(left v) (left v)]
+                [(right (compiled-module new-funcs sig))
+                 (compile-modules mods (cons static-sig static-sigs) (cons sig sigs) (append new-funcs funcs))])))])]))
 
 (define (add-known-functions [tlos : (List TopLevelObject)]
                                [dict : (Dict Bytes Bytes)]) : (Dict Bytes Bytes)
@@ -134,6 +141,7 @@
                        [(right modules)
                         (case (compile-modules
                                 modules
+                                (empty)
                                 (cons (prim-signature) (empty))
                                 (prim-implementation))
                           [(left v)
