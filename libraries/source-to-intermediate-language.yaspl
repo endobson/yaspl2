@@ -2,16 +2,16 @@
   (import
     (prim
       #:types (Byte Bytes)
-      #:values (+)
+      #:values (+ = panic)
       #:patterns ())
     (bytes bytes-append bytes=?)
     (dict
       #:types (Dict)
-      #:values (make-dict dict-ref)
+      #:values (make-dict dict-ref dict-add)
       #:patterns ())
     (list
       #:types (List)
-      #:values (empty cons list map)
+      #:values (empty cons list map length)
       #:patterns (empty cons))
     (maybe
       #:types (Maybe)
@@ -19,8 +19,8 @@
       #:patterns (just nothing))
     (types
       #:types (Type)
-      #:values (var-type fun-type)
-      #:patterns ())
+      #:values (var-type fun-type abstract-type)
+      #:patterns (type-constructor))
     (set
       #:types (Set)
       #:values (set->list set-remove-all)
@@ -133,7 +133,7 @@
           (add-function
             (i:function-definition
               (bytes-append (varargs list name #"-code"))
-              (convert-type env type)
+              (convert-type (environment-type-bindings env) type)
               args (empty) i:body)
             acc)])]))
 
@@ -295,13 +295,34 @@
       [(state funcs bytes counter)
        (tuple2 counter (state funcs bytes (+ 1 counter)))]))
 
-  (define (convert-type [env : Environment] [type : PreType]) : Type
+  (define (convert-type [type-bindings : (Dict Bytes Type)] [type : PreType]) : Type
     (case type
-      [(var-pre-type v) (var-type v)]
+      [(var-pre-type v)
+       (case (dict-ref type-bindings v)
+         [(just t)
+          t]
+         [_ (panic (bytes-append (varargs list #"No type is bound for " v)))])]
       [(fun-pre-type type-vars args result)
-       (fun-type
-         type-vars
-         (map (lambda ([t : PreType]) (convert-type env t)) args)
-         (convert-type env result))]
+       (let ([type-bindings (add-type-vars type-vars type-bindings)])
+         (fun-type
+           type-vars
+           (map (lambda ([t : PreType]) (convert-type type-bindings t)) args)
+           (convert-type type-bindings result)))]
       [(type-app-pre-type constructor args)
-       (var-type #"bogus")])))
+       (case (dict-ref type-bindings constructor)
+         [(just (type-constructor mod name kinds))
+          (if (= (length kinds) (length args))
+              (abstract-type
+                mod name
+                (map (lambda ([t : PreType]) (convert-type type-bindings t)) args))
+              (panic #"Wrong number of type args."))]
+         [(just _)
+          (panic #"Type is not bound to a type constructor")]
+         [_ (panic (bytes-append (varargs list #"No type is bound for " constructor)))])]))
+
+  (define (add-type-vars [type-vars : (List Bytes)] [type-bindings : (Dict Bytes Type)])
+    : (Dict Bytes Type)
+    (case type-vars
+      [(empty) type-bindings]
+      [(cons type-var type-vars)
+       (add-type-vars type-vars (dict-add type-bindings type-var (var-type type-var)))])))
