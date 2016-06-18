@@ -115,6 +115,7 @@ yaspl_bootstrap_library(
     ":stack-machine",
     ":stack-machine-optimizer",
     ":tuples",
+    ":type-checker",
     ":validator",
     ":x86-64-stack-machine",
  ]
@@ -285,6 +286,7 @@ yaspl_bootstrap_library(
     ":stack-machine",
     ":stack-machine-optimizer",
     ":tuples",
+    ":type-checker",
     ":validator",
     ":x86-64-stack-machine",
  ]
@@ -582,6 +584,17 @@ yaspl_bootstrap_library(
     ":list",
   ]
 )
+
+yaspl_bootstrap_library(
+  name = "type-checker",
+  srcs = ["type-checker.yaspl"],
+  deps = [
+    ":intermediate-language",
+    ":types",
+    ":maybe",
+  ]
+)
+
 
 
 yaspl_library(
