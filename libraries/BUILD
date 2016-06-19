@@ -73,7 +73,7 @@ yaspl_binary(
 )
 
 
-yaspl_library(
+yaspl_bootstrap_library(
   name = "boolean",
   srcs = ["boolean.yaspl"],
 )
@@ -636,6 +636,7 @@ yaspl_bootstrap_library(
   name = "x86-64-stack-machine",
   srcs = ["x86-64-stack-machine.yaspl"],
   deps = [
+    ":boolean",
     ":bytes",
     ":either",
     ":io",
