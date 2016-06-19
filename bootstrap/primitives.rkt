@@ -105,6 +105,8 @@
   [(* [x : Byte] (y : Byte)) : Byte (* x y)]
   [(quotient [x : Byte] (y : Byte)) : Byte (quotient x y)]
   [(remainder [x : Byte] (y : Byte)) : Byte (remainder x y)]
+  [(bitwise-and [x : Byte] (y : Byte)) : Byte (bitwise-and x y)]
+  [(bitwise-ior [x : Byte] (y : Byte)) : Byte (bitwise-ior x y)]
 
   [(= [x : Byte] (y : Byte)) : Boolean (= x y)]
   [(<= [x : Byte] (y : Byte)) : Boolean (<= x y)]

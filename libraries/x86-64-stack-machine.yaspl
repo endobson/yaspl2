@@ -2,7 +2,8 @@
   (import
     (prim
       #:types (Bytes Byte InputPort OutputPort Void Array Boolean)
-      #:values (bytes-length bytes-ref * + - = <= >= panic void > [or or/bool])
+      #:values (bytes-length bytes-ref * + - = <= >= panic void > [or or/bool]
+                bitwise-and bitwise-ior)
       #:patterns ())
     (prim-implementation prim-implementation)
     (boolean
@@ -41,6 +42,7 @@
                   variant-ref-cmd variant-switch bytes-cmp-cmd load-global-cmd
                   no-catch-all-case catch-all-case variant-case
                   bin-math-cmd bin-add-op bin-sub-op bin-mult-op bin-quotient-op bin-remainder-op
+                  bin-bitwise-and-op bin-bitwise-ior-op
                   bin-logic-math-cmd less-than-op less-than-or-equal-op equal-op
                   greater-than-or-equal-op greater-than-op
                   make-array-cmd array-length-cmd array-ref-cmd array-set!-cmd
@@ -296,9 +298,9 @@
               (add-maybe-byte
                 (rex-byte #f #t #f #f (>= rm 8))
                 (varargs bytes #xFF
-                         (+ (* mod #x40)
-                            (+ (* reg #x08)
-                               trimmed-rm)))))]))]
+                         (bitwise-ior (* mod #x40)
+                            (bitwise-ior (* reg #x08)
+                                         trimmed-rm)))))]))]
       [_ (nothing)]))
 
   (define (add-maybe-byte [mv : (Maybe Byte)] [bs : Bytes]) : Bytes
@@ -310,7 +312,11 @@
   (define (rex-byte [necessary : Boolean] [w : Boolean] [r : Boolean] [x : Boolean] [b : Boolean])
     : (Maybe Byte)
     (let ([ind (lambda ([v : Boolean]) (if v 1 0))])
-      (let ([val (+ #x40 (+ (* 8 (ind w)) (+ (* 4 (ind r)) (+ (* 2 (ind x)) (ind b)))))])
+      (let ([val (bitwise-ior #x40
+                   (bitwise-ior (* 8 (ind w))
+                     (bitwise-ior (* 4 (ind r))
+                       (bitwise-ior (* 2 (ind x))
+                                    (ind b)))))])
         (if (or/bool necessary (not/bool (= val #x40)))
             (just val)
             (nothing)))))
@@ -1525,6 +1531,18 @@
          (movq (imm 0) (reg (rdx)))
          (idivq (rcx))
          (pushq (reg (rdx))))]
+      [(bin-math-cmd (bin-bitwise-and-op))
+       (varargs join-list
+         (pop (reg (rcx)))
+         (pop (reg (rax)))
+         (and (reg (rcx)) (rax))
+         (pushq (reg (rax))))]
+      [(bin-math-cmd (bin-bitwise-ior-op))
+       (varargs join-list
+         (pop (reg (rcx)))
+         (pop (reg (rax)))
+         (or (rcx) (rax))
+         (pushq (reg (rax))))]
       [(alloc-variant-cmd tag fields)
        (varargs append-jl*
          (single-jl (movq (reg (rbp)) (reg (rax))))
