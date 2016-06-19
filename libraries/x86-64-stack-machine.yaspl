@@ -3,7 +3,7 @@
     (prim
       #:types (Bytes Byte InputPort OutputPort Void Array Boolean)
       #:values (bytes-length bytes-ref * + - = <= >= panic void > [or or/bool]
-                bitwise-and bitwise-ior)
+                bitwise-and bitwise-ior logical-shift-left)
       #:patterns ())
     (prim-implementation prim-implementation)
     (boolean
@@ -43,6 +43,7 @@
                   no-catch-all-case catch-all-case variant-case
                   bin-math-cmd bin-add-op bin-sub-op bin-mult-op bin-quotient-op bin-remainder-op
                   bin-bitwise-and-op bin-bitwise-ior-op
+                  bin-logical-shift-left-op bin-logical-shift-right-op
                   bin-logic-math-cmd less-than-op less-than-or-equal-op equal-op
                   greater-than-or-equal-op greater-than-op
                   make-array-cmd array-length-cmd array-ref-cmd array-set!-cmd
@@ -118,7 +119,8 @@
       (setge [reg Register])
       (setl [reg Register])
       (setle [reg Register])
-      (shr [reg1 Register] [reg2 Register])
+      (shlq [reg Register])
+      (shrq [reg Register])
       (std)
       (sub [rmi RegMemImm] [reg Register])
       (syscall)
@@ -558,12 +560,10 @@
        (varargs join-list #"setl " (register->bytes reg))]
       [(setle reg)
        (varargs join-list #"setle " (register->bytes reg))]
-      [(shr reg1 reg2)
-       (varargs join-list
-          #"shr "
-          (register->bytes reg1)
-          #", "
-          (register->bytes reg2))]
+      [(shlq reg)
+       (varargs join-list #"shlq " (register->bytes reg))]
+      [(shrq reg)
+       (varargs join-list #"shrq " (register->bytes reg))]
       [(std)
        (single-jl #"std")]
       [(sub rmi reg)
@@ -1338,8 +1338,10 @@
       [(num-lit-cmd v)
        ;; TODO fix when yaspl supports larger literals
        (let ([max-lit
-              (let ([shift (+ #xFF 1)])
-                (+ (* shift (+ (* shift (+ (* shift #xFF) #xFF)) #xFF)) #xFF))])
+              (bitwise-ior (logical-shift-left #xFF 0)
+                (bitwise-ior (logical-shift-left #xFF 16)
+                  (bitwise-ior (logical-shift-left #xFF 32)
+                               (logical-shift-left #xFF 48))))])
          (if (> v max-lit)
              (varargs join-list
                (movq (imm v) (reg (rax)))
@@ -1542,6 +1544,19 @@
          (pop (reg (rcx)))
          (pop (reg (rax)))
          (or (rcx) (rax))
+         (pushq (reg (rax))))]
+      ;; TODO check shift amount is valid value
+      [(bin-math-cmd (bin-logical-shift-left-op))
+       (varargs join-list
+         (pop (reg (rcx)))
+         (pop (reg (rax)))
+         (shlq (rax))
+         (pushq (reg (rax))))]
+      [(bin-math-cmd (bin-logical-shift-right-op))
+       (varargs join-list
+         (pop (reg (rcx)))
+         (pop (reg (rax)))
+         (shrq (rax))
          (pushq (reg (rax))))]
       [(alloc-variant-cmd tag fields)
        (varargs append-jl*

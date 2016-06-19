@@ -107,6 +107,9 @@
   [(remainder [x : Byte] (y : Byte)) : Byte (remainder x y)]
   [(bitwise-and [x : Byte] (y : Byte)) : Byte (bitwise-and x y)]
   [(bitwise-ior [x : Byte] (y : Byte)) : Byte (bitwise-ior x y)]
+  ;; TODO (make this not arithmetic shift)
+  [(logical-shift-left [x : Byte] (y : Byte)) : Byte (arithmetic-shift x y)]
+  [(logical-shift-right [x : Byte] (y : Byte)) : Byte (arithmetic-shift x (- y))]
 
   [(= [x : Byte] (y : Byte)) : Boolean (= x y)]
   [(<= [x : Byte] (y : Byte)) : Boolean (<= x y)]
