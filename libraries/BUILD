@@ -48,6 +48,12 @@ yaspl_binary(
 )
 
 yaspl_binary(
+  name = "mach-o",
+  main_module = "mach_o",
+  deps = [":mach-o_lib"]
+)
+
+yaspl_binary(
   name = "main-stub",
   main_module = "main_stub",
   deps = [":main-stub_lib"]
@@ -305,6 +311,16 @@ yaspl_library(
     ":bytes",
     ":io",
     ":list",
+    ":numbers",
+  ]
+)
+
+yaspl_library(
+  name = "mach-o_lib",
+  srcs = ["mach-o.yaspl"],
+  deps = [
+    ":bytes",
+    ":io",
     ":numbers",
   ]
 )
