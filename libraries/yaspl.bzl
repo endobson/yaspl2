@@ -27,6 +27,16 @@ def _lib_impl(ctx):
     arguments = [ctx.outputs.asm.path] + list(transitive_src_paths)
   )
 
+  ctx.action(
+    inputs = [ctx.outputs.asm],
+    outputs = [ctx.outputs.object],
+    mnemonic = "YasplAssemble",
+    command = "as %s -o %s" % (
+      ctx.outputs.asm.path,
+      ctx.outputs.object.path
+    )
+  )
+
   return struct(
     yaspl_transitive_srcs = transitive_srcs,
     yaspl_transitive_asms = transitive_asms + [ctx.outputs.asm]
@@ -166,7 +176,8 @@ _bootstrap_main_stub = attr.label(
 yaspl_library = rule(
   implementation = _lib_impl,
   outputs = {
-    "asm": "%{name}.s"
+    "asm": "%{name}.s",
+    "object": "%{name}.o"
   },
   attrs = {
     "srcs": attr.label_list(
