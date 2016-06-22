@@ -1,8 +1,8 @@
 (module mach-o
   (import
     (prim
-      #:types (Bytes Byte InputPort OutputPort Array)
-      #:values (< = array-length array-ref open-input-file read-bytes make-bytes
+      #:types (Bytes Byte InputPort OutputPort Array Void)
+      #:values (- < = array-length array-ref open-input-file read-bytes make-bytes
                 panic void bytes-ref)
       #:patterns ())
     (io write-line write-all-bytes)
@@ -10,6 +10,31 @@
     (bytes bytes-ref/quad-le make-null-terminated))
   (export)
   (types)
+
+
+  (define (read-section [input : InputPort] [stdout : OutputPort]) : Void
+    (let ([standard-header (make-bytes 8)])
+      (begin
+        (if (= 8 (read-bytes standard-header input 0 8))
+            (void)
+            (panic #"Not enough bytes"))
+        (write-all-bytes #"command:\n  0x" stdout)
+        (write-line (integer->hex-bytes (bytes-ref/quad-le standard-header 0)) stdout)
+        (write-all-bytes #"command size:\n  0x" stdout)
+        (let ([command-size (bytes-ref/quad-le standard-header 4)])
+          (begin
+            (write-line (integer->hex-bytes command-size) stdout)
+            (let ([command-buffer (make-bytes (- command-size 8))])
+              (if (= (- command-size 8) (read-bytes command-buffer input 0 (- command-size 8)))
+                  (void)
+                  (panic #"Not enough bytes"))))))))
+
+  (define (read-sections [num-sections : Byte] [input : InputPort] [stdout : OutputPort]) : Void
+    (if (= num-sections 0)
+        (void)
+        (begin
+          (read-section input stdout)
+          (read-sections (- num-sections 1) input stdout))))
 
   (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Byte
     (if (< (array-length args) 2)
@@ -38,4 +63,5 @@
               (write-line (integer->hex-bytes (bytes-ref/quad-le header 24)) stdout)
               (write-all-bytes #"reserved:\n  0x" stdout)
               (write-line (integer->hex-bytes (bytes-ref/quad-le header 28)) stdout)
+              (read-sections 7 input stdout)
               0))))))
