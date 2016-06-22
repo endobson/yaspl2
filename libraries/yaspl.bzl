@@ -11,12 +11,19 @@ def _transitive_asms(ctx):
     transitive_asms += dep.yaspl_transitive_asms
   return transitive_asms
 
+def _transitive_objects(ctx):
+  transitive_objects = set(order="link")
+  for dep in ctx.attr.deps:
+    transitive_objects += dep.yaspl_transitive_objects
+  return transitive_objects
+
 
 
 def _lib_impl(ctx):
 
   transitive_srcs = _transitive_srcs(ctx)
   transitive_asms = _transitive_asms(ctx)
+  transitive_objects = _transitive_objects(ctx)
   transitive_src_paths = [src.path for src in transitive_srcs]
 
   ctx.action(
@@ -39,7 +46,8 @@ def _lib_impl(ctx):
 
   return struct(
     yaspl_transitive_srcs = transitive_srcs,
-    yaspl_transitive_asms = transitive_asms + [ctx.outputs.asm]
+    yaspl_transitive_asms = transitive_asms + [ctx.outputs.asm],
+    yaspl_transitive_objects = transitive_objects + [ctx.outputs.object]
   )
 
 def _src_impl(ctx):
@@ -69,30 +77,20 @@ def _bin_impl(ctx):
     ]
   )
 
-  input_asms = list(_transitive_asms(ctx)) + [ctx.outputs.main_stub_asm]
-  input_asm_paths = [asm.path for asm in input_asms]
   ctx.action(
-    inputs = input_asms,
-    outputs = [ctx.outputs.asm],
-    mnemonic = "YasplCombineAssembly",
-    command = "cat %s > %s" % (
-      " ".join(input_asm_paths),
-      ctx.outputs.asm.path
-    )
-  )
-
-  ctx.action(
-    inputs = [ctx.outputs.asm],
-    outputs = [ctx.outputs.object],
+    inputs = [ctx.outputs.main_stub_asm],
+    outputs = [ctx.outputs.main_stub_object],
     mnemonic = "YasplAssemble",
     command = "as %s -o %s" % (
-      ctx.outputs.asm.path,
-      ctx.outputs.object.path
+      ctx.outputs.main_stub_asm.path,
+      ctx.outputs.main_stub_object.path
     )
   )
 
+  input_objects = list(_transitive_objects(ctx)) + [ctx.outputs.main_stub_object]
+  input_object_paths = [obj.path for obj in input_objects]
   ctx.action(
-    inputs = [ctx.outputs.object],
+    inputs = input_objects,
     outputs = [ctx.outputs.executable],
     mnemonic = "YasplLink",
     command = "ld -arch x86_64 " +
@@ -101,50 +99,8 @@ def _bin_impl(ctx):
     "-no_uuid " +
     "-sectcreate __DATA __data /dev/null " +
     "%s -o %s" % (
-      ctx.outputs.object.path,
+      " ".join(input_object_paths),
       ctx.outputs.executable.path
-    )
-  )
-
-def _test_impl(ctx):
-
-  transitive_srcs = _transitive_srcs(ctx)
-  transitive_src_paths = [src.path for src in transitive_srcs]
-
-  ctx.action(
-    inputs = list(transitive_srcs),
-    outputs = [ctx.outputs.asm],
-    mnemonic = "YasplCompile",
-    executable = ctx.executable._compiler,
-    arguments = [
-      ctx.outputs.asm.path,
-      ctx.attr.main_module,
-    ] + transitive_src_paths
-  )
-
-
-  ctx.action(
-    inputs = [ctx.outputs.object],
-    outputs = [ctx.outputs.executable],
-    mnemonic = "YasplLink",
-    command = "ld -arch x86_64 " +
-    "-macosx_version_min 10.11 " +
-    "-static " +
-    "-no_uuid " +
-    "-sectcreate __DATA __data /dev/null " +
-    "%s -o %s" % (
-      ctx.outputs.object.path,
-      ctx.outputs.executable.path
-    )
-  )
-
-  ctx.action(
-    inputs = [ctx.outputs.asm],
-    outputs = [ctx.outputs.object],
-    mnemonic = "YasplAssemble",
-    command = "as %s -o %s" % (
-      ctx.outputs.asm.path,
-      ctx.outputs.object.path
     )
   )
 
@@ -193,9 +149,8 @@ yaspl_library = rule(
 yaspl_binary = rule(
   implementation = _bin_impl,
   outputs = {
-    "asm": "%{name}.s",
     "main_stub_asm": "%{name}_main.s",
-    "object": "%{name}.o",
+    "main_stub_object": "%{name}_main.o",
   },
   executable = True,
   attrs = {
@@ -209,9 +164,8 @@ yaspl_binary = rule(
 yaspl_prim_test = rule(
   implementation = _bin_impl,
   outputs = {
-    "asm": "%{name}.s",
     "main_stub_asm": "%{name}_main.s",
-    "object": "%{name}.o",
+    "main_stub_object": "%{name}_main.o",
   },
   executable = True,
   test=True,
