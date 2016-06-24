@@ -54,6 +54,12 @@ yaspl_binary(
 )
 
 yaspl_binary(
+  name = "mach-o-writer",
+  main_module = "mach_o_writer",
+  deps = [":mach-o-writer_lib"]
+)
+
+yaspl_binary(
   name = "main-stub",
   main_module = "main_stub",
   deps = [":main-stub_lib"]
@@ -318,6 +324,16 @@ yaspl_library(
 yaspl_library(
   name = "mach-o_lib",
   srcs = ["mach-o.yaspl"],
+  deps = [
+    ":bytes",
+    ":io",
+    ":numbers",
+  ]
+)
+
+yaspl_library(
+  name = "mach-o-writer_lib",
+  srcs = ["mach-o-writer.yaspl"],
   deps = [
     ":bytes",
     ":io",
