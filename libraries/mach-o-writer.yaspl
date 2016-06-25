@@ -2,12 +2,12 @@
   (import
     (prim
       #:types (Bytes Byte InputPort OutputPort Array Void)
-      #:values (+ - > < = array-length array-ref open-output-file read-bytes make-bytes
+      #:values (* + - > < = array-length array-ref open-output-file read-bytes make-bytes
                 bytes-length panic void bytes-ref)
       #:patterns ())
     (list
       #:types (List)
-      #:values (list length)
+      #:values (list length empty)
       #:patterns (cons empty))
     (io write-line write-all-bytes)
     (numbers integer->hex-bytes integer->decimal-bytes)
@@ -20,9 +20,23 @@
       (lc-unix-thread)
       (lc-load-segment64 [v LoadSegment64]))
     (define-type LoadSegment64
-      (load-segment64 [name Bytes] [vm-addr Byte] [vm-size Byte] [file-offset Byte] [file-size Byte]))
-    (define-type Section
-      (section [name Bytes])))
+      (load-segment64
+        [name Bytes]
+        [vm-addr Byte]
+        [vm-size Byte]
+        [file-offset Byte]
+        [file-size Byte]
+        [max-protection Byte]
+        [init-protection Byte]
+        [sections (List Section64)]))
+
+    (define-type Section64
+      (section64
+        [name Bytes]
+        [addr Byte]
+        [size Byte]
+        [offset Byte]
+        [flags Byte])))
 
 
   (define (write-quad-le [v : Byte] [output : OutputPort]) : Void
@@ -48,7 +62,8 @@
   (define (load-command-size [lc : MachOLoadCommand]) : Byte
     (case lc
       [(lc-unix-thread) #xb8]
-      [(lc-load-segment64 _) #x98]))
+      [(lc-load-segment64 (load-segment64 _ _ _ _ _ _ _ sections))
+       (+ 72 (* (length sections) 80))]))
 
 
   (define (write-mach-o-header [header : MachOHeader] [output : OutputPort]) : Void
@@ -96,12 +111,12 @@
 
   (define (write-load-segment64 [seg : LoadSegment64] [output : OutputPort]) : Void
     (case seg
-      [(load-segment64 name vm-addr vm-size file-offset file-size)
+      [(load-segment64 name vm-addr vm-size file-offset file-size max-protection init-protection sections)
        (begin
          ;; LC_SEGMENT_64
          (write-quad-le #x19 output)
          ;; Command size
-         (write-quad-le #x98 output)
+         (write-quad-le (+ 72 (* (length sections) 80)) output)
 
          (write-16-byte-name name output)
 
@@ -111,31 +126,41 @@
          (write-octo-le file-offset output)
          (write-octo-le file-size output)
 
-         (write-quad-le #x07 output)
-         (write-quad-le #x05 output)
-         (write-quad-le #x01 output)
+         (write-quad-le max-protection output)
+         (write-quad-le init-protection output)
+         (write-quad-le (length sections) output)
          (write-quad-le #x00 output)
-         (write-section name output))]))
 
-  (define (write-section [seg-name : Bytes] [output : OutputPort]) : Void
-    (begin
-      (write-16-byte-name #"__text" output)
-      (write-16-byte-name seg-name output)
+         (write-sections name sections output))]))
+
+  (define (write-sections [seg-name : Bytes] [sections : (List Section64)] [output : OutputPort]) : Void
+    (case sections
+      [(empty) (void)]
+      [(cons section sections)
+       (begin
+         (write-section seg-name section output)
+         (write-sections seg-name sections output))]))
+
+  (define (write-section [seg-name : Bytes] [section : Section64] [output : OutputPort]) : Void
+    (case section
+      [(section64 name addr size offset flags)
+       (begin
+         (write-16-byte-name name output)
+         (write-16-byte-name seg-name output)
+
+         (write-octo-le addr output)
+         (write-octo-le size output)
+         (write-quad-le offset output)
+
+         (write-quad-le #x00 output)
+         (write-quad-le #x00 output)
+         (write-quad-le #x00 output)
 
 
-      (write-octo-le #x0001000000000000 output)
-      (write-octo-le #x0000000000000100 output)
-
-      (write-quad-le #x00 output)
-      (write-quad-le #x00 output)
-      (write-quad-le #x00 output)
-      (write-quad-le #x00 output)
-
-
-      (write-quad-le #x80000400 output)
-      (write-quad-le #x00 output)
-      (write-quad-le #x00 output)
-      (write-quad-le #x00 output)))
+         (write-quad-le flags output)
+         (write-quad-le #x00 output)
+         (write-quad-le #x00 output)
+         (write-quad-le #x00 output))]))
 
 
   (define (write-unix-thread [output : OutputPort]) : Void
@@ -212,13 +237,38 @@
                       #x0000000000000000
                       #x0000000100000000
                       0
-                      0))
+                      0
+                      0
+                      0
+                      (empty)))
                   (lc-load-segment64
                     (load-segment64 #"__TEXT"
                       #x0000000100000000
-                      #x0000000000001000
+                      #x0000000000005000
                       0
-                      0))
+                      #x5000
+                      7
+                      5
+                      (varargs list
+                        (section64 #"__text"
+                          #x0000000100000e08
+                          #x0000000000003cdb
+                          #x0e08
+                          #x80000400)
+                        (section64 #"__const"
+                          #x0000000100004ae3
+                          #x000000000000051d
+                          #x4ae3
+                          #x00))))
+                  (lc-load-segment64
+                    (load-segment64 #"__DATA"
+                      #x0000000100001000
+                      #x0000000000000000
+                      0
+                      0
+                      0
+                      0
+                      (empty)))
                   (lc-unix-thread)))
               output)
             0)))))
