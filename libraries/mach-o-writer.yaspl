@@ -2,109 +2,149 @@
   (import
     (prim
       #:types (Bytes Byte InputPort OutputPort Array Void)
-      #:values (- < = array-length array-ref open-output-file read-bytes make-bytes
-                panic void bytes-ref)
+      #:values (+ - > < = array-length array-ref open-output-file read-bytes make-bytes
+                bytes-length panic void bytes-ref)
       #:patterns ())
+    (list
+      #:types (List)
+      #:values (list length)
+      #:patterns (cons empty))
     (io write-line write-all-bytes)
     (numbers integer->hex-bytes integer->decimal-bytes)
-    (bytes bytes bytes-ref/quad-le make-null-terminated))
+    (bytes bytes bytes-ref/quad-le bytes-set!/octo-le bytes-set!/quad-le make-null-terminated))
   (export)
   (types
     (define-type MachOHeader
-      (mach-o-header)))
+      (mach-o-header [commands (List MachOLoadCommand)]))
+    (define-type MachOLoadCommand
+      (lc-unix-thread)
+      (lc-load-segment64 [v LoadSegment64]))
+    (define-type LoadSegment64
+      (load-segment64 [name Bytes] [vm-addr Byte] [vm-size Byte] [file-offset Byte] [file-size Byte]))
+    (define-type Section
+      (section [name Bytes])))
+
+
+  (define (write-quad-le [v : Byte] [output : OutputPort]) : Void
+    (let ([bytes (make-bytes 4)])
+      (begin
+        (bytes-set!/quad-le bytes 0 v)
+        (write-all-bytes bytes output))))
+
+  (define (write-octo-le [v : Byte] [output : OutputPort]) : Void
+    (let ([bytes (make-bytes 8)])
+      (begin
+        (bytes-set!/octo-le bytes 0 v)
+        (write-all-bytes bytes output))))
+
+
+  (define (load-commands-size [lcs : (List MachOLoadCommand)]) : Byte
+    (case lcs
+      [(empty) 0]
+      [(cons lc lcs)
+       (+ (load-command-size lc) (load-commands-size lcs))]))
+
+
+  (define (load-command-size [lc : MachOLoadCommand]) : Byte
+    (case lc
+      [(lc-unix-thread) #xb8]
+      [(lc-load-segment64 _) #x98]))
 
 
   (define (write-mach-o-header [header : MachOHeader] [output : OutputPort]) : Void
+    (case header
+      [(mach-o-header commands)
+       (begin
+         (write-quad-le #xfeedfacf output)
+         ;; CPU type
+         (write-quad-le #x01000007 output)
+         ;; CPU subtype
+         (write-quad-le #x03 output)
+         ;; File type
+         (write-quad-le #x02 output)
+
+         ;; Number of commands
+         (write-quad-le (length commands) output)
+         ;; Size of commands
+         (write-quad-le (load-commands-size commands) output)
+
+         ;; Flags
+         (write-quad-le #x01  output)
+         ;; Reserved
+         (write-quad-le #x00 output)
+
+         (write-load-commands commands output))]))
+
+  (define (write-load-commands [commands : (List MachOLoadCommand)] [output : OutputPort]) : Void
+    (case commands
+      [(empty) (void)]
+      [(cons (lc-unix-thread) commands)
+       (begin
+         (write-unix-thread output)
+         (write-load-commands commands output))]
+      [(cons (lc-load-segment64 ls) commands)
+       (begin
+         (write-load-segment64 ls)
+         (write-load-commands commands output))]))
+
+  (define (write-16-byte-name [bytes : Bytes] [output : OutputPort]) : Void
+    (if (> (bytes-length bytes) 16)
+        (panic #"Too Long")
+        (begin
+          (write-all-bytes bytes output)
+          (write-all-bytes (make-bytes (- 16 (bytes-length bytes))) output))))
+
+  (define (write-load-segment64 [seg : LoadSegment64] [output : OutputPort]) : Void
+    (case seg
+      [(load-segment64 name vm-addr vm-size file-offset file-size)
+       (begin
+         ;; LC_SEGMENT_64
+         (write-quad-le #x19 output)
+         ;; Command size
+         (write-quad-le #x98 output)
+
+         (write-16-byte-name name output)
+
+         (write-octo-le vm-addr output)
+         (write-octo-le vm-size output)
+
+         (write-octo-le file-offset output)
+         (write-octo-le file-size output)
+
+         (write-quad-le #x07 output)
+         (write-quad-le #x05 output)
+         (write-quad-le #x01 output)
+         (write-quad-le #x00 output)
+         (write-section name output))]))
+
+  (define (write-section [seg-name : Bytes] [output : OutputPort]) : Void
     (begin
-      (write-all-bytes (varargs bytes #xcf #xfa #xed #xfe) output)
-      ;; CPU type
-      (write-all-bytes (varargs bytes #x07 #x00 #x00 #x01) output)
-      ;; CPU subtype
-      (write-all-bytes (varargs bytes #x03 #x00 #x00 #x00) output)
-      ;; File type
-      (write-all-bytes (varargs bytes #x02 #x00 #x00 #x00) output)
-
-      ;; Number of commands 
-      (write-all-bytes (varargs bytes #x02 #x00 #x00 #x00) output)
-      ;; Size of commands 
-      (write-all-bytes (varargs bytes #x50 #x01 #x00 #x00) output)
-
-      ;; Flags
-      (write-all-bytes (varargs bytes #x01 #x00 #x00 #x00) output)
-      ;; Reserved
-      (write-all-bytes (varargs bytes #x00 #x00 #x00 #x00) output)
-      (void)))
-
-  (define (write-load-segment [output : OutputPort]) : Void
-    (begin
-      ;; LC_SEGMENT_64
-      (write-all-bytes (varargs bytes #x19 #x00 #x00 #x00) output)
-      ;; Command size
-      (write-all-bytes (varargs bytes #x98 #x00 #x00 #x00) output)
-
-      (write-all-bytes (varargs bytes #x5f #x5f #x54 #x45) output)
-      (write-all-bytes (varargs bytes #x58 #x54 #x00 #x00) output)
-      (write-all-bytes (varargs bytes #x00 #x00 #x00 #x00) output)
-      (write-all-bytes (varargs bytes #x00 #x00 #x00 #x00) output)
+      (write-16-byte-name #"__text" output)
+      (write-16-byte-name seg-name output)
 
 
-      (write-all-bytes (varargs bytes #x00 #x00 #x00 #x00) output)
-      (write-all-bytes (varargs bytes #x00 #x00 #x01 #x00) output)
-      (write-all-bytes (varargs bytes #x00 #x10 #x00 #x00) output)
-      (write-all-bytes (varargs bytes #x00 #x00 #x00 #x00) output)
+      (write-octo-le #x0001000000000000 output)
+      (write-octo-le #x0000000000000100 output)
+
+      (write-quad-le #x00 output)
+      (write-quad-le #x00 output)
+      (write-quad-le #x00 output)
+      (write-quad-le #x00 output)
 
 
-      (write-all-bytes (varargs bytes #x00 #x00 #x00 #x00) output)
-      (write-all-bytes (varargs bytes #x00 #x00 #x00 #x00) output)
-      (write-all-bytes (varargs bytes #x00 #x01 #x00 #x00) output)
-      (write-all-bytes (varargs bytes #x00 #x00 #x00 #x00) output)
-
-
-      (write-all-bytes (varargs bytes #x07 #x00 #x00 #x00) output)
-      (write-all-bytes (varargs bytes #x05 #x00 #x00 #x00) output)
-      (write-all-bytes (varargs bytes #x01 #x00 #x00 #x00) output)
-      (write-all-bytes (varargs bytes #x00 #x00 #x00 #x00) output)
-      
-      ;; Section start
-      (write-all-bytes (varargs bytes #x5f #x5f #x74 #x65) output)
-      (write-all-bytes (varargs bytes #x78 #x74 #x00 #x00) output)
-      (write-all-bytes (varargs bytes #x00 #x00 #x00 #x00) output)
-      (write-all-bytes (varargs bytes #x00 #x00 #x00 #x00) output)
-      
-
-      (write-all-bytes (varargs bytes #x5f #x5f #x54 #x45) output)
-      (write-all-bytes (varargs bytes #x58 #x54 #x00 #x00) output)
-      (write-all-bytes (varargs bytes #x00 #x00 #x00 #x00) output)
-      (write-all-bytes (varargs bytes #x00 #x00 #x00 #x00) output)
-      
-
-      (write-all-bytes (varargs bytes #x00 #x00 #x00 #x00) output)
-      (write-all-bytes (varargs bytes #x00 #x00 #x01 #x00) output)
-      (write-all-bytes (varargs bytes #x00 #x01 #x00 #x00) output)
-      (write-all-bytes (varargs bytes #x00 #x00 #x00 #x00) output)
-
-
-      (write-all-bytes (varargs bytes #x00 #x00 #x00 #x00) output)
-      (write-all-bytes (varargs bytes #x00 #x00 #x00 #x00) output)
-      (write-all-bytes (varargs bytes #x00 #x00 #x00 #x00) output)
-      (write-all-bytes (varargs bytes #x00 #x00 #x00 #x00) output)
-
-      (write-all-bytes (varargs bytes #x00 #x04 #x00 #x80) output)
-      (write-all-bytes (varargs bytes #x00 #x00 #x00 #x00) output)
-      (write-all-bytes (varargs bytes #x00 #x00 #x00 #x00) output)
-      (write-all-bytes (varargs bytes #x00 #x00 #x00 #x00) output)
-      
-
-      ))
-
+      (write-quad-le #x80000400 output)
+      (write-quad-le #x00 output)
+      (write-quad-le #x00 output)
+      (write-quad-le #x00 output)))
 
 
   (define (write-unix-thread [output : OutputPort]) : Void
     (begin
       ;; LC_UNIXTHREAD
-      (write-all-bytes (varargs bytes #x05 #x00 #x00 #x00) output)
+      (write-quad-le #x05 output)
       ;; Command size
-      (write-all-bytes (varargs bytes #xb8 #x00 #x00 #x00) output)
+      (write-quad-le #xb8 output)
+
       ;; Thread Flavor
       (write-all-bytes (varargs bytes #x04 #x00 #x00 #x00) output)
       ;; Thread Count
@@ -164,7 +204,21 @@
           1)
         (let ([output (open-output-file (make-null-terminated (array-ref args 1)))])
           (begin
-            (write-mach-o-header (mach-o-header) output)
-            (write-unix-thread output)
-            (write-load-segment output)
+            (write-mach-o-header
+              (mach-o-header
+                (varargs list
+                  (lc-load-segment64
+                    (load-segment64 #"__PAGEZERO"
+                      #x0000000000000000
+                      #x0000000100000000
+                      0
+                      0))
+                  (lc-load-segment64
+                    (load-segment64 #"__TEXT"
+                      #x0000000100000000
+                      #x0000000000001000
+                      0
+                      0))
+                  (lc-unix-thread)))
+              output)
             0)))))
