@@ -18,6 +18,8 @@
       (mach-o-header [commands (List MachOLoadCommand)]))
     (define-type MachOLoadCommand
       (lc-unix-thread)
+      (lc-source-version)
+      (lc-symbol-table [v SymbolTable])
       (lc-load-segment64 [v LoadSegment64]))
     (define-type LoadSegment64
       (load-segment64
@@ -28,6 +30,7 @@
         [file-size Byte]
         [max-protection Byte]
         [init-protection Byte]
+        [flags Byte]
         [sections (List Section64)]))
 
     (define-type Section64
@@ -36,7 +39,14 @@
         [addr Byte]
         [size Byte]
         [offset Byte]
-        [flags Byte])))
+        [flags Byte]))
+
+    (define-type SymbolTable
+      (symbol-table
+        [offset Byte]
+        [number Byte]
+        [string-offset Byte]
+        [string-size Byte])))
 
 
   (define (write-quad-le [v : Byte] [output : OutputPort]) : Void
@@ -58,12 +68,13 @@
       [(cons lc lcs)
        (+ (load-command-size lc) (load-commands-size lcs))]))
 
-
   (define (load-command-size [lc : MachOLoadCommand]) : Byte
     (case lc
       [(lc-unix-thread) #xb8]
-      [(lc-load-segment64 (load-segment64 _ _ _ _ _ _ _ sections))
-       (+ 72 (* (length sections) 80))]))
+      [(lc-source-version) #x10]
+      [(lc-load-segment64 load-seg)
+       (+ 72 (* (length (load-segment64-sections load-seg)) 80))]
+      [(lc-symbol-table _) #x18]))
 
 
   (define (write-mach-o-header [header : MachOHeader] [output : OutputPort]) : Void
@@ -97,9 +108,17 @@
        (begin
          (write-unix-thread output)
          (write-load-commands commands output))]
+      [(cons (lc-source-version) commands)
+       (begin
+         (write-source-version output)
+         (write-load-commands commands output))]
       [(cons (lc-load-segment64 ls) commands)
        (begin
          (write-load-segment64 ls)
+         (write-load-commands commands output))]
+      [(cons (lc-symbol-table st) commands)
+       (begin
+         (write-symbol-table st output)
          (write-load-commands commands output))]))
 
   (define (write-16-byte-name [bytes : Bytes] [output : OutputPort]) : Void
@@ -111,7 +130,7 @@
 
   (define (write-load-segment64 [seg : LoadSegment64] [output : OutputPort]) : Void
     (case seg
-      [(load-segment64 name vm-addr vm-size file-offset file-size max-protection init-protection sections)
+      [(load-segment64 name vm-addr vm-size file-offset file-size max-protection init-protection flags sections)
        (begin
          ;; LC_SEGMENT_64
          (write-quad-le #x19 output)
@@ -129,7 +148,7 @@
          (write-quad-le max-protection output)
          (write-quad-le init-protection output)
          (write-quad-le (length sections) output)
-         (write-quad-le #x00 output)
+         (write-quad-le flags output)
 
          (write-sections name sections output))]))
 
@@ -161,6 +180,16 @@
          (write-quad-le #x00 output)
          (write-quad-le #x00 output)
          (write-quad-le #x00 output))]))
+
+
+  (define (write-source-version [output : OutputPort]) : Void
+    (begin
+      ;; LC_UNIXTHREAD
+      (write-quad-le #x2A output)
+      ;; Command size
+      (write-quad-le #x10 output)
+
+      (write-octo-le #x00 output)))
 
 
   (define (write-unix-thread [output : OutputPort]) : Void
@@ -208,8 +237,9 @@
       (write-all-bytes (varargs bytes #x00 #x00 #x00 #x00) output)
       (write-all-bytes (varargs bytes #x00 #x00 #x00 #x00) output)
       (write-all-bytes (varargs bytes #x00 #x00 #x00 #x00) output)
-      (write-all-bytes (varargs bytes #x00 #x00 #x00 #x00) output)
-      (write-all-bytes (varargs bytes #x00 #x00 #x01 #x00) output)
+
+      (write-octo-le #x00000001000045f6 output)
+
       (write-all-bytes (varargs bytes #x00 #x00 #x00 #x00) output)
       (write-all-bytes (varargs bytes #x00 #x00 #x00 #x00) output)
       (write-all-bytes (varargs bytes #x00 #x00 #x00 #x00) output)
@@ -219,6 +249,20 @@
       (write-all-bytes (varargs bytes #x00 #x00 #x00 #x00) output)
       (write-all-bytes (varargs bytes #x00 #x00 #x00 #x00) output)
       (void)))
+
+  (define (write-symbol-table [st : SymbolTable] [output : OutputPort]) : Void
+    (case st
+      [(symbol-table offset number-syms string-offset string-size)
+       (begin
+         ;; LC_SYMTAB
+         (write-quad-le #x02 output)
+         ;; Command size
+         (write-quad-le #x18 output)
+
+         (write-quad-le offset output)
+         (write-quad-le number-syms output)
+         (write-quad-le string-offset output)
+         (write-quad-le string-size output))]))
 
 
 
@@ -240,6 +284,7 @@
                       0
                       0
                       0
+                      0
                       (empty)))
                   (lc-load-segment64
                     (load-segment64 #"__TEXT"
@@ -249,6 +294,7 @@
                       #x5000
                       7
                       5
+                      0
                       (varargs list
                         (section64 #"__text"
                           #x0000000100000e08
@@ -262,13 +308,37 @@
                           #x00))))
                   (lc-load-segment64
                     (load-segment64 #"__DATA"
-                      #x0000000100001000
+                      #x0000000100005000
                       #x0000000000000000
+                      #x5000
                       0
-                      0
-                      0
+                      7
+                      3
+                      4
+                      (varargs list
+                        (section64 #"__data"
+                          #x0000000100005000
+                          #x0000000000000000
+                          #x5000
+                          #x00))))
+                  (lc-load-segment64
+                    (load-segment64 #"__LINKEDIT"
+                      #x0000000100005000
+                      #x0000000000005000
+                      #x5000
+                      #x4660
+                      7
+                      1
                       0
                       (empty)))
+                  (lc-symbol-table
+                    (symbol-table
+                      20480
+                      469
+                      27984
+                      10512))
+                  (lc-source-version)
                   (lc-unix-thread)))
               output)
+            (write-all-bytes (make-bytes 37712) output)
             0)))))
