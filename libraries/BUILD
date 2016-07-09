@@ -336,7 +336,9 @@ yaspl_library(
   srcs = ["mach-o-writer.yaspl"],
   deps = [
     ":bytes",
+    ":dict",
     ":io",
+    ":list",
     ":numbers",
   ]
 )
