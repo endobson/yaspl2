@@ -110,7 +110,7 @@
       (lahf)
       (movb [rmi1 RegMemImm] [rmi2 RegMemImm])
       (movq [rmi1 RegMemImm] [rmi2 RegMemImm])
-      (movzb [rmi RegMemImm] [r Register])
+      (movzbq [rmi RegMemImm] [r Register])
       (nop)
       (notq [reg Register])
       (orq [reg1 Register] [reg2 Register])
@@ -334,6 +334,14 @@
       [(jnz label)
        (just (mc-jump (mcj-jnz) label))]
       [(lahf) (just (mc-bytes (varargs bytes #x9F)))]
+      [(movzbq (rmi-register reg1) reg2)
+       (just (mc-bytes (double-byte-op/MR #xB6 #t reg1 reg2)))]
+      [(movzbq (rmi-immediate _) _)
+       (panic #"movzbq of immediate is not allowed")]
+      [(movzbq (rmi-direct-memory _ _) _)
+       (panic #"movzbq of direct memory not yet supported")]
+      [(movzbq (rmi-scaled-memory _ _ _ _) _)
+       (nothing)]
       [(nop) (just (mc-bytes (varargs bytes #x90)))]
       [(notq reg)
        (just (mc-bytes (single-byte-op/M #xF7 2 #t reg)))]
@@ -394,7 +402,6 @@
       [(syscall) (just (mc-bytes (varargs bytes #x0F #x05)))]
       [(ud2) (just (mc-bytes (varargs bytes #x0F #x0B)))]
       ;; Not yet implemented
-      [(movzb _ _) (nothing)]
       [(leaq _ _) (nothing)]
       [(leaq/rel _ _ _) (nothing)]
       [(movb _ _) (nothing)]
@@ -469,6 +476,18 @@
                (bitwise-ior (logical-shift-left (bitwise-and reg #x07) 3)
                             (bitwise-and rm #x07))))))))
 
+
+  (define (double-byte-op/MR [opcode : Byte] [rexW : Boolean] [reg1 : Register] [reg2 : Register]) : Bytes
+    (let ([rm (register->byte reg1)])
+      (let ([reg (register->byte reg2)])
+        (add-maybe-byte
+          (rex-byte rexW (>= reg 8) #f (>= rm 8))
+          (varargs bytes
+            #x0F
+            opcode
+            (bitwise-ior (logical-shift-left #x03 6)
+               (bitwise-ior (logical-shift-left (bitwise-and reg #x07) 3)
+                            (bitwise-and rm #x07))))))))
 
   (define (double-byte-op/M [opcode : Byte] [op-ext : Byte] [rexW : Boolean] [reg : Register]) : Bytes
     (let ([rm (register->byte reg)])
@@ -676,9 +695,9 @@
           (rmi->bytes rmi1)
           #", "
           (rmi->bytes rmi2))]
-      [(movzb rmi reg)
+      [(movzbq rmi reg)
        (varargs join-list
-          #"movzb "
+          #"movzbq "
           (rmi->bytes rmi)
           #", "
           (register->bytes reg))]
@@ -1257,7 +1276,7 @@
       ;; bytes-ref
       (write-prim-assembly-function #"bytes_ref" output
         (varargs list
-          (movzb (scaled (rdi) 1 (rsi) 8) (rax))
+          (movzbq (scaled (rdi) 1 (rsi) 8) (rax))
           (ret)))
       ;; make-bytes
       (write-prim-assembly-function #"make_bytes" output
@@ -1529,7 +1548,7 @@
          (addq (imm 8) (rcx))
          (repe-cmpsb)
          (sete (al))
-         (movzb (reg (al)) (rax))
+         (movzbq (reg (al)) (rax))
          (pushq (reg (rax))))]
 
       [(load-global-cmd name)
@@ -1668,7 +1687,7 @@
             (setge (al))]
            [(greater-than-op)
             (setg (al))])
-         (movzb (reg (al)) (rax))
+         (movzbq (reg (al)) (rax))
          (pushq (reg (rax))))]
       [(bin-math-cmd (bin-add-op))
        (varargs join-list
