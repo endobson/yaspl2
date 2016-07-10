@@ -209,7 +209,7 @@
       (rip))
     (define-type RegMemImm
       (rmi-register [r Register])
-      (rmi-direct-memory [reg Register] [offset Byte])
+      (rmi-displaced-memory [reg Register] [offset Byte])
       (rmi-scaled-memory [reg Register] [scale Byte] [index-reg Register] [offset Byte])
       (rmi-immediate [v Byte])))
 
@@ -297,17 +297,17 @@
        (just (mc-bytes (single-byte-op/RM #x01 #t reg1 reg2)))]
       [(addq (rmi-immediate imm) reg)
        (just (mc-bytes (single-byte-op/IM #x81 0 #t imm reg)))]
-      [(addq (rmi-direct-memory (rsp) 0) _)
+      [(addq (rmi-displaced-memory (rsp) 0) _)
        (nothing)]
-      [(addq (rmi-direct-memory (rbp) 0) _)
+      [(addq (rmi-displaced-memory (rbp) 0) _)
        (nothing)]
-      [(addq (rmi-direct-memory (r12) 0) _)
+      [(addq (rmi-displaced-memory (r12) 0) _)
        (nothing)]
-      [(addq (rmi-direct-memory (r13) 0) _)
+      [(addq (rmi-displaced-memory (r13) 0) _)
        (nothing)]
-      [(addq (rmi-direct-memory reg1 0) reg2)
+      [(addq (rmi-displaced-memory reg1 0) reg2)
        (just (mc-bytes (single-byte-op/MR/mem #x03 #t reg1 reg2)))]
-      [(addq (rmi-direct-memory _ _) _)
+      [(addq (rmi-displaced-memory _ _) _)
        (nothing)]
       [(addq (rmi-scaled-memory _ _ _ _) _)
        (nothing)]
@@ -315,7 +315,7 @@
        (just (mc-bytes (single-byte-op/RM #x21 #t reg1 reg2)))]
       [(andq (rmi-immediate _) _)
        (panic #"andq of immediate not yet supported")]
-      [(andq (rmi-direct-memory _ _) _)
+      [(andq (rmi-displaced-memory _ _) _)
        (panic #"andq of direct memory not yet supported")]
       [(andq (rmi-scaled-memory _ _ _ _) _)
        (panic #"andq of scaled memory not yet supported")]
@@ -351,7 +351,7 @@
       [(jnz label)
        (just (mc-jump (mcj-jnz) label))]
       [(lahf) (just (mc-bytes (varargs bytes #x9F)))]
-      [(leaq (rmi-direct-memory _ _) _)
+      [(leaq (rmi-displaced-memory _ _) _)
        (nothing)]
       [(leaq (rmi-scaled-memory _ _ _ _) _)
        (nothing)]
@@ -371,13 +371,13 @@
        (just (mc-bytes (single-byte-op/IM #xC7 0 #t imm reg)))]
       [(movq (rmi-register _) (rmi-register _))
        (nothing)]
-      [(movq (rmi-register _) (rmi-direct-memory _ _))
+      [(movq (rmi-register _) (rmi-displaced-memory _ _))
        (nothing)]
       [(movq (rmi-register _) (rmi-scaled-memory _ _ _ _))
        (nothing)]
-      [(movq (rmi-direct-memory _ _) (rmi-register _))
+      [(movq (rmi-displaced-memory _ _) (rmi-register _))
        (nothing)]
-      [(movq (rmi-immediate imm) (rmi-direct-memory _ _))
+      [(movq (rmi-immediate imm) (rmi-displaced-memory _ _))
        (nothing)]
       [(movq _ (rmi-immediate imm))
        (panic #"movq to immediate is nonsensical")]
@@ -387,7 +387,7 @@
        (just (mc-bytes (double-byte-op/MR #xB6 #t reg1 reg2)))]
       [(movzbq (rmi-immediate _) _)
        (panic #"movzbq of immediate is not allowed")]
-      [(movzbq (rmi-direct-memory _ _) _)
+      [(movzbq (rmi-displaced-memory _ _) _)
        (panic #"movzbq of direct memory not yet supported")]
       [(movzbq (rmi-scaled-memory _ _ _ _) _)
        (nothing)]
@@ -398,7 +398,7 @@
        (just (mc-bytes (single-byte-op/MR #x0B #t reg1 reg2)))]
       [(popq (rmi-register reg))
        (just (mc-bytes (single-byte-op/O #x58 reg)))]
-      [(popq (rmi-direct-memory _ _))
+      [(popq (rmi-displaced-memory _ _))
        (nothing)]
       [(popq (rmi-immediate _))
        (panic #"popq of immediate is nonsensical")]
@@ -406,13 +406,13 @@
        (panic #"popq of scaled memory not yet supported")]
       [(pushq (rmi-register reg))
        (just (mc-bytes (single-byte-op/O #x50 reg)))]
-      [(pushq (rmi-direct-memory (rsp) _))
+      [(pushq (rmi-displaced-memory (rsp) _))
        (nothing)]
-      [(pushq (rmi-direct-memory (rbp) _))
+      [(pushq (rmi-displaced-memory (rbp) _))
        (nothing)]
-      [(pushq (rmi-direct-memory reg 0))
+      [(pushq (rmi-displaced-memory reg 0))
        (just (mc-bytes (single-byte-op-mem/M #xFF 6 #f reg)))]
-      [(pushq (rmi-direct-memory _ _))
+      [(pushq (rmi-displaced-memory _ _))
        (nothing)]
       [(pushq (rmi-scaled-memory _ _ _ _))
        (nothing)]
@@ -444,7 +444,7 @@
        (just (mc-bytes (single-byte-op/RM #x29 #t reg1 reg2)))]
       [(subq (rmi-immediate imm) reg)
        (just (mc-bytes (single-byte-op/IM #x81 5 #t imm reg)))]
-      [(subq (rmi-direct-memory _ _) _)
+      [(subq (rmi-displaced-memory _ _) _)
        (panic #"subq of direct memory not yet supported")]
       [(subq (rmi-scaled-memory _ _ _ _) _)
        (panic #"subq of scaled memory not yet supported")]
@@ -895,7 +895,7 @@
   (define (rmi->bytes [rmi : RegMemImm]) : Bytes
     (case rmi
       [(rmi-register r) (register->bytes r)]
-      [(rmi-direct-memory reg offset)
+      [(rmi-displaced-memory reg offset)
        (bytes-append (varargs list (integer->decimal-bytes offset) #"(" (register->bytes reg) #")"))]
       [(rmi-scaled-memory reg scale index offset)
        (bytes-append
@@ -914,7 +914,7 @@
   (define (reg [r : Register]) : RegMemImm
     (rmi-register r))
   (define (mem [r : Register] [offset : Byte]) : RegMemImm
-    (rmi-direct-memory r offset))
+    (rmi-displaced-memory r offset))
   (define (imm [v : Byte]) : RegMemImm
     (rmi-immediate v))
   (define (scaled [r : Register] [scale : Byte] [index : Register] [offset : Byte]) : RegMemImm
