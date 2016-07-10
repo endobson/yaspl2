@@ -7,7 +7,8 @@
 
 (struct type () #:transparent)
 (struct void-ty type () #:transparent)
-(struct byte-ty type () #:transparent)
+(struct u8-ty type () #:transparent)
+(struct s64-ty type () #:transparent)
 (struct bytes-ty type () #:transparent)
 (struct boolean-ty type () #:transparent)
 (struct input-port-ty type () #:transparent)

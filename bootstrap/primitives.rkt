@@ -22,7 +22,9 @@
   (define-syntax-class prim-ty
     #:attributes (ty)
     (pattern (~datum Byte)
-      #:with ty #'(byte-ty))
+      #:with ty #'(s64-ty))
+    (pattern (~datum S64)
+      #:with ty #'(s64-ty))
     (pattern (~datum Bytes)
       #:with ty #'(bytes-ty))
     (pattern (~datum Boolean)
@@ -66,7 +68,9 @@
 
 (define prim-types
   (hash
-    'Byte (byte-ty)
+    'U8 (u8-ty)
+    'S64 (s64-ty)
+    'Byte (s64-ty)
     'Bytes (bytes-ty)
     'Boolean (boolean-ty)
     'InputPort (input-port-ty)
@@ -100,6 +104,7 @@
   [(or [x : Boolean] (y : Boolean)) : Boolean (or x y)]
   [(and [x : Boolean] (y : Boolean)) : Boolean (and x y)]
 
+  ;; TODO handle overflow/underflow
   [(+ [x : Byte] (y : Byte)) : Byte (+ x y)]
   [(- [x : Byte] (y : Byte)) : Byte (- x y)]
   [(* [x : Byte] (y : Byte)) : Byte (* x y)]

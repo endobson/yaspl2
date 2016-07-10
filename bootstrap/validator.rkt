@@ -346,7 +346,8 @@
         [(array-ty e)
          (array-ty (replace e))]
         [(void-ty) t]
-        [(byte-ty) t]
+        [(u8-ty) t]
+        [(s64-ty) t]
         [(bytes-ty) t]
         [(boolean-ty) t]
         [(fun-ty '() arg-tys result-ty)
@@ -372,7 +373,8 @@
         [(array-ty e)
          (check  e)]
         [(void-ty) (void)]
-        [(byte-ty) (void)]
+        [(u8-ty) (void)]
+        [(s64-ty) (void)]
         [(bytes-ty) (void)]
         [(boolean-ty) (void)]
         [(input-port-ty) (void)]
@@ -407,7 +409,9 @@
                 (map (replace-pair v l) pairs))]
          [((void-ty) (void-ty))
           (loop type-map pairs)]
-         [((byte-ty) (byte-ty))
+         [((u8-ty) (u8-ty))
+          (loop type-map pairs)]
+         [((s64-ty) (s64-ty))
           (loop type-map pairs)]
          [((bytes-ty) (bytes-ty))
           (loop type-map pairs)]
@@ -436,7 +440,8 @@
        (error 'substitute "Attempting to use a type variable that wasn't constrained: ~s" v))
      res]
     [(void-ty) t]
-    [(byte-ty) t]
+    [(u8-ty) t]
+    [(s64-ty) t]
     [(bytes-ty) t]
     [(boolean-ty) t]
     [(input-port-ty) t]
@@ -467,7 +472,7 @@
            'type-check "Types don't match: Got ~s but expected ~s in ~s"
            actual-type expected-type expr))]))
   (match expr
-    [(byte& _) (check (byte-ty))]
+    [(byte& _) (check (s64-ty))]
     [(bytes& _) (check (bytes-ty))]
     [(boolean& _) (check (boolean-ty))]
     [(variable& v)
@@ -628,7 +633,7 @@
   (define pattern->template-data (pattern->template-data/env env))
   (match pattern
     [(bytes-pattern& _) (template-data empty (hash) empty (bytes-ty))]
-    [(byte-pattern& _) (template-data empty (hash) empty (byte-ty))]
+    [(byte-pattern& _) (template-data empty (hash) empty (s64-ty))]
     [(variable-pattern& v)
      (define tv (fresh-ty-var v))
      (template-data (list tv) (hash v (type-var-ty tv)) empty (type-var-ty tv))]
