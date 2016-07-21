@@ -23,6 +23,8 @@
     #:attributes (ty)
     (pattern (~datum Byte)
       #:with ty #'(s64-ty))
+    (pattern (~datum U8)
+      #:with ty #'(u8-ty))
     (pattern (~datum S64)
       #:with ty #'(s64-ty))
     (pattern (~datum Bytes)
@@ -104,6 +106,11 @@
   [(or [x : Boolean] (y : Boolean)) : Boolean (or x y)]
   [(and [x : Boolean] (y : Boolean)) : Boolean (and x y)]
 
+
+  [(u8 [v : S64]) : U8
+   (if (byte? v) v (error 'u8))]
+
+
   ;; TODO handle overflow/underflow
   [(+ [x : Byte] (y : Byte)) : Byte (+ x y)]
   [(- [x : Byte] (y : Byte)) : Byte (- x y)]
@@ -128,7 +135,7 @@
 
   [(make-bytes [size : Byte]) : Bytes (make-bytes size)]
   [(bytes-ref [b : Bytes] [index : Byte]) : Byte (bytes-ref b index)]
-  [(bytes-set! [b : Bytes] [index : Byte] [v : Byte]) : Void (bytes-set! b index v)]
+  [(bytes-set! [b : Bytes] [index : Byte] [v : U8]) : Void (bytes-set! b index v)]
   [(bytes-length [b : Bytes]) : Byte (bytes-length b)]
 
 
