@@ -1,9 +1,9 @@
 (module x86-64-stack-machine
   (import
     (prim
-      #:types (Bytes Byte InputPort OutputPort Void Array Boolean)
+      #:types (Bytes Byte InputPort OutputPort Void Array Boolean S64 U32)
       #:values (bytes-length bytes-ref * + - = <= >= panic void > <
-                bitwise-and bitwise-ior logical-shift-left or u32)
+                bitwise-and bitwise-ior logical-shift-left or u32 u32->s64)
       #:patterns ())
     (prim-implementation prim-implementation)
     (list
@@ -212,7 +212,7 @@
       (rmi-direct-memory [reg Register])
       (rmi-displaced-memory [reg Register] [offset Byte])
       (rmi-scaled-memory [reg Register] [scale Byte] [index-reg Register] [offset Byte])
-      (rmi-immediate [v Byte])))
+      (rmi-imm-s32 [v U32])))
 
   (define (compile-stack-machine
             [main-function-name : Bytes]
@@ -296,7 +296,7 @@
     (case inst
       [(addq (rmi-register reg1) reg2)
        (just (mc-bytes (single-byte-op/RM #x01 #t reg1 reg2)))]
-      [(addq (rmi-immediate imm) reg)
+      [(addq (rmi-imm-s32 imm) reg)
        (just (mc-bytes (single-byte-op/IM #x81 0 #t imm reg)))]
       [(addq (rmi-direct-memory reg1) reg2)
        (just (mc-bytes (single-byte-op/MR/mem #x03 #t reg1 reg2)))]
@@ -306,7 +306,7 @@
        (nothing)]
       [(andq (rmi-register reg1) reg2)
        (just (mc-bytes (single-byte-op/RM #x21 #t reg1 reg2)))]
-      [(andq (rmi-immediate imm) reg)
+      [(andq (rmi-imm-s32 imm) reg)
        (just (mc-bytes (single-byte-op/IM #x81 4 #t imm reg)))]
       [(andq (rmi-direct-memory _) _)
        (panic #"andq of direct memory not yet supported")]
@@ -319,11 +319,11 @@
       [(call/indirect reg)
        (just (mc-bytes (single-byte-op/M #xFF 2 #f reg)))]
       [(cld) (just (mc-bytes (varargs bytes #xFC)))]
-      [(cmpq (rmi-immediate imm) (rmi-register reg))
+      [(cmpq (rmi-imm-s32 imm) (rmi-register reg))
        (just (mc-bytes (single-byte-op/IM #x81 7 #t imm reg)))]
       [(cmpq (rmi-register reg1) (rmi-register reg2))
        (just (mc-bytes (single-byte-op/MR #x3B #t reg1 reg2)))]
-      [(cmpq _ (rmi-immediate imm))
+      [(cmpq _ (rmi-imm-s32 imm))
        (panic #"cmpq with immediate second argument is not allowed")]
       [(cmpq _ _)
        (nothing)]
@@ -354,17 +354,18 @@
        (nothing)]
       [(leaq (rmi-register _) _)
        (panic #"leaq of register is non sensical")]
-      [(leaq (rmi-immediate _) _)
-       (panic #"leaq of register is non sensical")]
-      [(movb (rmi-immediate imm) (rmi-register reg))
+      [(leaq (rmi-imm-s32 _) _)
+       (panic #"leaq of immediate is non sensical")]
+      ;; TODO Make this immediate a byte
+      [(movb (rmi-imm-s32 imm) (rmi-register reg))
        (just (mc-bytes (single-byte-op/IO #xB0 #f imm reg)))]
       [(movb (rmi-register reg) (rmi-scaled-memory _ _ _ _))
        (nothing)]
-      [(movb _ (rmi-immediate imm))
+      [(movb _ (rmi-imm-s32 imm))
        (panic #"movb to immediate is nonsensical")]
       [(movb _ _)
        (panic #"movb variant is not yet supported")]
-      [(movq (rmi-immediate imm) (rmi-register reg))
+      [(movq (rmi-imm-s32 imm) (rmi-register reg))
        (just (mc-bytes (single-byte-op/IM #xC7 0 #t imm reg)))]
       [(movq (rmi-register _) (rmi-register _))
        (nothing)]
@@ -378,15 +379,15 @@
        (just (mc-bytes (single-byte-op/MR/mem #x8B #t reg1 reg2)))]
       [(movq (rmi-displaced-memory _ _) (rmi-register _))
        (nothing)]
-      [(movq (rmi-immediate imm) (rmi-displaced-memory _ _))
+      [(movq (rmi-imm-s32 imm) (rmi-displaced-memory _ _))
        (nothing)]
-      [(movq _ (rmi-immediate imm))
+      [(movq _ (rmi-imm-s32 imm))
        (panic #"movq to immediate is nonsensical")]
       [(movq _ _)
        (panic #"movq variant is not yet supported")]
       [(movzbq (rmi-register reg1) reg2)
        (just (mc-bytes (double-byte-op/MR #xB6 #t reg1 reg2)))]
-      [(movzbq (rmi-immediate _) _)
+      [(movzbq (rmi-imm-s32 _) _)
        (panic #"movzbq of immediate is not allowed")]
       [(movzbq (rmi-direct-memory _) _)
        (panic #"movzbq of direct memory not yet supported")]
@@ -405,7 +406,7 @@
        (just (mc-bytes (single-byte-op-mem/M #x8F 0 #f reg)))]
       [(popq (rmi-displaced-memory _ _))
        (nothing)]
-      [(popq (rmi-immediate _))
+      [(popq (rmi-imm-s32 _))
        (panic #"popq of immediate is nonsensical")]
       [(popq (rmi-scaled-memory _ _ _ _))
        (panic #"popq of scaled memory not yet supported")]
@@ -417,7 +418,7 @@
        (nothing)]
       [(pushq (rmi-scaled-memory _ _ _ _))
        (nothing)]
-      [(pushq (rmi-immediate _))
+      [(pushq (rmi-imm-s32 _))
        (nothing)]
       [(rep-movsb) (just (mc-bytes (varargs bytes #xF3 #x48 #xA4)))]
       [(rep-movsq) (just (mc-bytes (varargs bytes #xF3 #x48 #xA5)))]
@@ -443,7 +444,7 @@
       [(std) (just (mc-bytes (varargs bytes #xFD)))]
       [(subq (rmi-register reg1) reg2)
        (just (mc-bytes (single-byte-op/RM #x29 #t reg1 reg2)))]
-      [(subq (rmi-immediate imm) reg)
+      [(subq (rmi-imm-s32 imm) reg)
        (just (mc-bytes (single-byte-op/IM #x81 5 #t imm reg)))]
       [(subq (rmi-direct-memory reg1) reg2)
        (just (mc-bytes (single-byte-op/MR/mem #x2B #t reg1 reg2)))]
@@ -463,13 +464,14 @@
         (varargs bytes
           (bitwise-ior opcode (bitwise-and reg-val #x07))))))
 
-  (define (single-byte-op/IO [opcode : Byte] [rexW : Boolean] [imm : Byte] [reg : Register]) : Bytes
+  ;; TODO make this take in a U8
+  (define (single-byte-op/IO [opcode : Byte] [rexW : Boolean] [imm : U32] [reg : Register]) : Bytes
     (let ([reg-val (register->byte reg)])
       (add-maybe-byte
         (rex-byte rexW #f #f (>= reg-val 8))
         (varargs bytes
           (bitwise-ior opcode (bitwise-and reg-val #x07))
-          imm))))
+          (u32->s64 imm)))))
 
   (define (single-byte-op/M [opcode : Byte] [op-ext : Byte] [rexW : Boolean] [reg : Register]) : Bytes
     (let ([rm (register->byte reg)])
@@ -496,7 +498,7 @@
   ;; TODO(endobson) this currently uses unsigned 32 bits which should crash but instead will use the
   ;; wrong values
   (define (single-byte-op/IM [opcode : Byte] [op-ext : Byte] [rexW : Boolean]
-                             [val : Byte] [reg : Register]) : Bytes
+                             [val : U32] [reg : Register]) : Bytes
     (let ([rm (register->byte reg)])
       (add-maybe-byte
         (rex-byte rexW #f #f (>= rm 8))
@@ -507,7 +509,7 @@
                                    (bitwise-and rm #x07)))
                    0 0 0 0)])
           (begin
-            (bytes-set!/quad-le v 2 (u32 val))
+            (bytes-set!/quad-le v 2 val)
             v)))))
 
   ;; This currently assumes that the r/m register does not need indirection.
@@ -915,8 +917,8 @@
            #", "
            (integer->decimal-bytes scale)
            #")"))]
-      [(rmi-immediate v)
-       (bytes-append (varargs list #"$" (integer->decimal-bytes v)))]))
+      [(rmi-imm-s32 v)
+       (bytes-append (varargs list #"$" (integer->decimal-bytes (u32->s64 v))))]))
 
   (define (reg [r : Register]) : RegMemImm
     (rmi-register r))
@@ -930,8 +932,8 @@
           [(rip) (rmi-displaced-memory r offset)]
           [_ (rmi-direct-memory r)])
         (rmi-displaced-memory r offset)))
-  (define (imm [v : Byte]) : RegMemImm
-    (rmi-immediate v))
+  (define (imm [v : S64]) : RegMemImm
+    (rmi-imm-s32 (u32 v)))
   (define (scaled [r : Register] [scale : Byte] [index : Register] [offset : Byte]) : RegMemImm
     (rmi-scaled-memory r scale index offset))
 
