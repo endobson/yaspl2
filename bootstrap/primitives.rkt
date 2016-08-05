@@ -25,6 +25,8 @@
       #:with ty #'(s64-ty))
     (pattern (~datum U8)
       #:with ty #'(u8-ty))
+    (pattern (~datum S32)
+      #:with ty #'(s32-ty))
     (pattern (~datum U32)
       #:with ty #'(u32-ty))
     (pattern (~datum S64)
@@ -73,6 +75,7 @@
 (define prim-types
   (hash
     'U8 (u8-ty)
+    'S32 (s32-ty)
     'U32 (u32-ty)
     'S64 (s64-ty)
     'Byte (s64-ty)
@@ -112,8 +115,11 @@
 
   [(u8 [v : S64]) : U8
    (if (<= 0 v #xFF) v (error 'u8))]
+  [(s32 [v : S64]) : S32
+   (if (<= #x-80000000 v #x7FFFFFFF) v (error 's32 "Value ~s is outside valid range" v))]
   [(u32 [v : S64]) : U32
    (if (<= 0 v #xFFFFFFFF) v (error 'u32 "Value ~s is outside valid range" v))]
+  [(s32->s64 [v : S32]) : S64 v]
   [(u32->s64 [v : U32]) : S64 v]
 
   [(u32/le-byte0 [v : U32]) : U8
@@ -124,6 +130,17 @@
    (bitwise-and (arithmetic-shift v #x-10) #xFF)]
   [(u32/le-byte3 [v : U32]) : U8
    (bitwise-and (arithmetic-shift v #x-18) #xFF)]
+
+  [(s32/le-byte0 [v : S32]) : U8
+   (bitwise-and v #xFF)]
+  [(s32/le-byte1 [v : S32]) : U8
+   (bitwise-and (arithmetic-shift v #x-8) #xFF)]
+  [(s32/le-byte2 [v : S32]) : U8
+   (bitwise-and (arithmetic-shift v #x-10) #xFF)]
+  [(s32/le-byte3 [v : S32]) : U8
+   (bitwise-and (arithmetic-shift v #x-18) #xFF)]
+
+
 
   ;; TODO handle overflow/underflow
   [(+ [x : Byte] (y : Byte)) : Byte (+ x y)]
