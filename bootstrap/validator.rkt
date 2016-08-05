@@ -347,6 +347,7 @@
          (array-ty (replace e))]
         [(void-ty) t]
         [(u8-ty) t]
+        [(u32-ty) t]
         [(s64-ty) t]
         [(bytes-ty) t]
         [(boolean-ty) t]
@@ -374,6 +375,7 @@
          (check  e)]
         [(void-ty) (void)]
         [(u8-ty) (void)]
+        [(u32-ty) (void)]
         [(s64-ty) (void)]
         [(bytes-ty) (void)]
         [(boolean-ty) (void)]
@@ -411,6 +413,8 @@
           (loop type-map pairs)]
          [((u8-ty) (u8-ty))
           (loop type-map pairs)]
+         [((u32-ty) (u32-ty))
+          (loop type-map pairs)]
          [((s64-ty) (s64-ty))
           (loop type-map pairs)]
          [((bytes-ty) (bytes-ty))
@@ -441,6 +445,7 @@
      res]
     [(void-ty) t]
     [(u8-ty) t]
+    [(u32-ty) t]
     [(s64-ty) t]
     [(bytes-ty) t]
     [(boolean-ty) t]

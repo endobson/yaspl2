@@ -3,7 +3,7 @@
     (prim
       #:types (Bytes Byte InputPort OutputPort Void Array Boolean)
       #:values (bytes-length bytes-ref * + - = <= >= panic void > <
-                bitwise-and bitwise-ior logical-shift-left or)
+                bitwise-and bitwise-ior logical-shift-left or u32)
       #:patterns ())
     (prim-implementation prim-implementation)
     (list
@@ -306,8 +306,8 @@
        (nothing)]
       [(andq (rmi-register reg1) reg2)
        (just (mc-bytes (single-byte-op/RM #x21 #t reg1 reg2)))]
-      [(andq (rmi-immediate _) _)
-       (panic #"andq of immediate not yet supported")]
+      [(andq (rmi-immediate imm) reg)
+       (just (mc-bytes (single-byte-op/IM #x81 4 #t imm reg)))]
       [(andq (rmi-direct-memory _) _)
        (panic #"andq of direct memory not yet supported")]
       [(andq (rmi-displaced-memory _ _) _)
@@ -492,7 +492,9 @@
                           (bitwise-and rm #x07)))))))
 
   ;; This currently assumes that the r/m register does not need indirection.
-  ;; Assumes the intermediate is 32 bits
+  ;; Assumes the intermediate is signed 32 bits
+  ;; TODO(endobson) this currently uses unsigned 32 bits which should crash but instead will use the
+  ;; wrong values
   (define (single-byte-op/IM [opcode : Byte] [op-ext : Byte] [rexW : Boolean]
                              [val : Byte] [reg : Register]) : Bytes
     (let ([rm (register->byte reg)])
@@ -505,7 +507,7 @@
                                    (bitwise-and rm #x07)))
                    0 0 0 0)])
           (begin
-            (bytes-set!/quad-le v 2 val)
+            (bytes-set!/quad-le v 2 (u32 val))
             v)))))
 
   ;; This currently assumes that the r/m register does not need indirection.
@@ -1007,8 +1009,9 @@
           ;; 0x0002 = MAP_SHARED
           ;; 0x1000 = MAP_ANON
           (movq (imm #x1002) (reg (r10)))
-          ;; FD = -1 for no flags
-          (movq (imm (- 0 1)) (reg (r8)))
+          ;; FD = -1 for no FD
+          ;; TODO fix 32 bit issue
+          (movq (imm #xFFFFFFFF) (reg (r8)))
           ;; offset which is ignored because of MAP_ANON
           (movq (imm 0) (reg (r9)))
           ;; 0xC5 is mmap, plus 0x2000000 because xnu
@@ -1037,7 +1040,8 @@
           ;; Count string length
           (movq (reg (r9)) (reg (rdi)))
           (movb (imm 0) (reg (al)))
-          (movq (imm (- 0 1)) (reg (rcx)))
+          ;; Assumption: Strings cannot be longer than 2^32-1
+          (movq (imm #xFFFFFFFF) (reg (rcx)))
           (repne-scasb)
           (notq (rcx))
           (decq (rcx))
@@ -1388,6 +1392,47 @@
       ;; TODO(endobson) add check that it is in the right range
       (write-prim-assembly-function #"u8" output
         (varargs list
+          (movq (reg (rdi)) (reg (rax)))
+          (ret)))
+
+      ;; u32
+      ;; TODO(endobson) add check that it is in the right range
+      (write-prim-assembly-function #"u32" output
+        (varargs list
+          (movq (reg (rdi)) (reg (rax)))
+          (ret)))
+
+      ;; u32->s64
+      (write-prim-assembly-function #"u32_s64" output
+        (varargs list
+          (movq (reg (rdi)) (reg (rax)))
+          (ret)))
+
+      ;; u32/le-byte#
+      (write-prim-assembly-function #"u32_le_byte0" output
+        (varargs list
+          (andq (imm #xFF) (rdi))
+          (movq (reg (rdi)) (reg (rax)))
+          (ret)))
+      (write-prim-assembly-function #"u32_le_byte1" output
+        (varargs list
+          (movq (imm #x8) (reg (rcx)))
+          (shrq (rdi))
+          (andq (imm #xFF) (rdi))
+          (movq (reg (rdi)) (reg (rax)))
+          (ret)))
+      (write-prim-assembly-function #"u32_le_byte2" output
+        (varargs list
+          (movq (imm #x10) (reg (rcx)))
+          (shrq (rdi))
+          (andq (imm #xFF) (rdi))
+          (movq (reg (rdi)) (reg (rax)))
+          (ret)))
+      (write-prim-assembly-function #"u32_le_byte3" output
+        (varargs list
+          (movq (imm #x18) (reg (rcx)))
+          (shrq (rdi))
+          (andq (imm #xFF) (rdi))
           (movq (reg (rdi)) (reg (rax)))
           (ret)))
 
