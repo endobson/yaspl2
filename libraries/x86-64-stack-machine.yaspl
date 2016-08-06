@@ -1,7 +1,7 @@
 (module x86-64-stack-machine
   (import
     (prim
-      #:types (Bytes Byte InputPort OutputPort Void Array Boolean U8 S32 U32 S64)
+      #:types (Bytes Byte InputPort OutputPort Void Array Boolean S32 U32 S64)
       #:values (bytes-length bytes-ref * + - = <= >= panic void > <
                 bitwise-and bitwise-ior logical-shift-left or s32 u8->s64 s32->s64 u32->s64)
       #:patterns ())
@@ -214,7 +214,6 @@
       (rmi-scaled-memory [reg Register] [scale Byte] [index-reg Register] [offset Byte])
       (rmi-imm [v Immediate]))
     (define-type Immediate
-      (imm-u8  [v U8])
       (imm-s32 [v S32])
       (imm-u32 [v U32])
       (imm-s64 [v S64])))
@@ -368,11 +367,6 @@
        (panic #"leaq of register is non sensical")]
       [(leaq (rmi-imm _) _)
        (panic #"leaq of immediate is non sensical")]
-      ;; TODO Make this immediate a byte
-      [(movb (rmi-imm (imm-s32 imm)) (rmi-register reg))
-       (just (mc-bytes (single-byte-op/IO #xB0 #f imm reg)))]
-      [(movb (rmi-imm _) (rmi-register reg))
-       (panic #"movb of non-s32 immediate not supported")]
       [(movb (rmi-register reg) (rmi-scaled-memory _ _ _ _))
        (nothing)]
       [(movb _ (rmi-imm _))
@@ -481,15 +475,6 @@
         (rex-byte #f #f #f (>= reg-val 8))
         (varargs bytes
           (bitwise-ior opcode (bitwise-and reg-val #x07))))))
-
-  ;; TODO make this take in a U8
-  (define (single-byte-op/IO [opcode : Byte] [rexW : Boolean] [imm : S32] [reg : Register]) : Bytes
-    (let ([reg-val (register->byte reg)])
-      (add-maybe-byte
-        (rex-byte rexW #f #f (>= reg-val 8))
-        (varargs bytes
-          (bitwise-ior opcode (bitwise-and reg-val #x07))
-          (s32->s64 imm)))))
 
   (define (single-byte-op/M [opcode : Byte] [op-ext : Byte] [rexW : Boolean] [reg : Register]) : Bytes
     (let ([rm (register->byte reg)])
@@ -932,8 +917,6 @@
            #", "
            (integer->decimal-bytes scale)
            #")"))]
-      [(rmi-imm (imm-u8 v))
-       (bytes-append (varargs list #"$" (integer->decimal-bytes (u8->s64 v))))]
       [(rmi-imm (imm-s32 v))
        (bytes-append (varargs list #"$" (integer->decimal-bytes (s32->s64 v))))]
       [(rmi-imm (imm-u32 v))
@@ -1061,7 +1044,7 @@
 
           ;; Count string length
           (movq (reg (r9)) (reg (rdi)))
-          (movb (imm 0) (reg (al)))
+          (movq (imm 0) (reg (rax)))
           ;; Assumption: Strings cannot be longer than 2^64-1
           ;; Loads treat the immediate as a 32 bit signed number, which is sign extended.
           ;; Then repne-scasb treats it as unsigned which means -1 => 2^64-1
@@ -1386,7 +1369,7 @@
           (movq (reg (rdi)) (mem (rbp) 0))
           (movq (reg (rdi)) (reg (rcx)))
           (addq (imm 8) (rbp))
-          (movb (imm 0) (reg (al)))
+          (movq (imm 0) (reg (rax)))
           (movq (reg (rbp)) (reg (rdi)))
           (cld)
           (rep-stosb)
