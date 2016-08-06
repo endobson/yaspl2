@@ -115,6 +115,8 @@
 
   [(u8 [v : S64]) : U8
    (if (<= 0 v #xFF) v (error 'u8))]
+  [(u8->s64 [v : U8]) : S64 v]
+
   [(s32 [v : S64]) : S32
    (if (<= #x-80000000 v #x7FFFFFFF) v (error 's32 "Value ~s is outside valid range" v))]
   [(u32 [v : S64]) : U32
