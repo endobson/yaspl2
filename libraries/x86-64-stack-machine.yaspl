@@ -308,8 +308,8 @@
        (just (mc-bytes (single-byte-op/MR/mem #x03 #t reg1 reg2)))]
       [(addq (rmi-displaced-memory reg1 offset) reg2)
        (panic #"addq of displaced-memory not supported")]
-      [(addq (rmi-scaled-memory _ _ _ _) _)
-       (nothing)]
+      [(addq (rmi-scaled-memory reg1 scale reg2 offset) reg3)
+       (just (mc-bytes (single-byte-op/MR/scaled-mem #x03 #t reg1 scale reg2 offset reg3)))]
       [(andq (rmi-register reg1) reg2)
        (just (mc-bytes (single-byte-op/RM #x21 #t reg1 reg2)))]
       [(andq (rmi-imm (imm-s32 imm)) reg)
@@ -360,8 +360,8 @@
        (panic #"leaq of direct memory not yet supported")]
       [(leaq (rmi-displaced-memory reg1 offset) reg2)
        (just (mc-bytes (single-byte-op/MR/displaced-mem #x8D #t reg1 offset reg2)))]
-      [(leaq (rmi-scaled-memory _ _ _ _) _)
-       (nothing)]
+      [(leaq (rmi-scaled-memory reg1 scale reg2 offset) reg3)
+       (just (mc-bytes (single-byte-op/MR/scaled-mem #x8D #t reg1 scale reg2 offset reg3)))]
       [(leaq (rmi-register _) _)
        (panic #"leaq of register is non sensical")]
       [(leaq (rmi-imm _) _)
@@ -382,6 +382,8 @@
        (just (mc-bytes (single-byte-op-s64/IO #xB8 #t imm reg)))]
       [(movq (rmi-register reg1) (rmi-register reg2))
        (just (mc-bytes (single-byte-op/MR #x8B #t reg1 reg2)))]
+      [(movq (rmi-scaled-memory reg1 scale reg2 offset) (rmi-register reg3))
+       (just (mc-bytes (single-byte-op/MR/scaled-mem #x8B #t reg1 scale reg2 offset reg3)))]
       [(movq (rmi-register reg1) (rmi-direct-memory reg2))
        (just (mc-bytes (single-byte-op/RM #x89 #t reg1 reg2)))]
       [(movq (rmi-register reg1) (rmi-displaced-memory reg2 offset))
@@ -390,8 +392,6 @@
        (nothing)]
       [(movq (rmi-direct-memory reg1) (rmi-register reg2))
        (just (mc-bytes (single-byte-op/MR/mem #x8B #t reg1 reg2)))]
-      [(movq (rmi-scaled-memory _ _ _ _) _)
-       (nothing)]
       [(movq _ (rmi-scaled-memory _ _ _ _))
        (nothing)]
       [(movq _ (rmi-imm _))
@@ -406,8 +406,8 @@
        (panic #"movzbq of direct memory not yet supported")]
       [(movzbq (rmi-displaced-memory _ _) _)
        (panic #"movzbq of displaced memory not yet supported")]
-      [(movzbq (rmi-scaled-memory _ _ _ _) _)
-       (nothing)]
+      [(movzbq (rmi-scaled-memory reg1 scale reg2 offset) reg3)
+       (just (mc-bytes (double-byte-op/MR/scaled-mem #xB6 #t reg1 scale reg2 offset reg3)))]
       [(nop) (just (mc-bytes (varargs bytes #x90)))]
       [(notq reg)
        (just (mc-bytes (single-byte-op/M #xF7 2 #t reg)))]
@@ -659,6 +659,25 @@
                (bitwise-ior (logical-shift-left (bitwise-and reg #x07) 3)
                             (bitwise-and rm #x07))))))))
 
+  (define (single-byte-op/MR/scaled-mem
+            [opcode : Byte] [rexW : Boolean]
+            [reg1 : Register] [scale : S64] [reg2 : Register] [displacement : S64]
+            [reg3 : Register]) : Bytes
+    (let ([base (register->byte reg1)])
+      (let ([index (register->byte reg2)])
+        (let ([reg (register->byte reg3)])
+          (add-maybe-byte
+            (rex-byte rexW (>= reg 8) (>= index 8) (>= base 8))
+            (let ([v (varargs bytes
+                       opcode
+                       (bitwise-ior (logical-shift-left #x02 6)
+                          (bitwise-ior (logical-shift-left (bitwise-and reg #x07) 3)
+                                       #x04))
+                       (sib-byte scale reg2 reg1)
+                       0 0 0 0)])
+              (begin
+                (bytes-set!/s32-le v 3 (s32 displacement))
+                v)))))))
 
 
   (define (double-byte-op/MR [opcode : Byte] [rexW : Boolean] [reg1 : Register] [reg2 : Register]) : Bytes
@@ -672,6 +691,28 @@
             (bitwise-ior (logical-shift-left #x03 6)
                (bitwise-ior (logical-shift-left (bitwise-and reg #x07) 3)
                             (bitwise-and rm #x07))))))))
+
+  (define (double-byte-op/MR/scaled-mem
+            [opcode : Byte] [rexW : Boolean]
+            [reg1 : Register] [scale : S64] [reg2 : Register] [displacement : S64]
+            [reg3 : Register]) : Bytes
+    (let ([base (register->byte reg1)])
+      (let ([index (register->byte reg2)])
+        (let ([reg (register->byte reg3)])
+          (add-maybe-byte
+            (rex-byte rexW (>= reg 8) (>= index 8) (>= base 8))
+            (let ([v (varargs bytes
+                       #x0F
+                       opcode
+                       (bitwise-ior (logical-shift-left #x02 6)
+                          (bitwise-ior (logical-shift-left (bitwise-and reg #x07) 3)
+                                       #x04))
+                       (sib-byte scale reg2 reg1)
+                       0 0 0 0)])
+              (begin
+                (bytes-set!/s32-le v 4 (s32 displacement))
+                v)))))))
+
 
   (define (double-byte-op/M [opcode : Byte] [op-ext : Byte] [rexW : Boolean] [reg : Register]) : Bytes
     (let ([rm (register->byte reg)])
@@ -701,6 +742,18 @@
         (if (= val #x40)
             (nothing)
             (just val)))))
+
+  (define (sib-byte [scale : S64] [index : Register] [base : Register]) : Byte
+    (bitwise-ior
+      (case scale
+        [1 #x00]
+        [2 #x40]
+        [4 #x80]
+        [8 #xc0]
+        [_ (panic #"Bad scale")])
+      (bitwise-ior
+        (logical-shift-left (bitwise-and (register->byte index) #x07) 3)
+        (bitwise-and (register->byte base) #x07))))
 
   (define (register->byte [reg : Register]) : Byte
     (case reg
