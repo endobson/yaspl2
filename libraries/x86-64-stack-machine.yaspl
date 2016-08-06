@@ -413,26 +413,28 @@
        (just (mc-bytes (single-byte-op/M #xF7 2 #t reg)))]
       [(orq reg1 reg2)
        (just (mc-bytes (single-byte-op/MR #x0B #t reg1 reg2)))]
+      ;; pop defaults to 64 bits so we don't need REX.W bit to indicate that
       [(popq (rmi-register reg))
        (just (mc-bytes (single-byte-op/O #x58 reg)))]
       [(popq (rmi-direct-memory reg))
-       (just (mc-bytes (single-byte-op-mem/M #x8F 0 #f reg)))]
-      [(popq (rmi-displaced-memory _ _))
-       (nothing)]
+       (just (mc-bytes (single-byte-op/M/mem #x8F 0 #f reg)))]
+      [(popq (rmi-displaced-memory reg offset))
+       (just (mc-bytes (single-byte-op/M/displaced-mem #x8F 0 #f reg (s32 offset))))]
       [(popq (rmi-imm _))
        (panic #"popq of immediate is nonsensical")]
       [(popq (rmi-scaled-memory _ _ _ _))
        (panic #"popq of scaled memory not yet supported")]
+      ;; push defaults to 64 bits so we don't need REX.W bit to indicate that
       [(pushq (rmi-register reg))
        (just (mc-bytes (single-byte-op/O #x50 reg)))]
       [(pushq (rmi-direct-memory reg))
-       (just (mc-bytes (single-byte-op-mem/M #xFF 6 #f reg)))]
-      [(pushq (rmi-displaced-memory _ _))
-       (nothing)]
+       (just (mc-bytes (single-byte-op/M/mem #xFF 6 #f reg)))]
+      [(pushq (rmi-displaced-memory reg offset))
+       (just (mc-bytes (single-byte-op/M/displaced-mem #xFF 6 #f reg (s32 offset))))]
       [(pushq (rmi-scaled-memory _ _ _ _))
        (nothing)]
       [(pushq (rmi-imm (imm-s32 imm)))
-       (just (mc-bytes (single-byte-op/I #x68 #t imm)))]
+       (just (mc-bytes (single-byte-op/I #x68 #f imm)))]
       [(pushq (rmi-imm _))
        (panic #"pushq of non-s32 immediates not yet supported")]
       [(rep-movsb) (just (mc-bytes (varargs bytes #xF3 #x48 #xA4)))]
@@ -510,7 +512,7 @@
              (bytes-set!/octo-le v 1 imm)
              v)))))
 
-  (define (single-byte-op-mem/M [opcode : Byte] [op-ext : Byte] [rexW : Boolean] [reg : Register]) : Bytes
+  (define (single-byte-op/M/mem [opcode : Byte] [op-ext : Byte] [rexW : Boolean] [reg : Register]) : Bytes
     (let ([rm (register->byte reg)])
       (add-maybe-byte
         (rex-byte rexW #f #f (>= rm 8))
@@ -519,6 +521,22 @@
           (bitwise-ior (logical-shift-left #x00 6)
              (bitwise-ior (logical-shift-left op-ext 3)
                           (bitwise-and rm #x07)))))))
+
+  ;; Doesn't support rsp or r12. This is because the instruction set doesn't support them.
+  (define (single-byte-op/M/displaced-mem
+            [opcode : Byte] [op-ext : Byte] [rexW : Boolean] [reg : Register] [displacement : S32]) : Bytes
+    (let ([rm (register->byte reg)])
+      (add-maybe-byte
+        (rex-byte rexW #f #f (>= rm 8))
+        (let ([v (varargs bytes
+                   opcode
+                   (bitwise-ior (logical-shift-left #x02 6)
+                      (bitwise-ior (logical-shift-left (bitwise-and op-ext #x07) 3)
+                                   (bitwise-and rm #x07)))
+                   0 0 0 0)])
+          (begin
+            (bytes-set!/s32-le v 2 displacement)
+            v)))))
 
   (define (single-byte-op/IM [opcode : Byte] [op-ext : Byte] [rexW : Boolean]
                              [val : S32] [reg : Register]) : Bytes
