@@ -375,6 +375,8 @@
        (panic #"movb variant is not yet supported")]
       [(movq (rmi-imm (imm-s32 imm)) (rmi-register reg))
        (just (mc-bytes (single-byte-op/IM #xC7 0 #t imm reg)))]
+      [(movq (rmi-imm (imm-s64 imm)) (rmi-register reg))
+       (just (mc-bytes (single-byte-op-s64/IO #xB8 #t imm reg)))]
       [(movq (rmi-imm _) (rmi-register reg))
        (panic #"movq of non-s32 immediate not supported")]
       [(movq (rmi-register _) (rmi-register _))
@@ -485,6 +487,17 @@
           (bitwise-ior (logical-shift-left #x03 6)
              (bitwise-ior (logical-shift-left op-ext 3)
                           (bitwise-and rm #x07)))))))
+
+   (define (single-byte-op-s64/IO [opcode : Byte] [rexW : Boolean] [imm : S64] [reg : Register]) : Bytes
+     (let ([reg-val (register->byte reg)])
+       (add-maybe-byte
+         (rex-byte rexW #f #f (>= reg-val 8))
+         (let ([v (varargs bytes
+                    (bitwise-ior opcode (bitwise-and reg-val #x07))
+                    0 0 0 0 0 0 0 0)])
+           (begin
+             (bytes-set!/octo-le v 1 imm)
+             v)))))
 
   (define (single-byte-op-mem/M [opcode : Byte] [op-ext : Byte] [rexW : Boolean] [reg : Register]) : Bytes
     (let ([rm (register->byte reg)])
@@ -1676,18 +1689,9 @@
        (varargs join-list
          (popq (reg (rax))))]
       [(num-lit-cmd v)
-       ;; TODO fix when yaspl supports larger literals
-       (let ([max-lit
-              (bitwise-ior (logical-shift-left #xFF 0)
-                (bitwise-ior (logical-shift-left #xFF 8)
-                  (bitwise-ior (logical-shift-left #xFF 16)
-                               (logical-shift-left #xFF 24))))])
-         (if #t ;; (or (> v max-lit) (< v 0))
-             (varargs join-list
-               (movq (imm v) (reg (rax)))
-               (pushq (reg (rax))))
-             (varargs join-list
-               (pushq (imm v)))))]
+       (varargs join-list
+         (movq (rmi-imm (imm-s64 v)) (reg (rax)))
+         (pushq (reg (rax))))]
       [(boolean-lit-cmd v)
        (varargs join-list
          (pushq (imm (if v 1 0))))]
