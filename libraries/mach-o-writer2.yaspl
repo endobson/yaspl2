@@ -1,0 +1,101 @@
+(module mach-o-writer2
+  (import
+    (prim
+      #:types (Bytes S64 InputPort OutputPort Array)
+      #:values (close-output-port array-length array-ref open-output-file < void) 
+      #:patterns ())
+    (io write-line write-all-bytes)
+    (bytes bytes make-null-terminated bytes-append bytes=?)
+    (join-list jl->list)
+    (list
+      #:types ()
+      #:values (empty cons map reverse)
+      #:patterns (cons empty))
+    (x86-64-stack-machine
+      #:types (AssemblyFragment BasicBlock Instruction)
+      #:values (write-fragments convert-objects instruction->mc-command)
+      #:patterns (function-fragment basic-block mc-bytes mc-jump
+                  mcj-jb mcj-je mcj-jne mcj-jnz))
+    (library-compiler add-known-functions extract-modules read-module-files compile-main-module)
+    (dict
+      #:types (Dict)
+      #:values (make-dict)
+      #:patterns ())
+    (prim-implementation prim-static-signature prim-signature prim-implementation)
+    (source-language
+      #:types ()
+      #:values (parse-module)
+      #:patterns ())
+    (sexp-parser
+      #:types ()
+      #:values (parse-sexps)
+      #:patterns ())
+    (either
+      #:types ()
+      #:values ()
+      #:patterns (left right)))
+  (export)
+  (types)
+
+
+  (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : S64
+    (if (< (array-length args) 2)
+        (begin
+          (write-line #"No output file name supplied" stderr)
+          1)
+        (case (parse-sexps (bytes-append (read-module-files 2 args)))
+          [(left v)
+           (begin
+             (write-line v stderr)
+             1)]
+          [(right sexps)
+           (case (extract-modules (map parse-module sexps))
+             [(left v)
+              (begin
+                (write-line v stderr)
+                1)]
+             [(right modules)
+              (case (reverse modules)
+                [(empty)
+                 (begin
+                   (write-line #"No provided modules" stderr)
+                   1)]
+                [(cons main-module other-modules)
+                 (case (compile-main-module
+                         main-module
+                         (reverse other-modules)
+                         (cons (prim-static-signature) (empty))
+                         (cons (prim-signature) (empty))
+                         (add-known-functions (prim-implementation) (make-dict bytes=?)))
+                   [(left v)
+                    (begin
+                      (write-line v stderr)
+                      1)]
+                   [(right objects)
+                    (let ([output (open-output-file (make-null-terminated (array-ref args 1)))])
+                      (begin
+                        (map
+                          (lambda ([fragment : AssemblyFragment])
+                            (case fragment
+                              [(function-fragment name blocks)
+                               (map
+                                 (lambda ([bb : BasicBlock])
+                                   (case bb
+                                     [(basic-block block-name instructions)
+                                      (map
+                                        (lambda ([inst : Instruction])
+                                          (write-all-bytes 
+                                            (case (instruction->mc-command inst)
+                                              [(mc-bytes bytes) bytes]
+                                              [(mc-jump (mcj-jb) _) (varargs bytes #x0F #x82 0 0 0 0)]
+                                              [(mc-jump (mcj-je) _) (varargs bytes #x0F #x84 0 0 0 0)]
+                                              [(mc-jump (mcj-jne) _) (varargs bytes #x0F #x85 0 0 0 0)]
+                                              [(mc-jump (mcj-jnz) _) (varargs bytes #x0F #x85 0 0 0 0)]
+                                              [_ #""])
+                                            output))
+                                        (jl->list instructions))]))
+                                 blocks)]
+                              [_ (void)]))
+                          (convert-objects objects))
+                        (close-output-port output)
+                        0))])])])]))))
