@@ -211,7 +211,7 @@
       (rmi-register [r Register])
       (rmi-direct-memory [reg Register])
       (rmi-displaced-memory [reg Register] [offset S32])
-      (rmi-scaled-memory [reg Register] [scale Byte] [index-reg Register] [offset Byte])
+      (rmi-scaled-memory [reg Register] [scale Byte] [index-reg Register] [offset S32])
       (rmi-imm [v Immediate]))
     (define-type Immediate
       (imm-s32 [v S32])
@@ -367,7 +367,7 @@
       [(leaq (rmi-imm _) _)
        (panic #"leaq of immediate is non sensical")]
       [(movb (rmi-register reg1) (rmi-scaled-memory reg2 scale reg3 offset))
-       (just (mc-bytes (single-byte-op/RM/scaled-mem #x88 #f reg1 reg2 scale reg3 (s32 offset))))]
+       (just (mc-bytes (single-byte-op/RM/scaled-mem #x88 #f reg1 reg2 scale reg3 offset)))]
       [(movb _ (rmi-imm _))
        (panic #"movb to immediate is nonsensical")]
       [(movb _ _)
@@ -389,7 +389,7 @@
       [(movq (rmi-register reg1) (rmi-displaced-memory reg2 offset))
        (just (mc-bytes (single-byte-op/RM/displaced-mem #x89 #t reg1 reg2 offset)))]
       [(movq (rmi-register reg1) (rmi-scaled-memory reg2 scale reg3 offset))
-       (just (mc-bytes (single-byte-op/RM/scaled-mem #x89 #t reg1 reg2 scale reg3 (s32 offset))))]
+       (just (mc-bytes (single-byte-op/RM/scaled-mem #x89 #t reg1 reg2 scale reg3 offset)))]
       [(movq (rmi-direct-memory reg1) (rmi-register reg2))
        (just (mc-bytes (single-byte-op/MR/mem #x8B #t reg1 reg2)))]
       [(movq _ (rmi-imm _))
@@ -430,7 +430,7 @@
       [(pushq (rmi-displaced-memory reg offset))
        (just (mc-bytes (single-byte-op/M/displaced-mem #xFF 6 #f reg offset)))]
       [(pushq (rmi-scaled-memory reg1 scale reg2 offset))
-       (just (mc-bytes (single-byte-op/M/scaled-mem #xFF 6 #f reg1 scale reg2 (s32 offset))))]
+       (just (mc-bytes (single-byte-op/M/scaled-mem #xFF 6 #f reg1 scale reg2 offset)))]
       [(pushq (rmi-imm (imm-s32 imm)))
        (just (mc-bytes (single-byte-op/I #x68 #f imm)))]
       [(pushq (rmi-imm _))
@@ -699,7 +699,7 @@
 
   (define (single-byte-op/MR/scaled-mem
             [opcode : Byte] [rexW : Boolean]
-            [reg1 : Register] [scale : S64] [reg2 : Register] [displacement : S64]
+            [reg1 : Register] [scale : S64] [reg2 : Register] [displacement : S32]
             [reg3 : Register]) : Bytes
     (let ([base (register->byte reg1)])
       (let ([index (register->byte reg2)])
@@ -714,7 +714,7 @@
                        (sib-byte scale reg2 reg1)
                        0 0 0 0)])
               (begin
-                (bytes-set!/s32-le v 3 (s32 displacement))
+                (bytes-set!/s32-le v 3 displacement)
                 v)))))))
 
 
@@ -732,7 +732,7 @@
 
   (define (double-byte-op/MR/scaled-mem
             [opcode : Byte] [rexW : Boolean]
-            [reg1 : Register] [scale : S64] [reg2 : Register] [displacement : S64]
+            [reg1 : Register] [scale : S64] [reg2 : Register] [displacement : S32]
             [reg3 : Register]) : Bytes
     (let ([base (register->byte reg1)])
       (let ([index (register->byte reg2)])
@@ -748,7 +748,7 @@
                        (sib-byte scale reg2 reg1)
                        0 0 0 0)])
               (begin
-                (bytes-set!/s32-le v 4 (s32 displacement))
+                (bytes-set!/s32-le v 4 displacement)
                 v)))))))
 
 
@@ -1111,7 +1111,7 @@
       [(rmi-scaled-memory reg scale index offset)
        (bytes-append
          (varargs list
-           (integer->decimal-bytes offset)
+           (integer->decimal-bytes (s32->s64 offset))
            #"("
            (register->bytes reg)
            #", "
@@ -1129,8 +1129,8 @@
   (define (mem [r : Register] [offset : Byte]) : RegMemImm
     (case r
       ;; rsp as the index means 0 index
-      [(rsp) (rmi-scaled-memory r 1 (rsp) offset)]
-      [(r12) (rmi-scaled-memory r 1 (rsp) offset)]
+      [(rsp) (rmi-scaled-memory r 1 (rsp) (s32 offset))]
+      [(r12) (rmi-scaled-memory r 1 (rsp) (s32 offset))]
       [(rbp) (rmi-displaced-memory r (s32 offset))]
       [(r13) (rmi-displaced-memory r (s32 offset))]
       [_ (if (= offset 0)
@@ -1139,7 +1139,7 @@
   (define (imm [v : S64]) : RegMemImm
     (rmi-imm (imm-s32 (s32 v))))
   (define (scaled [r : Register] [scale : Byte] [index : Register] [offset : Byte]) : RegMemImm
-    (rmi-scaled-memory r scale index offset))
+    (rmi-scaled-memory r scale index (s32 offset)))
 
   (define (write-assembly-commands [cmds : (List AssemblyCommand)] [output : OutputPort]) : Void
     (write-lines (map assembly-command->bytes cmds) output))
