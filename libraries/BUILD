@@ -715,3 +715,14 @@ yaspl_library(
   ]
 )
 
+action_listener(
+  name = "yaspl_gen_objects",
+  mnemonics = ["YasplCompile"],
+  extra_actions = [":yaspl_gen_object"]
+)
+
+extra_action(
+  name = "yaspl_gen_object",
+  out_templates = ["$(ACTION_ID).hex-proto"],
+  cmd = "hexdump $(EXTRA_ACTION_FILE) > $(output $(ACTION_ID).hex-proto)"
+)
