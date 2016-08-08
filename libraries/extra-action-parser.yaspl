@@ -8,7 +8,7 @@
     (bytes subbytes)
     (list
       #:types (List)
-      #:values (cons empty map)
+      #:values (cons empty map reverse)
       #:patterns (cons empty))
     (either
       #:types (Either)
@@ -37,7 +37,9 @@
       (tag-32))
 
     (define-type ExtraActionInfo
-      (extra-action-info [owner Bytes] [id Bytes] [mnemonic Bytes])))
+      (extra-action-info [owner Bytes] [id Bytes] [mnemonic Bytes] [spawn-info SpawnInfo]))
+    (define-type SpawnInfo
+      (spawn-info [arguments (List Bytes)] [input-files (List Bytes)] [output-files (List Bytes)])))
 
 
   (define (read-varint [parser : ProtoParser]) : (Result S64)
@@ -103,6 +105,30 @@
       [(proto-parser bytes offset limit)
        (subbytes bytes offset limit)]))
 
+
+  (define (parse-spawn-info [parser : ProtoParser]) : (Either Bytes SpawnInfo)
+    (case (read-fields parser)
+      [(left msg) (left msg)]
+      [(right fields)
+       (parse-spawn-info/loop fields (empty) (empty) (empty))]))
+
+
+  (define (parse-spawn-info/loop
+            [fields : (List UnparsedField)]
+            [arguments : (List Bytes)]
+            [input-files : (List Bytes)]
+            [output-files : (List Bytes)]) : (Either Bytes SpawnInfo)
+    (case fields
+      [(cons (unparsed-length-delimited n sub-parser) fields)
+       (case n
+         [1 (parse-spawn-info/loop fields (cons (parse-bytes sub-parser) arguments) input-files output-files)]
+         [4 (parse-spawn-info/loop fields arguments (cons (parse-bytes sub-parser) input-files) output-files)]
+         [5 (parse-spawn-info/loop fields arguments input-files (cons (parse-bytes sub-parser) output-files))]
+         [_ (left #"Unknown field in SpawnInfo")])]
+      [(cons _ _) (left #"Unsupported tag type in SpawnInfo")]
+      [(empty)
+       (right (spawn-info (reverse arguments) (reverse input-files) (reverse output-files)))]))
+
   (define (parse-extra-action-info [parser : ProtoParser]) : (Either Bytes ExtraActionInfo)
     (case (read-fields parser)
       [(left msg) (left msg)]
@@ -111,11 +137,15 @@
            (cons (unparsed-length-delimited 2 id-parser)
              (cons (unparsed-length-delimited 5 mnemonic-parser)
                (cons (unparsed-length-delimited 1003 spawn-info-parser) (empty))))))
-       (right
-         (extra-action-info
-           (parse-bytes owner-parser)
-           (parse-bytes id-parser)
-           (parse-bytes mnemonic-parser)))]
+       (case (parse-spawn-info spawn-info-parser)
+         [(left msg) (left msg)]
+         [(right spawn-info)
+          (right
+            (extra-action-info
+              (parse-bytes owner-parser)
+              (parse-bytes id-parser)
+              (parse-bytes mnemonic-parser)
+              spawn-info))])]
       [(right _) (left #"Unsupported serialization of ExtraActionInfo")]))
 
   (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Byte
@@ -134,12 +164,24 @@
                (begin
                  (write-line msg stderr)
                  1)]
-              [(right (extra-action-info owner id mnemonic))
-               (begin
-                 (write-all-bytes #"Owner: " stdout)
-                 (write-line owner stdout)
-                 (write-all-bytes #"Id: " stdout)
-                 (write-line id stdout)
-                 (write-all-bytes #"Mnemonic: " stdout)
-                 (write-line mnemonic stdout)
-                 0)]))))))
+              [(right (extra-action-info owner id mnemonic
+                                         (spawn-info arguments input-files output-files)))
+               (let [(write-indented
+                       (lambda ([v : Bytes])
+                         (begin
+                           (write-all-bytes #"  " stdout)
+                           (write-line v stdout))))]
+                 (begin
+                   (write-all-bytes #"Owner: " stdout)
+                   (write-line owner stdout)
+                   (write-all-bytes #"Id: " stdout)
+                   (write-line id stdout)
+                   (write-all-bytes #"Mnemonic: " stdout)
+                   (write-line mnemonic stdout)
+                   (write-line #"Arguments:" stdout)
+                   (map write-indented arguments)
+                   (write-line #"Input Files" stdout)
+                   (map write-indented input-files)
+                   (write-line #"Output Files" stdout)
+                   (map write-indented output-files)
+                   0))]))))))
