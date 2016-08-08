@@ -1,0 +1,145 @@
+(module extra-action-parser
+  (import
+    (prim
+      #:types (Array Bytes InputPort OutputPort Void Byte S64 Boolean)
+      #:values (array-length < close-input-port array-ref open-input-file bytes-ref bytes-length + *
+                             = > >= - bitwise-and logical-shift-right)
+      #:patterns ())
+    (bytes subbytes)
+    (list
+      #:types (List)
+      #:values (cons empty map)
+      #:patterns (cons empty))
+    (either
+      #:types (Either)
+      #:values (right left)
+      #:patterns (right left))
+    (numbers integer->decimal-bytes)
+    (io write-line read-all-bytes write-all-bytes))
+  (export)
+  (types
+    (define-type ProtoParser
+      (proto-parser [input Bytes] [pos S64] [limit S64]))
+    (define-type (Result a)
+      (result [v a] [parser ProtoParser])
+      (error [msg Bytes]))
+    (define-type UnparsedField
+      (unparsed-varint [number S64] [v S64])
+      (unparsed-64 [number S64] [v Bytes])
+      (unparsed-32 [number S64] [v Bytes])
+      (unparsed-length-delimited [number S64] [v ProtoParser]))
+    (define-type FieldTag
+      (field-tag [number S64] [type TagType]))
+    (define-type TagType
+      (tag-varint)
+      (tag-length-delimited)
+      (tag-64)
+      (tag-32))
+
+    (define-type ExtraActionInfo
+      (extra-action-info [owner Bytes] [id Bytes] [mnemonic Bytes])))
+
+
+  (define (read-varint [parser : ProtoParser]) : (Result S64)
+    (case parser
+      [(proto-parser input pos limit)
+       (read-varint/loop input pos limit)]))
+
+  (define (read-varint/loop [bytes : Bytes] [offset : S64] [limit : S64]) : (Result S64)
+    (if (>= offset limit)
+        (error #"Varint not terminated correctly.)")
+        (let ([v (bytes-ref bytes offset)])
+          (if (>= v 128)
+              (case (read-varint/loop bytes (+ 1 offset) limit)
+                [(error msg) (error msg)]
+                [(result v2 parser) (result (+ (- v 128) (* v2 128)) parser)])
+              (result v (proto-parser bytes (+ 1 offset) limit))))))
+
+  (define (read-tag [parser : ProtoParser]) : (Result FieldTag)
+    (case (read-varint parser)
+      [(error msg) (error msg)]
+      [(result v parser)
+       (let ([field-number (logical-shift-right v 3)])
+         (case (bitwise-and v #x07)
+           [0 (result (field-tag field-number (tag-varint)) parser)]
+           [1 (result (field-tag field-number (tag-64)) parser)]
+           [2 (result (field-tag field-number (tag-length-delimited)) parser)]
+           [5 (result (field-tag field-number (tag-32)) parser)]
+           [_ (error #"Bad tag type")]))]))
+
+  (define (read-field [parser : ProtoParser]) : (Result UnparsedField)
+    (case (read-tag parser)
+      [(error msg) (error msg)]
+      [(result (field-tag n type) parser) 
+       (case type
+         [(tag-length-delimited)
+          (case (read-varint parser)
+            [(error msg) (error msg)]
+            [(result length (proto-parser bytes offset limit))
+             (let ([new-limit (+ offset length)])
+               (if (> new-limit limit)
+                   (error #"Bad length in length delimited field")
+                   (result (unparsed-length-delimited n (proto-parser bytes offset new-limit))
+                           (proto-parser bytes new-limit limit))))])]
+         [_ (error #"Unimplemented tag")])]))
+
+  (define (read-fields [parser : ProtoParser]) : (Either Bytes (List UnparsedField))
+    (if (empty-parser? parser)
+        (right (empty))
+        (case (read-field parser)
+          [(error msg) (left msg)]
+          [(result field parser)
+           (case (read-fields parser)
+             [(left msg) (left msg)]
+             [(right fields) (right (cons field fields))])])))
+
+  (define (empty-parser? [parser : ProtoParser]) : Boolean
+    (case parser
+      [(proto-parser _ offset limit)
+       (= offset limit)]))
+
+  (define (parse-bytes [parser : ProtoParser]) : Bytes
+    (case parser
+      [(proto-parser bytes offset limit)
+       (subbytes bytes offset limit)]))
+
+  (define (parse-extra-action-info [parser : ProtoParser]) : (Either Bytes ExtraActionInfo)
+    (case (read-fields parser)
+      [(left msg) (left msg)]
+      [(right
+         (cons (unparsed-length-delimited 1 owner-parser)
+           (cons (unparsed-length-delimited 2 id-parser)
+             (cons (unparsed-length-delimited 5 mnemonic-parser)
+               (cons (unparsed-length-delimited 1003 spawn-info-parser) (empty))))))
+       (right
+         (extra-action-info
+           (parse-bytes owner-parser)
+           (parse-bytes id-parser)
+           (parse-bytes mnemonic-parser)))]
+      [(right _) (left #"Unsupported serialization of ExtraActionInfo")]))
+
+  (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Byte
+    (if (< (array-length args) 2)
+        (begin
+          (write-line #"Too few arguments" stderr)
+          1)
+        (let ([bytes (let ([input (open-input-file (array-ref args 1))])
+                       (let ([v (read-all-bytes input)])
+                         (begin
+                           (close-input-port input)
+                           v)))])
+          (let ([limit (bytes-length bytes)])
+            (case (parse-extra-action-info (proto-parser bytes 0 limit))
+              [(left msg)
+               (begin
+                 (write-line msg stderr)
+                 1)]
+              [(right (extra-action-info owner id mnemonic))
+               (begin
+                 (write-all-bytes #"Owner: " stdout)
+                 (write-line owner stdout)
+                 (write-all-bytes #"Id: " stdout)
+                 (write-line id stdout)
+                 (write-all-bytes #"Mnemonic: " stdout)
+                 (write-line mnemonic stdout)
+                 0)]))))))

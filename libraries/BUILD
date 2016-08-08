@@ -36,6 +36,12 @@ yaspl_binary(
 )
 
 yaspl_binary(
+  name = "extra-action-parser",
+  main_module = "extra_action_parser",
+  deps = [":extra-action-parser_lib"]
+)
+
+yaspl_binary(
   name = "http-server",
   main_module = "http_server",
   deps = [":http-server_lib"]
@@ -163,6 +169,18 @@ yaspl_bootstrap_library(
     ":bytes",
     ":list",
     ":maybe",
+  ]
+)
+
+yaspl_library(
+  name = "extra-action-parser_lib",
+  srcs = ["extra-action-parser.yaspl"],
+  deps = [
+    ":bytes",
+    ":either",
+    ":io",
+    ":list",
+    ":numbers",
   ]
 )
 
