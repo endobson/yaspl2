@@ -741,6 +741,9 @@ action_listener(
 
 extra_action(
   name = "yaspl_gen_object",
-  out_templates = ["$(ACTION_ID).hex-proto"],
-  cmd = "hexdump $(EXTRA_ACTION_FILE) > $(output $(ACTION_ID).hex-proto)"
+  out_templates = ["$(ACTION_ID).desc"],
+  tools = [
+    ":extra-action-parser",
+  ],
+  cmd = "$(location :extra-action-parser) $(EXTRA_ACTION_FILE) $(output $(ACTION_ID).desc)"
 )

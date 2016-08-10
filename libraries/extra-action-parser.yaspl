@@ -3,9 +3,9 @@
     (prim
       #:types (Array Bytes InputPort OutputPort Void Byte S64 Boolean)
       #:values (array-length < close-input-port array-ref open-input-file bytes-ref bytes-length + *
-                             = > >= - bitwise-and logical-shift-right)
+                             = > >= - bitwise-and logical-shift-right open-output-file void)
       #:patterns ())
-    (bytes subbytes)
+    (bytes subbytes make-null-terminated)
     (list
       #:types (List)
       #:values (cons empty map reverse)
@@ -148,40 +148,47 @@
               spawn-info))])]
       [(right _) (left #"Unsupported serialization of ExtraActionInfo")]))
 
+  (define (print-extra-action-info [info : ExtraActionInfo] [output : OutputPort]) : Void
+    (case info
+      [(extra-action-info owner id mnemonic (spawn-info arguments input-files output-files))
+       (let [(write-indented
+               (lambda ([v : Bytes])
+                 (begin
+                   (write-all-bytes #"  " output)
+                   (write-line v output))))]
+         (begin
+           (write-all-bytes #"Owner: " output)
+           (write-line owner output)
+           (write-all-bytes #"Id: " output)
+           (write-line id output)
+           (write-all-bytes #"Mnemonic: " output)
+           (write-line mnemonic output)
+           (write-line #"Arguments:" output)
+           (map write-indented arguments)
+           (write-line #"Input Files" output)
+           (map write-indented input-files)
+           (write-line #"Output Files" output)
+           (map write-indented output-files)
+           (void)))]))
+
   (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Byte
-    (if (< (array-length args) 2)
+    (if (< (array-length args) 3)
         (begin
           (write-line #"Too few arguments" stderr)
           1)
-        (let ([bytes (let ([input (open-input-file (array-ref args 1))])
+        (let ([bytes (let ([input (open-input-file (make-null-terminated (array-ref args 1)))])
                        (let ([v (read-all-bytes input)])
                          (begin
                            (close-input-port input)
                            v)))])
-          (let ([limit (bytes-length bytes)])
-            (case (parse-extra-action-info (proto-parser bytes 0 limit))
-              [(left msg)
-               (begin
-                 (write-line msg stderr)
-                 1)]
-              [(right (extra-action-info owner id mnemonic
-                                         (spawn-info arguments input-files output-files)))
-               (let [(write-indented
-                       (lambda ([v : Bytes])
-                         (begin
-                           (write-all-bytes #"  " stdout)
-                           (write-line v stdout))))]
+          (let ([output (open-output-file (make-null-terminated (array-ref args 2)))])
+            (let ([limit (bytes-length bytes)])
+              (case (parse-extra-action-info (proto-parser bytes 0 limit))
+                [(left msg)
                  (begin
-                   (write-all-bytes #"Owner: " stdout)
-                   (write-line owner stdout)
-                   (write-all-bytes #"Id: " stdout)
-                   (write-line id stdout)
-                   (write-all-bytes #"Mnemonic: " stdout)
-                   (write-line mnemonic stdout)
-                   (write-line #"Arguments:" stdout)
-                   (map write-indented arguments)
-                   (write-line #"Input Files" stdout)
-                   (map write-indented input-files)
-                   (write-line #"Output Files" stdout)
-                   (map write-indented output-files)
-                   0))]))))))
+                   (write-line msg stderr)
+                   1)]
+                [(right info)
+                 (begin
+                   (print-extra-action-info info output)
+                   0)])))))))
