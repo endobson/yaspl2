@@ -1,14 +1,14 @@
 (module mach-o-writer2
   (import
     (prim
-      #:types (Bytes S64 InputPort OutputPort Array)
-      #:values (close-output-port array-length array-ref open-output-file < void) 
+      #:types (Bytes S64 InputPort OutputPort Array Void)
+      #:values (= + close-output-port array-length array-ref open-output-file < void open-input-file) 
       #:patterns ())
-    (io write-line write-all-bytes)
+    (io write-line write-all-bytes read-all-bytes)
     (bytes bytes make-null-terminated bytes-append bytes=?)
     (join-list jl->list)
     (list
-      #:types ()
+      #:types (List)
       #:values (empty cons map reverse)
       #:patterns (cons empty))
     (x86-64-stack-machine
@@ -16,7 +16,7 @@
       #:values (write-fragments convert-objects instruction->mc-command)
       #:patterns (function-fragment basic-block mc-bytes mc-jump
                   mcj-jb mcj-je mcj-jne mcj-jnz))
-    (library-compiler add-known-functions extract-modules read-module-files compile-main-module)
+    (library-compiler add-known-functions extract-modules compile-main-module)
     (dict
       #:types (Dict)
       #:values (make-dict)
@@ -31,35 +31,36 @@
       #:values (parse-sexps)
       #:patterns ())
     (either
-      #:types ()
-      #:values ()
+      #:types (Either)
+      #:values (left right)
       #:patterns (left right)))
-  (export)
+  (export 
+    #:types ()
+    #:values (write-mach-o)
+    #:patterns ())
   (types)
 
+  (define (a) (array->list [offset : S64] [arr : (Array a)]) : (List a)
+    (if (= offset (array-length arr))
+        (empty)
+        (cons (array-ref arr offset) (array->list (+ 1 offset) arr))))
 
-  (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : S64
-    (if (< (array-length args) 2)
-        (begin
-          (write-line #"No output file name supplied" stderr)
-          1)
-        (case (parse-sexps (bytes-append (read-module-files 2 args)))
-          [(left v)
-           (begin
-             (write-line v stderr)
-             1)]
+  (define (read-module-files [modules : (List Bytes)]) : (List Bytes)
+    (case modules
+      [(empty) (empty)]
+      [(cons mod modules)
+       (cons (read-all-bytes (open-input-file (make-null-terminated mod)))
+             (read-module-files modules))]))
+
+  (define (write-mach-o [output-file-name : Bytes] [input-file-names : Bytes]) : (Either Bytes Void)
+    (case (parse-sexps (bytes-append (read-module-files input-file-names)))
+          [(left v) (left v)]
           [(right sexps)
            (case (extract-modules (map parse-module sexps))
-             [(left v)
-              (begin
-                (write-line v stderr)
-                1)]
+             [(left v) (left v)]
              [(right modules)
               (case (reverse modules)
-                [(empty)
-                 (begin
-                   (write-line #"No provided modules" stderr)
-                   1)]
+                [(empty) (left #"No provided modules")]
                 [(cons main-module other-modules)
                  (case (compile-main-module
                          main-module
@@ -67,12 +68,9 @@
                          (cons (prim-static-signature) (empty))
                          (cons (prim-signature) (empty))
                          (add-known-functions (prim-implementation) (make-dict bytes=?)))
-                   [(left v)
-                    (begin
-                      (write-line v stderr)
-                      1)]
+                   [(left v) (left v)]
                    [(right objects)
-                    (let ([output (open-output-file (make-null-terminated (array-ref args 1)))])
+                    (let ([output (open-output-file (make-null-terminated output-file-name))])
                       (begin
                         (map
                           (lambda ([fragment : AssemblyFragment])
@@ -98,4 +96,17 @@
                               [_ (void)]))
                           (convert-objects objects))
                         (close-output-port output)
-                        0))])])])]))))
+                        (right (void))))])])])]))
+
+  (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : S64
+    (if (< (array-length args) 2)
+        (begin
+          (write-line #"No output file name supplied" stderr)
+          1)
+        (case (write-mach-o (array-ref args 1) (array->list 2 args))
+          [(left v)
+           (begin
+             (write-line v stderr)
+             1)]
+          [(right _)
+           0]))))
