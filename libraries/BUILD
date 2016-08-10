@@ -180,6 +180,7 @@ yaspl_library(
     ":either",
     ":io",
     ":list",
+    ":mach-o-writer2_lib",
     ":numbers",
   ]
 )
@@ -741,9 +742,9 @@ action_listener(
 
 extra_action(
   name = "yaspl_gen_object",
-  out_templates = ["$(ACTION_ID).desc"],
+  out_templates = ["$(ACTION_ID).o2"],
   tools = [
     ":extra-action-parser",
   ],
-  cmd = "$(location :extra-action-parser) $(EXTRA_ACTION_FILE) $(output $(ACTION_ID).desc)"
+  cmd = "$(location :extra-action-parser) $(EXTRA_ACTION_FILE) $(output $(ACTION_ID).o2)"
 )
