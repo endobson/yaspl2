@@ -1,7 +1,7 @@
 (module mach-o-writer
   (import
     (prim
-      #:types (Bytes Byte InputPort OutputPort Array Void)
+      #:types (Bytes Byte InputPort OutputPort Array Void U8)
       #:values (* + - > < = array-length array-ref open-output-file read-bytes make-bytes
                 bytes-length panic void bytes-ref u32)
       #:patterns ())
@@ -18,13 +18,15 @@
     (bytes bytes bytes-ref/quad-le bytes-set!/octo-le bytes-set!/quad-le make-null-terminated))
   (export
     #:types ()
-    #:values (lc-load-segment64 load-segment64 section64 write-mach-o-header mach-o-header)
+    #:values (lc-load-segment64 load-segment64 section64 write-mach-o-header2 mach-o-header 
+              lc-version-min-macosx version-min lc-symbol-table symbol-table)
     #:patterns ())
   (types
     (define-type MachOHeader
       (mach-o-header [commands (List MachOLoadCommand)]))
     (define-type MachOLoadCommand
       (lc-unix-thread [v UnixThread])
+      (lc-version-min-macosx [v VersionMin])
       (lc-source-version)
       (lc-symbol-table [v SymbolTable])
       (lc-load-segment64 [v LoadSegment64]))
@@ -52,6 +54,14 @@
       (unix-thread
         [start-address Byte]))
 
+    (define-type VersionMin
+      (version-min
+        [version-major U8] ;; TODO this should be a u16
+        [version-minor U8]
+        [version-patch U8]
+        [sdk-major U8]
+        [sdk-minor U8]
+        [vsd-sdk U8])) ;; TODO this should be a u16
 
     (define-type SymbolTable
       (symbol-table
@@ -94,10 +104,36 @@
     (case lc
       [(lc-unix-thread _) #xb8]
       [(lc-source-version) #x10]
+      [(lc-version-min-macosx _) #x10]
       [(lc-load-segment64 load-seg)
        (+ 72 (* (length (load-segment64-sections load-seg)) 80))]
       [(lc-symbol-table _) #x18]))
 
+
+
+  (define (write-mach-o-header2 [header : MachOHeader] [output : OutputPort]) : Void
+    (case header
+      [(mach-o-header commands)
+       (begin
+         (write-quad-le #xfeedfacf output)
+         ;; CPU type
+         (write-quad-le #x01000007 output)
+         ;; CPU subtype
+         (write-quad-le #x03 output)
+         ;; File type
+         (write-quad-le #x01 output)
+
+         ;; Number of commands
+         (write-quad-le (length commands) output)
+         ;; Size of commands
+         (write-quad-le (load-commands-size commands) output)
+
+         ;; Flags
+         (write-quad-le #x00  output)
+         ;; Reserved
+         (write-quad-le #x00 output)
+
+         (write-load-commands commands output))]))
 
   (define (write-mach-o-header [header : MachOHeader] [output : OutputPort]) : Void
     (case header
@@ -129,6 +165,10 @@
       [(cons (lc-unix-thread ut) commands)
        (begin
          (write-unix-thread ut output)
+         (write-load-commands commands output))]
+      [(cons (lc-version-min-macosx vm) commands)
+       (begin
+         (write-version-min vm output)
          (write-load-commands commands output))]
       [(cons (lc-source-version) commands)
        (begin
@@ -212,6 +252,20 @@
       (write-quad-le #x10 output)
 
       (write-octo-le #x00 output)))
+
+  ;; TODO make this not hardcoded to LC_VERSION_MIN_MACOSX
+  (define (write-version-min [vm : VersionMin] [output : OutputPort]) : Void
+    (case vm
+      [(version-min v-major v-minor v-patch sdk-major sdk-minor sdk-patch)
+       (begin
+         ;; LC_VERSION_MIN_MACOSX
+         (write-quad-le #x24 output)
+         ;; Command size
+         (write-quad-le #x10 output)
+
+         ;; TODO make this the real values
+         (write-quad-le #x10 output)
+         (write-quad-le #x10 output))]))
 
 
   (define (write-unix-thread [ut : UnixThread] [output : OutputPort]) : Void
