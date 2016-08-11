@@ -382,6 +382,7 @@ yaspl_library(
     ":source-language",
     ":sexp-parser",
     ":either",
+    ":mach-o-writer_lib",
   ]
 )
 
