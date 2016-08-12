@@ -6,7 +6,7 @@
       #:patterns ())
     (io write-line write-all-bytes read-all-bytes)
     (bytes bytes make-null-terminated bytes-append bytes=?)
-    (join-list jl->list)
+    (join-list jl->list empty-jl list->jl map-jl concat-map-jl)
     (list
       #:types (List)
       #:values (empty cons map reverse list)
@@ -55,6 +55,32 @@
        (cons (read-all-bytes (open-input-file (make-null-terminated mod)))
              (read-module-files modules))]))
 
+  (define (assemble-text-segment [fragments : (List AssemblyFragment)]) : Bytes
+    (bytes-append
+      (jl->list
+        (concat-map-jl
+          (lambda ([fragment : AssemblyFragment])
+            (case fragment
+              [(function-fragment name blocks)
+               (concat-map-jl
+                 (lambda ([bb : BasicBlock])
+                   (case bb
+                     [(basic-block block-name instructions)
+                      (map-jl
+                        (lambda ([inst : Instruction])
+                          (case (instruction->mc-command inst)
+                            [(mc-bytes bytes) bytes]
+                            [(mc-jump (mcj-jb) _) (varargs bytes #x0F #x82 0 0 0 0)]
+                            [(mc-jump (mcj-je) _) (varargs bytes #x0F #x84 0 0 0 0)]
+                            [(mc-jump (mcj-jne) _) (varargs bytes #x0F #x85 0 0 0 0)]
+                            [(mc-jump (mcj-jnz) _) (varargs bytes #x0F #x85 0 0 0 0)]
+                            [_ #""]))
+                        instructions)]))
+                 (list->jl blocks))]
+              [_ (empty-jl)]))
+          (list->jl fragments)))))
+
+
   (define (write-mach-o [output-file-name : Bytes] [input-file-names : Bytes]) : (Either Bytes Void)
     (case (parse-sexps (bytes-append (read-module-files input-file-names)))
           [(left v) (left v)]
@@ -73,71 +99,50 @@
                          (add-known-functions (prim-implementation) (make-dict bytes=?)))
                    [(left v) (left v)]
                    [(right objects)
-                    (let ([output (open-output-file (make-null-terminated output-file-name))])
-                      (begin
-                        (write-mach-o-header2
-                          (mach-o-header
-                            (varargs list
-                              (lc-load-segment64
-                                (load-segment64 #""
-                                  #x0000000000000000
-                                  #x0000000000000090
-                                  384
-                                  144
-                                  #x07
-                                  #x07
-                                  0
-                                  (varargs list
-                                    (section64 #"__TEXT" #"__text"
-                                               #x00
-                                               #x78
-                                               384
-                                               528
-                                               1
-                                               #x80000400)
-                                    (section64 #"__TEXT" #"__const"
-                                               #x78
-                                               #x18
-                                               504
-                                               536
-                                               3
-                                               0))))
-                              (lc-version-min-macosx
-                                (version-min 10 11 0 0 0 0))
-                              (lc-symbol-table
-                                (symbol-table
-                                  560
-                                  10
-                                  720
-                                  220))
-                              (lc-dynamic-symbol-table
-                                (dynamic-symbol-table 0 9 9 1))))
-                          output)
-                        (map
-                          (lambda ([fragment : AssemblyFragment])
-                            (case fragment
-                              [(function-fragment name blocks)
-                               (map
-                                 (lambda ([bb : BasicBlock])
-                                   (case bb
-                                     [(basic-block block-name instructions)
-                                      (map
-                                        (lambda ([inst : Instruction])
-                                          (write-all-bytes
-                                            (case (instruction->mc-command inst)
-                                              [(mc-bytes bytes) bytes]
-                                              [(mc-jump (mcj-jb) _) (varargs bytes #x0F #x82 0 0 0 0)]
-                                              [(mc-jump (mcj-je) _) (varargs bytes #x0F #x84 0 0 0 0)]
-                                              [(mc-jump (mcj-jne) _) (varargs bytes #x0F #x85 0 0 0 0)]
-                                              [(mc-jump (mcj-jnz) _) (varargs bytes #x0F #x85 0 0 0 0)]
-                                              [_ #""])
-                                            output))
-                                        (jl->list instructions))]))
-                                 blocks)]
-                              [_ (void)]))
-                          (convert-objects objects))
-                        (close-output-port output)
-                        (right (void))))])])])]))
+                    (let ([text-segment-bytes (assemble-text-segment (convert-objects objects))])
+                      (let ([output (open-output-file (make-null-terminated output-file-name))])
+                        (begin
+                          (write-mach-o-header2
+                            (mach-o-header
+                              (varargs list
+                                (lc-load-segment64
+                                  (load-segment64 #""
+                                    #x0000000000000000
+                                    #x0000000000000090
+                                    384
+                                    144
+                                    #x07
+                                    #x07
+                                    0
+                                    (varargs list
+                                      (section64 #"__TEXT" #"__text"
+                                                 #x00
+                                                 #x78
+                                                 384
+                                                 528
+                                                 1
+                                                 #x80000400)
+                                      (section64 #"__TEXT" #"__const"
+                                                 #x78
+                                                 #x18
+                                                 504
+                                                 536
+                                                 3
+                                                 0))))
+                                (lc-version-min-macosx
+                                  (version-min 10 11 0 0 0 0))
+                                (lc-symbol-table
+                                  (symbol-table
+                                    560
+                                    10
+                                    720
+                                    220))
+                                (lc-dynamic-symbol-table
+                                  (dynamic-symbol-table 0 9 9 1))))
+                            output)
+                          (write-all-bytes text-segment-bytes output)
+                          (close-output-port output)
+                          (right (void)))))])])])]))
 
   (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : S64
     (if (< (array-length args) 2)
