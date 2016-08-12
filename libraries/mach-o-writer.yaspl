@@ -46,10 +46,13 @@
 
     (define-type Section64
       (section64
+        [segment-name Bytes]
         [name Bytes]
         [addr Byte]
         [size Byte]
         [offset Byte]
+        [relocation-offset Byte]
+        [num-relocations Byte]
         [flags Byte]))
 
     (define-type UnixThread
@@ -84,6 +87,10 @@
         [data Bytes]
         [symbols (Dict Bytes Byte)]
         [relocations (Dict Byte RelocationEntry)])))
+
+
+  (define (write-byte [v : Byte] [output : OutputPort]) : Void
+    (write-all-bytes (varargs bytes v) output))
 
 
   (define (write-quad-le [v : Byte] [output : OutputPort]) : Void
@@ -222,19 +229,19 @@
          (write-quad-le (length sections) output)
          (write-quad-le flags output)
 
-         (write-sections name sections output))]))
+         (write-sections sections output))]))
 
-  (define (write-sections [seg-name : Bytes] [sections : (List Section64)] [output : OutputPort]) : Void
+  (define (write-sections [sections : (List Section64)] [output : OutputPort]) : Void
     (case sections
       [(empty) (void)]
       [(cons section sections)
        (begin
-         (write-section seg-name section output)
-         (write-sections seg-name sections output))]))
+         (write-section section output)
+         (write-sections sections output))]))
 
-  (define (write-section [seg-name : Bytes] [section : Section64] [output : OutputPort]) : Void
+  (define (write-section [section : Section64] [output : OutputPort]) : Void
     (case section
-      [(section64 name addr size offset flags)
+      [(section64 seg-name name addr size offset rel-offset num-rels flags)
        (begin
          (write-16-byte-name name output)
          (write-16-byte-name seg-name output)
@@ -244,8 +251,8 @@
          (write-quad-le offset output)
 
          (write-quad-le #x00 output)
-         (write-quad-le #x00 output)
-         (write-quad-le #x00 output)
+         (write-quad-le rel-offset output)
+         (write-quad-le num-rels output)
 
 
          (write-quad-le flags output)
@@ -264,6 +271,7 @@
       (write-octo-le #x00 output)))
 
   ;; TODO make this not hardcoded to LC_VERSION_MIN_MACOSX
+  ;; TODO support more than one major byte this the real values
   (define (write-version-min [vm : VersionMin] [output : OutputPort]) : Void
     (case vm
       [(version-min v-major v-minor v-patch sdk-major sdk-minor sdk-patch)
@@ -273,9 +281,14 @@
          ;; Command size
          (write-quad-le #x10 output)
 
-         ;; TODO make this the real values
-         (write-quad-le #x10 output)
-         (write-quad-le #x10 output))]))
+         (write-byte v-patch output)
+         (write-byte v-minor output)
+         (write-byte v-major output)
+         (write-byte 0 output)
+         (write-byte sdk-patch output)
+         (write-byte sdk-minor output)
+         (write-byte sdk-major output)
+         (write-byte 0 output))]))
 
 
   (define (write-unix-thread [ut : UnixThread] [output : OutputPort]) : Void
