@@ -7,10 +7,11 @@
       #:patterns ())
     (io write-line write-all-bytes read-all-bytes)
     (bytes bytes make-null-terminated bytes-append bytes=? sum)
-    (join-list jl->list empty-jl list->jl map-jl concat-map-jl single-jl)
+    (set make-set set-add-all set->list)
+    (join-list jl->list cons-jl empty-jl list->jl map-jl concat-map-jl single-jl join-list)
     (list
       #:types (List)
-      #:values (empty cons map reverse list)
+      #:values (empty cons map reverse list length)
       #:patterns (cons empty))
     (x86-64-stack-machine
       #:types (AssemblyFragment BasicBlock Instruction)
@@ -131,6 +132,35 @@
         fragments)))
 
 
+  ;; TODO make this use a sorted set
+  (define (collect-referenced-symbols [fragments : (List AssemblyFragment)]) : (List Bytes)
+    (set->list
+      (set-add-all
+        (make-set bytes=?)
+        (jl->list
+          (concat-map-jl
+            (lambda ([fragment : AssemblyFragment])
+              (case fragment
+                [(function-fragment name blocks)
+                 (concat-map-jl
+                   (lambda ([bb : BasicBlock])
+                     (case bb
+                       [(basic-block block-name instructions)
+                        (cons-jl
+                          block-name
+                          (concat-map-jl
+                            (lambda ([inst : Instruction])
+                              (case (instruction->mc-command inst)
+                                [(mc-bytes bytes) (empty-jl)]
+                                [(mc-jump _ label) (single-jl label)]
+                                [(mc-leaq/rel label _ _) (single-jl label)]))
+                            instructions))]))
+                   (list->jl blocks))]
+                [(address-fragment name value) (varargs join-list name value)]
+                [(bytes-fragment name value) (single-jl name)]))
+            (list->jl fragments))))))
+
+
   (define (round-up [v : S64] [mod : S64]) : S64
     (let ([rem (remainder v mod)])
       (if (= 0 rem)
@@ -166,53 +196,57 @@
                               (let ([segment-size (+ (bytes-length text-segment-bytes)
                                                      (bytes-length const-segment-bytes))])
                                 (let ([reloc-base (+ 384 (round-up segment-size 4))])
-                                  (let ([output (open-output-file (make-null-terminated output-file-name))])
-                                    (begin
-                                      (write-mach-o-header2
-                                        (mach-o-header
-                                          (varargs list
-                                            (lc-load-segment64
-                                              (load-segment64 #""
-                                                #x0000000000000000
-                                                segment-size
-                                                384
-                                                segment-size
-                                                #x07
-                                                #x07
-                                                0
-                                                (varargs list
-                                                  (section64 #"__TEXT" #"__text"
-                                                             #x00
-                                                             (bytes-length text-segment-bytes)
-                                                             384
-                                                             reloc-base
-                                                             text-segment-num-relocations
-                                                             #x80000400)
-                                                  (section64 #"__TEXT" #"__const"
-                                                             (bytes-length text-segment-bytes)
-                                                             (bytes-length const-segment-bytes)
-                                                             (+ 384 (bytes-length text-segment-bytes))
-                                                             (+ reloc-base
-                                                                (* 8 text-segment-num-relocations))
-                                                             const-segment-num-relocations
-                                                             0))))
-                                            (lc-version-min-macosx
-                                              (version-min 10 11 0 0 0 0))
-                                            (lc-symbol-table
-                                              (symbol-table
-                                                (+ reloc-base
-                                                   (* 8 (+ text-segment-num-relocations
-                                                           const-segment-num-relocations)))
-                                                10
-                                                720
-                                                220))
-                                            (lc-dynamic-symbol-table
-                                              (dynamic-symbol-table 0 9 9 1))))
-                                        output)
-                                      (write-all-bytes text-segment-bytes output)
-                                      (write-all-bytes const-segment-bytes output)
-                                      (close-output-port output)
-                                      (right (void)))))))))))])])])]))
+                                  (let ([symbols (collect-referenced-symbols fragments)])
+                                    (let ([output (open-output-file (make-null-terminated output-file-name))])
+                                      (begin
+                                        (write-mach-o-header2
+                                          (mach-o-header
+                                            (varargs list
+                                              (lc-load-segment64
+                                                (load-segment64 #""
+                                                  #x0000000000000000
+                                                  segment-size
+                                                  384
+                                                  segment-size
+                                                  #x07
+                                                  #x07
+                                                  0
+                                                  (varargs list
+                                                    (section64 #"__TEXT" #"__text"
+                                                               #x00
+                                                               (bytes-length text-segment-bytes)
+                                                               384
+                                                               reloc-base
+                                                               text-segment-num-relocations
+                                                               #x80000400)
+                                                    (section64 #"__TEXT" #"__const"
+                                                               (bytes-length text-segment-bytes)
+                                                               (bytes-length const-segment-bytes)
+                                                               (+ 384 (bytes-length text-segment-bytes))
+                                                               (+ reloc-base
+                                                                  (* 8 text-segment-num-relocations))
+                                                               const-segment-num-relocations
+                                                               0))))
+                                              (lc-version-min-macosx
+                                                (version-min 10 11 0 0 0 0))
+                                              (lc-symbol-table
+                                                (symbol-table
+                                                  (+ reloc-base
+                                                     (* 8 (+ text-segment-num-relocations
+                                                             const-segment-num-relocations)))
+                                                  (length symbols)
+                                                  (+ (+ reloc-base
+                                                        (* 8 (+ text-segment-num-relocations
+                                                                const-segment-num-relocations)))
+                                                     (* (length symbols) #x10))
+                                                  220))
+                                              (lc-dynamic-symbol-table
+                                                (dynamic-symbol-table 0 9 9 1))))
+                                          output)
+                                        (write-all-bytes text-segment-bytes output)
+                                        (write-all-bytes const-segment-bytes output)
+                                        (close-output-port output)
+                                        (right (void))))))))))))])])])]))
 
   (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : S64
     (if (< (array-length args) 2)
