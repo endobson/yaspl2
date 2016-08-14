@@ -38,10 +38,15 @@ def _lib_impl(ctx):
     inputs = [ctx.outputs.asm],
     outputs = [ctx.outputs.object],
     mnemonic = "YasplAssemble",
-    command = "as %s -o %s" % (
+    command = "as %s -o %s && " % (
       ctx.outputs.asm.path,
       ctx.outputs.object.path
-    )
+    ) + "ld -arch x86_64 " +
+    "-macosx_version_min 10.11 " +
+    "-keep_private_externs " +
+    "-r %s -o %s" % (
+      ctx.outputs.object.path,
+      ctx.outputs.object.path)
   )
 
   return struct(
@@ -81,10 +86,15 @@ def _bin_impl(ctx):
     inputs = [ctx.outputs.main_stub_asm],
     outputs = [ctx.outputs.main_stub_object],
     mnemonic = "YasplAssemble",
-    command = "as %s -o %s" % (
+    command = "as %s -o %s && " % (
       ctx.outputs.main_stub_asm.path,
       ctx.outputs.main_stub_object.path
-    )
+    ) + "ld -arch x86_64 " +
+    "-macosx_version_min 10.11 " +
+    "-keep_private_externs " +
+    "-r %s -o %s" % (
+      ctx.outputs.main_stub_object.path,
+      ctx.outputs.main_stub_object.path)
   )
 
   input_objects = list(_transitive_objects(ctx)) + [ctx.outputs.main_stub_object]
