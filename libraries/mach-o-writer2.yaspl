@@ -7,7 +7,7 @@
       #:patterns ())
     (io write-line write-all-bytes read-all-bytes)
     (bytes bytes make-null-terminated bytes-append bytes=? sum)
-    (set make-set set-add-all set->list)
+    (set make-set set-add-all set->list set-remove-all)
     (join-list jl->list cons-jl empty-jl list->jl map-jl concat-map-jl single-jl join-list)
     (list
       #:types (List)
@@ -131,34 +131,92 @@
             [(function-fragment _ _) 0]))
         fragments)))
 
+  (define (collect-function-symbols [fragments : (List AssemblyFragment)]) : (List Bytes)
+    (jl->list
+      (concat-map-jl
+        (lambda ([fragment : AssemblyFragment])
+          (case fragment
+            [(function-fragment name blocks)
+             (single-jl name)]
+            [(address-fragment name value)
+             (empty-jl)]
+            [(bytes-fragment name value)
+             (empty-jl)]))
+        (list->jl fragments))))
 
-  ;; TODO make this use a sorted set
+  (define (collect-const-symbols [fragments : (List AssemblyFragment)]) : (List Bytes)
+    (jl->list
+      (concat-map-jl
+        (lambda ([fragment : AssemblyFragment])
+          (case fragment
+            [(function-fragment name blocks)
+             (empty-jl)]
+            [(address-fragment name value)
+             (single-jl name)]
+            [(bytes-fragment name value)
+             (single-jl name)]))
+        (list->jl fragments))))
+
+  (define (collect-basic-block-symbols [fragments : (List AssemblyFragment)]) : (List Bytes)
+    (jl->list
+      (concat-map-jl
+        (lambda ([fragment : AssemblyFragment])
+          (case fragment
+            [(function-fragment name blocks)
+             (concat-map-jl
+               (lambda ([bb : BasicBlock])
+                 (case bb
+                   [(basic-block block-name instructions)
+                    (single-jl block-name)]))
+               (list->jl blocks))]
+            [(address-fragment name value)
+             (empty-jl)]
+            [(bytes-fragment name value)
+             (empty-jl)]))
+        (list->jl fragments))))
+
+
+  (define (collect-instruction-symbols [fragments : (List AssemblyFragment)]) : (List Bytes)
+    (jl->list
+      (concat-map-jl
+        (lambda ([fragment : AssemblyFragment])
+          (case fragment
+            [(function-fragment name blocks)
+             (concat-map-jl
+               (lambda ([bb : BasicBlock])
+                 (case bb
+                   [(basic-block block-name instructions)
+                    (concat-map-jl
+                      (lambda ([inst : Instruction])
+                        (case (instruction->mc-command inst)
+                          [(mc-bytes bytes) (empty-jl)]
+                          [(mc-jump _ label) (single-jl label)]
+                          [(mc-leaq/rel label _ _) (single-jl label)]))
+                      instructions)]))
+               (list->jl blocks))]
+            [(address-fragment name value)
+             (empty-jl)]
+            [(bytes-fragment name value)
+             (empty-jl)]))
+        (list->jl fragments))))
+
   (define (collect-referenced-symbols [fragments : (List AssemblyFragment)]) : (List Bytes)
-    (set->list
-      (set-add-all
-        (make-set bytes=?)
-        (jl->list
-          (concat-map-jl
-            (lambda ([fragment : AssemblyFragment])
-              (case fragment
-                [(function-fragment name blocks)
-                 (concat-map-jl
-                   (lambda ([bb : BasicBlock])
-                     (case bb
-                       [(basic-block block-name instructions)
-                        (cons-jl
-                          block-name
-                          (concat-map-jl
-                            (lambda ([inst : Instruction])
-                              (case (instruction->mc-command inst)
-                                [(mc-bytes bytes) (empty-jl)]
-                                [(mc-jump _ label) (single-jl label)]
-                                [(mc-leaq/rel label _ _) (single-jl label)]))
-                            instructions))]))
-                   (list->jl blocks))]
-                [(address-fragment name value) (varargs join-list name value)]
-                [(bytes-fragment name value) (single-jl name)]))
-            (list->jl fragments))))))
+    (let ([function-syms (collect-function-symbols fragments)])
+      (let ([const-syms (collect-const-symbols fragments)])
+        (let ([basic-block-syms (collect-basic-block-symbols fragments)])
+          (let ([instruction-syms (collect-instruction-symbols fragments)])
+            (set->list
+              (set-add-all
+                (set-add-all
+                  (set-remove-all
+                    (set-add-all
+                      (set-add-all
+                        (make-set bytes=?)
+                        basic-block-syms)
+                      instruction-syms)
+                    function-syms)
+                  const-syms)
+                function-syms)))))))
 
 
   (define (round-up [v : S64] [mod : S64]) : S64
@@ -167,7 +225,14 @@
           v
           (+ (- v rem) mod))))
 
-
+  (define (write-all-symbols [symbols : (List Bytes)] [output : OutputPort]) : Void
+    (case symbols
+      [(empty) (void)]
+      [(cons symbol symbols)
+       (begin
+         (write-all-bytes symbol output)
+         (write-all-bytes (make-bytes 1) output)
+         (write-all-symbols symbols output))]))
 
 
   (define (write-mach-o [output-file-name : Bytes] [input-file-names : Bytes]) : (Either Bytes Void)
@@ -245,11 +310,21 @@
                                           output)
                                         (write-all-bytes text-segment-bytes output)
                                         (write-all-bytes const-segment-bytes output)
+                                        (write-all-bytes
+                                          (make-bytes
+                                            (-
+                                              (round-up (+ (bytes-length text-segment-bytes)
+                                                           (bytes-length const-segment-bytes))
+                                                        4)
+                                              (+ (bytes-length text-segment-bytes)
+                                                 (bytes-length const-segment-bytes)))) output)
                                         (write-all-bytes (make-bytes (* 8 (+ text-segment-num-relocations
                                                                              const-segment-num-relocations)))
                                                          output)
                                         (write-all-bytes (make-bytes (* 16 (length symbols)))
                                                          output)
+                                        (write-all-bytes (make-bytes 1) output)
+                                        (write-all-symbols symbols output)
                                         (close-output-port output)
                                         (right (void))))))))))))])])])]))
 
