@@ -3,7 +3,7 @@
     (prim
       #:types (Bytes S64 InputPort OutputPort Array Void)
       #:values (= + close-output-port array-length array-ref open-output-file < void open-input-file
-                bytes-length)
+                bytes-length - remainder)
       #:patterns ())
     (io write-line write-all-bytes read-all-bytes)
     (bytes bytes make-null-terminated bytes-append bytes=? sum)
@@ -120,6 +120,13 @@
               [_ (empty-jl)]))
           (list->jl fragments)))))
 
+  (define (round-up [v : S64] [mod : S64]) : S64
+    (let ([rem (remainder v mod)])
+      (if (= 0 rem)
+          v
+          (+ (- v rem) mod))))
+
+
 
 
   (define (write-mach-o [output-file-name : Bytes] [input-file-names : Bytes]) : (Either Bytes Void)
@@ -144,54 +151,53 @@
                       (let ([text-segment-bytes (assemble-text-segment fragments)])
                         (let ([text-segment-num-relocations (count-text-segment-relocations fragments)])
                           (let ([const-segment-bytes (assemble-const-segment fragments)])
-                            (let ([output (open-output-file (make-null-terminated output-file-name))])
-                              (begin
-                                (write-mach-o-header2
-                                  (mach-o-header
-                                    (varargs list
-                                      (lc-load-segment64
-                                        (load-segment64 #""
-                                          #x0000000000000000
-                                          (+
-                                            (bytes-length text-segment-bytes)
-                                            (bytes-length const-segment-bytes))
-                                          384
-                                          (+
-                                            (bytes-length text-segment-bytes)
-                                            (bytes-length const-segment-bytes))
-                                          #x07
-                                          #x07
-                                          0
-                                          (varargs list
-                                            (section64 #"__TEXT" #"__text"
-                                                       #x00
-                                                       (bytes-length text-segment-bytes)
-                                                       384
-                                                       528
-                                                       text-segment-num-relocations
-                                                       #x80000400)
-                                            (section64 #"__TEXT" #"__const"
-                                                       (bytes-length text-segment-bytes)
-                                                       (bytes-length const-segment-bytes)
-                                                       504
-                                                       536
-                                                       3
-                                                       0))))
-                                      (lc-version-min-macosx
-                                        (version-min 10 11 0 0 0 0))
-                                      (lc-symbol-table
-                                        (symbol-table
-                                          560
-                                          10
-                                          720
-                                          220))
-                                      (lc-dynamic-symbol-table
-                                        (dynamic-symbol-table 0 9 9 1))))
-                                  output)
-                                (write-all-bytes text-segment-bytes output)
-                                (write-all-bytes const-segment-bytes output)
-                                (close-output-port output)
-                                (right (void))))))))])])])]))
+                            (let ([segment-size (+ (bytes-length text-segment-bytes)
+                                                   (bytes-length const-segment-bytes))])
+                              (let ([reloc-base (+ 384 (round-up segment-size 4))])
+                                (let ([output (open-output-file (make-null-terminated output-file-name))])
+                                  (begin
+                                    (write-mach-o-header2
+                                      (mach-o-header
+                                        (varargs list
+                                          (lc-load-segment64
+                                            (load-segment64 #""
+                                              #x0000000000000000
+                                              segment-size
+                                              384
+                                              segment-size
+                                              #x07
+                                              #x07
+                                              0
+                                              (varargs list
+                                                (section64 #"__TEXT" #"__text"
+                                                           #x00
+                                                           (bytes-length text-segment-bytes)
+                                                           384
+                                                           reloc-base
+                                                           text-segment-num-relocations
+                                                           #x80000400)
+                                                (section64 #"__TEXT" #"__const"
+                                                           (bytes-length text-segment-bytes)
+                                                           (bytes-length const-segment-bytes)
+                                                           504
+                                                           536
+                                                           3
+                                                           0))))
+                                          (lc-version-min-macosx
+                                            (version-min 10 11 0 0 0 0))
+                                          (lc-symbol-table
+                                            (symbol-table
+                                              560
+                                              10
+                                              720
+                                              220))
+                                          (lc-dynamic-symbol-table
+                                            (dynamic-symbol-table 0 9 9 1))))
+                                      output)
+                                    (write-all-bytes text-segment-bytes output)
+                                    (write-all-bytes const-segment-bytes output)
+                                    (close-output-port output)
+                                    (right (void))))))))))])])])]))
 
   (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : S64
     (if (< (array-length args) 2)
