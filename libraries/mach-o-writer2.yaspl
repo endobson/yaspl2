@@ -6,7 +6,7 @@
                 bytes-length)
       #:patterns ())
     (io write-line write-all-bytes read-all-bytes)
-    (bytes bytes make-null-terminated bytes-append bytes=?)
+    (bytes bytes make-null-terminated bytes-append bytes=? sum)
     (join-list jl->list empty-jl list->jl map-jl concat-map-jl single-jl)
     (list
       #:types (List)
@@ -16,7 +16,7 @@
       #:types (AssemblyFragment BasicBlock Instruction)
       #:values (write-fragments convert-objects instruction->mc-command)
       #:patterns (function-fragment bytes-fragment address-fragment basic-block mc-bytes mc-jump
-                  mcj-jb mcj-je mcj-jne mcj-jnz))
+                  mcj-jb mcj-je mcj-jne mcj-jnz mc-leaq/rel))
     (library-compiler add-known-functions extract-modules compile-main-module)
     (dict
       #:types (Dict)
@@ -81,6 +81,31 @@
               [_ (empty-jl)]))
           (list->jl fragments)))))
 
+  (define (count-text-segment-relocations [fragments : (List AssemblyFragment)]) : S64
+    (sum
+      (map
+        (lambda ([fragment : AssemblyFragment])
+          (case fragment
+            [(function-fragment name blocks)
+             (sum
+               (map
+                 (lambda ([bb : BasicBlock])
+                   (case bb
+                     [(basic-block block-name instructions)
+                      (sum
+                        (jl->list
+                          (map-jl
+                            (lambda ([inst : Instruction])
+                              (case (instruction->mc-command inst)
+                                [(mc-bytes bytes) 0]
+                                [(mc-jump _ _) 1]
+                                [(mc-leaq/rel _ _ _) 1]))
+                            instructions)))]))
+                 blocks))]
+            [_ 0]))
+        fragments)))
+
+
   (define (assemble-const-segment [fragments : (List AssemblyFragment)]) : Bytes
     (bytes-append
       (jl->list
@@ -117,55 +142,56 @@
                    [(right objects)
                     (let ([fragments (convert-objects objects)])
                       (let ([text-segment-bytes (assemble-text-segment fragments)])
-                        (let ([const-segment-bytes (assemble-const-segment fragments)])
-                          (let ([output (open-output-file (make-null-terminated output-file-name))])
-                            (begin
-                              (write-mach-o-header2
-                                (mach-o-header
-                                  (varargs list
-                                    (lc-load-segment64
-                                      (load-segment64 #""
-                                        #x0000000000000000
-                                        (+
-                                          (bytes-length text-segment-bytes)
-                                          (bytes-length const-segment-bytes))
-                                        384
-                                        (+
-                                          (bytes-length text-segment-bytes)
-                                          (bytes-length const-segment-bytes))
-                                        #x07
-                                        #x07
-                                        0
-                                        (varargs list
-                                          (section64 #"__TEXT" #"__text"
-                                                     #x00
-                                                     (bytes-length text-segment-bytes)
-                                                     384
-                                                     528
-                                                     1
-                                                     #x80000400)
-                                          (section64 #"__TEXT" #"__const"
-                                                     (bytes-length text-segment-bytes)
-                                                     (bytes-length const-segment-bytes)
-                                                     504
-                                                     536
-                                                     3
-                                                     0))))
-                                    (lc-version-min-macosx
-                                      (version-min 10 11 0 0 0 0))
-                                    (lc-symbol-table
-                                      (symbol-table
-                                        560
-                                        10
-                                        720
-                                        220))
-                                    (lc-dynamic-symbol-table
-                                      (dynamic-symbol-table 0 9 9 1))))
-                                output)
-                              (write-all-bytes text-segment-bytes output)
-                              (write-all-bytes const-segment-bytes output)
-                              (close-output-port output)
-                              (right (void)))))))])])])]))
+                        (let ([text-segment-num-relocations (count-text-segment-relocations fragments)])
+                          (let ([const-segment-bytes (assemble-const-segment fragments)])
+                            (let ([output (open-output-file (make-null-terminated output-file-name))])
+                              (begin
+                                (write-mach-o-header2
+                                  (mach-o-header
+                                    (varargs list
+                                      (lc-load-segment64
+                                        (load-segment64 #""
+                                          #x0000000000000000
+                                          (+
+                                            (bytes-length text-segment-bytes)
+                                            (bytes-length const-segment-bytes))
+                                          384
+                                          (+
+                                            (bytes-length text-segment-bytes)
+                                            (bytes-length const-segment-bytes))
+                                          #x07
+                                          #x07
+                                          0
+                                          (varargs list
+                                            (section64 #"__TEXT" #"__text"
+                                                       #x00
+                                                       (bytes-length text-segment-bytes)
+                                                       384
+                                                       528
+                                                       text-segment-num-relocations
+                                                       #x80000400)
+                                            (section64 #"__TEXT" #"__const"
+                                                       (bytes-length text-segment-bytes)
+                                                       (bytes-length const-segment-bytes)
+                                                       504
+                                                       536
+                                                       3
+                                                       0))))
+                                      (lc-version-min-macosx
+                                        (version-min 10 11 0 0 0 0))
+                                      (lc-symbol-table
+                                        (symbol-table
+                                          560
+                                          10
+                                          720
+                                          220))
+                                      (lc-dynamic-symbol-table
+                                        (dynamic-symbol-table 0 9 9 1))))
+                                  output)
+                                (write-all-bytes text-segment-bytes output)
+                                (write-all-bytes const-segment-bytes output)
+                                (close-output-port output)
+                                (right (void))))))))])])])]))
 
   (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : S64
     (if (< (array-length args) 2)
