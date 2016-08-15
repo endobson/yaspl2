@@ -3,7 +3,7 @@
     (prim
       #:types (Bytes S64 InputPort OutputPort Array Void U32)
       #:values (= + close-output-port array-length array-ref open-output-file < void open-input-file
-                bytes-length - remainder * make-bytes u32)
+                bytes-length - remainder * make-bytes u32 bitwise-ior panic)
       #:patterns ())
     (io write-line write-all-bytes read-all-bytes)
     (bytes bytes make-null-terminated bytes-append bytes=? sum bytes< bytes-set!/quad-le)
@@ -11,7 +11,7 @@
     (join-list jl->list cons-jl empty-jl list->jl map-jl concat-map-jl single-jl join-list)
     (list
       #:types (List)
-      #:values (empty cons map reverse list length sort)
+      #:values (empty cons map reverse list length sort find-index)
       #:patterns (cons empty))
     (x86-64-stack-machine
       #:types (AssemblyFragment BasicBlock Instruction)
@@ -35,6 +35,14 @@
       #:types ()
       #:values (parse-sexps)
       #:patterns ())
+    (maybe
+      #:types (Maybe)
+      #:values (just nothing)
+      #:patterns (just nothing))
+    (tuples
+      #:types (Tuple2)
+      #:values (tuple2)
+      #:patterns (tuple2))
     (either
       #:types (Either)
       #:values (left right)
@@ -47,7 +55,7 @@
     (define-type TextSegmentRelocation
       (text-segment-relocation [offset S64] [symbol Bytes]))
     (define-type ConstSegmentRelocation
-      (const-segment-relocation [offset S64] [symbol Bytes])))
+      (const-segment-relocation [offset S64] [symbol Bytes] [value Bytes])))
 
   (define (a) (array->list [offset : S64] [arr : (Array a)]) : (List a)
     (if (= offset (array-length arr))
@@ -130,20 +138,20 @@
         (concat-map-jl
           (lambda ([fragment : AssemblyFragment])
             (case fragment
-              [(address-fragment name _)
-               (varargs join-list (right name) (left 8))]
+              [(address-fragment name value)
+               (varargs join-list (right (tuple2 name value)) (left 8))]
               [_ (empty-jl)]))
           (list->jl fragments)))))
 
   (define (compute-const-segment-relocations-helper [offset : S64]
-                                                    [pieces : (List (Either S64 Bytes))])
+                                                    [pieces : (List (Either S64 (Tuple2 Bytes Bytes)))])
     : (List ConstSegmentRelocation)
     (case pieces
       [(empty) (empty)]
       [(cons (left v) pieces)
        (compute-const-segment-relocations-helper (+ v offset) pieces)]
-      [(cons (right name) pieces)
-       (cons (const-segment-relocation offset name)
+      [(cons (right (tuple2 name value)) pieces)
+       (cons (const-segment-relocation offset name value)
              (compute-const-segment-relocations-helper offset pieces))]))
 
   (define (assemble-const-segment [fragments : (List AssemblyFragment)]) : Bytes
@@ -272,25 +280,39 @@
          (write-all-bytes (make-bytes 1) output)
          (write-all-symbols symbols output))]))
 
-  (define (write-text-segment-relocations [relocations : (List TextSegmentRelocation)]
-                                          [output : OutputPort]) : Void
+  (define (write-text-segment-relocations
+            [relocations : (List TextSegmentRelocation)]
+            [symbols : (List Bytes)]
+            [output : OutputPort]) : Void
     (case relocations
       [(empty) (void)]
       [(cons (text-segment-relocation offset symbol) relocations)
        (begin
          (write-quad-le offset output)
-         (write-quad-le #x2D000009 output)
-         (write-text-segment-relocations relocations output))]))
+         (case (find-index (lambda ([x : Bytes]) (bytes=? symbol x))
+                           symbols)
+           [(nothing)
+            (panic #"Bad symbol")]
+           [(just index)
+            (write-quad-le (bitwise-ior index #x2D000000) output)])
+         (write-text-segment-relocations relocations symbols output))]))
 
-  (define (write-const-segment-relocations [relocations : (List TextSegmentRelocation)]
-                                           [output : OutputPort]) : Void
+  (define (write-const-segment-relocations
+            [relocations : (List ConstSegmentRelocation)]
+            [symbols : (List Bytes)]
+            [output : OutputPort]) : Void
     (case relocations
       [(empty) (void)]
-      [(cons (const-segment-relocation offset symbol) relocations)
+      [(cons (const-segment-relocation offset symbol value) relocations)
        (begin
          (write-quad-le offset output)
-         (write-quad-le #x0e000000 output)
-         (write-const-segment-relocations relocations output))]))
+         (case (find-index (lambda ([x : Bytes]) (bytes=? value x))
+                           symbols)
+           [(nothing)
+            (panic #"Bad symbol")]
+           [(just index)
+            (write-quad-le (bitwise-ior index #x0e000000) output)])
+         (write-const-segment-relocations relocations symbols output))]))
 
 
 
@@ -389,8 +411,10 @@
                                                             8)
                                                   (+ (bytes-length text-segment-bytes)
                                                      (bytes-length const-segment-bytes)))) output)
-                                            (write-text-segment-relocations text-segment-relocations output)
-                                            (write-const-segment-relocations const-segment-relocations output)
+                                            (write-text-segment-relocations
+                                              text-segment-relocations symbols output)
+                                            (write-const-segment-relocations
+                                              const-segment-relocations symbols output)
                                             (write-all-bytes (make-bytes (* 16 (length symbols)))
                                                              output)
                                             (write-all-bytes (varargs bytes 32 0) output)
