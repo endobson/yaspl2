@@ -317,7 +317,7 @@
          (write-const-segment-relocations relocations symbols output))]))
 
   (define (write-symbol-table
-            [symbols : (List Bytes)]
+            [symbols : (List Symbol)]
             [offset : S64]
             [output : OutputPort]) : Void
     (case symbols
@@ -325,10 +325,16 @@
       [(cons symbol symbols)
        (begin
          (write-quad-le offset output)
-         (write-quad-le #x0020010f output)
+         (case symbol
+           [(undefined-symbol _)
+            (write-quad-le #x00000001 output)]
+           [(defined-symbol (text-symbol _))
+            (write-quad-le #x0020010f output)]
+           [(defined-symbol (const-symbol _))
+            (write-quad-le #x0020020f output)])
          (write-quad-le #x00000000 output)
          (write-quad-le #x00000000 output)
-         (write-symbol-table symbols (+ (+ (bytes-length symbol) 1) offset) output))]))
+         (write-symbol-table symbols (+ (+ (bytes-length (symbol-name symbol)) 1) offset) output))]))
 
 
 
@@ -361,7 +367,7 @@
                                   (let ([segment-size (+ (bytes-length text-segment-bytes)
                                                          (bytes-length const-segment-bytes))])
                                     (let ([reloc-base (+ 352 (round-up segment-size 8))])
-                                      (let ([symbols (map symbol-name (collect-symbols fragments))])
+                                      (let ([symbols (collect-symbols fragments)])
                                         (let ([output (open-output-file (make-null-terminated output-file-name))])
                                           (begin
                                             (write-mach-o-header2
@@ -404,7 +410,8 @@
                                                          (* (length symbols) #x10))
                                                       (round-up
                                                         (+ (+ 2 (length symbols))
-                                                           (sum (map bytes-length symbols)))
+                                                           (sum (map bytes-length
+                                                                     (map symbol-name symbols))))
                                                         8)))
                                                   (lc-version-min-macosx
                                                     (version-min 10 11 0 10 11 0))
@@ -427,21 +434,23 @@
                                                   (+ (bytes-length text-segment-bytes)
                                                      (bytes-length const-segment-bytes)))) output)
                                             (write-text-segment-relocations
-                                              text-segment-relocations symbols output)
+                                              text-segment-relocations (map symbol-name symbols) output)
                                             (write-const-segment-relocations
-                                              const-segment-relocations symbols output)
+                                              const-segment-relocations (map symbol-name symbols) output)
                                             (write-symbol-table symbols 2 output)
                                             (write-all-bytes (varargs bytes 32 0) output)
-                                            (write-all-symbols symbols output)
+                                            (write-all-symbols (map symbol-name symbols) output)
                                             (write-all-bytes
                                               (make-bytes
                                                 (-
                                                   (round-up
                                                     (+ (+ 2 (length symbols))
-                                                       (sum (map bytes-length symbols)))
+                                                       (sum (map bytes-length
+                                                                 (map symbol-name symbols))))
                                                     8)
                                                   (+ (+ 2 (length symbols))
-                                                     (sum (map bytes-length symbols)))))
+                                                     (sum (map bytes-length
+                                                               (map symbol-name symbols))))))
                                               output)
                                             (close-output-port output)
                                             (right (void))))))))))))))])])])]))
