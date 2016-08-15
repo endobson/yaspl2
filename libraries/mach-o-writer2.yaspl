@@ -1,7 +1,7 @@
 (module mach-o-writer2
   (import
     (prim
-      #:types (Bytes S64 InputPort OutputPort Array Void U32)
+      #:types (Bytes S64 InputPort OutputPort Array Void U32 Boolean)
       #:values (= + close-output-port array-length array-ref open-output-file < void open-input-file
                 bytes-length - remainder * make-bytes u32 bitwise-ior panic)
       #:patterns ())
@@ -11,7 +11,7 @@
     (join-list jl->list cons-jl empty-jl list->jl map-jl concat-map-jl single-jl join-list)
     (list
       #:types (List)
-      #:values (empty cons map reverse list length sort find-index)
+      #:values (empty cons map reverse list length sort find-index append)
       #:patterns (cons empty))
     (x86-64-stack-machine
       #:types (AssemblyFragment BasicBlock Instruction)
@@ -55,7 +55,23 @@
     (define-type TextSegmentRelocation
       (text-segment-relocation [offset S64] [symbol Bytes]))
     (define-type ConstSegmentRelocation
-      (const-segment-relocation [offset S64] [symbol Bytes] [value Bytes])))
+      (const-segment-relocation [offset S64] [symbol Bytes] [value Bytes]))
+    (define-type Symbol
+      (defined-symbol [sym DefinedSymbol])
+      (undefined-symbol [name Bytes]))
+    (define-type DefinedSymbol
+      (text-symbol [name Bytes])
+      (const-symbol [name Bytes])))
+
+  (define (symbol-name [v : Symbol]) : Bytes
+    (case v
+      [(defined-symbol sym) (defined-symbol-name sym)]
+      [(undefined-symbol name) name]))
+
+  (define (defined-symbol-name [v : DefinedSymbol]) : Bytes
+    (case v
+      [(text-symbol name) name]
+      [(const-symbol name) name]))
 
   (define (a) (array->list [offset : S64] [arr : (Array a)]) : (List a)
     (if (= offset (array-length arr))
@@ -168,49 +184,34 @@
               [_ (empty-jl)]))
           (list->jl fragments)))))
 
-  (define (collect-function-symbols [fragments : (List AssemblyFragment)]) : (List Bytes)
-    (jl->list
-      (concat-map-jl
-        (lambda ([fragment : AssemblyFragment])
-          (case fragment
-            [(function-fragment name blocks)
-             (single-jl name)]
-            [(address-fragment name value)
-             (empty-jl)]
-            [(bytes-fragment name value)
-             (empty-jl)]))
-        (list->jl fragments))))
+  (define (defined-symbol=? [l : DefinedSymbol] [r : DefinedSymbol]) : Boolean
+    (case (tuple2 l r)
+      [(tuple2 (text-symbol l) (text-symbol r)) (bytes=? l r)]
+      [(tuple2 (const-symbol l) (const-symbol r)) (bytes=? l r)]
+      [_ #f]))
 
-  (define (collect-const-symbols [fragments : (List AssemblyFragment)]) : (List Bytes)
-    (jl->list
-      (concat-map-jl
-        (lambda ([fragment : AssemblyFragment])
-          (case fragment
-            [(function-fragment name blocks)
-             (empty-jl)]
-            [(address-fragment name value)
-             (single-jl name)]
-            [(bytes-fragment name value)
-             (single-jl name)]))
-        (list->jl fragments))))
-
-  (define (collect-basic-block-symbols [fragments : (List AssemblyFragment)]) : (List Bytes)
-    (jl->list
-      (concat-map-jl
-        (lambda ([fragment : AssemblyFragment])
-          (case fragment
-            [(function-fragment name blocks)
-             (concat-map-jl
-               (lambda ([bb : BasicBlock])
-                 (case bb
-                   [(basic-block block-name instructions)
-                    (single-jl block-name)]))
-               (list->jl blocks))]
-            [(address-fragment name value)
-             (empty-jl)]
-            [(bytes-fragment name value)
-             (empty-jl)]))
-        (list->jl fragments))))
+  (define (collect-defined-symbols [fragments : (List AssemblyFragment)]) : (List DefinedSymbol)
+    (set->list
+      (set-add-all
+        (make-set defined-symbol=?)
+        (jl->list
+          (concat-map-jl
+            (lambda ([fragment : AssemblyFragment])
+              (case fragment
+                [(function-fragment name blocks)
+                 (cons-jl
+                   (text-symbol name)
+                   (concat-map-jl
+                     (lambda ([bb : BasicBlock])
+                       (case bb
+                         [(basic-block block-name instructions)
+                          (single-jl (text-symbol block-name))]))
+                     (list->jl blocks)))]
+                [(address-fragment name value)
+                 (single-jl (const-symbol name))]
+                [(bytes-fragment name value)
+                 (single-jl (const-symbol name))]))
+            (list->jl fragments))))))
 
 
   (define (collect-instruction-symbols [fragments : (List AssemblyFragment)]) : (List Bytes)
@@ -238,25 +239,26 @@
         (list->jl fragments))))
 
   ;; TODO simplify this now that just the sorted symbols are needed
-  (define (collect-referenced-symbols [fragments : (List AssemblyFragment)]) : (List Bytes)
-    (sort
-      (let ([function-syms (collect-function-symbols fragments)])
-        (let ([const-syms (collect-const-symbols fragments)])
-          (let ([basic-block-syms (collect-basic-block-symbols fragments)])
-            (let ([instruction-syms (collect-instruction-symbols fragments)])
-              (set->list
-                (set-add-all
-                  (set-add-all
-                    (set-remove-all
-                      (set-add-all
-                        (set-add-all
-                          (make-set bytes=?)
-                          basic-block-syms)
-                        instruction-syms)
-                      function-syms)
-                    const-syms)
-                  function-syms))))))
-      bytes<))
+  (define (collect-symbols [fragments : (List AssemblyFragment)]) : (List Bytes)
+    (let ([defined-symbols (collect-defined-symbols fragments)])
+      (let ([undefined-symbols
+              (map undefined-symbol
+                   (sort
+                     (set->list
+                       (set-remove-all
+                         (set-add-all
+                           (make-set bytes=?)
+                           (collect-instruction-symbols fragments))
+                         (map defined-symbol-name defined-symbols)))
+                     bytes<))])
+        (append
+          (map
+            defined-symbol
+            (sort
+              defined-symbols
+              (lambda ([x : DefinedSymbol] [y : DefinedSymbol])
+                (bytes< (defined-symbol-name x) (defined-symbol-name y)))))
+          undefined-symbols))))
 
 
   (define (round-up [v : S64] [mod : S64]) : S64
@@ -359,7 +361,7 @@
                                   (let ([segment-size (+ (bytes-length text-segment-bytes)
                                                          (bytes-length const-segment-bytes))])
                                     (let ([reloc-base (+ 352 (round-up segment-size 8))])
-                                      (let ([symbols (collect-referenced-symbols fragments)])
+                                      (let ([symbols (map symbol-name (collect-symbols fragments))])
                                         (let ([output (open-output-file (make-null-terminated output-file-name))])
                                           (begin
                                             (write-mach-o-header2
