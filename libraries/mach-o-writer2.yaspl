@@ -190,23 +190,38 @@
       [(tuple2 (const-symbol l) (const-symbol r)) (bytes=? l r)]
       [_ #f]))
 
-  (define (collect-defined-symbols [fragments : (List AssemblyFragment)]) : (List DefinedSymbol)
-    (jl->list
-      (concat-map-jl
-        (lambda ([fragment : AssemblyFragment])
-          (case fragment
-            [(function-fragment name blocks)
-             (concat-map-jl
-               (lambda ([bb : BasicBlock])
-                 (case bb
-                   [(basic-block block-name instructions)
-                    (single-jl (text-symbol block-name))]))
-               (list->jl blocks))]
-            [(address-fragment name value)
-             (single-jl (const-symbol name))]
-            [(bytes-fragment name value)
-             (single-jl (const-symbol name))]))
-        (list->jl fragments))))
+  (define (collect-defined-symbols
+            [fragments : (List AssemblyFragment)]
+            [text-offset : S64]
+            [const-offset : S64]
+            [acc : (List DefinedSymbol)])
+    : (List DefinedSymbol)
+    (case fragments
+      [(empty) (reverse acc)]
+      [(cons fragment fragments)
+       (case fragment
+         [(function-fragment name blocks)
+          (collect-defined-symbols/blocks blocks fragments text-offset const-offset acc)]
+         [(address-fragment name value)
+          (collect-defined-symbols fragments text-offset const-offset
+                                   (cons (const-symbol name) acc))]
+         [(bytes-fragment name value)
+          (collect-defined-symbols fragments text-offset const-offset
+                                   (cons (const-symbol name) acc))])]))
+
+  (define (collect-defined-symbols/blocks
+            [blocks : (List BasicBlock)]
+            [fragments : (List AssemblyFragment)]
+            [text-offset : S64]
+            [const-offset : S64]
+            [acc : (List DefinedSymbol)])
+    : (List DefinedSymbol)
+    (case blocks
+      [(empty)
+       (collect-defined-symbols fragments text-offset const-offset acc)]
+      [(cons (basic-block block-name instructions) blocks)
+       (collect-defined-symbols/blocks blocks fragments text-offset const-offset
+                                       (cons (text-symbol block-name) acc))]))
 
 
   (define (collect-instruction-symbols [fragments : (List AssemblyFragment)]) : (List Bytes)
@@ -235,7 +250,7 @@
 
   ;; TODO simplify this now that just the sorted symbols are needed
   (define (collect-symbols [fragments : (List AssemblyFragment)]) : (List Bytes)
-    (let ([defined-symbols (collect-defined-symbols fragments)])
+    (let ([defined-symbols (collect-defined-symbols fragments 0 0 (empty))])
       (let ([undefined-symbols
               (map undefined-symbol
                    (sort
