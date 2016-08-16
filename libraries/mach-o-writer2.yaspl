@@ -6,8 +6,8 @@
                 bytes-length - remainder * make-bytes u32 bitwise-ior panic)
       #:patterns ())
     (io write-line write-all-bytes read-all-bytes)
-    (bytes bytes make-null-terminated bytes-append bytes=? sum bytes< 
-           bytes-set!/quad-le 
+    (bytes bytes make-null-terminated bytes-append bytes=? sum bytes<
+           bytes-set!/quad-le
            bytes-set!/octo-le)
     (set make-set set-add-all set->list set-remove-all)
     (join-list jl->list cons-jl empty-jl list->jl map-jl concat-map-jl single-jl join-list)
@@ -113,51 +113,56 @@
               [_ (empty-jl)]))
           (list->jl fragments)))))
 
-  (define (compute-text-segment-relocations [fragments : (List AssemblyFragment)])
+  (define (compute-text-segment-relocations [fragments : (List AssemblyFragment)] [offset : S64])
     : (List TextSegmentRelocation)
-    (compute-text-segment-relocations-helper
-      0
-      (jl->list
-        (concat-map-jl
-          (lambda ([fragment : AssemblyFragment])
-            (case fragment
-              [(function-fragment name blocks)
-               (concat-map-jl
-                 (lambda ([bb : BasicBlock])
-                   (case bb
-                     [(basic-block block-name instructions)
-                      (concat-map-jl
-                        (lambda ([inst : Instruction])
-                          (case (instruction->mc-command inst)
-                            [(mc-bytes bytes) (single-jl (left (bytes-length bytes)))]
-                            [(mc-jump (mcj-jmp) name) (varargs join-list (left 1) (right name) (left 4))]
-                            [(mc-jump _ name) (varargs join-list (left 2) (right name) (left 4))]
-                            ;; TODO actually implement this
-                            [(mc-leaq/rel name _ _) (varargs join-list (left 0) (right name))]))
-                        instructions)]))
-                 (list->jl blocks))]
-              [_ (empty-jl)]))
-          (list->jl fragments)))))
+    (case fragments
+      [(empty) (empty)]
+      [(cons (function-fragment _ blocks) fragments)
+       (compute-text-segment-relocations/blocks blocks (empty) fragments offset)]
+      [(cons _ fragments)
+       (compute-text-segment-relocations fragments offset)]))
 
-  (define (instruction-length [inst : Instruction]) : S64 
+  (define (compute-text-segment-relocations/blocks
+            [blocks : (List BasicBlock)]
+            [acc : (List TextSegmentRelocation)]
+            [fragments : (List AssemblyFragment)] [offset : S64]) : (List TextSegmentRelocation)
+    (case blocks
+      [(empty) (append acc (compute-text-segment-relocations fragments offset))]
+      [(cons (basic-block _ instructions) blocks)
+       (compute-text-segment-relocations/instructions
+         (jl->list instructions) blocks acc fragments offset)]))
+
+  (define (compute-text-segment-relocations/instructions
+            [instructions : (List Instruction)]
+            [blocks : (List BasicBlock)]
+            [acc : (List TextSegmentRelocation)]
+            [fragments : (List AssemblyFragment)] [offset : S64]) : (List TextSegmentRelocation)
+    (case instructions
+      [(empty) (compute-text-segment-relocations/blocks blocks acc fragments offset)]
+      [(cons inst instructions)
+       (case (instruction->mc-command inst)
+         [(mc-bytes bytes)
+          (compute-text-segment-relocations/instructions
+            instructions blocks acc fragments (+ (bytes-length bytes) offset)) ]
+         [(mc-jump (mcj-jmp) name)
+          (compute-text-segment-relocations/instructions
+            instructions blocks (cons (text-segment-relocation (+ 1 offset) name) acc) fragments (+ 5 offset))]
+         [(mc-jump _ name)
+          (compute-text-segment-relocations/instructions
+            instructions blocks (cons (text-segment-relocation (+ 2 offset) name) acc) fragments (+ 6 offset))]
+         ;; TODO actually implement this
+         [(mc-leaq/rel name _ _)
+          (compute-text-segment-relocations/instructions
+            instructions blocks (cons (text-segment-relocation offset name) acc) fragments offset)])]))
+
+
+  (define (instruction-length [inst : Instruction]) : S64
     (case (instruction->mc-command inst)
       [(mc-bytes bytes) (bytes-length bytes)]
       [(mc-jump (mcj-jmp) name) 5]
       [(mc-jump _ name) 6]
       ;; TODO actually implement this
       [(mc-leaq/rel name _ _) 0]))
-
-
-  (define (compute-text-segment-relocations-helper [offset : S64]
-                                                   [pieces : (List (Either S64 Bytes))])
-    : (List TextSegmentRelocation)
-    (case pieces
-      [(empty) (empty)]
-      [(cons (left v) pieces)
-       (compute-text-segment-relocations-helper (+ v offset) pieces)]
-      [(cons (right name) pieces)
-       (cons (text-segment-relocation offset name)
-             (compute-text-segment-relocations-helper offset pieces))]))
 
   (define (compute-const-segment-relocations [fragments : (List AssemblyFragment)])
     : (List ConstSegmentRelocation)
@@ -390,7 +395,7 @@
                    [(right objects)
                     (let ([fragments (convert-objects objects)])
                       (let ([text-segment-bytes (assemble-text-segment fragments)])
-                        (let ([text-segment-relocations (compute-text-segment-relocations fragments)])
+                        (let ([text-segment-relocations (compute-text-segment-relocations fragments 0)])
                           (let ([text-segment-num-relocations (length text-segment-relocations)])
                             (let ([const-segment-bytes (assemble-const-segment fragments)])
                               (let ([const-segment-relocations
