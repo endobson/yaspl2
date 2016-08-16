@@ -6,7 +6,9 @@
                 bytes-length - remainder * make-bytes u32 bitwise-ior panic)
       #:patterns ())
     (io write-line write-all-bytes read-all-bytes)
-    (bytes bytes make-null-terminated bytes-append bytes=? sum bytes< bytes-set!/quad-le)
+    (bytes bytes make-null-terminated bytes-append bytes=? sum bytes< 
+           bytes-set!/quad-le 
+           bytes-set!/octo-le)
     (set make-set set-add-all set->list set-remove-all)
     (join-list jl->list cons-jl empty-jl list->jl map-jl concat-map-jl single-jl join-list)
     (list
@@ -60,8 +62,8 @@
       (defined-symbol [sym DefinedSymbol])
       (undefined-symbol [name Bytes]))
     (define-type DefinedSymbol
-      (text-symbol [name Bytes])
-      (const-symbol [name Bytes])))
+      (text-symbol [name Bytes] [offset Bytes])
+      (const-symbol [name Bytes] [offset Bytes])))
 
   (define (symbol-name [v : Symbol]) : Bytes
     (case v
@@ -70,8 +72,8 @@
 
   (define (defined-symbol-name [v : DefinedSymbol]) : Bytes
     (case v
-      [(text-symbol name) name]
-      [(const-symbol name) name]))
+      [(text-symbol name offset) name]
+      [(const-symbol name offset) name]))
 
   (define (a) (array->list [offset : S64] [arr : (Array a)]) : (List a)
     (if (= offset (array-length arr))
@@ -135,6 +137,14 @@
               [_ (empty-jl)]))
           (list->jl fragments)))))
 
+  (define (instruction-length [inst : Instruction]) : S64 
+    (case (instruction->mc-command inst)
+      [(mc-bytes bytes) (bytes-length bytes)]
+      [(mc-jump _ name) 6]
+      ;; TODO actually implement this
+      [(mc-leaq/rel name _ _) 0]))
+
+
   (define (compute-text-segment-relocations-helper [offset : S64]
                                                    [pieces : (List (Either S64 Bytes))])
     : (List TextSegmentRelocation)
@@ -184,12 +194,6 @@
               [_ (empty-jl)]))
           (list->jl fragments)))))
 
-  (define (defined-symbol=? [l : DefinedSymbol] [r : DefinedSymbol]) : Boolean
-    (case (tuple2 l r)
-      [(tuple2 (text-symbol l) (text-symbol r)) (bytes=? l r)]
-      [(tuple2 (const-symbol l) (const-symbol r)) (bytes=? l r)]
-      [_ #f]))
-
   (define (collect-defined-symbols
             [fragments : (List AssemblyFragment)]
             [text-offset : S64]
@@ -203,11 +207,11 @@
          [(function-fragment name blocks)
           (collect-defined-symbols/blocks blocks fragments text-offset const-offset acc)]
          [(address-fragment name value)
-          (collect-defined-symbols fragments text-offset const-offset
-                                   (cons (const-symbol name) acc))]
+          (collect-defined-symbols fragments text-offset (+ const-offset 8)
+                                   (cons (const-symbol name const-offset) acc))]
          [(bytes-fragment name value)
-          (collect-defined-symbols fragments text-offset const-offset
-                                   (cons (const-symbol name) acc))])]))
+          (collect-defined-symbols fragments text-offset (+ const-offset (bytes-length value))
+                                   (cons (const-symbol name const-offset) acc))])]))
 
   (define (collect-defined-symbols/blocks
             [blocks : (List BasicBlock)]
@@ -220,8 +224,11 @@
       [(empty)
        (collect-defined-symbols fragments text-offset const-offset acc)]
       [(cons (basic-block block-name instructions) blocks)
-       (collect-defined-symbols/blocks blocks fragments text-offset const-offset
-                                       (cons (text-symbol block-name) acc))]))
+       (collect-defined-symbols/blocks
+         blocks fragments
+         (+ text-offset (sum (map instruction-length (jl->list instructions))))
+         const-offset
+         (cons (text-symbol block-name text-offset) acc))]))
 
 
   (define (collect-instruction-symbols [fragments : (List AssemblyFragment)]) : (List Bytes)
@@ -249,8 +256,8 @@
         (list->jl fragments))))
 
   ;; TODO simplify this now that just the sorted symbols are needed
-  (define (collect-symbols [fragments : (List AssemblyFragment)]) : (List Bytes)
-    (let ([defined-symbols (collect-defined-symbols fragments 0 0 (empty))])
+  (define (collect-symbols [fragments : (List AssemblyFragment)] [text-size : S64]) : (List Bytes)
+    (let ([defined-symbols (collect-defined-symbols fragments 0 text-size (empty))])
       (let ([undefined-symbols
               (map undefined-symbol
                    (sort
@@ -282,6 +289,14 @@
       (begin
         (bytes-set!/quad-le bytes 0 v)
         (write-all-bytes bytes output))))
+
+  (define (write-octo-le [v : S64] [output : OutputPort]) : Void
+    (let ([bytes (make-bytes 8)])
+      (begin
+        (bytes-set!/octo-le bytes 0 v)
+        (write-all-bytes bytes output))))
+
+
 
   (define (write-all-symbols [symbols : (List Bytes)] [output : OutputPort]) : Void
     (case symbols
@@ -328,23 +343,27 @@
 
   (define (write-symbol-table
             [symbols : (List Symbol)]
-            [offset : S64]
+            [sym-offset : S64]
             [output : OutputPort]) : Void
     (case symbols
       [(empty) (void)]
       [(cons symbol symbols)
        (begin
-         (write-quad-le offset output)
+         (write-quad-le sym-offset output)
          (case symbol
            [(undefined-symbol _)
-            (write-quad-le #x00000001 output)]
-           [(defined-symbol (text-symbol _))
-            (write-quad-le #x0020010f output)]
-           [(defined-symbol (const-symbol _))
-            (write-quad-le #x0020020f output)])
-         (write-quad-le #x00000000 output)
-         (write-quad-le #x00000000 output)
-         (write-symbol-table symbols (+ (+ (bytes-length (symbol-name symbol)) 1) offset) output))]))
+            (begin
+              (write-quad-le #x00000001 output)
+              (write-octo-le #x0000000000000000 output))]
+           [(defined-symbol (text-symbol _ offset))
+            (begin
+              (write-quad-le #x0020010f output)
+              (write-octo-le offset output))]
+           [(defined-symbol (const-symbol _ offset))
+            (begin
+              (write-quad-le #x0020020f output)
+              (write-octo-le offset output))])
+         (write-symbol-table symbols (+ (+ (bytes-length (symbol-name symbol)) 1) sym-offset) output))]))
 
 
 
@@ -377,7 +396,8 @@
                                   (let ([segment-size (+ (bytes-length text-segment-bytes)
                                                          (bytes-length const-segment-bytes))])
                                     (let ([reloc-base (+ 352 (round-up segment-size 8))])
-                                      (let ([symbols (collect-symbols fragments)])
+                                      (let ([symbols (collect-symbols fragments (bytes-length
+                                                                                  text-segment-bytes))])
                                         (let ([output (open-output-file (make-null-terminated output-file-name))])
                                           (begin
                                             (write-mach-o-header2
