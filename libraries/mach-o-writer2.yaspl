@@ -55,7 +55,8 @@
     #:patterns ())
   (types
     (define-type TextSegmentRelocation
-      (text-segment-relocation [offset S64] [symbol Bytes]))
+      (text-segment-relocation [offset S64] [symbol Bytes])
+      (text-segment-relocation/2 [offset S64] [symbol Bytes]))
     (define-type ConstSegmentRelocation
       (const-segment-relocation [offset S64] [symbol Bytes] [value Bytes]))
     (define-type Symbol
@@ -108,7 +109,7 @@
                             [(mc-jump (mcj-jnz) _) (varargs bytes #x0F #x85 0 0 0 0)]
                             [(mc-jump (mcj-jmp) _) (varargs bytes #xE9 0 0 0 0)]
                             [(mc-jump (mcj-call) _) (varargs bytes #xE8 0 0 0 0)]
-                            [_ #""]))
+                            [(mc-leaq/rel _ _ _) (varargs bytes #x48 #x8D #x05 0 0 0 0)]))
                         instructions)]))
                  (list->jl blocks))]
               [_ (empty-jl)]))
@@ -156,7 +157,8 @@
          ;; TODO actually implement this
          [(mc-leaq/rel name _ _)
           (compute-text-segment-relocations/instructions
-            instructions blocks (cons (text-segment-relocation offset name) acc) fragments offset)])]))
+            instructions blocks (cons (text-segment-relocation/2 (+ 3 offset) name) acc) fragments
+            (+ 7 offset))])]))
 
 
   (define (instruction-length [inst : Instruction]) : S64
@@ -165,8 +167,7 @@
       [(mc-jump (mcj-jmp) name) 5]
       [(mc-jump (mcj-call) name) 5]
       [(mc-jump _ name) 6]
-      ;; TODO actually implement this
-      [(mc-leaq/rel name _ _) 0]))
+      [(mc-leaq/rel name _ _) 7]))
 
   (define (compute-const-segment-relocations [fragments : (List AssemblyFragment)])
     : (List ConstSegmentRelocation)
@@ -334,6 +335,16 @@
             (panic #"Bad symbol")]
            [(just index)
             (write-quad-le (bitwise-ior index #x2D000000) output)])
+         (write-text-segment-relocations relocations symbols output))]
+      [(cons (text-segment-relocation/2 offset symbol) relocations)
+       (begin
+         (write-quad-le offset output)
+         (case (find-index (lambda ([x : Bytes]) (bytes=? symbol x))
+                           symbols)
+           [(nothing)
+            (panic #"Bad symbol")]
+           [(just index)
+            (write-quad-le (bitwise-ior index #x1D000000) output)])
          (write-text-segment-relocations relocations symbols output))]))
 
   (define (write-const-segment-relocations
