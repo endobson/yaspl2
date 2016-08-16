@@ -743,9 +743,9 @@ action_listener(
 
 extra_action(
   name = "yaspl_gen_object",
-  out_templates = ["$(ACTION_ID).o2"],
+  out_templates = ["$(ACTION_ID).o"],
   tools = [
     ":extra-action-parser",
   ],
-  cmd = "$(location :extra-action-parser) $(EXTRA_ACTION_FILE) $(output $(ACTION_ID).o2)"
+  cmd = "$(location :extra-action-parser) $(EXTRA_ACTION_FILE) $(output $(ACTION_ID).o)"
 )
