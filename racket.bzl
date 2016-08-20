@@ -120,10 +120,10 @@ _racket_bin_attrs = {
     cfg=DATA_CFG
   ),
   "deps": attr.label_list(allow_files=racket_zo_file_type),
-  "_lib_deps": attr.label(default=Label("@minimal_racket//osx/v6.5:racket-src-osx")),
-  "_rackunit_deps": attr.label(default=Label("@minimal_racket//osx/v6.5:rackunit")),
+  "_lib_deps": attr.label(default=Label("@minimal_racket//osx/v6.6:racket-src-osx")),
+  "_rackunit_deps": attr.label(default=Label("@minimal_racket//osx/v6.6:rackunit")),
   "_racket_deps": attr.label(
-    default=Label("@minimal_racket//osx/v6.5:bin/racket"),
+    default=Label("@minimal_racket//osx/v6.6:bin/racket"),
     executable=True,
     allow_files=True
   ),
@@ -141,10 +141,10 @@ _racket_lib_attrs = {
     cfg=DATA_CFG
   ),
   "deps": attr.label_list(),
-  "_lib_deps": attr.label(default=Label("@minimal_racket//osx/v6.5:racket-src-osx")),
-  "_rackunit_deps": attr.label(default=Label("@minimal_racket//osx/v6.5:rackunit")),
+  "_lib_deps": attr.label(default=Label("@minimal_racket//osx/v6.6:racket-src-osx")),
+  "_rackunit_deps": attr.label(default=Label("@minimal_racket//osx/v6.6:rackunit")),
   "_racket_deps": attr.label(
-    default=Label("@minimal_racket//osx/v6.5:bin/racket"),
+    default=Label("@minimal_racket//osx/v6.6:bin/racket"),
     executable=True,
     allow_files=True
   ),
