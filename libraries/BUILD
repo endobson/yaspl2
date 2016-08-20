@@ -737,7 +737,7 @@ yaspl_library(
 
 action_listener(
   name = "yaspl_gen_objects",
-  mnemonics = ["YasplCompile"],
+  mnemonics = ["YasplCompile", "YasplGenerateMain"],
   extra_actions = [":yaspl_gen_object"]
 )
 
