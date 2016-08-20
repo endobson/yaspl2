@@ -52,7 +52,7 @@
   (export
     #:types (AssemblyFragment BasicBlock Instruction)
     #:values (compile-stack-machine write-fragments convert-objects fragment->commands assembly-commands->bytes
-              write-start instruction->mc-command)
+              instruction->mc-command)
     #:patterns (function-fragment address-fragment bytes-fragment basic-block mc-bytes mc-jump
                 mcj-jb mcj-je mcj-jne mcj-jnz mcj-jmp mcj-call))
   (types
@@ -224,8 +224,10 @@
             [objects : (List TopLevelObject)]
             [output : OutputPort]) : Void
     (begin
-      (write-start main-function-name output)
-      (write-fragments (convert-objects objects) output)))
+      (write-prim-functions output)
+      (write-fragments
+        (cons (start-function-fragment main-function-name) (convert-objects objects))
+        output)))
 
 
   (define (assembly-commands->bytes [cmds : (List AssemblyCommand)]) : (JoinList Bytes)
@@ -1196,108 +1198,104 @@
       output))
 
 
+  (define (start-function-fragment [main-function-name : Bytes]) : AssemblyFragment
+    (function-fragment
+      #"start"
+      (varargs list
+        (basic-block #"start"
+          (varargs join-list
+            (nop)))
+
+        (basic-block #"start_break"
+          (varargs join-list
+            ;; Allocate Heap (Call mmap)
+            ;; No fixed address desired
+            (movq (imm 0) (reg (rdi)))
+            ;; We want a large heap
+            (movq (imm #x20000000) (reg (rsi)))
+            ;; 0x1 = PROT_READ
+            ;; 0x2 = PROT_WRITE
+            ;; 0x4 = PROT_EXEC
+            (movq (imm #x7) (reg (rdx)))
+            ;; 0x0002 = MAP_SHARED
+            ;; 0x1000 = MAP_ANON
+            (movq (imm #x1002) (reg (r10)))
+            ;; FD = -1 for no FD
+            (movq (imm (- 0 1)) (reg (r8)))
+            ;; offset which is ignored because of MAP_ANON
+            (movq (imm 0) (reg (r9)))
+            ;; 0xC5 is mmap, plus 0x2000000 because xnu
+            (movq (imm #x20000C5) (reg (rax)))
+            (syscall)
+            (jb #"prim_start_panic")
+            ;; Save heap to %rbp which is our bump pointer
+            (movq (reg (rax)) (reg (rbp)))
+
+            ;; Construct args
+            (popq (reg (r8))) ; r8 is the number of c strings
+            (movq (reg (rbp)) (reg (r10))) ; r10 is the array of bytes
+            (movq (imm 0) (reg (r11))) ; r11 is the index of the current string
+
+            (movq (reg (r8)) (mem (rbp) 0))
+            (leaq (scaled (rbp) 8 (r8) 8) (rbp))
+
+            (cmpq (reg (r11)) (reg (r8)))
+            (je #"start_copy_args_end")
+            (cld)))
+
+        (basic-block #"start_copy_args_start"
+          (varargs join-list
+            (popq (reg (r9))) ; r9 is now the current string
+
+            ;; Count string length
+            (movq (reg (r9)) (reg (rdi)))
+            (movq (imm 0) (reg (rax)))
+            ;; Assumption: Strings cannot be longer than 2^64-1
+            ;; Loads treat the immediate as a 32 bit signed number, which is sign extended.
+            ;; Then repne-scasb treats it as unsigned which means -1 => 2^64-1
+            (movq (imm (- 0 1)) (reg (rcx)))
+            (repne-scasb)
+            (notq (rcx))
+            (decq (rcx))
+
+            ;; Copy bytes
+            (movq (reg (rbp)) (scaled (r10) 8 (r11) 8))
+            (movq (reg (rcx)) (mem (rbp) 0))
+            (addq (imm 8) (rbp))
+            (movq (reg (r9)) (reg (rsi)))
+            (movq (reg (rbp)) (reg (rdi)))
+            (rep-movsb)
+            (movq (reg (rdi)) (reg (rbp)))
+            (incq (r11))
+            (cmpq (reg (r11)) (reg (r8)))
+            (jne #"start_copy_args_start")))
 
 
-  (define (write-start [main-function-name : Bytes] [output : OutputPort]) : Void
+
+        ;; Call main and then exit
+        (basic-block #"start_copy_args_end"
+          (varargs join-list
+            (movq (reg (r10)) (reg (rdi)))
+            (pushq (reg (rdi)))
+            (movq (imm 0) (reg (rsi)))
+            (pushq (reg (rsi)))
+            (movq (imm 1) (reg (rdx)))
+            (pushq (reg (rdx)))
+            (movq (imm 2) (reg (rcx)))
+            (pushq (reg (rcx)))
+            (pushq (imm 0)) ;; Bogus closure
+            (call (bytes-append (varargs list main-function-name #"_code")))
+            ;; Closure is still on the stack
+            (movq (reg (rax)) (reg (rdi)))
+            (movq (imm #x2000001) (reg (rax)))
+            (syscall)))
+        (basic-block #"prim_start_panic"
+          (varargs join-list
+            (ud2))))))
+
+
+  (define (write-prim-functions [output : OutputPort]) : Void
     (begin
-      (write-assembly-commands
-        (varargs list
-          (directive-cmd (global-directive #"start")))
-        output)
-
-      (write-block #"start" output
-        (varargs list
-          (nop)))
-
-      (write-block #"start_break" output
-        (varargs list
-          ;; Allocate Heap (Call mmap)
-          ;; No fixed address desired
-          (movq (imm 0) (reg (rdi)))
-          ;; We want a large heap
-          (movq (imm #x20000000) (reg (rsi)))
-          ;; 0x1 = PROT_READ
-          ;; 0x2 = PROT_WRITE
-          ;; 0x4 = PROT_EXEC
-          (movq (imm #x7) (reg (rdx)))
-          ;; 0x0002 = MAP_SHARED
-          ;; 0x1000 = MAP_ANON
-          (movq (imm #x1002) (reg (r10)))
-          ;; FD = -1 for no FD
-          (movq (imm (- 0 1)) (reg (r8)))
-          ;; offset which is ignored because of MAP_ANON
-          (movq (imm 0) (reg (r9)))
-          ;; 0xC5 is mmap, plus 0x2000000 because xnu
-          (movq (imm #x20000C5) (reg (rax)))
-          (syscall)
-          (jb #"prim_start_panic")
-          ;; Save heap to %rbp which is our bump pointer
-          (movq (reg (rax)) (reg (rbp)))
-
-          ;; Construct args
-          (popq (reg (r8))) ; r8 is the number of c strings
-          (movq (reg (rbp)) (reg (r10))) ; r10 is the array of bytes
-          (movq (imm 0) (reg (r11))) ; r11 is the index of the current string
-
-          (movq (reg (r8)) (mem (rbp) 0))
-          (leaq (scaled (rbp) 8 (r8) 8) (rbp))
-
-          (cmpq (reg (r11)) (reg (r8)))
-          (je #"start_copy_args_end")
-          (cld)))
-
-      (write-block #"start_copy_args_start" output
-        (varargs list
-          (popq (reg (r9))) ; r9 is now the current string
-
-          ;; Count string length
-          (movq (reg (r9)) (reg (rdi)))
-          (movq (imm 0) (reg (rax)))
-          ;; Assumption: Strings cannot be longer than 2^64-1
-          ;; Loads treat the immediate as a 32 bit signed number, which is sign extended.
-          ;; Then repne-scasb treats it as unsigned which means -1 => 2^64-1
-          (movq (imm (- 0 1)) (reg (rcx)))
-          (repne-scasb)
-          (notq (rcx))
-          (decq (rcx))
-
-          ;; Copy bytes
-          (movq (reg (rbp)) (scaled (r10) 8 (r11) 8))
-          (movq (reg (rcx)) (mem (rbp) 0))
-          (addq (imm 8) (rbp))
-          (movq (reg (r9)) (reg (rsi)))
-          (movq (reg (rbp)) (reg (rdi)))
-          (rep-movsb)
-          (movq (reg (rdi)) (reg (rbp)))
-          (incq (r11))
-          (cmpq (reg (r11)) (reg (r8)))
-          (jne #"start_copy_args_start")))
-
-
-
-      ;; Call main and then exit
-      (write-block #"start_copy_args_end" output
-        (varargs list
-          (movq (reg (r10)) (reg (rdi)))
-          (pushq (reg (rdi)))
-          (movq (imm 0) (reg (rsi)))
-          (pushq (reg (rsi)))
-          (movq (imm 1) (reg (rdx)))
-          (pushq (reg (rdx)))
-          (movq (imm 2) (reg (rcx)))
-          (pushq (reg (rcx)))
-          (pushq (imm 0)) ;; Bogus closure
-          (call (bytes-append (varargs list main-function-name #"_code")))
-          ;; Closure is still on the stack
-          (movq (reg (rax)) (reg (rdi)))
-          (movq (imm #x2000001) (reg (rax)))
-          (syscall)))
-      (write-block #"prim_start_panic" output
-        (varargs list
-          (ud2)))
-
-
-
       ;; write-bytes
       (write-prim-assembly-function/panic #"write_bytes" output
         (varargs list
