@@ -2,7 +2,7 @@
   (import
     (prim
       #:types (Bytes Byte InputPort OutputPort Array Void U32 U8 S64)
-      #:values (- < = array-length array-ref read-bytes make-bytes
+      #:values (- * + < = array-length array-ref read-bytes make-bytes
                 panic void bytes-ref bytes-length or)
       #:patterns ())
     (boolean not)
@@ -16,11 +16,11 @@
       #:patterns (left right))
     (io write-line write-all-bytes call-with-input-file)
     (numbers integer->hex-bytes integer->decimal-bytes)
-    (bytes bytes-ref/quad-le make-null-terminated))
+    (bytes bytes-ref/quad-le bytes-ref/octo-le make-null-terminated))
   (export
     #:types (MachOFile MachOLoadCommand)
     #:values (read-mach-o)
-    #:patterns (mach-o-file mach-o-header lc-segment-64 lc-symtab lc-version-min-macosx
+    #:patterns (mach-o-file mach-o-header lc-segment64 lc-symtab lc-version-min-macosx
                 lc-data-in-code))
   (types
     (define-type MachOFile
@@ -38,7 +38,7 @@
         [flags Byte]
         [reserved Byte]))
     (define-type MachOLoadCommand
-      (lc-segment-64 [raw-contents Bytes])
+      (lc-segment64 [v LoadSegment64])
       (lc-symtab [v SymbolTable])
       (lc-version-min-macosx [v VersionMin])
       (lc-data-in-code [v LinkeditData]))
@@ -99,11 +99,54 @@
                 (if (= (- command-size 8) (read-bytes command-buffer input 0 (- command-size 8)))
                     (case number
                       [#x02 (parse-lc-symtab command-buffer)]
-                      [#x19 (right (lc-segment-64 command-buffer))]
+                      [#x19 (parse-lc-segment64 command-buffer)]
                       [#x24 (parse-lc-version-min-macosx command-buffer)]
                       [#x29 (parse-lc-data-in-code command-buffer)]
                       [_ (left #"Unknown load command")])
                     (left #"Not enough bytes"))))))))
+
+  (define (parse-lc-segment64 [bytes : Bytes]) : (Either Bytes MachOLoadCommand)
+    (if (< (bytes-length bytes) #x40)
+        (left #"Too short lc-segment64")
+        (let ([num-sections (bytes-ref/quad-le bytes #x38)])
+          (if (not (= (bytes-length bytes) (+ #x40 (* num-sections #x50))))
+              (left #"Wrong length lc-segment64")
+              (right
+                (lc-segment64
+                  (load-segment64
+                    #"" ;; TODO parse actual segment name
+                    (bytes-ref/octo-le bytes #x10)
+                    (bytes-ref/octo-le bytes #x18)
+                    (bytes-ref/octo-le bytes #x20)
+                    (bytes-ref/octo-le bytes #x28)
+                    (bytes-ref/quad-le bytes #x30)
+                    (bytes-ref/quad-le bytes #x34)
+                    (parse-section64s num-sections #x40 bytes)
+                    (bytes-ref/quad-le bytes #x3c))))))))
+
+  (define (parse-section64s [amount : S64] [offset : S64] [bytes : Bytes]) : (List Section64)
+    (if (= amount 0)
+        (empty)
+        (cons
+          (parse-section64 offset bytes)
+          (parse-section64s (- amount 1) (+ offset #x50) bytes))))
+
+  (define (parse-section64 [offset : S64] [bytes : Bytes]) : Section64
+    (section64
+      #"" ;; TODO parse actual segment name
+      #"" ;; TODO parse actual section name
+      (bytes-ref/octo-le bytes #x20)
+      (bytes-ref/octo-le bytes #x28)
+      (bytes-ref/quad-le bytes #x30)
+      ;; TODO Check that this is 0
+      (bytes-ref/quad-le bytes #x38)
+      (bytes-ref/quad-le bytes #x40)
+      (bytes-ref/quad-le bytes #x44)
+      ;; TODO Check that this is 0
+      ;; TODO Check that this is 0
+      ;; TODO Check that this is 0
+      ))
+
 
   (define (parse-lc-symtab [bytes : Bytes]) : (Either Bytes MachOLoadCommand)
     (if (not (= (bytes-length bytes) #x10))
