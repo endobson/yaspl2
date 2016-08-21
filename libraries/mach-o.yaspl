@@ -1,9 +1,9 @@
 (module mach-o
   (import
     (prim
-      #:types (Bytes Byte InputPort OutputPort Array Void S64)
+      #:types (Bytes Byte InputPort OutputPort Array Void U32 U8 S64)
       #:values (- < = array-length array-ref read-bytes make-bytes
-                panic void bytes-ref)
+                panic void bytes-ref bytes-length or)
       #:patterns ())
     (boolean not)
     (list
@@ -39,9 +39,54 @@
         [reserved Byte]))
     (define-type MachOLoadCommand
       (lc-segment-64 [raw-contents Bytes])
-      (lc-symtab [raw-contents Bytes])
-      (lc-version-min-macosx [raw-contents Bytes])
-      (lc-data-in-code [raw-contents Bytes])))
+      (lc-symtab [v SymbolTable])
+      (lc-version-min-macosx [v VersionMin])
+      (lc-data-in-code [v LinkeditData]))
+
+    (define-type LoadSegment64
+      (load-segment64
+        [name Bytes]
+        [vm-addr Byte]
+        [vm-size Byte]
+        [file-offset Byte]
+        [file-size Byte]
+        [max-protection Byte]
+        [init-protection Byte]
+        [flags Byte]
+        [sections (List Section64)]))
+
+    (define-type Section64
+      (section64
+        [segment-name Bytes]
+        [name Bytes]
+        [addr Byte]
+        [size Byte]
+        [offset Byte]
+        [relocation-offset Byte]
+        [num-relocations Byte]
+        [flags Byte]))
+
+
+    (define-type VersionMin
+      (version-min
+        [version-major U8] ;; TODO this should be a u16
+        [version-minor U8]
+        [version-patch U8]
+        [sdk-major U8] ;; TODO this should be a u16
+        [sdk-minor U8]
+        [sdk-patch U8]))
+
+    (define-type SymbolTable
+      (symbol-table
+        [offset Byte]
+        [number Byte]
+        [string-offset Byte]
+        [string-size Byte]))
+
+    (define-type LinkeditData
+      (linkedit-data
+        [offset U32]
+        [size U32])))
 
 
   (define (read-load-command [input : InputPort]) : (Either Bytes MachOLoadCommand)
@@ -53,12 +98,49 @@
               (let ([command-buffer (make-bytes (- command-size 8))])
                 (if (= (- command-size 8) (read-bytes command-buffer input 0 (- command-size 8)))
                     (case number
-                      [#x02 (right (lc-symtab command-buffer))]
+                      [#x02 (parse-lc-symtab command-buffer)]
                       [#x19 (right (lc-segment-64 command-buffer))]
-                      [#x24 (right (lc-version-min-macosx command-buffer))]
-                      [#x29 (right (lc-data-in-code command-buffer))]
+                      [#x24 (parse-lc-version-min-macosx command-buffer)]
+                      [#x29 (parse-lc-data-in-code command-buffer)]
                       [_ (left #"Unknown load command")])
                     (left #"Not enough bytes"))))))))
+
+  (define (parse-lc-symtab [bytes : Bytes]) : (Either Bytes MachOLoadCommand)
+    (if (not (= (bytes-length bytes) #x10))
+        (left #"Wrong length lc-symtab")
+        (right
+          (lc-symtab
+            (symbol-table
+              (bytes-ref/quad-le bytes #x00)
+              (bytes-ref/quad-le bytes #x04)
+              (bytes-ref/quad-le bytes #x08)
+              (bytes-ref/quad-le bytes #x0c))))))
+
+  (define (parse-lc-data-in-code [bytes : Bytes]) : (Either Bytes MachOLoadCommand)
+    (if (not (= (bytes-length bytes) #x08))
+        (left #"Wrong length lc-data-in-code")
+        (right
+          (lc-data-in-code
+            (linkedit-data
+              (bytes-ref/quad-le bytes #x00)
+              (bytes-ref/quad-le bytes #x04))))))
+
+  (define (parse-lc-version-min-macosx [bytes : Bytes]) : (Either Bytes MachOLoadCommand)
+    (if (not (= (bytes-length bytes) #x08))
+        (left #"Wrong length lc-version-min-macosx")
+        (if (or (not (= (bytes-ref bytes 3) 0))
+                (not (= (bytes-ref bytes 7) 0)))
+            (left #"Not yet supported version min")
+            (right
+            (lc-version-min-macosx
+              (version-min
+                (bytes-ref bytes #x02)
+                (bytes-ref bytes #x01)
+                (bytes-ref bytes #x00)
+                (bytes-ref bytes #x06)
+                (bytes-ref bytes #x05)
+                (bytes-ref bytes #x04)))))))
+
 
   (define (read-load-commands [amount : S64] [input : InputPort])
     : (Either Bytes (List MachOLoadCommand))
