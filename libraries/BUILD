@@ -362,7 +362,7 @@ yaspl_library(
   ]
 )
 
-yaspl_library(
+yaspl_bootstrap_library(
   name = "mach-o-writer_lib",
   srcs = ["mach-o-writer.yaspl"],
   deps = [
@@ -374,7 +374,7 @@ yaspl_library(
   ]
 )
 
-yaspl_library(
+yaspl_bootstrap_library(
   name = "mach-o-writer2_lib",
   srcs = ["mach-o-writer2.yaspl"],
   deps = [
@@ -403,6 +403,7 @@ yaspl_bootstrap_library(
     ":list",
     ":stack-machine-optimizer",
     ":x86-64-stack-machine",
+    ":mach-o-writer2_lib",
   ]
 )
 

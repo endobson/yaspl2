@@ -73,28 +73,13 @@ def _bin_impl(ctx):
 
   ctx.action(
     inputs = [ctx.executable._main_stub],
-    outputs = [ctx.outputs.main_stub_asm],
+    outputs = [ctx.outputs.main_stub_object],
     mnemonic = "YasplGenerateMain",
     executable = ctx.executable._main_stub,
     arguments = [
-      ctx.outputs.main_stub_asm.path,
+      ctx.outputs.main_stub_object.path,
       ctx.attr.main_module,
     ]
-  )
-
-  ctx.action(
-    inputs = [ctx.outputs.main_stub_asm],
-    outputs = [ctx.outputs.main_stub_object],
-    mnemonic = "YasplAssemble",
-    command = "as %s -o %s && " % (
-      ctx.outputs.main_stub_asm.path,
-      ctx.outputs.main_stub_object.path
-    ) + "ld -arch x86_64 " +
-    "-macosx_version_min 10.11 " +
-    "-keep_private_externs " +
-    "-r %s -o %s" % (
-      ctx.outputs.main_stub_object.path,
-      ctx.outputs.main_stub_object.path)
   )
 
   input_objects = list(_transitive_objects(ctx)) + [ctx.outputs.main_stub_object]
@@ -159,7 +144,6 @@ yaspl_library = rule(
 yaspl_binary = rule(
   implementation = _bin_impl,
   outputs = {
-    "main_stub_asm": "%{name}_main.s",
     "main_stub_object": "%{name}_main.o",
   },
   executable = True,
@@ -174,7 +158,6 @@ yaspl_binary = rule(
 yaspl_prim_test = rule(
   implementation = _bin_impl,
   outputs = {
-    "main_stub_asm": "%{name}_main.s",
     "main_stub_object": "%{name}_main.o",
   },
   executable = True,
