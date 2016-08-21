@@ -91,6 +91,12 @@ yaspl_binary(
 )
 
 yaspl_binary(
+  name = "true",
+  main_module = "true",
+  deps = [":true_lib"]
+)
+
+yaspl_binary(
   name = "udp-echo-server",
   main_module = "udp_echo_server",
   deps = [":udp-echo-server_lib"]
@@ -629,6 +635,12 @@ yaspl_bootstrap_library(
     ":sexp-parser",
     ":tuples",
   ],
+)
+
+yaspl_bootstrap_library(
+  name = "true_lib",
+  srcs = ["true.yaspl"],
+  deps = [],
 )
 
 yaspl_library(
