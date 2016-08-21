@@ -180,6 +180,7 @@ yaspl_library(
     ":either",
     ":io",
     ":list",
+    ":mach-o_lib",
     ":mach-o-writer2_lib",
     ":numbers",
   ]
