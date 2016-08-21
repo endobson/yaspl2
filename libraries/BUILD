@@ -352,7 +352,9 @@ yaspl_library(
   name = "mach-o_lib",
   srcs = ["mach-o.yaspl"],
   deps = [
+    ":boolean",
     ":bytes",
+    ":either",
     ":io",
     ":numbers",
   ]
