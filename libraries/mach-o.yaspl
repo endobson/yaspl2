@@ -20,7 +20,8 @@
   (export
     #:types (MachOFile MachOLoadCommand)
     #:values (read-mach-o)
-    #:patterns (mach-o-file mach-o-load-command mach-o-header))
+    #:patterns (mach-o-file mach-o-header lc-segment-64 lc-symtab lc-version-min-macosx
+                lc-data-in-code))
   (types
     (define-type MachOFile
       (mach-o-file
@@ -37,9 +38,10 @@
         [flags Byte]
         [reserved Byte]))
     (define-type MachOLoadCommand
-      (mach-o-load-command
-        [number Byte]
-        [raw-contents Bytes])))
+      (lc-segment-64 [raw-contents Bytes])
+      (lc-symtab [raw-contents Bytes])
+      (lc-version-min-macosx [raw-contents Bytes])
+      (lc-data-in-code [raw-contents Bytes])))
 
 
   (define (read-load-command [input : InputPort]) : (Either Bytes MachOLoadCommand)
@@ -50,7 +52,12 @@
             (let ([command-size (bytes-ref/quad-le standard-header 4)])
               (let ([command-buffer (make-bytes (- command-size 8))])
                 (if (= (- command-size 8) (read-bytes command-buffer input 0 (- command-size 8)))
-                    (right (mach-o-load-command number command-buffer))
+                    (case number
+                      [#x02 (right (lc-symtab command-buffer))]
+                      [#x19 (right (lc-segment-64 command-buffer))]
+                      [#x24 (right (lc-version-min-macosx command-buffer))]
+                      [#x29 (right (lc-data-in-code command-buffer))]
+                      [_ (left #"Unknown load command")])
                     (left #"Not enough bytes"))))))))
 
   (define (read-load-commands [amount : S64] [input : InputPort])
