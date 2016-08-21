@@ -743,16 +743,16 @@ yaspl_library(
 )
 
 action_listener(
-  name = "yaspl_gen_objects",
-  mnemonics = ["YasplCompile", "YasplGenerateMain"],
-  extra_actions = [":yaspl_gen_object"]
+  name = "yaspl_gen_executables",
+  mnemonics = ["YasplLink"],
+  extra_actions = [":yaspl_gen_executable"]
 )
 
 extra_action(
-  name = "yaspl_gen_object",
-  out_templates = ["$(ACTION_ID).o"],
+  name = "yaspl_gen_executable",
+  out_templates = ["$(ACTION_ID).executable"],
   tools = [
     ":extra-action-parser",
   ],
-  cmd = "$(location :extra-action-parser) $(EXTRA_ACTION_FILE) $(output $(ACTION_ID).o)"
+  cmd = "$(location :extra-action-parser) $(EXTRA_ACTION_FILE) $(output $(ACTION_ID).executable)"
 )
