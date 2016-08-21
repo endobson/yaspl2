@@ -1,27 +1,31 @@
 (module mach-o
   (import
     (prim
-      #:types (Bytes Byte InputPort OutputPort Array Void)
+      #:types (Bytes Byte InputPort OutputPort Array Void S64)
       #:values (- < = array-length array-ref read-bytes make-bytes
                 panic void bytes-ref)
       #:patterns ())
     (boolean not)
+    (list
+      #:types (List)
+      #:values (cons empty)
+      #:patterns ())
     (either
       #:types (Either)
-      #:values (right left)
-      #:patterns ())
+      #:values (left right)
+      #:patterns (left right))
     (io write-line write-all-bytes call-with-input-file)
     (numbers integer->hex-bytes integer->decimal-bytes)
     (bytes bytes-ref/quad-le make-null-terminated))
   (export
-    #:types (MachOFile)
-    #:values (read-mach-o read-load-command)
+    #:types (MachOFile MachOLoadCommand)
+    #:values (read-mach-o)
     #:patterns (mach-o-file mach-o-load-command mach-o-header))
   (types
     (define-type MachOFile
       (mach-o-file
         [header MachOHeader]
-        [raw-contents Bytes]))
+        [commands (List MachOLoadCommand)]))
     (define-type MachOHeader
       (mach-o-header
         [magic Byte]
@@ -49,6 +53,18 @@
                     (right (mach-o-load-command number command-buffer))
                     (left #"Not enough bytes"))))))))
 
+  (define (read-load-commands [amount : S64] [input : InputPort])
+    : (Either Bytes (List MachOLoadCommand))
+    (if (= amount 0)
+        (right (empty))
+        (case (read-load-command input)
+          [(left v) (left v)]
+          [(right cmd)
+           (case (read-load-commands (- amount 1) input)
+             [(left v) (left v)]
+             [(right cmds)
+              (right (cons cmd cmds))])])))
+
   (define (read-mach-o [input : InputPort]) : (Either Bytes MachOFile)
     (let ([header-bytes (make-bytes 32)])
       (if (not (= 32 (read-bytes header-bytes input 0 32)))
@@ -63,4 +79,7 @@
                    (bytes-ref/quad-le header-bytes 20)
                    (bytes-ref/quad-le header-bytes 24)
                    (bytes-ref/quad-le header-bytes 28))])
-            (right (mach-o-file header (make-bytes 0))))))))
+            (case (read-load-commands (mach-o-header-number-commands header) input)
+              [(left v) (left v)]
+              [(right commands)
+               (right (mach-o-file header commands))]))))))
