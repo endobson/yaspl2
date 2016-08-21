@@ -5,12 +5,6 @@ def _transitive_srcs(ctx):
   transitive_srcs += ctx.files.srcs
   return transitive_srcs
 
-def _transitive_asms(ctx):
-  transitive_asms = set(order="link")
-  for dep in ctx.attr.deps:
-    transitive_asms += dep.yaspl_transitive_asms
-  return transitive_asms
-
 def _transitive_objects(ctx):
   transitive_objects = set(order="link")
   for dep in ctx.attr.deps:
@@ -22,36 +16,20 @@ def _transitive_objects(ctx):
 def _lib_impl(ctx):
 
   transitive_srcs = _transitive_srcs(ctx)
-  transitive_asms = _transitive_asms(ctx)
   transitive_objects = _transitive_objects(ctx)
   transitive_src_paths = [src.path for src in transitive_srcs]
 
   ctx.action(
     inputs = list(transitive_srcs) + [ctx.executable._library_compiler],
-    outputs = [ctx.outputs.asm],
+    outputs = [ctx.outputs.object],
     mnemonic = "YasplCompile",
     executable = ctx.executable._library_compiler,
-    arguments = [ctx.outputs.asm.path] + list(transitive_src_paths)
+    arguments = [ctx.outputs.object.path] + list(transitive_src_paths)
   )
 
-  ctx.action(
-    inputs = [ctx.outputs.asm],
-    outputs = [ctx.outputs.object],
-    mnemonic = "YasplAssemble",
-    command = "as %s -o %s && " % (
-      ctx.outputs.asm.path,
-      ctx.outputs.object.path
-    ) + "ld -arch x86_64 " +
-    "-macosx_version_min 10.11 " +
-    "-keep_private_externs " +
-    "-r %s -o %s" % (
-      ctx.outputs.object.path,
-      ctx.outputs.object.path)
-  )
 
   return struct(
     yaspl_transitive_srcs = transitive_srcs,
-    yaspl_transitive_asms = transitive_asms + [ctx.outputs.asm],
     yaspl_transitive_objects = transitive_objects + [ctx.outputs.object]
   )
 
@@ -100,13 +78,6 @@ def _bin_impl(ctx):
   )
 
 _yaspl_src_file_type = FileType([".yaspl"])
-_asm_src_deps_attr = attr.label_list(
-  providers = ["yaspl_transitive_asms", "yaspl_transitive_srcs"],
-)
-
-_asm_deps_attr = attr.label_list(
-  providers = ["yaspl_transitive_asms"],
-)
 
 _src_deps_attr = attr.label_list(
   providers = ["yaspl_transitive_srcs"],
@@ -127,7 +98,6 @@ _bootstrap_main_stub = attr.label(
 yaspl_library = rule(
   implementation = _lib_impl,
   outputs = {
-    "asm": "%{name}.s",
     "object": "%{name}.o"
   },
   attrs = {
@@ -136,7 +106,7 @@ yaspl_library = rule(
       mandatory=True,
       non_empty=True
     ),
-    "deps": _asm_src_deps_attr,
+    "deps": _src_deps_attr,
     "_library_compiler": _bootstrap_library_compiler
   }
 )
@@ -149,7 +119,7 @@ yaspl_binary = rule(
   executable = True,
   attrs = {
     "main_module": attr.string(mandatory=True),
-    "deps": _asm_deps_attr,
+    "deps": attr.label_list(),
     "_main_stub": _bootstrap_main_stub,
   }
 )
@@ -164,7 +134,7 @@ yaspl_prim_test = rule(
   test=True,
   attrs = {
     "main_module": attr.string(mandatory=True),
-    "deps": _asm_deps_attr,
+    "deps": attr.label_list(),
     "_main_stub": _bootstrap_main_stub,
   }
 )

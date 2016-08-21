@@ -66,12 +66,6 @@ yaspl_binary(
 )
 
 yaspl_binary(
-  name = "mach-o-writer2",
-  main_module = "mach_o_writer2",
-  deps = [":mach-o-writer2_lib"]
-)
-
-yaspl_binary(
   name = "main-stub",
   main_module = "main_stub",
   deps = [":main-stub_lib"]
@@ -332,6 +326,7 @@ yaspl_bootstrap_library(
     ":type-checker",
     ":validator",
     ":x86-64-stack-machine",
+    ":mach-o-writer2_lib",
  ]
 )
 
@@ -382,7 +377,6 @@ yaspl_bootstrap_library(
     ":bytes",
     ":list",
     ":x86-64-stack-machine",
-    ":library-compiler_lib",
     ":dict",
     ":prim-implementation",
     ":source-language",

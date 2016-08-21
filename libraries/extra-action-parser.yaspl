@@ -18,15 +18,7 @@
       #:types (Dict)
       #:values (make-dict dict-add)
       #:patterns ())
-    (prim-implementation prim-implementation)
-    (stack-machine-optimizer optimize-tlos)
-    (stack-machine
-      #:types (TopLevelObject)
-      #:values ()
-      #:patterns (function-tlo trivial-closure-tlo))
     (numbers integer->decimal-bytes)
-    (x86-64-stack-machine compile-stack-machine)
-    (mach-o-writer2 write-mach-o write-mach-o/fragments)
     (io write-line read-all-bytes write-all-bytes call-with-input-file call-with-output-file))
   (export)
   (types
@@ -52,15 +44,6 @@
       (extra-action-info [owner Bytes] [id Bytes] [mnemonic Bytes] [spawn-info SpawnInfo]))
     (define-type SpawnInfo
       (spawn-info [arguments (List Bytes)] [input-files (List Bytes)] [output-files (List Bytes)])))
-
-  (define (add-known-functions [tlos : (List TopLevelObject)]
-                               [dict : (Dict Bytes Bytes)]) : (Dict Bytes Bytes)
-    (case tlos
-      [(empty) dict]
-      [(cons (trivial-closure-tlo name fun-name) tlos)
-       (add-known-functions tlos (dict-add dict name fun-name))]
-      [(cons _ tlos)
-       (add-known-functions tlos dict)]))
 
   (define (read-varint [parser : ProtoParser]) : (Result S64)
     (case parser
@@ -209,35 +192,6 @@
                    (case info
                      [(extra-action-info owner id mnemonic (spawn-info arguments input-files output-files))
                       (case mnemonic
-                        [#"YasplGenerateMain"
-                         (call-with-output-file output-file-name
-                           (lambda ([port : OutputPort])
-                             (case arguments
-                               [(cons _ (cons _ (cons module-name (empty))))
-                                (let ([fragments
-                                       (compile-stack-machine
-                                         (bytes-append (varargs list module-name #"_main"))
-                                         (optimize-tlos (prim-implementation)
-                                                        (add-known-functions
-                                                          (prim-implementation)
-                                                          (make-dict bytes=?))))])
-                                  (case (write-mach-o/fragments output-file-name fragments)
-                                    [(left v)
-                                     (begin
-                                       (write-line v stderr)
-                                       1)]
-                                    [(right _)
-                                     0]))])))]
-                        [#"YasplCompile"
-                         (case arguments
-                           [(cons compiler (cons orig-output-file src-files))
-                            (case (write-mach-o output-file-name src-files)
-                              [(left v)
-                               (begin
-                                 (write-line v stderr)
-                                 1)]
-                              [(right _)
-                               0])])]
                         [x
                           (begin
                             (write-line x stderr)
