@@ -18,14 +18,19 @@
     (bytes bytes bytes-ref/quad-le bytes-set!/octo-le bytes-set!/quad-le make-null-terminated))
   (export
     #:types ()
-    #:values (lc-load-segment64 load-segment64 section64 write-mach-o-library-header 
-              write-mach-o-executable-header mach-o-header
+    #:values (lc-load-segment64 load-segment64 section64 write-mach-o-header mach-o-header
+              mach-o-executable-file mach-o-library-file
               lc-version-min-macosx version-min lc-dynamic-symbol-table dynamic-symbol-table
               lc-symbol-table symbol-table lc-data-in-code linkedit-data)
     #:patterns ())
   (types
     (define-type MachOHeader
-      (mach-o-header [commands (List MachOLoadCommand)]))
+      (mach-o-header
+        [file-type MachOFileType]
+        [commands (List MachOLoadCommand)]))
+    (define-type MachOFileType
+      (mach-o-library-file)
+      (mach-o-executable-file))
     (define-type MachOLoadCommand
       (lc-unix-thread [v UnixThread])
       (lc-version-min-macosx [v VersionMin])
@@ -135,10 +140,9 @@
       [(lc-dynamic-symbol-table _) #x50]))
 
 
-
-  (define (write-mach-o-executable-header [header : MachOHeader] [output : OutputPort]) : Void
+  (define (write-mach-o-header [header : MachOHeader] [output : OutputPort]) : Void
     (case header
-      [(mach-o-header commands)
+      [(mach-o-header file-type commands)
        (begin
          (write-quad-le #xfeedfacf output)
          ;; CPU type
@@ -146,7 +150,11 @@
          ;; CPU subtype
          (write-quad-le #x03 output)
          ;; File type
-         (write-quad-le #x02 output)
+         (write-quad-le
+           (case file-type
+             [(mach-o-library-file) #x01]
+             [(mach-o-executable-file) #x02])
+           output)
 
          ;; Number of commands
          (write-quad-le (length commands) output)
@@ -154,32 +162,12 @@
          (write-quad-le (load-commands-size commands) output)
 
          ;; Flags
-         (write-quad-le #x01  output)
-         ;; Reserved
-         (write-quad-le #x00 output)
-
-         (write-load-commands commands output))]))
-
-
-  (define (write-mach-o-library-header [header : MachOHeader] [output : OutputPort]) : Void
-    (case header
-      [(mach-o-header commands)
-       (begin
-         (write-quad-le #xfeedfacf output)
-         ;; CPU type
-         (write-quad-le #x01000007 output)
-         ;; CPU subtype
-         (write-quad-le #x03 output)
-         ;; File type
-         (write-quad-le #x01 output)
-
-         ;; Number of commands
-         (write-quad-le (length commands) output)
-         ;; Size of commands
-         (write-quad-le (load-commands-size commands) output)
-
-         ;; Flags
-         (write-quad-le #x00  output)
+         ;; TODO actually compute these instead of guessing at them based on file type
+         (write-quad-le
+           (case file-type
+             [(mach-o-library-file) #x00]
+             [(mach-o-executable-file) #x01])
+           output)
          ;; Reserved
          (write-quad-le #x00 output)
 
