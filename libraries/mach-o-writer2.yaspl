@@ -25,7 +25,8 @@
       #:values (make-dict)
       #:patterns ())
     (prim-implementation prim-static-signature prim-signature prim-implementation)
-    (mach-o-writer write-mach-o-library-header mach-o-header lc-load-segment64 load-segment64 section64
+    (mach-o-writer write-mach-o-library-header write-mach-o-executable-header
+                   mach-o-header lc-load-segment64 load-segment64 section64
                    lc-version-min-macosx version-min symbol-table lc-symbol-table
                    lc-dynamic-symbol-table dynamic-symbol-table lc-data-in-code linkedit-data)
     (source-language
@@ -50,7 +51,7 @@
       #:patterns (left right)))
   (export
     #:types ()
-    #:values (write-mach-o-library/fragments)
+    #:values (write-mach-o-library/fragments write-mach-o-executable/fragments)
     #:patterns ())
   (types
     (define-type TextSegmentRelocation
@@ -394,6 +395,107 @@
                   (write-quad-le #x0020020f output))
               (write-octo-le offset output))])
          (write-symbol-table symbols (+ (+ (bytes-length (symbol-name symbol)) 1) sym-offset) output))]))
+
+  (define (write-mach-o-executable/fragments [output-file-name : Bytes] [fragments : (List AssemblyFragment)])
+    : (Either Bytes Void)
+    (let ([text-segment-bytes (assemble-text-segment fragments)])
+      (let ([text-segment-relocations (compute-text-segment-relocations fragments 0)])
+        (let ([text-segment-num-relocations (length text-segment-relocations)])
+          (let ([const-segment-bytes (assemble-const-segment fragments)])
+            (let ([const-segment-relocations
+                    (compute-const-segment-relocations fragments)])
+              (let ([const-segment-num-relocations (length const-segment-relocations)])
+                (let ([segment-size (+ (bytes-length text-segment-bytes)
+                                       (bytes-length const-segment-bytes))])
+                  (let ([reloc-base (+ 352 (round-up segment-size 8))])
+                    (let ([symbols (collect-symbols fragments (bytes-length
+                                                                text-segment-bytes))])
+                      (call-with-output-file output-file-name
+                        (lambda ([output : OutputPort])
+                          (begin
+                            (write-mach-o-executable-header
+                              (mach-o-header
+                                (varargs list
+                                  (lc-load-segment64
+                                    (load-segment64 #""
+                                      #x0000000000000000
+                                      segment-size
+                                      352
+                                      segment-size
+                                      #x07
+                                      #x07
+                                      0
+                                      (varargs list
+                                        (section64 #"__TEXT" #"__text"
+                                                   #x00
+                                                   (bytes-length text-segment-bytes)
+                                                   352
+                                                   reloc-base
+                                                   text-segment-num-relocations
+                                                   #x80000400)
+                                        (section64 #"__TEXT" #"__const"
+                                                   (bytes-length text-segment-bytes)
+                                                   (bytes-length const-segment-bytes)
+                                                   (+ 352 (bytes-length text-segment-bytes))
+                                                   (+ reloc-base
+                                                      (* 8 text-segment-num-relocations))
+                                                   const-segment-num-relocations
+                                                   0))))
+                                  (lc-symbol-table
+                                    (symbol-table
+                                      (+ reloc-base
+                                         (* 8 (+ text-segment-num-relocations
+                                                 const-segment-num-relocations)))
+                                      (length symbols)
+                                      (+ (+ reloc-base
+                                            (* 8 (+ text-segment-num-relocations
+                                                    const-segment-num-relocations)))
+                                         (* (length symbols) #x10))
+                                      (round-up
+                                        (+ (+ 2 (length symbols))
+                                           (sum (map bytes-length
+                                                     (map symbol-name symbols))))
+                                        8)))
+                                  (lc-version-min-macosx
+                                    (version-min 10 11 0 10 11 0))
+                                  (lc-data-in-code
+                                    (linkedit-data
+                                      (+ reloc-base
+                                         (* 8 (+ text-segment-num-relocations
+                                                 const-segment-num-relocations)))
+                                      0))))
+                              output)
+                            (write-all-bytes (make-bytes 32) output)
+                            (write-all-bytes text-segment-bytes output)
+                            (write-all-bytes const-segment-bytes output)
+                            (write-all-bytes
+                              (make-bytes
+                                (-
+                                  (round-up (+ (bytes-length text-segment-bytes)
+                                               (bytes-length const-segment-bytes))
+                                            8)
+                                  (+ (bytes-length text-segment-bytes)
+                                     (bytes-length const-segment-bytes)))) output)
+                            (write-text-segment-relocations
+                              text-segment-relocations (map symbol-name symbols) output)
+                            (write-const-segment-relocations
+                              const-segment-relocations (map symbol-name symbols) output)
+                            (write-symbol-table symbols 2 output)
+                            (write-all-bytes (varargs bytes 32 0) output)
+                            (write-all-symbols (map symbol-name symbols) output)
+                            (write-all-bytes
+                              (make-bytes
+                                (-
+                                  (round-up
+                                    (+ (+ 2 (length symbols))
+                                       (sum (map bytes-length
+                                                 (map symbol-name symbols))))
+                                    8)
+                                  (+ (+ 2 (length symbols))
+                                     (sum (map bytes-length
+                                               (map symbol-name symbols))))))
+                              output)
+                            (right (void)))))))))))))))
 
 
   (define (write-mach-o-library/fragments [output-file-name : Bytes] [fragments : (List AssemblyFragment)])
