@@ -86,13 +86,15 @@ _src_deps_attr = attr.label_list(
 _bootstrap_library_compiler = attr.label(
  default=Label("//bootstrap:bootstrap_library_compiler"),
  executable=True,
- allow_files=True
+ allow_files=True,
+ cfg="host",
 )
 
 _bootstrap_main_stub = attr.label(
  default=Label("//bootstrap:bootstrap_main_stub"),
  executable=True,
- allow_files=True
+ allow_files=True,
+ cfg="host",
 )
 
 yaspl_library = rule(
