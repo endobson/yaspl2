@@ -52,7 +52,7 @@
       #:patterns (left right)))
   (export
     #:types ()
-    #:values (write-mach-o-library/fragments write-mach-o-executable/fragments)
+    #:values (write-mach-o-library/fragments write-mach-o-executable)
     #:patterns ())
   (types
     (define-type TextSegmentRelocation
@@ -397,7 +397,7 @@
               (write-octo-le offset output))])
          (write-symbol-table symbols (+ (+ (bytes-length (symbol-name symbol)) 1) sym-offset) output))]))
 
-  (define (write-mach-o-executable/fragments [output-file-name : Bytes])
+  (define (write-mach-o-executable [strings : (List Bytes)] [output-file-name : Bytes])
     : (Either Bytes Void)
     (let ([page-zero-size #x0000000100000000])
       (let ([text-segment-bytes (make-bytes #x696)])
@@ -410,101 +410,111 @@
                                          (bytes-length const-segment-bytes))])
                     (let ([const-section-start (- (+ page-zero-size #x1000) (bytes-length const-segment-bytes))])
                       (let ([text-section-start (- const-section-start (bytes-length text-segment-bytes))])
-                        (let ([num-symbols 161])
-                          (let ([symbols-length 3160])
-                            (let ([start-address #x00000001000007b2])
-                              (call-with-output-file output-file-name
-                                (lambda ([output : OutputPort])
-                                  (begin
-                                    (write-mach-o-header
-                                      (mach-o-header
-                                        (mach-o-executable-file)
-                                        (varargs list
-                                          (lc-load-segment64
-                                            (load-segment64 #"__PAGEZERO"
-                                              #x0000000000000000
-                                              page-zero-size
-                                              0
-                                              0
-                                              #x00
-                                              #x00
-                                              0
-                                              (empty)))
-                                          (lc-load-segment64
-                                            (load-segment64 #"__TEXT"
-                                              page-zero-size
-                                              #x0000000000001000
-                                              #x0
-                                              #x1000
-                                              #x07
-                                              #x05
-                                              0
-                                              (varargs list
-                                                (section64 #"__TEXT" #"__text"
-                                                           text-section-start
-                                                           (bytes-length text-segment-bytes)
-                                                           (- text-section-start page-zero-size)
-                                                           0
-                                                           text-segment-num-relocations
-                                                           #x80000400)
-                                                (section64 #"__TEXT" #"__const"
-                                                           const-section-start
-                                                           (bytes-length const-segment-bytes)
-                                                           (- const-section-start page-zero-size)
-                                                           0
-                                                           const-segment-num-relocations
-                                                           0))))
-                                          (lc-load-segment64
-                                            (load-segment64 #"__DATA"
-                                              #x0000000100001000
-                                              #x0000000000000000
-                                              #x1000
-                                              #x0
-                                              #x07
-                                              #x03
-                                              #x04
-                                              (varargs list
-                                                (section64 #"__DATA" #"__data"
-                                                           #x0000000100001000
-                                                           #x0000000000000000
-                                                           4096
-                                                           0
-                                                           text-segment-num-relocations
-                                                           0))))
-                                          (lc-load-segment64
-                                            (load-segment64 #"__LINKEDIT"
-                                              #x0000000100001000
-                                              #x0000000000002000
-                                              #x1000
-                                              5736
-                                              #x07
-                                              #x01
-                                              #x00
-                                              (empty)))
-                                          (lc-symbol-table
-                                            (symbol-table
-                                              4096
-                                              num-symbols
-                                              (+ 4096 (* num-symbols 16))
-                                              symbols-length))
-                                          (lc-source-version)
-                                          (lc-unix-thread (unix-thread start-address))))
-                                      output)
-                                    (write-all-bytes (make-bytes 32) output)
-                                    (write-all-bytes text-segment-bytes output)
-                                    (write-all-bytes const-segment-bytes output)
-                                    (write-all-bytes
-                                      (make-bytes
-                                        (-
-                                          (round-up (+ (bytes-length text-segment-bytes)
-                                                       (bytes-length const-segment-bytes))
-                                                    8)
-                                          (+ (bytes-length text-segment-bytes)
-                                             (bytes-length const-segment-bytes)))) output)
-                                    (write-all-bytes (make-bytes (* num-symbols 16)) output)
-                                    (write-all-bytes (make-bytes symbols-length) output)
-                                    (write-all-bytes (make-bytes 1128) output)
-                                    (right (void)))))))))))))))))))
+                        (let ([num-symbols (length strings)])
+                          (let ([symbols-length-unrounded
+                                    (+ (+ 2 (length strings))
+                                       (sum (map bytes-length strings))) ])
+                            (let ([symbols-length (round-up symbols-length-unrounded 8)])
+                              (let ([start-address #x00000001000007b2])
+                                (call-with-output-file output-file-name
+                                  (lambda ([output : OutputPort])
+                                    (begin
+                                      (write-mach-o-header
+                                        (mach-o-header
+                                          (mach-o-executable-file)
+                                          (varargs list
+                                            (lc-load-segment64
+                                              (load-segment64 #"__PAGEZERO"
+                                                #x0000000000000000
+                                                page-zero-size
+                                                0
+                                                0
+                                                #x00
+                                                #x00
+                                                0
+                                                (empty)))
+                                            (lc-load-segment64
+                                              (load-segment64 #"__TEXT"
+                                                page-zero-size
+                                                #x0000000000001000
+                                                #x0
+                                                #x1000
+                                                #x07
+                                                #x05
+                                                0
+                                                (varargs list
+                                                  (section64 #"__TEXT" #"__text"
+                                                             text-section-start
+                                                             (bytes-length text-segment-bytes)
+                                                             (- text-section-start page-zero-size)
+                                                             0
+                                                             text-segment-num-relocations
+                                                             #x80000400)
+                                                  (section64 #"__TEXT" #"__const"
+                                                             const-section-start
+                                                             (bytes-length const-segment-bytes)
+                                                             (- const-section-start page-zero-size)
+                                                             0
+                                                             const-segment-num-relocations
+                                                             0))))
+                                            (lc-load-segment64
+                                              (load-segment64 #"__DATA"
+                                                #x0000000100001000
+                                                #x0000000000000000
+                                                #x1000
+                                                #x0
+                                                #x07
+                                                #x03
+                                                #x04
+                                                (varargs list
+                                                  (section64 #"__DATA" #"__data"
+                                                             #x0000000100001000
+                                                             #x0000000000000000
+                                                             4096
+                                                             0
+                                                             text-segment-num-relocations
+                                                             0))))
+                                            (lc-load-segment64
+                                              (load-segment64 #"__LINKEDIT"
+                                                #x0000000100001000
+                                                #x0000000000002000
+                                                #x1000
+                                                5736
+                                                #x07
+                                                #x01
+                                                #x00
+                                                (empty)))
+                                            (lc-symbol-table
+                                              (symbol-table
+                                                4096
+                                                num-symbols
+                                                (+ 4096 (* num-symbols 16))
+                                                symbols-length))
+                                            (lc-source-version)
+                                            (lc-unix-thread (unix-thread start-address))))
+                                        output)
+                                      (write-all-bytes (make-bytes 32) output)
+                                      (write-all-bytes text-segment-bytes output)
+                                      (write-all-bytes const-segment-bytes output)
+                                      (write-all-bytes
+                                        (make-bytes
+                                          (-
+                                            (round-up (+ (bytes-length text-segment-bytes)
+                                                         (bytes-length const-segment-bytes))
+                                                      8)
+                                            (+ (bytes-length text-segment-bytes)
+                                               (bytes-length const-segment-bytes)))) output)
+                                      (write-all-bytes (make-bytes (* num-symbols 16)) output)
+                                      (write-all-bytes (make-bytes 1128) output)
+
+                                      (write-all-bytes (varargs bytes 32 0) output)
+                                      (write-all-symbols strings output)
+                                      (write-all-bytes
+                                        (make-bytes
+                                          (- symbols-length symbols-length-unrounded))
+                                        output)
+
+                                      (right (void))))))))))))))))))))
 
 
   (define (write-mach-o-library/fragments [output-file-name : Bytes] [fragments : (List AssemblyFragment)])
