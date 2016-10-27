@@ -21,10 +21,10 @@
       #:patterns ())
     (numbers integer->decimal-bytes integer->hex-bytes)
     (mach-o
-      #:types (MachOLoadCommand)
-      #:values (read-mach-o)
+      #:types (MachOLoadCommand MachOFile SymbolTable)
+      #:values (read-mach-o mach-o-file read-symbol-table/strings mach-o-header-commands-size)
       #:patterns (mach-o-file mach-o-header lc-segment64 lc-symtab lc-version-min-macosx
-                              lc-data-in-code))
+                              lc-data-in-code symbol-table))
     (mach-o-writer2 write-mach-o-executable/fragments)
     (io write-line read-all-bytes write-all-bytes call-with-input-file call-with-output-file))
   (export)
@@ -181,6 +181,24 @@
            (map write-indented output-files)
            (void)))]))
 
+  (define (find-symbol-table [load-commands : (List MachOLoadCommand)]) : SymbolTable
+    (case load-commands
+      [(empty) (panic #"No symbol table")]
+      [(cons (lc-symtab v) _) v]
+      [(cons _ lc) (find-symbol-table lc)]))
+
+  (define (read-symbol-table [mach-o : MachOFile]) : (List Bytes)
+    (case mach-o
+      [(mach-o-file header load-commands bytes)
+       (case (find-symbol-table load-commands)
+         [(symbol-table offset num-symbols string-offset string-size)
+          (read-symbol-table/strings
+            ;; Need to accout for 32 bytes of mach-header, the load commands and the #x20, #x00 bytes
+            ;; at the begining of the string table.
+            (let ([start (- string-offset (+ 30 (mach-o-header-commands-size header)))])
+              (subbytes bytes start (+ start string-size)))
+            0)])]))
+
   (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Byte
     (if (< (array-length args) 3)
         (begin
@@ -210,10 +228,16 @@
                                         (begin
                                           (write-all-bytes #"Successful read (" stderr)
                                           (write-all-bytes input-path stderr)
-                                          (write-all-bytes #"): " stderr)
+                                          (write-line #"): " stderr)
                                           (write-all-bytes (integer->decimal-bytes (length commands))
                                                            stderr)
-                                          (write-line #" commands." stderr))]
+                                          (write-line #" commands" stderr)
+                                          (let ([symbols (read-symbol-table
+                                                           (mach-o-file header commands rest))])
+                                            (begin
+                                              (write-all-bytes (integer->decimal-bytes (length
+                                                                                         symbols)) stderr)
+                                              (write-line #" symbols" stderr))))]
                                        [(left msg)
                                         (write-line msg stderr)])))
                                  (void)))
