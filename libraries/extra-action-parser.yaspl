@@ -7,9 +7,10 @@
                 make-bytes)
       #:patterns ())
     (bytes subbytes make-null-terminated bytes=? bytes-append ends-with?)
+    (set make-set set->list set-add-all)
     (list
       #:types (List)
-      #:values (cons empty map reverse list length)
+      #:values (cons empty map reverse list length append* filter)
       #:patterns (cons empty))
     (either
       #:types (Either)
@@ -217,38 +218,33 @@
                    [(extra-action-info owner id mnemonic (spawn-info arguments input-files output-files))
                     (case mnemonic
                       [#"YasplLink"
-                       (begin
-                         (map
-                           (lambda ([input-path : Bytes])
-                             (if (ends-with? input-path #".o")
-                                 (call-with-input-file input-path
-                                   (lambda ([input-file : InputPort])
-                                     (case (read-mach-o input-file)
-                                       [(right (mach-o-file header commands rest))
-                                        (begin
-                                          (write-all-bytes #"Successful read (" stderr)
-                                          (write-all-bytes input-path stderr)
-                                          (write-line #"): " stderr)
-                                          (write-all-bytes (integer->decimal-bytes (length commands))
-                                                           stderr)
-                                          (write-line #" commands" stderr)
-                                          (let ([symbols (read-symbol-table
-                                                           (mach-o-file header commands rest))])
-                                            (begin
-                                              (write-all-bytes (integer->decimal-bytes (length
-                                                                                         symbols)) stderr)
-                                              (write-line #" symbols" stderr))))]
-                                       [(left msg)
-                                        (write-line msg stderr)])))
-                                 (void)))
-                           input-files)
-                         (case (write-mach-o-executable/fragments output-file-name)
-                           [(left v)
-                            (begin
-                              (write-line v stderr)
-                              1)]
-                           [(right _)
-                            0]))]
+                       (let ([mach-o-files
+                              (map
+                                (lambda ([input-path : Bytes])
+                                  (call-with-input-file input-path
+                                    (lambda ([input-file : InputPort])
+                                      (case (read-mach-o input-file)
+                                        [(right mach-o-file)
+                                         mach-o-file]
+                                        [(left msg)
+                                         (panic msg)]))))
+                                (filter
+                                  (lambda ([input-path : Bytes])
+                                    (ends-with? input-path #".o"))
+                                  input-files))])
+                         (let ([strings
+                                (set->list
+                                  (set-add-all
+                                    (make-set bytes=?)
+                                    (cons #"__mh_execute_header"
+                                          (append* (map read-symbol-table mach-o-files)))))])
+                           (case (write-mach-o-executable/fragments output-file-name)
+                             [(left v)
+                              (begin
+                                (write-line v stderr)
+                                1)]
+                             [(right _)
+                              0])))]
                       [x
                         (begin
                           (write-line x stderr)
