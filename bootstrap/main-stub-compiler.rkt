@@ -9,10 +9,15 @@
 
 (define-runtime-path main-stub-list-file "../libraries/main-stub_lib.src.list")
 (define-runtime-path compiler-list-file "../libraries/compiler_lib.src.list")
-(define main-stub-files (file->bytes-lines main-stub-list-file))
-(define compiler-files (file->bytes-lines compiler-list-file))
+(define-runtime-path src-root "..")
+(define main-stub-files
+  (for/list ([file (in-list (file->bytes-lines main-stub-list-file))])
+    (path->bytes (build-path src-root (bytes->path file)))))
+(define compiler-files
+  (for/list ([file (in-list (file->bytes-lines compiler-list-file))])
+    (build-path src-root (bytes->path file))))
 
-(define modules (load-modules (map bytes->path compiler-files)))
+(define modules (load-modules compiler-files))
 
 (define output-file
   (string->bytes/utf-8
