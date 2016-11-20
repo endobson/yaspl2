@@ -210,6 +210,25 @@
           (just sec)]
          [_ (find-text-section* secs)])]))
 
+  (define (find-const-section [load-commands : (List MachOLoadCommand)]) : Section64
+    (case load-commands
+      [(empty) (panic #"No const section")]
+      [(cons (lc-segment64 (load-segment64 _ _ _ _ _ _ _ _ sections)) lc)
+       (case (find-const-section* sections)
+         [(just sec) sec]
+         [_ (find-const-section lc)])]
+      [(cons _ lc) (find-const-section lc)]))
+
+  (define (find-const-section* [sections : (List Section64)]) : (Maybe Section64)
+    (case sections
+      [(empty) (nothing)]
+      [(cons sec secs)
+       (case sec
+         [(section64 #"__const" #"__TEXT" _ _ _ _ _ _)
+          (just sec)]
+         [_ (find-const-section* secs)])]))
+
+
   (define (read-symbol-table [mach-o : MachOFile]) : (List Bytes)
     (case mach-o
       [(mach-o-file header load-commands bytes)
@@ -226,6 +245,15 @@
     (case mach-o
       [(mach-o-file header load-commands bytes)
        (case (find-text-section load-commands)
+        [(section64 _ _ _ size offset _ _ _)
+           ;; Need to accout for 32 bytes of mach-header and the load commands
+         (let ([start (- offset (+ 32 (mach-o-header-commands-size header)))])
+           (subbytes bytes start (+ start size)))])]))
+
+  (define (read-const-section [mach-o : MachOFile]) : Bytes
+    (case mach-o
+      [(mach-o-file header load-commands bytes)
+       (case (find-const-section load-commands)
         [(section64 _ _ _ size offset _ _ _)
            ;; Need to accout for 32 bytes of mach-header and the load commands
          (let ([start (- offset (+ 32 (mach-o-header-commands-size header)))])
@@ -273,13 +301,21 @@
                                   bytes<)])
                            (let ([text-section
                                    (bytes-append (map read-text-section mach-o-files)) ])
-                             (case (write-mach-o-executable strings text-section output-file-name)
-                               [(left v)
-                                (begin
-                                  (write-line v stderr)
-                                  1)]
-                               [(right _)
-                                0]))))]
+                             (let ([const-section
+                                     (bytes-append (map read-const-section mach-o-files)) ])
+                               (begin
+                                 (write-line (integer->decimal-bytes (bytes-length const-section))
+                                             stderr)
+
+                               (case (write-mach-o-executable
+                                       strings text-section const-section
+                                       output-file-name)
+                                 [(left v)
+                                  (begin
+                                    (write-line v stderr)
+                                    1)]
+                                 [(right _)
+                                  0]))))))]
                       [x
                         (begin
                           (write-line x stderr)
