@@ -348,7 +348,7 @@ yaspl_library(
   ]
 )
 
-yaspl_library(
+yaspl_bootstrap_library(
   name = "mach-o_lib",
   srcs = ["mach-o.yaspl"],
   deps = [
@@ -386,6 +386,7 @@ yaspl_bootstrap_library(
     ":sexp-parser",
     ":either",
     ":mach-o-writer_lib",
+    ":mach-o_lib",
   ]
 )
 
