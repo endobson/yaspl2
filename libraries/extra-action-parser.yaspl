@@ -8,6 +8,10 @@
       #:patterns ())
     (bytes subbytes make-null-terminated bytes=? bytes-append ends-with? bytes<)
     (set make-set set->list set-add-all)
+    (maybe
+      #:types (Maybe)
+      #:values (just nothing)
+      #:patterns (just nothing))
     (list
       #:types (List)
       #:values (cons empty map reverse list length append* filter sort)
@@ -22,10 +26,10 @@
       #:patterns ())
     (numbers integer->decimal-bytes integer->hex-bytes)
     (mach-o
-      #:types (MachOLoadCommand MachOFile SymbolTable)
+      #:types (MachOLoadCommand MachOFile SymbolTable Section64)
       #:values (read-mach-o mach-o-file read-symbol-table/strings mach-o-header-commands-size)
       #:patterns (mach-o-file mach-o-header lc-segment64 lc-symtab lc-version-min-macosx
-                              lc-data-in-code symbol-table))
+                              lc-data-in-code symbol-table load-segment64 section64))
     (mach-o-writer2 write-mach-o-executable)
     (io write-line read-all-bytes write-all-bytes call-with-input-file call-with-output-file))
   (export)
@@ -188,6 +192,24 @@
       [(cons (lc-symtab v) _) v]
       [(cons _ lc) (find-symbol-table lc)]))
 
+  (define (find-text-section [load-commands : (List MachOLoadCommand)]) : Section64
+    (case load-commands
+      [(empty) (panic #"No text section")]
+      [(cons (lc-segment64 (load-segment64 _ _ _ _ _ _ _ _ sections)) lc)
+       (case (find-text-section* sections)
+         [(just sec) sec]
+         [_ (find-text-section lc)])]
+      [(cons _ lc) (find-text-section lc)]))
+
+  (define (find-text-section* [sections : (List Section64)]) : (Maybe Section64)
+    (case sections
+      [(empty) (nothing)]
+      [(cons sec secs)
+       (case sec
+         [(section64 #"__text" #"__TEXT" _ _ _ _ _ _)
+          (just sec)]
+         [_ (find-text-section* secs)])]))
+
   (define (read-symbol-table [mach-o : MachOFile]) : (List Bytes)
     (case mach-o
       [(mach-o-file header load-commands bytes)
@@ -199,6 +221,15 @@
             (let ([start (- string-offset (+ 30 (mach-o-header-commands-size header)))])
               (subbytes bytes start (+ start string-size)))
             0)])]))
+
+  (define (read-text-section [mach-o : MachOFile]) : Bytes
+    (case mach-o
+      [(mach-o-file header load-commands bytes)
+       (case (find-text-section load-commands)
+        [(section64 _ _ _ size offset _ _ _)
+           ;; Need to accout for 32 bytes of mach-header and the load commands 
+         (let ([start (- offset (+ 32 (mach-o-header-commands-size header)))])
+           (subbytes bytes start (+ start size)))])]))
 
   (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Byte
     (if (< (array-length args) 3)
@@ -240,13 +271,17 @@
                                       (cons #"__mh_execute_header"
                                             (append* (map read-symbol-table mach-o-files)))))
                                   bytes<)])
-                           (case (write-mach-o-executable strings output-file-name)
-                             [(left v)
-                              (begin
-                                (write-line v stderr)
-                                1)]
-                             [(right _)
-                              0])))]
+                           (let ([text-section
+                                   (bytes-append (map read-text-section mach-o-files)) ])
+                             (begin
+                               (write-line (integer->decimal-bytes (bytes-length text-section)) stderr)
+                             (case (write-mach-o-executable strings output-file-name)
+                               [(left v)
+                                (begin
+                                  (write-line v stderr)
+                                  1)]
+                               [(right _)
+                                0])))))]
                       [x
                         (begin
                           (write-line x stderr)
