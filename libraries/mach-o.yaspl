@@ -19,10 +19,11 @@
     (bytes subbytes bytes-ref/quad-le bytes-ref/octo-le make-null-terminated
            bytes-append))
   (export
-    #:types (MachOFile MachOLoadCommand)
-    #:values (read-mach-o mach-o-file read-symbol-table/strings mach-o-header-commands-size)
+    #:types (MachOFile MachOLoadCommand SymbolTableEntry)
+    #:values (read-mach-o mach-o-file read-symbol-table/strings read-symbol-table/symbols
+              mach-o-header-commands-size symbol-table-entry-name symbol-table-entry)
     #:patterns (mach-o-file mach-o-header lc-segment64 lc-symtab lc-version-min-macosx
-                lc-data-in-code))
+                lc-data-in-code symbol-table-entry))
   (types
     (define-type MachOFile
       (mach-o-file
@@ -68,7 +69,6 @@
         [num-relocations Byte]
         [flags Byte]))
 
-
     (define-type VersionMin
       (version-min
         [version-major U8] ;; TODO this should be a u16
@@ -88,7 +88,15 @@
     (define-type LinkeditData
       (linkedit-data
         [offset U32]
-        [size U32])))
+        [size U32]))
+
+    (define-type SymbolTableEntry
+      (symbol-table-entry
+        [name Bytes]
+        [type U8]
+        [section U8]
+        [description U8] ;; TODO make this U16
+        [value S64]))) ;; TODO make this U64
 
 
   (define (read-load-command [input : InputPort]) : (Either Bytes MachOLoadCommand)
@@ -207,6 +215,30 @@
              [(left v) (left v)]
              [(right cmds)
               (right (cons cmd cmds))])])))
+
+  (define (read-symbol-table/symbols
+            [offset : S64]
+            [entries : Bytes]
+            [strings : Bytes]) : (List SymbolTableEntry)
+    (if (>= offset (bytes-length entries))
+        (empty)
+        (cons
+          (read-symbol-table/symbol offset entries strings)
+          (read-symbol-table/symbols (+ offset 16) entries strings))))
+
+  (define (read-symbol-table/symbol
+            [offset : S64]
+            [entries : Bytes]
+            [strings : Bytes]) : SymbolTableEntry
+    (let ([string-offset (bytes-ref/quad-le entries offset)])
+      (let ([string (read-null-terminated-string strings string-offset string-offset)])
+        (symbol-table-entry
+          string
+          (bytes-ref entries (+ offset 4))
+          (bytes-ref entries (+ offset 5))
+          0 ;;(bytes-ref/double-le entries (+ offset 6))
+          (bytes-ref/octo-le entries (+ offset 8))))))
+
 
   (define (read-symbol-table/strings [bytes : Bytes] [offset : S64]) : (List Bytes)
     (if (>= offset (bytes-length bytes))

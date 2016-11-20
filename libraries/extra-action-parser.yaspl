@@ -26,10 +26,12 @@
       #:patterns ())
     (numbers integer->decimal-bytes integer->hex-bytes)
     (mach-o
-      #:types (MachOLoadCommand MachOFile SymbolTable Section64)
-      #:values (read-mach-o mach-o-file read-symbol-table/strings mach-o-header-commands-size)
+      #:types (MachOLoadCommand MachOFile SymbolTable Section64 SymbolTableEntry)
+      #:values (read-mach-o mach-o-file read-symbol-table/strings mach-o-header-commands-size
+                read-symbol-table/symbols symbol-table-entry-name symbol-table-entry)
       #:patterns (mach-o-file mach-o-header lc-segment64 lc-symtab lc-version-min-macosx
-                              lc-data-in-code symbol-table load-segment64 section64))
+                  lc-data-in-code symbol-table load-segment64 section64
+                  symbol-table-entry))
     (mach-o-writer2 write-mach-o-executable)
     (io write-line read-all-bytes write-all-bytes call-with-input-file call-with-output-file))
   (export)
@@ -228,25 +230,36 @@
           (just sec)]
          [_ (find-const-section* secs)])]))
 
-
-  (define (read-symbol-table [mach-o : MachOFile]) : (List Bytes)
+  (define (read-symbol-table [mach-o : MachOFile]) : (List SymbolTableEntry)
     (case mach-o
       [(mach-o-file header load-commands bytes)
        (case (find-symbol-table load-commands)
          [(symbol-table offset num-symbols string-offset string-size)
-          (read-symbol-table/strings
-            ;; Need to accout for 32 bytes of mach-header, the load commands and the #x20, #x00 bytes
-            ;; at the begining of the string table.
-            (let ([start (- string-offset (+ 30 (mach-o-header-commands-size header)))])
-              (subbytes bytes start (+ start string-size)))
-            0)])]))
+          (read-symbol-table/symbols
+            0
+            ;; Need to accout for 32 bytes of mach-header and  the load commands.
+            (let ([start (- offset (+ 32 (mach-o-header-commands-size header)))])
+              (subbytes bytes start (+ start (* num-symbols 16))))
+            ;; Need to accout for 32 bytes of mach-header and  the load commands.
+            (let ([start (- string-offset (+ 32 (mach-o-header-commands-size header)))])
+              (subbytes bytes start (+ start string-size))))])]))
+
+  (define (read-symbols [mach-o : MachOFile]) : Bytes
+    (case mach-o
+      [(mach-o-file header load-commands bytes)
+       (case (find-symbol-table load-commands)
+         [(symbol-table offset num-symbols string-offset string-size)
+          ;; Need to accout for 32 bytes of mach-header and the load commands
+          (let ([start (- offset (+ 32 (mach-o-header-commands-size header)))])
+            (subbytes bytes start (+ start (* 16 num-symbols))))])]))
+
 
   (define (read-text-section [mach-o : MachOFile]) : Bytes
     (case mach-o
       [(mach-o-file header load-commands bytes)
        (case (find-text-section load-commands)
         [(section64 _ _ _ size offset _ _ _)
-           ;; Need to accout for 32 bytes of mach-header and the load commands
+         ;; Need to accout for 32 bytes of mach-header and the load commands
          (let ([start (- offset (+ 32 (mach-o-header-commands-size header)))])
            (subbytes bytes start (+ start size)))])]))
 
@@ -255,9 +268,23 @@
       [(mach-o-file header load-commands bytes)
        (case (find-const-section load-commands)
         [(section64 _ _ _ size offset _ _ _)
-           ;; Need to accout for 32 bytes of mach-header and the load commands
+         ;; Need to accout for 32 bytes of mach-header and the load commands
          (let ([start (- offset (+ 32 (mach-o-header-commands-size header)))])
            (subbytes bytes start (+ start size)))])]))
+
+  (define (symbol-table-entry-name=? [s1 : SymbolTableEntry] [s2 : SymbolTableEntry]) : Boolean
+    (case s1
+      [(symbol-table-entry name1 _ _ _ _)
+       (case s2
+         [(symbol-table-entry name2 _ _ _ _)
+          (bytes=? name1 name2)])]))
+
+  (define (symbol-table-entry-name< [s1 : SymbolTableEntry] [s2 : SymbolTableEntry]) : Boolean
+    (case s1
+      [(symbol-table-entry name1 _ _ _ _)
+       (case s2
+         [(symbol-table-entry name2 _ _ _ _)
+          (bytes< name1 name2)])]))
 
   (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Byte
     (if (< (array-length args) 3)
@@ -291,31 +318,30 @@
                                   (lambda ([input-path : Bytes])
                                     (ends-with? input-path #".o"))
                                   input-files))])
-                         (let ([strings
+                         (let ([symbol-table-entries
                                 (sort
                                   (set->list
                                     (set-add-all
-                                      (make-set bytes=?)
-                                      (cons #"__mh_execute_header"
+                                      (make-set symbol-table-entry-name=?)
+                                      (cons (symbol-table-entry #"__mh_execute_header" 0 0 0 0)
                                             (append* (map read-symbol-table mach-o-files)))))
-                                  bytes<)])
+                                  symbol-table-entry-name<)])
                            (let ([text-section
-                                   (bytes-append (map read-text-section mach-o-files)) ])
+                                   (bytes-append (map read-text-section mach-o-files))])
                              (let ([const-section
-                                     (bytes-append (map read-const-section mach-o-files)) ])
-                               (begin
-                                 (write-line (integer->decimal-bytes (bytes-length const-section))
-                                             stderr)
-
-                               (case (write-mach-o-executable
-                                       strings text-section const-section
-                                       output-file-name)
-                                 [(left v)
-                                  (begin
-                                    (write-line v stderr)
-                                    1)]
-                                 [(right _)
-                                  0]))))))]
+                                     (bytes-append (map read-const-section mach-o-files))])
+                               (let ([symbols
+                                       (bytes-append (map read-symbols mach-o-files))])
+                                 (case (write-mach-o-executable
+                                         (map symbol-table-entry-name symbol-table-entries)
+                                         text-section const-section symbols
+                                         output-file-name)
+                                   [(left v)
+                                    (begin
+                                      (write-line v stderr)
+                                      1)]
+                                   [(right _)
+                                    0]))))))]
                       [x
                         (begin
                           (write-line x stderr)
