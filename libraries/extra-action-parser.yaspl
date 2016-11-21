@@ -7,7 +7,8 @@
                 make-bytes)
       #:patterns ())
     (bytes subbytes make-null-terminated bytes=? bytes-append ends-with? bytes<
-           bytes-ref/octo-le bytes-set!/octo-le)
+           bytes-ref/octo-le bytes-set!/octo-le
+           bytes-ref/quad-le bytes-set!/quad-le)
     (set make-set set->list set-add-all)
     (maybe
       #:types (Maybe)
@@ -405,6 +406,27 @@
       [(cons _ rels)
        (apply-const-relocations rels symbols const-section)]))
 
+
+  (define (apply-text-relocations
+            [rels : (List RelocationMarker)]
+            [symbols : (List SymbolTableEntry)]
+            [text-section : Bytes]) : Void
+    (case rels
+      [(empty) (void)]
+      [(cons (relocation-marker offset symbol #x2D) rels)
+       (begin
+         (bytes-set!/quad-le
+           text-section
+           offset
+           (+ (bytes-ref/quad-le text-section offset)
+              (- (symbol-table-entry-value
+                   (find-symbol-entry symbol symbols))
+                 (+ (+ offset 4) (+ #x100000000 #x79a)))))
+         (apply-text-relocations rels symbols text-section))]
+      [(cons _ rels)
+       (apply-text-relocations rels symbols text-section)]))
+
+
   (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Byte
     (if (< (array-length args) 3)
         (begin
@@ -462,6 +484,10 @@
                                        relocation-markers
                                        symbol-table-entries
                                        const-section)
+                                     (apply-text-relocations
+                                       relocation-markers
+                                       symbol-table-entries
+                                       text-section)
                                      (case (write-mach-o-executable
                                              symbol-table-entries
                                              text-section const-section
