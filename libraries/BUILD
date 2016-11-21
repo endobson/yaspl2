@@ -79,6 +79,13 @@ yaspl_binary(
 )
 
 yaspl_binary(
+  name = "hello-world",
+  main_module = "hello_world",
+  deps = [":hello-world_lib"]
+)
+
+
+yaspl_binary(
   name = "udp-echo-server",
   main_module = "udp_echo_server",
   deps = [":udp-echo-server_lib"]
@@ -641,6 +648,13 @@ yaspl_bootstrap_library(
   srcs = ["true.yaspl"],
   deps = [],
 )
+
+yaspl_library(
+  name = "hello-world_lib",
+  srcs = ["hello-world.yaspl"],
+  deps = [],
+)
+
 
 yaspl_library(
   name = "tcp",
