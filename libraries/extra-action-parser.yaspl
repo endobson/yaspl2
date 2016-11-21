@@ -6,7 +6,8 @@
                 = > >= <= - bitwise-and logical-shift-right void panic read-bytes
                 make-bytes)
       #:patterns ())
-    (bytes subbytes make-null-terminated bytes=? bytes-append ends-with? bytes<)
+    (bytes subbytes make-null-terminated bytes=? bytes-append ends-with? bytes<
+           bytes-ref/octo-le bytes-set!/octo-le)
     (set make-set set->list set-add-all)
     (maybe
       #:types (Maybe)
@@ -30,7 +31,7 @@
                RelocationEntry)
       #:values (read-mach-o mach-o-file read-symbol-table/strings mach-o-header-commands-size
                 read-symbol-table/symbols symbol-table-entry-name symbol-table-entry
-                read-relocation-entry)
+                read-relocation-entry symbol-table-entry-value)
       #:patterns (mach-o-file mach-o-header lc-segment64 lc-symtab lc-version-min-macosx
                   lc-data-in-code symbol-table load-segment64 section64
                   symbol-table-entry relocation-entry))
@@ -376,6 +377,34 @@
                                    (+ text-offset (bytes-length text))
                                    (+ const-offset (bytes-length const)))))]))
 
+  (define (find-symbol-entry [symbol : Bytes] [symbols : (List SymbolTableEntry)]) : SymbolTableEntry
+    (case symbols
+      [(empty) (panic #"Couldn't find symbol")]
+      [(cons entry symbols)
+       (case entry
+         [(symbol-table-entry name _ _ _ _)
+          (if (bytes=? symbol name)
+              entry
+              (find-symbol-entry symbol symbols))])]))
+
+  (define (apply-const-relocations
+            [rels : (List RelocationMarker)]
+            [symbols : (List SymbolTableEntry)]
+            [const-section : Bytes]) : Void
+    (case rels
+      [(empty) (void)]
+      [(cons (relocation-marker offset symbol #x0E) rels)
+       (begin
+         (bytes-set!/octo-le
+           const-section
+           offset
+           (+ (bytes-ref/octo-le const-section offset)
+              (symbol-table-entry-value
+                (find-symbol-entry symbol symbols))))
+         (apply-const-relocations rels symbols const-section))]
+      [(cons _ rels)
+       (apply-const-relocations rels symbols const-section)]))
+
   (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Byte
     (if (< (array-length args) 3)
         (begin
@@ -428,16 +457,21 @@
                                        (bytes-append (map parsed-mach-o-text-section parsed-mach-o-files))])
                                  (let ([const-section
                                          (bytes-append (map parsed-mach-o-const-section parsed-mach-o-files))])
-                                   (case (write-mach-o-executable
-                                           symbol-table-entries
-                                           text-section const-section
-                                           output-file-name)
-                                     [(left v)
-                                      (begin
-                                        (write-line v stderr)
-                                        1)]
-                                     [(right _)
-                                      0])))))))]
+                                   (begin
+                                     (apply-const-relocations
+                                       relocation-markers
+                                       symbol-table-entries
+                                       const-section)
+                                     (case (write-mach-o-executable
+                                             symbol-table-entries
+                                             text-section const-section
+                                             output-file-name)
+                                       [(left v)
+                                        (begin
+                                          (write-line v stderr)
+                                          1)]
+                                       [(right _)
+                                        0]))))))))]
                       [x
                         (begin
                           (write-line x stderr)
