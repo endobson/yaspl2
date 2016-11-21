@@ -14,7 +14,7 @@
       #:patterns (just nothing))
     (list
       #:types (List)
-      #:values (cons empty map reverse list length append* filter sort)
+      #:values (cons empty map reverse list length append* filter sort append)
       #:patterns (cons empty))
     (either
       #:types (Either)
@@ -57,7 +57,13 @@
     (define-type ExtraActionInfo
       (extra-action-info [owner Bytes] [id Bytes] [mnemonic Bytes] [spawn-info SpawnInfo]))
     (define-type SpawnInfo
-      (spawn-info [arguments (List Bytes)] [input-files (List Bytes)] [output-files (List Bytes)])))
+      (spawn-info [arguments (List Bytes)] [input-files (List Bytes)] [output-files (List Bytes)]))
+    
+    (define-type ParsedMachO
+      (parsed-mach-o
+        [text-section Bytes]
+        [const-section Bytes]
+        [symbols (List SymbolTableEntry)])))
 
   (define (read-varint [parser : ProtoParser]) : (Result S64)
     (case parser
@@ -276,6 +282,35 @@
          [(symbol-table-entry name2 _ _ _ _)
           (bytes< name1 name2)])]))
 
+  (define (parse-mach-o [mach-o : MachOFile]) : ParsedMachO
+    (parsed-mach-o
+      (read-text-section mach-o)
+      (read-const-section mach-o)
+      (read-symbol-table mach-o)))
+
+
+  (define (get-offset-symbols [parsed-mach-os : (List ParsedMachO)] [text-offset : S64] [const-offset : S64])
+    : (List SymbolTableEntry)
+    (case parsed-mach-os
+      [(empty) (empty)]
+      [(cons (parsed-mach-o text const symbols) parsed-mach-os)
+       (begin
+         (write-line (integer->hex-bytes const-offset) 2)
+       (append 
+         (map
+           (lambda ([entry : SymbolTableEntry])
+             (case entry
+               [(symbol-table-entry name type 1 desc value)
+                (symbol-table-entry name type 1 desc (+ text-offset value))]
+               [(symbol-table-entry name type 2 desc value)
+                (symbol-table-entry name type 2 desc (- (+ const-offset value) (bytes-length text)))]
+               [(symbol-table-entry name type sect desc value)
+                (symbol-table-entry name type sect desc value)]))
+           symbols)
+         (get-offset-symbols parsed-mach-os
+                             (+ text-offset (bytes-length text))
+                             (+ const-offset (bytes-length const)))))]))
+
   (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Byte
     (if (< (array-length args) 3)
         (begin
@@ -308,28 +343,33 @@
                                   (lambda ([input-path : Bytes])
                                     (ends-with? input-path #".o"))
                                   input-files))])
-                         (let ([symbol-table-entries
-                                (sort
-                                  (set->list
-                                    (set-add-all
-                                      (make-set symbol-table-entry-name=?)
-                                      (cons (symbol-table-entry #"__mh_execute_header" 0 0 0 0)
-                                            (append* (map read-symbol-table mach-o-files)))))
-                                  symbol-table-entry-name<)])
+                         (let ([parsed-mach-o-files (map parse-mach-o mach-o-files)])
                            (let ([text-section
-                                   (bytes-append (map read-text-section mach-o-files))])
-                             (let ([const-section
-                                     (bytes-append (map read-const-section mach-o-files))])
-                               (case (write-mach-o-executable
-                                       symbol-table-entries
-                                       text-section const-section
-                                       output-file-name)
-                                 [(left v)
-                                  (begin
-                                    (write-line v stderr)
-                                    1)]
-                                 [(right _)
-                                  0])))))]
+                                   (bytes-append (map parsed-mach-o-text-section parsed-mach-o-files))])
+                             (let ([symbol-table-entries
+                                    (sort
+                                      (set->list
+                                        (set-add-all
+                                          (make-set symbol-table-entry-name=?)
+                                          (cons (symbol-table-entry #"__mh_execute_header" 3 1 #x10
+                                                                    #x100000000)
+                                                (get-offset-symbols parsed-mach-o-files
+                                                                    ;; TODO why #x79a
+                                                                    (+ #x100000000 #x79a)
+                                                                    (+ #x100000000 (+ #x7b2 #x67e))))))
+                                      symbol-table-entry-name<)])
+                               (let ([const-section
+                                       (bytes-append (map parsed-mach-o-const-section parsed-mach-o-files))])
+                                 (case (write-mach-o-executable
+                                         symbol-table-entries
+                                         text-section const-section
+                                         output-file-name)
+                                   [(left v)
+                                    (begin
+                                      (write-line v stderr)
+                                      1)]
+                                   [(right _)
+                                    0]))))))]
                       [x
                         (begin
                           (write-line x stderr)
