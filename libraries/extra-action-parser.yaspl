@@ -3,7 +3,7 @@
     (prim
       #:types (Array Bytes InputPort OutputPort Void Byte S64 Boolean)
       #:values (array-length < array-ref bytes-ref bytes-length + *
-                = > >= - bitwise-and logical-shift-right void panic read-bytes
+                = > >= <= - bitwise-and logical-shift-right void panic read-bytes
                 make-bytes)
       #:patterns ())
     (bytes subbytes make-null-terminated bytes=? bytes-append ends-with? bytes<)
@@ -26,9 +26,11 @@
       #:patterns ())
     (numbers integer->decimal-bytes integer->hex-bytes)
     (mach-o
-      #:types (MachOLoadCommand MachOFile SymbolTable Section64 SymbolTableEntry)
+      #:types (MachOLoadCommand MachOFile SymbolTable Section64 SymbolTableEntry
+               RelocationEntry)
       #:values (read-mach-o mach-o-file read-symbol-table/strings mach-o-header-commands-size
-                read-symbol-table/symbols symbol-table-entry-name symbol-table-entry)
+                read-symbol-table/symbols symbol-table-entry-name symbol-table-entry
+                read-relocation-entry)
       #:patterns (mach-o-file mach-o-header lc-segment64 lc-symtab lc-version-min-macosx
                   lc-data-in-code symbol-table load-segment64 section64
                   symbol-table-entry))
@@ -63,6 +65,8 @@
       (parsed-mach-o
         [text-section Bytes]
         [const-section Bytes]
+        [text-relocations (List RelocationEntry)]
+        [const-relocations (List RelocationEntry)]
         [symbols (List SymbolTableEntry)])))
 
   (define (read-varint [parser : ProtoParser]) : (Result S64)
@@ -250,6 +254,13 @@
             (let ([start (- string-offset (+ 32 (mach-o-header-commands-size header)))])
               (subbytes bytes start (+ start string-size))))])]))
 
+  (define (read-relocations [num : S64] [offset : S64] [bytes : Bytes]) : (List RelocationEntry)
+    (if (<= 0 num)
+        (empty)
+        (cons
+          (read-relocation-entry offset bytes)
+          (read-relocations (- num 1) (+ offset 8) bytes))))
+
   (define (read-text-section [mach-o : MachOFile]) : Bytes
     (case mach-o
       [(mach-o-file header load-commands bytes)
@@ -259,6 +270,16 @@
          (let ([start (- offset (+ 32 (mach-o-header-commands-size header)))])
            (subbytes bytes start (+ start size)))])]))
 
+  (define (read-text-relocations [mach-o : MachOFile]) : Bytes
+    (case mach-o
+      [(mach-o-file header load-commands bytes)
+       (case (find-text-section load-commands)
+        [(section64 _ _ _ _ _ relocation-offset num-relocations _)
+         ;; Need to accout for 32 bytes of mach-header and the load commands
+         (let ([start (- relocation-offset (+ 32 (mach-o-header-commands-size header)))])
+           (read-relocations num-relocations start bytes))])]))
+
+
   (define (read-const-section [mach-o : MachOFile]) : Bytes
     (case mach-o
       [(mach-o-file header load-commands bytes)
@@ -267,6 +288,15 @@
          ;; Need to accout for 32 bytes of mach-header and the load commands
          (let ([start (- offset (+ 32 (mach-o-header-commands-size header)))])
            (subbytes bytes start (+ start size)))])]))
+
+  (define (read-const-relocations [mach-o : MachOFile]) : Bytes
+    (case mach-o
+      [(mach-o-file header load-commands bytes)
+       (case (find-const-section load-commands)
+        [(section64 _ _ _ _ _ relocation-offset num-relocations _)
+         ;; Need to accout for 32 bytes of mach-header and the load commands
+         (let ([start (- relocation-offset (+ 32 (mach-o-header-commands-size header)))])
+           (read-relocations num-relocations start bytes))])]))
 
   (define (symbol-table-entry-name=? [s1 : SymbolTableEntry] [s2 : SymbolTableEntry]) : Boolean
     (case s1
@@ -286,6 +316,8 @@
     (parsed-mach-o
       (read-text-section mach-o)
       (read-const-section mach-o)
+      (read-text-relocations mach-o)
+      #f ;(read-const-relocations mach-o)
       (read-symbol-table mach-o)))
 
 
@@ -293,9 +325,7 @@
     : (List SymbolTableEntry)
     (case parsed-mach-os
       [(empty) (empty)]
-      [(cons (parsed-mach-o text const symbols) parsed-mach-os)
-       (begin
-         (write-line (integer->hex-bytes const-offset) 2)
+      [(cons (parsed-mach-o text const _ _ symbols) parsed-mach-os)
        (append 
          (map
            (lambda ([entry : SymbolTableEntry])
@@ -309,7 +339,7 @@
            symbols)
          (get-offset-symbols parsed-mach-os
                              (+ text-offset (bytes-length text))
-                             (+ const-offset (bytes-length const)))))]))
+                             (+ const-offset (bytes-length const))))]))
 
   (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Byte
     (if (< (array-length args) 3)
