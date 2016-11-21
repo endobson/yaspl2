@@ -1,7 +1,7 @@
 (module extra-action-parser
   (import
     (prim
-      #:types (Array Bytes InputPort OutputPort Void Byte S64 Boolean)
+      #:types (Array Bytes InputPort OutputPort Void Byte S64 Boolean U8)
       #:values (array-length < array-ref bytes-ref bytes-length + *
                 = > >= <= - bitwise-and logical-shift-right void panic read-bytes
                 make-bytes)
@@ -10,11 +10,11 @@
     (set make-set set->list set-add-all)
     (maybe
       #:types (Maybe)
-      #:values (just nothing)
+      #:values (just nothing just-v)
       #:patterns (just nothing))
     (list
       #:types (List)
-      #:values (cons empty map reverse list length append* filter sort append)
+      #:values (cons empty map reverse list length append* filter sort append list-ref)
       #:patterns (cons empty))
     (either
       #:types (Either)
@@ -33,9 +33,9 @@
                 read-relocation-entry)
       #:patterns (mach-o-file mach-o-header lc-segment64 lc-symtab lc-version-min-macosx
                   lc-data-in-code symbol-table load-segment64 section64
-                  symbol-table-entry))
+                  symbol-table-entry relocation-entry))
     (mach-o-writer2 write-mach-o-executable)
-    (io write-line read-all-bytes write-all-bytes call-with-input-file call-with-output-file))
+    (io write-line read-all-bytes write-all-bytes call-with-input-file call-with-output-file newline))
   (export)
   (types
     (define-type ProtoParser
@@ -67,7 +67,12 @@
         [const-section Bytes]
         [text-relocations (List RelocationEntry)]
         [const-relocations (List RelocationEntry)]
-        [symbols (List SymbolTableEntry)])))
+        [symbols (List SymbolTableEntry)]))
+    (define-type RelocationMarker
+      (relocation-marker
+        [address S64]
+        [symbol Bytes]
+        [type U8])))
 
   (define (read-varint [parser : ProtoParser]) : (Result S64)
     (case parser
@@ -255,7 +260,7 @@
               (subbytes bytes start (+ start string-size))))])]))
 
   (define (read-relocations [num : S64] [offset : S64] [bytes : Bytes]) : (List RelocationEntry)
-    (if (<= 0 num)
+    (if (= 0 num)
         (empty)
         (cons
           (read-relocation-entry offset bytes)
@@ -317,7 +322,7 @@
       (read-text-section mach-o)
       (read-const-section mach-o)
       (read-text-relocations mach-o)
-      #f ;(read-const-relocations mach-o)
+      (read-const-relocations mach-o)
       (read-symbol-table mach-o)))
 
 
@@ -340,6 +345,36 @@
          (get-offset-symbols parsed-mach-os
                              (+ text-offset (bytes-length text))
                              (+ const-offset (bytes-length const))))]))
+
+
+  (define (get-relocation-markers [parsed-mach-os : (List ParsedMachO)] [text-offset : S64] [const-offset : S64])
+    : (List RelocationMarker)
+    (case parsed-mach-os
+      [(empty) (empty)]
+      [(cons (parsed-mach-o text const text-relocations const-relocations symbols) parsed-mach-os)
+       (append 
+         (map
+           (lambda ([entry : RelocationEntry])
+             (case entry
+               [(relocation-entry address symbol-num type)
+                (relocation-marker
+                  (+ text-offset address)
+                  (symbol-table-entry-name (just-v (list-ref symbols symbol-num)))
+                  type)]))
+           text-relocations)
+         (append 
+           (map
+             (lambda ([entry : RelocationEntry])
+               (case entry
+                 [(relocation-entry address symbol-num type)
+                  (relocation-marker
+                    (+ const-offset address)
+                    (symbol-table-entry-name (just-v (list-ref symbols symbol-num)))
+                    type)]))
+             const-relocations)
+           (get-relocation-markers parsed-mach-os
+                                   (+ text-offset (bytes-length text))
+                                   (+ const-offset (bytes-length const)))))]))
 
   (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Byte
     (if (< (array-length args) 3)
@@ -374,32 +409,35 @@
                                     (ends-with? input-path #".o"))
                                   input-files))])
                          (let ([parsed-mach-o-files (map parse-mach-o mach-o-files)])
-                           (let ([text-section
-                                   (bytes-append (map parsed-mach-o-text-section parsed-mach-o-files))])
-                             (let ([symbol-table-entries
-                                    (sort
-                                      (set->list
-                                        (set-add-all
-                                          (make-set symbol-table-entry-name=?)
-                                          (cons (symbol-table-entry #"__mh_execute_header" 3 1 #x10
-                                                                    #x100000000)
-                                                (get-offset-symbols parsed-mach-o-files
-                                                                    ;; TODO why #x79a
-                                                                    (+ #x100000000 #x79a)
-                                                                    (+ #x100000000 (+ #x7b2 #x67e))))))
-                                      symbol-table-entry-name<)])
-                               (let ([const-section
-                                       (bytes-append (map parsed-mach-o-const-section parsed-mach-o-files))])
-                                 (case (write-mach-o-executable
-                                         symbol-table-entries
-                                         text-section const-section
-                                         output-file-name)
-                                   [(left v)
-                                    (begin
-                                      (write-line v stderr)
-                                      1)]
-                                   [(right _)
-                                    0]))))))]
+                           (let ([symbol-table-entries
+                                  (sort
+                                    (set->list
+                                      (set-add-all
+                                        ;; TODO make sure that the right definition is kept
+                                        (make-set symbol-table-entry-name=?)
+                                        (cons (symbol-table-entry #"__mh_execute_header" 3 1 #x10
+                                                                  #x100000000)
+                                              (get-offset-symbols parsed-mach-o-files
+                                                                  ;; TODO why #x79a
+                                                                  (+ #x100000000 #x79a)
+                                                                  (+ #x100000000 (+ #x7b2 #x67e))))))
+                                    symbol-table-entry-name<)])
+                             (let ([relocation-markers
+                                    (get-relocation-markers parsed-mach-o-files 0 0)])
+                               (let ([text-section
+                                       (bytes-append (map parsed-mach-o-text-section parsed-mach-o-files))])
+                                 (let ([const-section
+                                         (bytes-append (map parsed-mach-o-const-section parsed-mach-o-files))])
+                                   (case (write-mach-o-executable
+                                           symbol-table-entries
+                                           text-section const-section
+                                           output-file-name)
+                                     [(left v)
+                                      (begin
+                                        (write-line v stderr)
+                                        1)]
+                                     [(right _)
+                                      0])))))))]
                       [x
                         (begin
                           (write-line x stderr)
