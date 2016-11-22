@@ -36,8 +36,7 @@ def _bin_impl(ctx):
     runfiles_files = runfiles_files | set(target.files)
 
   for target in ctx.attr.deps:
-    runfiles_files = runfiles_files | set(target.files)
-
+    runfiles_files = runfiles_files | set(target.files) | target.racket_transitive_zos
 
   runfiles = ctx.runfiles(
     transitive_files=runfiles_files,
