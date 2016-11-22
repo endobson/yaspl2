@@ -27,7 +27,7 @@
     (prim-implementation prim-static-signature prim-signature prim-implementation)
     (mach-o
       #:types (SymbolTableEntry)
-      #:values (symbol-table-entry-name)
+      #:values (symbol-table-entry-name symbol-table-entry-value)
       #:patterns (symbol-table-entry))
     (mach-o-writer write-mach-o-header mach-o-header mach-o-library-file mach-o-executable-file
                    lc-load-segment64 load-segment64 section64 lc-source-version
@@ -425,6 +425,16 @@
               (write-octo-le offset output))])
          (write-symbol-table symbols (+ (+ (bytes-length (symbol-name symbol)) 1) sym-offset) output))]))
 
+  (define (find-symbol-entry [symbol : Bytes] [symbols : (List SymbolTableEntry)]) : SymbolTableEntry
+    (case symbols
+      [(empty) (panic #"Couldn't find symbol")]
+      [(cons entry symbols)
+       (case entry
+         [(symbol-table-entry name _ _ _ _)
+          (if (bytes=? symbol name)
+              entry
+              (find-symbol-entry symbol symbols))])]))
+
   (define (write-mach-o-executable
             [symbol-table-entries : (List SymbolTableEntry)]
             [text-section : Bytes]
@@ -448,7 +458,9 @@
                                        (sum (map bytes-length (map symbol-table-entry-name
                                                                    symbol-table-entries))))])
                             (let ([symbols-length (round-up symbols-length-unrounded 8)])
-                              (let ([start-address #x00000001000007b2])
+                              (let ([start-address
+                                      (symbol-table-entry-value
+                                        (find-symbol-entry #"start" symbol-table-entries))])
                                 (call-with-output-file output-file-name
                                   (lambda ([output : OutputPort])
                                     (begin
@@ -527,15 +539,12 @@
                                             (lc-unix-thread (unix-thread start-address))))
                                         output)
                                       (write-all-bytes (make-bytes 32) output)
-                                      (write-all-bytes (make-bytes 1128) output)
                                       (write-all-bytes
                                         (make-bytes
-                                          (-
-                                            (round-up (+ (bytes-length text-segment-bytes)
-                                                         (bytes-length const-segment-bytes))
-                                                      8)
-                                            (+ (bytes-length text-segment-bytes)
-                                               (bytes-length const-segment-bytes)))) output)
+                                          (- #xCD0
+                                             (+ (bytes-length text-segment-bytes)
+                                                (bytes-length const-segment-bytes))))
+                                        output)
                                       (write-all-bytes text-segment-bytes output)
                                       (write-all-bytes const-segment-bytes output)
                                       (write-symbol-entries symbol-table-entries 2 output)
