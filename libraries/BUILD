@@ -79,6 +79,13 @@ yaspl_binary(
 )
 
 yaspl_binary(
+  name = "wc",
+  main_module = "wc",
+  deps = [":wc_lib"]
+)
+
+
+yaspl_binary(
   name = "hello-world",
   main_module = "hello_world",
   deps = [":hello-world_lib"]
@@ -732,6 +739,15 @@ yaspl_bootstrap_library(
     ":source-language",
     ":intermediate-to-module-signature",
     ":tuples",
+  ]
+)
+
+
+yaspl_library(
+  name = "wc_lib",
+  srcs = ["wc.yaspl"],
+  deps = [
+    ":numbers",
   ]
 )
 
