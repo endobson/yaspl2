@@ -1,7 +1,3 @@
-# Compute the short path of the racket binary
-def _racket_binary_path(ctx):
-  return list(ctx.attr._racket_deps.files)[0].short_path
-
 racket_src_file_type = FileType([".rkt"])
 racket_zo_file_type = FileType([".zo"])
 
@@ -13,12 +9,11 @@ def _bin_impl(ctx):
     'unset PLTCOMPILEDROOTS\n' +
     'exec "${BASH_SOURCE[0]}.runfiles/%s/%s" -U ' % (
        ctx.workspace_name,
-       _racket_binary_path(ctx)) +
+       ctx.executable._racket_bin.short_path) +
     '-u "${BASH_SOURCE[0]}.runfiles/%s/%s" "$@"\n'% (
        ctx.workspace_name,
        script_path)
   )
-
 
   ctx.file_action(
     output=ctx.outputs.executable,
@@ -26,17 +21,10 @@ def _bin_impl(ctx):
     executable=True
   )
 
-  runfiles_files = set()
-
-  runfiles_files = runfiles_files + set(ctx.attr._lib_deps.files)
-  runfiles_files = runfiles_files + set(ctx.attr._rackunit_deps.files)
-  runfiles_files = runfiles_files + set(ctx.attr._racket_deps.files)
-  runfiles_files = runfiles_files + set(ctx.attr._racket_all_deps.files)
-  for target in ctx.attr.data:
-    runfiles_files = runfiles_files | set(target.files)
+  runfiles_files = set(ctx.attr._lib_deps.files)
 
   for target in ctx.attr.deps:
-    runfiles_files = runfiles_files | set(target.files) | target.racket_transitive_zos
+    runfiles_files = runfiles_files | target.racket_transitive_zos
 
   runfiles = ctx.runfiles(
     transitive_files=runfiles_files,
@@ -67,7 +55,7 @@ def _lib_impl(ctx):
     zos = zos | set(target.racket_transitive_zos)
 
   ctx.action(
-    executable=ctx.files._racket_deps[0],
+    executable=ctx.executable._racket_bin,
     arguments = [
       "-l", "racket/base",
       "-l", "compiler/compiler",
@@ -80,7 +68,7 @@ def _lib_impl(ctx):
       "  \"%s\"" % ctx.outputs.zo.path.replace("_rkt.zo", ".gen_rkt.zo") +
       "  \"%s\")" % ctx.outputs.zo.path
     ],
-    inputs=[ctx.files.srcs[0], gen_rkt] + ctx.files._racket_all_deps + ctx.files.deps + list(zos),
+    inputs=[ctx.files.srcs[0], gen_rkt] + ctx.files._lib_deps + ctx.files.deps + list(zos),
     outputs=[ctx.outputs.zo],
   )
 
@@ -114,18 +102,15 @@ _racket_bin_attrs = {
     cfg="data",
   ),
   "deps": attr.label_list(allow_files=racket_zo_file_type),
-  "_lib_deps": attr.label(default=Label("@minimal_racket//osx/v6.6:racket-src-osx")),
-  "_rackunit_deps": attr.label(default=Label("@minimal_racket//osx/v6.6:rackunit")),
-  "_racket_deps": attr.label(
+  "_lib_deps": attr.label(
+    default=Label("@minimal_racket//osx/v6.6:racket-src-osx"),
+    cfg="data"
+  ),
+  "_racket_bin": attr.label(
     default=Label("@minimal_racket//osx/v6.6:bin/racket"),
     executable=True,
     allow_files=True,
     cfg="data"
-  ),
-  "_racket_all_deps": attr.label(
-    default=Label("@minimal_racket//osx/v6.6:racket-src-osx"),
-    allow_files=True,
-    cfg="data",
   ),
 }
 
@@ -142,18 +127,15 @@ _racket_lib_attrs = {
   "deps": attr.label_list(
     providers = ["racket_transitive_zos"],
   ),
-  "_lib_deps": attr.label(default=Label("@minimal_racket//osx/v6.6:racket-src-osx")),
-  "_rackunit_deps": attr.label(default=Label("@minimal_racket//osx/v6.6:rackunit")),
-  "_racket_deps": attr.label(
+  "_lib_deps": attr.label(
+    default=Label("@minimal_racket//osx/v6.6:racket-src-osx"),
+    cfg="host"
+  ),
+  "_racket_bin": attr.label(
     default=Label("@minimal_racket//osx/v6.6:bin/racket"),
     executable=True,
     allow_files=True,
-    cfg="data",
-  ),
-  "_racket_all_deps": attr.label(
-    default=Label("@minimal_racket//osx/v6.6:racket-src-osx"),
-    allow_files=True,
-    cfg="data",
+    cfg="host",
   ),
 }
 
