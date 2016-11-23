@@ -2,7 +2,7 @@ workspace(name = "yaspl")
 
 git_repository(
   name = "minimal_racket",
-  commit = "7c8be5cf4ace3035774629c46b7579f9a7ce5b23",
+  commit = "6b434b9e5f2b03e5977f1061a951e35684cdd22f",
   remote = "https://github.com/endobson/minimal-racket.git"
 )
 
