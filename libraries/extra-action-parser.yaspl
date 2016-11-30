@@ -4,7 +4,7 @@
       #:types (Array Bytes InputPort OutputPort Void Byte S64 Boolean U8)
       #:values (array-length < array-ref bytes-ref bytes-length + *
                 = > >= <= - bitwise-and logical-shift-right void panic read-bytes
-                make-bytes)
+                make-bytes quotient)
       #:patterns ())
     (bytes subbytes make-null-terminated bytes=? bytes-append ends-with? bytes<
            bytes-ref/octo-le bytes-set!/octo-le
@@ -481,53 +481,58 @@
                                    (bytes-append (map parsed-mach-o-text-section parsed-mach-o-files))])
                              (let ([const-section
                                      (bytes-append (map parsed-mach-o-const-section parsed-mach-o-files))])
-                               (let ([symbol-table-entries
-                                      (sort
-                                        (set->list
-                                          (set-add-all
-                                            ;; TODO make sure that the right definition is kept
-                                            (make-set symbol-table-entry-name=?)
-                                            (cons (symbol-table-entry #"__mh_execute_header" 3 1 #x10
-                                                                      #x100000000)
-                                                  (get-offset-symbols parsed-mach-o-files
-                                                                      (+ #x100000000
-                                                                         (- #x1000
-                                                                            (+ (bytes-length
-                                                                                 text-section)
-                                                                               (bytes-length
-                                                                                 const-section))))
-                                                                      (+ #x100000000
-                                                                         (- #x1000
-                                                                            (bytes-length
-                                                                               const-section)))))))
-                                        symbol-table-entry-name<)])
-                                 (let ([relocation-markers
-                                        (get-relocation-markers parsed-mach-o-files 0 0)])
-                                   (begin
-                                     (apply-const-relocations
-                                       relocation-markers
-                                       symbol-table-entries
-                                       const-section)
-                                     (apply-text-relocations
-                                       relocation-markers
-                                       symbol-table-entries
-                                       text-section
-                                       (+ #x100000000
-                                          (- #x1000
-                                             (+ (bytes-length
-                                                  text-section)
-                                                (bytes-length
-                                                  const-section)))))
-                                     (case (write-mach-o-executable
-                                             symbol-table-entries
-                                             text-section const-section
-                                             output-file-name)
-                                       [(left v)
-                                        (begin
-                                          (write-line v stderr)
-                                          1)]
-                                       [(right _)
-                                        0]))))))))]
+                               (let ([rounded-text-segment-length
+                                      (let ([text-segment-length
+                                             (+ (bytes-length text-section)
+                                                (bytes-length const-section))])
+                                        (* #x1000 (+ (quotient (- text-segment-length 1) #x1000) 1)))])
+                                 (let ([symbol-table-entries
+                                        (sort
+                                          (set->list
+                                            (set-add-all
+                                              ;; TODO make sure that the right definition is kept
+                                              (make-set symbol-table-entry-name=?)
+                                              (cons (symbol-table-entry #"__mh_execute_header" 3 1 #x10
+                                                                        #x100000000)
+                                                    (get-offset-symbols parsed-mach-o-files
+                                                                        (+ #x100000000
+                                                                           (- rounded-text-segment-length
+                                                                              (+ (bytes-length
+                                                                                   text-section)
+                                                                                 (bytes-length
+                                                                                   const-section))))
+                                                                        (+ #x100000000
+                                                                           (- rounded-text-segment-length
+                                                                              (bytes-length
+                                                                                 const-section)))))))
+                                          symbol-table-entry-name<)])
+                                   (let ([relocation-markers
+                                          (get-relocation-markers parsed-mach-o-files 0 0)])
+                                     (begin
+                                       (apply-const-relocations
+                                         relocation-markers
+                                         symbol-table-entries
+                                         const-section)
+                                       (apply-text-relocations
+                                         relocation-markers
+                                         symbol-table-entries
+                                         text-section
+                                         (+ #x100000000
+                                            (- rounded-text-segment-length
+                                               (+ (bytes-length
+                                                    text-section)
+                                                  (bytes-length
+                                                    const-section)))))
+                                       (case (write-mach-o-executable
+                                               symbol-table-entries
+                                               text-section const-section
+                                               output-file-name)
+                                         [(left v)
+                                          (begin
+                                            (write-line v stderr)
+                                            1)]
+                                         [(right _)
+                                          0])))))))))]
                       [x
                         (begin
                           (write-line x stderr)
