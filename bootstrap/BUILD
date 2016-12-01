@@ -286,3 +286,34 @@ genrule(
     "-sectcreate __DATA __data /dev/null " +
     "$(location bootstrap_main_stub.o) -o $(location bootstrap_main_stub)"
 )
+
+genrule(
+  name = "gen_compiler_binaries",
+  outs = ["compiler_binaries"],
+  tools = [
+    ":bootstrap_library_compiler",
+    ":bootstrap_main_stub",
+  ],
+  cmd = "touch $@"
+)
+
+filegroup(
+  name = "library_compiler",
+  srcs = select({
+    ":yaspl_bootstrap" : [":bootstrap_library_compiler"],
+    "//conditions:default" : [":saved_library_compiler"]
+  }),
+)
+
+filegroup(
+  name = "main_stub",
+  srcs = select({
+    ":yaspl_bootstrap" : [":bootstrap_main_stub"],
+    "//conditions:default" : [":saved_main_stub"]
+  }),
+)
+
+config_setting(
+    name = "yaspl_bootstrap",
+    values = { "define": "yaspl_bootstrap=true" }
+)
