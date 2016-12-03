@@ -18,7 +18,10 @@
       #:types (Dict)
       #:values (make-dict dict-add-all dict-add)
       #:patterns ())
-    (tuples tuple2)
+    (tuples
+      #:types (Tuple2)
+      #:values (tuple2)
+      #:patterns (tuple2))
     (bytes bytes=? bytes-append make-null-terminated)
     (source-language
       #:types (Module)
@@ -74,32 +77,39 @@
     : (Either Bytes (List TopLevelObject))
     (case mods
       [(empty)
-       (case (validate-module main-module sigs)
-         [(just v)
+       (case (compile-module* main-module static-sigs sigs)
+         [(left v)
           (left v)]
-         [(nothing)
-          (let ([intermediate (source->intermediate main-module static-sigs)])
-            (case (type-check intermediate)
-              [(just v) (left v)]
-              [(nothing)
-               (case (compile-module intermediate sigs)
-                 [(left v) (left v)]
-                 [(right (compiled-module funcs sig))
-                  (right (optimize-tlos funcs (add-known-functions funcs known-funcs)))])]))])]
+         [(right (tuple2 _ (compiled-module funcs _)))
+          (right (optimize-tlos funcs (add-known-functions funcs known-funcs)))])]
       [(cons mod mods)
-       (case (validate-module mod sigs)
-         [(just v)
+       (case (compile-module* mod static-sigs sigs)
+         [(left v)
           (left v)]
-         [(nothing)
-          (let ([intermediate (source->intermediate mod static-sigs)])
-            (let ([static-sig (module->static-module-signature intermediate static-sigs)])
-              (case (compile-module intermediate sigs)
-                [(left v) (left v)]
-                [(right (compiled-module tlos sig))
-                 (compile-main-module main-module mods
-                                      (cons static-sig static-sigs)
-                                      (cons sig sigs)
-                                      (add-known-functions tlos known-funcs))])))])]))
+         [(right (tuple2 static-sig (compiled-module tlos sig)))
+          (compile-main-module main-module mods
+                               (cons static-sig static-sigs)
+                               (cons sig sigs)
+                               (add-known-functions tlos known-funcs))])]))
+
+  (define (compile-module* 
+            [mod : Module]
+            [static-sigs : (List StaticModuleSignature)]
+            [sigs : (List ModuleSignature)])
+    : (Either Bytes (Tuple2 StaticModuleSignature CompiledModule))
+    (case (validate-module mod sigs)
+      [(just v)
+       (left v)]
+      [(nothing)
+       (let ([intermediate (source->intermediate mod static-sigs)])
+         (case (compile-module intermediate sigs)
+           [(left v)
+            (left v)]
+           [(right compiled-module)
+            (right
+              (tuple2
+                (module->static-module-signature intermediate static-sigs)
+                compiled-module))]))]))
 
   (define (add-known-functions [tlos : (List TopLevelObject)]
                                [dict : (Dict Bytes Bytes)]) : (Dict Bytes Bytes)
