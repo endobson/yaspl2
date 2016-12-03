@@ -144,6 +144,7 @@ yaspl_bootstrap_library(
     ":dict",
     ":either",
     ":io",
+    ":library-compiler2",
     ":list",
     ":maybe",
     ":prim-implementation",
@@ -329,6 +330,7 @@ yaspl_bootstrap_library(
     ":dict",
     ":either",
     ":io",
+    ":library-compiler2",
     ":list",
     ":maybe",
     ":prim-implementation",
@@ -344,6 +346,26 @@ yaspl_bootstrap_library(
     ":mach-o-writer2_lib",
  ]
 )
+
+yaspl_bootstrap_library(
+  name = "library-compiler2",
+  srcs = ["library-compiler2.yaspl"],
+  deps = [
+    ":bytes",
+    ":dict",
+    ":either",
+    ":list",
+    ":maybe",
+    ":prim-implementation",
+    ":source-language",
+    ":intermediate-to-stack",
+    ":stack-machine",
+    ":stack-machine-optimizer",
+    ":tuples",
+    ":validator",
+ ]
+)
+
 
 yaspl_bootstrap_library(
   name = "list",
