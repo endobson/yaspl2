@@ -19,9 +19,9 @@
       #:values (make-dict dict-add-all dict-add)
       #:patterns ())
     (tuples
-      #:types (Tuple2)
-      #:values (tuple2)
-      #:patterns (tuple2))
+      #:types (Tuple2 Tuple3)
+      #:values (tuple2 tuple3)
+      #:patterns (tuple2 tuple3))
     (bytes bytes=? bytes-append make-null-terminated)
     (source-language
       #:types (Module)
@@ -63,8 +63,7 @@
       #:patterns (left right)))
   (export
     #:types ()
-    #:values (main
-               read-module-files compile-main-module add-known-functions extract-modules)
+    #:values (main read-module-files add-known-functions extract-modules)
     #:patterns ())
   (types)
 
@@ -73,24 +72,42 @@
             [mods : (List Module)]
             [static-sigs : (List StaticModuleSignature)]
             [sigs : (List ModuleSignature)]
+            [tlos : (List TopLevelObject)]
             [known-funcs : (Dict Bytes Bytes)])
     : (Either Bytes (List TopLevelObject))
-    (case mods
-      [(empty)
+    (case (compile-module-list* mods static-sigs sigs tlos)
+      [(left v)
+       (left v)]
+      [(right (tuple3 static-sigs sigs tlos))
        (case (compile-module* main-module static-sigs sigs)
          [(left v)
           (left v)]
-         [(right (tuple2 _ (compiled-module funcs _)))
-          (right (optimize-tlos funcs (add-known-functions funcs known-funcs)))])]
+         [(right (tuple2 _ (compiled-module new-tlos _)))
+          (right (optimize-tlos new-tlos (add-known-functions new-tlos
+                                           (add-known-functions tlos known-funcs))))])]))
+
+  (define (compile-module-list*
+            [mods : (List Module)]
+            [static-sigs : (List StaticModuleSignature)]
+            [sigs : (List ModuleSignature)]
+            [tlos : (List TopLevelObject)])
+    : (Either Bytes (Tuple3 (List StaticModuleSignature)
+                            (List ModuleSignature)
+                            (List TopLevelObject)))
+    (case mods
+      [(empty)
+       (right (tuple3 static-sigs sigs tlos))]
       [(cons mod mods)
        (case (compile-module* mod static-sigs sigs)
          [(left v)
           (left v)]
-         [(right (tuple2 static-sig (compiled-module tlos sig)))
-          (compile-main-module main-module mods
-                               (cons static-sig static-sigs)
-                               (cons sig sigs)
-                               (add-known-functions tlos known-funcs))])]))
+         [(right (tuple2 static-sig (compiled-module new-tlos sig)))
+          (compile-module-list* mods
+                                (cons static-sig static-sigs)
+                                (cons sig sigs)
+                                (append new-tlos tlos))])]))
+
+
 
   (define (compile-module* 
             [mod : Module]
@@ -166,6 +183,7 @@
                          (reverse other-modules)
                          (cons (prim-static-signature) (empty))
                          (cons (prim-signature) (empty))
+                         (empty)
                          (add-known-functions (prim-implementation) (make-dict bytes=?)))
                    [(left v)
                     (begin
