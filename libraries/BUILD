@@ -13,7 +13,7 @@ filegroup(
 filegroup(
   name = "library_compiler_library_files",
   visibility = ["//visibility:public"],
-  data = [":library-compiler_lib.srcs", ":library-compiler_lib.src.list"]
+  data = [":library-compiler-main.srcs", ":library-compiler-main.src.list"]
 )
 
 filegroup(
@@ -49,8 +49,8 @@ yaspl_binary(
 
 yaspl_binary(
   name = "library-compiler",
-  main_module = "library_compiler",
-  deps = [":library-compiler_lib"]
+  main_module = "library_compiler_main",
+  deps = [":library-compiler-main"]
 )
 
 yaspl_binary(
@@ -323,8 +323,8 @@ yaspl_test(
 )
 
 yaspl_bootstrap_library(
-  name = "library-compiler_lib",
-  srcs = ["library-compiler.yaspl"],
+  name = "library-compiler-main",
+  srcs = ["library-compiler-main.yaspl"],
   deps = [
     ":bytes",
     ":dict",
