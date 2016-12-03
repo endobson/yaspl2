@@ -370,7 +370,10 @@ yaspl_bootstrap_library(
 yaspl_bootstrap_library(
   name = "list",
   srcs = ["list.yaspl"],
-  deps = [":maybe"]
+  deps = [
+    ":either",
+    ":maybe"
+  ]
 )
 
 yaspl_library(
