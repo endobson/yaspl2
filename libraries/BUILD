@@ -485,6 +485,7 @@ yaspl_bootstrap_library(
     ":list",
     ":stack-machine",
     ":tuples",
+    ":set",
   ]
 )
 
