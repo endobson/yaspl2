@@ -2,7 +2,7 @@
   (import
     (prim
       #:types (Bytes Byte InputPort OutputPort Array Void Boolean)
-      #:values (panic make-bytes read-bytes < + = array-length array-ref
+      #:values (panic make-bytes read-bytes < + = <= array-length array-ref
                 void)
       #:patterns ())
     (io read-all-bytes write-all-bytes write-line newline)
@@ -49,10 +49,12 @@
                BinLogicMathOp TopLevelObject)
       #:values (stack-function stack-basic-block boolean-jmp uncond-jmp variant-switch
                 catch-all-case variant-case pop-cmd dup-cmd known-fun-call-cmd function-tlo
+                known-tail-call
                 no-catch-all-case)
       #:patterns (
           stack-function stack-basic-block boolean-jmp uncond-jmp variant-switch return
           tail-call known-tail-call
+          known-fun-call-cmd
           no-catch-all-case catch-all-case variant-case num-lit-cmd boolean-lit-cmd
           dup-cmd variant-ref-cmd pop-cmd function-tlo trivial-closure-tlo fun-call-cmd
           load-global-cmd))
@@ -360,33 +362,44 @@
             [block : StackBasicBlock]) : StackBasicBlock
     (case block
       [(stack-basic-block cmds term)
-       (stack-basic-block (peephole-optimize-commands known-funcs (empty) cmds) term)]))
+       (peephole-optimize-commands known-funcs (empty) cmds term)]))
 
   (define (peephole-optimize-commands
             [known-funcs : (Dict Bytes Bytes)]
-            [rev-cmds : (List StackCmd)] [cmds : (List StackCmd)])
-    : (List StackCmd)
+            [rev-cmds : (List StackCmd)] [cmds : (List StackCmd)]
+            [term : StackTerminal])
+    : StackBasicBlock
     (case (tuple2 rev-cmds cmds)
       [(tuple2 (cons (pop-cmd) (cons (variant-ref-cmd _ _) rev-cmds)) cmds)
-       (peephole-optimize-commands known-funcs rev-cmds (cons (pop-cmd) cmds))]
+       (peephole-optimize-commands known-funcs rev-cmds (cons (pop-cmd) cmds) term)]
       [(tuple2 (cons (pop-cmd) (cons (dup-cmd 0) rev-cmds)) cmds)
-       (peephole-optimize-commands known-funcs rev-cmds cmds)]
+       (peephole-optimize-commands known-funcs rev-cmds cmds term)]
       [(tuple2 (cons (fun-call-cmd n) (cons (load-global-cmd name) rev-cmds*)) cmds*)
        (case (dict-ref known-funcs name)
          [(just fun-name)
           (peephole-optimize-commands known-funcs rev-cmds*
-                                      (cons (known-fun-call-cmd fun-name n) cmds*))]
+                                      (cons (known-fun-call-cmd fun-name n) cmds*) term)]
          [(nothing)
-          (peephole-optimize-commands/next known-funcs rev-cmds cmds)])]
+          (peephole-optimize-commands/next known-funcs rev-cmds cmds term)])]
+      [(tuple2 (cons (known-fun-call-cmd name n) rev-cmds*) (empty))
+       (case term
+         [(return cleanup)
+          (if (<= n 6)
+              (peephole-optimize-commands known-funcs rev-cmds* cmds (known-tail-call name n cleanup))
+              (peephole-optimize-commands/next known-funcs rev-cmds cmds term))]
+         [_
+          (peephole-optimize-commands/next known-funcs rev-cmds cmds term)])]
       [_
-       (peephole-optimize-commands/next known-funcs rev-cmds cmds)]))
+       (peephole-optimize-commands/next known-funcs rev-cmds cmds term)]))
 
   (define (peephole-optimize-commands/next
             [known-funcs : (Dict Bytes Bytes)]
-            [rev-cmds : (List StackCmd)] [cmds : (List StackCmd)])
-    : (List StackCmd)
+            [rev-cmds : (List StackCmd)]
+            [cmds : (List StackCmd)]
+            [term : StackTerminal])
+    : StackBasicBlock
     (case cmds
       [(cons cmd cmds)
-       (peephole-optimize-commands known-funcs (cons cmd rev-cmds) cmds)]
+       (peephole-optimize-commands known-funcs (cons cmd rev-cmds) cmds term)]
       [(empty)
-       (reverse rev-cmds)])))
+       (stack-basic-block (reverse rev-cmds) term)])))
