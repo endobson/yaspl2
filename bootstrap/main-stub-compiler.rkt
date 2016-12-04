@@ -8,7 +8,7 @@
   racket/runtime-path)
 
 (define-runtime-path main-stub-list-file "../libraries/main-stub_lib.src.list")
-(define-runtime-path compiler-list-file "../libraries/compiler_lib.src.list")
+(define-runtime-path compiler-list-file "../libraries/compiler-main.src.list")
 (define-runtime-path src-root "..")
 (define main-stub-files
   (for/list ([file (in-list (file->bytes-lines main-stub-list-file))])
@@ -24,7 +24,7 @@
     (vector-ref (current-command-line-arguments) 0)))
 
 
-(let ([result (run-program modules 'compiler 'main #:stdin #""
+(let ([result (run-program modules 'compiler-main 'main #:stdin #""
                            #:args (list* output-file #"main_stub" main-stub-files))])
   (write-bytes (program-result-stdout result) (current-output-port))
   (write-bytes (program-result-stderr result) (current-error-port))

@@ -7,7 +7,7 @@ package(
 filegroup(
   name = "compiler_library_files",
   visibility = ["//visibility:public"],
-  data = [":compiler_lib.srcs", ":compiler_lib.src.list"]
+  data = [":compiler-main.srcs", ":compiler-main.src.list"]
 )
 
 filegroup(
@@ -25,8 +25,8 @@ filegroup(
 
 yaspl_binary(
   name = "compiler",
-  main_module = "compiler",
-  deps = [":compiler_lib"]
+  main_module = "compiler_main",
+  deps = [":compiler-main"]
 )
 
 yaspl_binary(
@@ -137,8 +137,8 @@ yaspl_test(
 )
 
 yaspl_bootstrap_library(
-  name = "compiler_lib",
-  srcs = ["compiler.yaspl"],
+  name = "compiler-main",
+  srcs = ["compiler-main.yaspl"],
   deps = [
     ":bytes",
     ":dict",
@@ -218,10 +218,23 @@ yaspl_library(
   name = "code-http-server_lib",
   srcs = ["code-http-server.yaspl"],
   deps = [
+    ":buffered-port",
+    ":bytes",
+    ":either",
     ":http-server_lib",
+    ":io",
+    ":ip",
     ":join-list",
+    ":list",
+    ":mach",
+    ":maybe",
+    ":numbers",
     ":print-stack-function_lib",
+    ":regexp",
     ":stack-machine",
+    ":tcp",
+    ":tuples",
+    ":x86-64-stack-machine",
   ],
 )
 
@@ -482,11 +495,11 @@ yaspl_library(
   srcs = ["print-stack-function.yaspl"],
   deps = [
     ":bytes",
-    ":compiler_lib",
     ":either",
     ":io",
     ":list",
     ":prim-implementation",
+    ":library-compiler2",
     ":sexp-parser",
     ":source-language",
     ":intermediate-to-stack",
