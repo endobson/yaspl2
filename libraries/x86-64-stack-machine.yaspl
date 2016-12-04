@@ -33,6 +33,7 @@
       #:types (StackFunction StackBasicBlock StackCmd StackTerminal VariantCases TopLevelObject)
       #:values (stack-function-blocks stack-basic-block-cmds)
       #:patterns (stack-function stack-basic-block return
+                  tail-call known-tail-call
                   swap-cmd dup-cmd pop-cmd num-lit-cmd create-closure-cmd fun-call-cmd known-fun-call-cmd
                   boolean-lit-cmd uncond-jmp boolean-jmp alloc-variant-cmd
                   variant-ref-cmd variant-switch bytes-cmp-cmd load-global-cmd
@@ -1808,11 +1809,80 @@
 
   (define (convert-terminal [fun-name : Bytes] [terminal : StackTerminal]) : (JoinList Instruction)
     (case terminal
-      [(return num-args)
+      [(return num-cleanup)
        (varargs join-list
          (popq (reg (rax)))
-         (addq (imm (* 8 num-args)) (rsp))
+         (addq (imm (* 8 num-cleanup)) (rsp))
          (ret))]
+      [(tail-call n num-cleanup)
+       (if (> n 6)
+           (panic #"large tail call not implemented")
+           (varargs append-jl*
+             (if (>= n 1)
+                 (single-jl (movq (mem (rsp) (- (* 8 n) #x00)) (reg (rdi))))
+                 (empty-jl))
+             (if (>= n 2)
+                 (single-jl (movq (mem (rsp) (- (* 8 n) #x08)) (reg (rsi))))
+                 (empty-jl))
+             (if (>= n 3)
+                 (single-jl (movq (mem (rsp) (- (* 8 n) #x10)) (reg (rdx))))
+                 (empty-jl))
+             (if (>= n 4)
+                 (single-jl (movq (mem (rsp) (- (* 8 n) #x18)) (reg (rcx))))
+                 (empty-jl))
+             (if (>= n 5)
+                 (single-jl (movq (mem (rsp) (- (* 8 n) #x20)) (reg (r8))))
+                 (empty-jl))
+             (if (>= n 6)
+                 (single-jl (movq (mem (rsp) (- (* 8 n) #x28)) (reg (r9))))
+                 (empty-jl))
+             (varargs join-list
+               (movq (mem (rsp) 0) (reg (rax)))
+               (movq (reg (rax)) (mem (rsp) (* 8 n)))
+               (addq (imm (* 8 n)) (rsp))
+               (movq (mem (rsp) 0) (reg (rax)))
+               (movq (reg (r11)) (mem (rsp) 0))
+               (movq (reg (rax)) (reg (r11)))
+               (movq (mem (rax) 0) (reg (rax)))
+               (call/indirect (rax))
+               ;; Read back the closure and then overwrite it
+               (movq (mem (rsp) 0) (reg (r11)))
+               (movq (reg (rax)) (mem (rsp) 0))
+               (popq (reg (rax)))
+               (addq (imm (* 8 num-cleanup)) (rsp))
+               (ret))))]
+      [(known-tail-call name n num-cleanup)
+       (if (> n 6)
+           (panic #"large tail call not implemented")
+           (varargs append-jl*
+             (if (>= n 1)
+                 (single-jl (movq (mem (rsp) (- (* 8 n) #x08)) (reg (rdi))))
+                 (empty-jl))
+             (if (>= n 2)
+                 (single-jl (movq (mem (rsp) (- (* 8 n) #x10)) (reg (rsi))))
+                 (empty-jl))
+             (if (>= n 3)
+                 (single-jl (movq (mem (rsp) (- (* 8 n) #x18)) (reg (rdx))))
+                 (empty-jl))
+             (if (>= n 4)
+                 (single-jl (movq (mem (rsp) (- (* 8 n) #x20)) (reg (rcx))))
+                 (empty-jl))
+             (if (>= n 5)
+                 (single-jl (movq (mem (rsp) (- (* 8 n) #x28)) (reg (r8))))
+                 (empty-jl))
+             (if (>= n 6)
+                 (single-jl (movq (mem (rsp) (- (* 8 n) #x30)) (reg (r9))))
+                 (empty-jl))
+             (varargs join-list
+               (addq (imm (* 8 n)) (rsp))
+               (pushq (reg (r11)))
+               (call name)
+               ;; Read back the closure and then overwrite it
+               (movq (mem (rsp) 0) (reg (r11)))
+               (movq (reg (rax)) (mem (rsp) 0))
+               (popq (reg (rax)))
+               (addq (imm (* 8 num-cleanup)) (rsp))
+               (ret))))]
       [(uncond-jmp index)
        (single-jl (jmp (bytes-append (varargs list fun-name #"_" (integer->decimal-bytes index)))))]
       [(boolean-jmp true-index false-index)
