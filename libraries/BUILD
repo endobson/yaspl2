@@ -144,7 +144,7 @@ yaspl_bootstrap_library(
     ":dict",
     ":either",
     ":io",
-    ":library-compiler2",
+    ":compiler_lib",
     ":list",
     ":maybe",
     ":prim-implementation",
@@ -343,7 +343,7 @@ yaspl_bootstrap_library(
     ":dict",
     ":either",
     ":io",
-    ":library-compiler2",
+    ":compiler_lib",
     ":list",
     ":maybe",
     ":prim-implementation",
@@ -361,8 +361,8 @@ yaspl_bootstrap_library(
 )
 
 yaspl_bootstrap_library(
-  name = "library-compiler2",
-  srcs = ["library-compiler2.yaspl"],
+  name = "compiler_lib",
+  srcs = ["compiler.yaspl"],
   deps = [
     ":bytes",
     ":dict",
@@ -499,7 +499,7 @@ yaspl_library(
     ":io",
     ":list",
     ":prim-implementation",
-    ":library-compiler2",
+    ":compiler_lib",
     ":sexp-parser",
     ":source-language",
     ":intermediate-to-stack",
