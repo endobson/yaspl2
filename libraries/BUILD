@@ -686,6 +686,17 @@ yaspl_bootstrap_library(
   ],
 )
 
+
+yaspl_test(
+  name = "tail-call-test",
+  main_module = "tail_call_test",
+  srcs = ["tail-call-test.yaspl"],
+  deps = [
+    ":list",
+    ":yunit",
+  ]
+)
+
 yaspl_bootstrap_library(
   name = "true_lib",
   srcs = ["true.yaspl"],
