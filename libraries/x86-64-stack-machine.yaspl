@@ -383,6 +383,8 @@
        (panic #"movb variant is not yet supported")]
       [(movq (rmi-imm (imm-s32 imm)) (rmi-register reg))
        (mc-bytes (single-byte-op/IM #xC7 0 #t imm reg))]
+      [(movq (rmi-imm (imm-s32 imm)) (rmi-direct-memory reg))
+       (mc-bytes (single-byte-op/IM/mem #xC7 0 #t imm reg))]
       [(movq (rmi-imm (imm-s32 imm)) (rmi-displaced-memory reg offset))
        (mc-bytes (single-byte-op/IM/displaced-mem #xC7 0 #t imm reg offset))]
       [(movq (rmi-imm _) (rmi-displaced-memory _ _))
@@ -394,7 +396,7 @@
       [(movq (rmi-scaled-memory reg1 scale reg2 offset) (rmi-register reg3))
        (mc-bytes (single-byte-op/MR/scaled-mem #x8B #t reg1 scale reg2 offset reg3))]
       [(movq (rmi-register reg1) (rmi-direct-memory reg2))
-       (mc-bytes (single-byte-op/RM #x89 #t reg1 reg2))]
+       (mc-bytes (single-byte-op/RM/mem #x89 #t reg1 reg2))]
       [(movq (rmi-register reg1) (rmi-displaced-memory reg2 offset))
        (mc-bytes (single-byte-op/RM/displaced-mem #x89 #t reg1 reg2 offset))]
       [(movq (rmi-register reg1) (rmi-scaled-memory reg2 scale reg3 offset))
@@ -623,6 +625,19 @@
             (bitwise-ior (logical-shift-left #x03 6)
                (bitwise-ior (logical-shift-left (bitwise-and reg #x07) 3)
                             (bitwise-and rm #x07))))))))
+
+  ;; Doesn't support rsp, rbp, r12 or r13. This is because the instruction set doesn't support them.
+  (define (single-byte-op/RM/mem [opcode : Byte] [rexW : Boolean] [reg1 : Register] [reg2 : Register]) : Bytes
+    (let ([reg (register->byte reg1)])
+      (let ([rm (register->byte reg2)])
+        (add-maybe-byte
+          (rex-byte rexW (>= reg 8) #f (>= rm 8))
+          (varargs bytes
+            opcode
+            (bitwise-ior (logical-shift-left #x00 6)
+               (bitwise-ior (logical-shift-left (bitwise-and reg #x07) 3)
+                            (bitwise-and rm #x07))))))))
+
 
   ;; Doesn't support rsp or r12. This is because the instruction set doesn't support them.
   (define (single-byte-op/RM/displaced-mem
@@ -1214,16 +1229,16 @@
             (movq (imm #x20000C5) (reg (rax)))
             (syscall)
             (jb #"prim_start_panic")
-            ;; Save heap to %rbp which is our bump pointer
-            (movq (reg (rax)) (reg (rbp)))
+            ;; Save heap to %r15 which is our bump pointer
+            (movq (reg (rax)) (reg (r15)))
 
             ;; Construct args
             (popq (reg (r8))) ; r8 is the number of c strings
-            (movq (reg (rbp)) (reg (r10))) ; r10 is the array of bytes
+            (movq (reg (r15)) (reg (r10))) ; r10 is the array of bytes
             (movq (imm 0) (reg (r11))) ; r11 is the index of the current string
 
-            (movq (reg (r8)) (mem (rbp) 0))
-            (leaq (scaled (rbp) 8 (r8) 8) (rbp))
+            (movq (reg (r8)) (mem (r15) 0))
+            (leaq (scaled (r15) 8 (r8) 8) (r15))
 
             (cmpq (reg (r11)) (reg (r8)))
             (je #"start_copy_args_end")
@@ -1245,13 +1260,13 @@
             (decq (rcx))
 
             ;; Copy bytes
-            (movq (reg (rbp)) (scaled (r10) 8 (r11) 8))
-            (movq (reg (rcx)) (mem (rbp) 0))
-            (addq (imm 8) (rbp))
+            (movq (reg (r15)) (scaled (r10) 8 (r11) 8))
+            (movq (reg (rcx)) (mem (r15) 0))
+            (addq (imm 8) (r15))
             (movq (reg (r9)) (reg (rsi)))
-            (movq (reg (rbp)) (reg (rdi)))
+            (movq (reg (r15)) (reg (rdi)))
             (rep-movsb)
-            (movq (reg (rdi)) (reg (rbp)))
+            (movq (reg (rdi)) (reg (r15)))
             (incq (r11))
             (cmpq (reg (r11)) (reg (r8)))
             (jne #"start_copy_args_start2")))
@@ -1562,15 +1577,15 @@
       ;; make-bytes
       (prim-assembly-function #"make_bytes"
         (varargs list
-          (movq (reg (rbp)) (reg (rdx)))
-          (movq (reg (rdi)) (mem (rbp) 0))
+          (movq (reg (r15)) (reg (rdx)))
+          (movq (reg (rdi)) (mem (r15) 0))
           (movq (reg (rdi)) (reg (rcx)))
-          (addq (imm 8) (rbp))
+          (addq (imm 8) (r15))
           (movq (imm 0) (reg (rax)))
-          (movq (reg (rbp)) (reg (rdi)))
+          (movq (reg (r15)) (reg (rdi)))
           (cld)
           (rep-stosb)
-          (movq (reg (rdi)) (reg (rbp)))
+          (movq (reg (rdi)) (reg (r15)))
           (movq (reg (rdx)) (reg (rax)))
           (ret)))
 
@@ -1951,7 +1966,7 @@
 
       [(create-closure-cmd n)
        (varargs append-jl*
-         (single-jl (movq (reg (rbp)) (reg (rax))))
+         (single-jl (movq (reg (r15)) (reg (rax))))
          (copy-objects (+ n 1))
          (single-jl (pushq (reg (rax)))))]
       [(fun-call-cmd n)
@@ -1976,7 +1991,7 @@
              (empty-jl))
          (if (>= n 7)
              (cons-jl
-               (movq (reg (rbp)) (reg (r10)))
+               (movq (reg (r15)) (reg (r10)))
                (copy-extra-arguments 6 n))
              (empty-jl))
          (varargs join-list
@@ -2013,7 +2028,7 @@
              (empty-jl))
          (if (>= n 7)
              (cons-jl
-               (movq (reg (rbp)) (reg (r10)))
+               (movq (reg (r15)) (reg (r10)))
                (copy-extra-arguments* 6 n))
              (empty-jl))
          (varargs join-list
@@ -2028,22 +2043,22 @@
        (varargs join-list
          (popq (reg (rax)))
          (popq (reg (rcx)))
-         (movq (reg (rbp)) (reg (rdx)))
-         (movq (reg (rcx)) (mem (rbp) 0))
-         (addq (imm 8) (rbp))
-         (movq (reg (rbp)) (reg (rdi)))
+         (movq (reg (r15)) (reg (rdx)))
+         (movq (reg (rcx)) (mem (r15) 0))
+         (addq (imm 8) (r15))
+         (movq (reg (r15)) (reg (rdi)))
          (rep-stosq)
-         (movq (reg (rdi)) (reg (rbp)))
+         (movq (reg (rdi)) (reg (r15)))
          (pushq (reg (rdx))))]
       [(make-array-from-stack-cmd num-args)
        (varargs join-list
          (movq (imm num-args) (reg (rcx)))
          (movq (reg (rsp)) (reg (rsi)))
-         (movq (reg (rbp)) (reg (rax)))
+         (movq (reg (r15)) (reg (rax)))
          (leaq (scaled (rsp) 8 (rcx) 0) (rsp))
-         (movq (reg (rcx)) (mem (rbp) 0))
-         (leaq (mem (rbp) 8) (rdi))
-         (leaq (scaled (rbp) 8 (rcx) 8) (rbp))
+         (movq (reg (rcx)) (mem (r15) 0))
+         (leaq (mem (r15) 8) (rdi))
+         (leaq (scaled (r15) 8 (rcx) 8) (r15))
          (cld)
          (rep-movsq)
          (pushq (reg (rax))))]
@@ -2141,9 +2156,9 @@
          (pushq (reg (rax))))]
       [(alloc-variant-cmd tag fields)
        (varargs append-jl*
-         (single-jl (movq (reg (rbp)) (reg (rax))))
-         (single-jl (movq (imm tag) (mem (rbp) 0)))
-         (single-jl (addq (imm 8) (rbp)))
+         (single-jl (movq (reg (r15)) (reg (rax))))
+         (single-jl (movq (imm tag) (mem (r15) 0)))
+         (single-jl (addq (imm 8) (r15)))
          (copy-objects fields)
          (single-jl (pushq (reg (rax)))))]
       [(variant-ref-cmd tag field)
@@ -2155,7 +2170,7 @@
 
 
   ;; Generates assembly to copy `args` arguments from the top of the stack to the
-  ;; memory starting at %rbp. %rbp ends up pointing right after after the last argument written.
+  ;; memory starting at %r15 %r15 ends up pointing right after after the last argument written.
   ;; Dirties %rax
   (define (copy-extra-arguments [arg : Byte] [args : Byte]) : (JoinList Instruction)
     (if (= arg args)
@@ -2163,13 +2178,13 @@
         (cons-jl
           (movq (mem (rsp) (* (- args arg) 8)) (reg (rax)))
           (cons-jl
-            (movq (reg (rax)) (mem (rbp) 0))
+            (movq (reg (rax)) (mem (r15) 0))
             (cons-jl
-              (addq (imm 8) (rbp))
+              (addq (imm 8) (r15))
               (copy-extra-arguments (+ 1 arg) args))))))
 
   ;; Generates assembly to copy `args` arguments from the top of the stack to the
-  ;; memory starting at %rbp. %rbp ends up pointing right after after the last argument written.
+  ;; memory starting at %r15 %r15 ends up pointing right after after the last argument written.
   ;; Dirties %rax
   (define (copy-extra-arguments* [arg : Byte] [args : Byte]) : (JoinList Instruction)
     (if (= arg args)
@@ -2177,9 +2192,9 @@
         (cons-jl
           (movq (mem (rsp) (* (- args (+ arg 1)) 8)) (reg (rax)))
           (cons-jl
-            (movq (reg (rax)) (mem (rbp) 0))
+            (movq (reg (rax)) (mem (r15) 0))
             (cons-jl
-              (addq (imm 8) (rbp))
+              (addq (imm 8) (r15))
               (copy-extra-arguments* (+ 1 arg) args))))))
 
 
@@ -2193,13 +2208,13 @@
 
 
   ;; Generates assembly to copy n objects from the top of the stack to the
-  ;; memory starting at %rbp. %rbp ends up pointing right after after the last object written.
+  ;; memory starting at %r15 %r15 ends up pointing right after after the last object written.
   (define (copy-objects [n : Byte]) : (JoinList Instruction)
     (if (> n 0)
         (cons-jl
-          (popq (mem (rbp) 0))
+          (popq (mem (r15) 0))
           (cons-jl
-            (addq (imm 8) (rbp))
+            (addq (imm 8) (r15))
             (copy-objects (- n 1))))
         (empty-jl)))
 
