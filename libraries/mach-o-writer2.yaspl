@@ -152,7 +152,7 @@
     : (Tuple2 (List TextSegmentRelocation) (List TextSegmentRelocation))
     (case instructions
       [(empty) 
-       (case (compute-text-segment-relocations/blocks blocks fragments offset)
+       (case (compute-text-segment-relocations/blocks blocks fragments offset symbols)
          [(tuple2 local global)
           (tuple2 (append local-acc local) (append global-acc global))])]
       [(cons inst instructions)
@@ -161,10 +161,16 @@
           (compute-text-segment-relocations/instructions
             instructions blocks local-acc global-acc fragments (+ (bytes-length bytes) offset) symbols)]
          [(mc-jump (mcj-jmp) name)
-          (compute-text-segment-relocations/instructions
-            instructions blocks local-acc
-            (cons (text-segment-relocation (+ 1 offset) name) global-acc)
-            fragments (+ 5 offset) symbols)]
+          (let ([local (memf (lambda ([x : Symbol])
+                               (case x
+                                 [(defined-symbol (local-text-symbol n _))
+                                  (bytes=? n name)]
+                                 [_ #f]))
+                             symbols)])
+            (compute-text-segment-relocations/instructions
+              instructions blocks local-acc
+              (cons (text-segment-relocation (+ 1 offset) name) global-acc)
+              fragments (+ 5 offset) symbols))]
          [(mc-jump (mcj-call) name)
           (compute-text-segment-relocations/instructions
             instructions blocks local-acc
@@ -333,6 +339,13 @@
           undefined-symbols))))
 
 
+  (define (a) (memf [f : (a -> Boolean)] [l : (List a)]) : Boolean
+    (case l
+      [(empty) #f]
+      [(cons a l)
+       (if (f a) #t (memf f l))]))
+
+
   (define (a b) (find/maybe [f : (a -> (Maybe b))] [l : (List a)]) : (Maybe b)
     (case l
       [(empty) (nothing)]
@@ -350,10 +363,11 @@
        (begin
          (case (find/maybe (lambda ([x : Symbol])
                              (case x
-                               [(local-text-symbol name offset)
+                               [(defined-symbol (local-text-symbol name offset))
                                 (if (bytes=? symbol name)
                                     (just offset)
-                                    (nothing))])) symbols)
+                                    (nothing))]
+                               [_ (nothing)])) symbols)
            [(nothing)
             (panic #"Bad local relocation")]
            [(just symbol-offset)
