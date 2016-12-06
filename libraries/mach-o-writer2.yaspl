@@ -331,6 +331,39 @@
           undefined-symbols))))
 
 
+  (define (a b) (find/maybe [f : (a -> (Maybe b))] [l : (List a)]) : (Maybe b)
+    (case l
+      [(empty) (nothing)]
+      [(cons a l)
+       (case (f a)
+         [(just b) (just b)]
+         [_ (find/maybe f l)])]))
+
+
+  (define (apply-local-text-relocations [relocs : (List TextSegmentRelocation)] [symbols : (List Symbol)]
+                                        [text : Bytes]) : Void
+    (case relocs
+      [(empty) (void)]
+      [(cons (text-segment-relocation offset symbol) relocs)
+       (begin
+         (case (find/maybe (lambda ([x : Symbol])
+                             (case x
+                               [(local-text-symbol name offset)
+                                (if (bytes=? symbol name)
+                                    (just offset)
+                                    (nothing))])) symbols)
+           [(nothing)
+            (panic #"Bad local relocation")]
+           [(just symbol-offset)
+            (bytes-set!/quad-le
+              text
+              offset
+              (- symbol-offset offset))])
+         (apply-local-text-relocations relocs symbols text))]
+      [(cons (text-segment-relocation/2 offset symbol) _)
+       (panic #"Text-segment-relocation/2 not yet implemented")]))
+
+
   (define (round-up [v : S64] [mod : S64]) : S64
     (let ([rem (remainder v mod)])
       (if (= 0 rem)
@@ -624,6 +657,8 @@
                        (call-with-output-file output-file-name
                          (lambda ([output : OutputPort])
                            (begin
+                             (apply-local-text-relocations local-text-segment-relocations symbols
+                                                           text-segment-bytes)
                              (write-mach-o-header
                                (mach-o-header
                                  (mach-o-library-file)
