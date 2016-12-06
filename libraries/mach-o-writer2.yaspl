@@ -60,8 +60,8 @@
     #:patterns ())
   (types
     (define-type TextSegmentRelocation
-      (global-text-segment-relocation [offset S64] [symbol Bytes])
-      (global-text-segment-relocation/2 [offset S64] [symbol Bytes]))
+      (text-segment-relocation [offset S64] [symbol Bytes])
+      (text-segment-relocation/2 [offset S64] [symbol Bytes]))
     (define-type ConstSegmentRelocation
       (const-segment-relocation [offset S64] [symbol Bytes] [value Bytes]))
     (define-type Symbol
@@ -122,10 +122,18 @@
               [_ (empty-jl)]))
           (list->jl fragments)))))
 
+
+  (define (compute-text-segment-relocations*
+            [fragments : (List AssemblyFragment)]
+            [offset : S64]
+            [symbols : (List Symbol)])
+    : (Tuple2 (List TextSegmentRelocation) (List TextSegmentRelocation))
+    (compute-text-segment-relocations fragments offset symbols))
+
   (define (compute-text-segment-relocations [fragments : (List AssemblyFragment)] [offset : S64])
-    : (List TextSegmentRelocation)
+    : (Tuple2 (List TextSegmentRelocation) (List TextSegmentRelocation))
     (case fragments
-      [(empty) (empty)]
+      [(empty) (tuple2 (empty) (empty))]
       [(cons (function-fragment _ blocks) fragments)
        (compute-text-segment-relocations/blocks blocks fragments offset)]
       [(cons _ fragments)
@@ -133,7 +141,8 @@
 
   (define (compute-text-segment-relocations/blocks
             [blocks : (List BasicBlock)]
-            [fragments : (List AssemblyFragment)] [offset : S64]) : (List TextSegmentRelocation)
+            [fragments : (List AssemblyFragment)] [offset : S64])
+    : (Tuple2 (List TextSegmentRelocation) (List TextSegmentRelocation))
     (case blocks
       [(empty) (compute-text-segment-relocations fragments offset)]
       [(cons (basic-block _ instructions) blocks)
@@ -144,9 +153,13 @@
             [instructions : (List Instruction)]
             [blocks : (List BasicBlock)]
             [acc : (List TextSegmentRelocation)]
-            [fragments : (List AssemblyFragment)] [offset : S64]) : (List TextSegmentRelocation)
+            [fragments : (List AssemblyFragment)] [offset : S64])
+    : (Tuple2 (List TextSegmentRelocation) (List TextSegmentRelocation))
     (case instructions
-      [(empty) (append acc (compute-text-segment-relocations/blocks blocks fragments offset))]
+      [(empty) 
+       (case (compute-text-segment-relocations/blocks blocks fragments offset)
+         [(tuple2 local global)
+          (tuple2 local (append acc global))])]
       [(cons inst instructions)
        (case (instruction->mc-command inst)
          [(mc-bytes bytes)
@@ -296,8 +309,7 @@
              (empty-jl)]))
         (list->jl fragments))))
 
-  ;; TODO simplify this now that just the sorted symbols are needed
-  (define (collect-symbols [fragments : (List AssemblyFragment)] [text-size : S64]) : (List Bytes)
+  (define (collect-symbols [fragments : (List AssemblyFragment)] [text-size : S64]) : (List Symbol)
     (let ([defined-symbols (collect-defined-symbols fragments 0 text-size (empty))])
       (let ([undefined-symbols
               (map undefined-symbol
@@ -598,101 +610,101 @@
   (define (write-mach-o-library/fragments [output-file-name : Bytes] [fragments : (List AssemblyFragment)])
     : (Either Bytes Void)
     (let ([text-segment-bytes (assemble-text-segment fragments)])
-      (let ([text-segment-relocations (compute-text-segment-relocations fragments 0)])
-        (let ([text-segment-num-relocations (length text-segment-relocations)])
-          (let ([const-segment-bytes (assemble-const-segment fragments)])
-            (let ([const-segment-relocations
-                    (compute-const-segment-relocations fragments)])
-              (let ([const-segment-num-relocations (length const-segment-relocations)])
-                (let ([segment-size (+ (bytes-length text-segment-bytes)
-                                       (bytes-length const-segment-bytes))])
-                  (let ([reloc-base (+ 352 (round-up segment-size 8))])
-                    (let ([symbols (collect-symbols fragments (bytes-length
-                                                                text-segment-bytes))])
-                      (call-with-output-file output-file-name
-                        (lambda ([output : OutputPort])
-                          (begin
-                            (write-mach-o-header
-                              (mach-o-header
-                                (mach-o-library-file)
-                                (varargs list
-                                  (lc-load-segment64
-                                    (load-segment64 #""
-                                      #x0000000000000000
-                                      segment-size
-                                      352
-                                      segment-size
-                                      #x07
-                                      #x07
-                                      0
-                                      (varargs list
-                                        (section64 #"__TEXT" #"__text"
-                                                   #x00
-                                                   (bytes-length text-segment-bytes)
-                                                   352
-                                                   reloc-base
-                                                   text-segment-num-relocations
-                                                   #x80000400)
-                                        (section64 #"__TEXT" #"__const"
-                                                   (bytes-length text-segment-bytes)
-                                                   (bytes-length const-segment-bytes)
-                                                   (+ 352 (bytes-length text-segment-bytes))
-                                                   (+ reloc-base
-                                                      (* 8 text-segment-num-relocations))
-                                                   const-segment-num-relocations
-                                                   0))))
-                                  (lc-symbol-table
-                                    (symbol-table
-                                      (+ reloc-base
-                                         (* 8 (+ text-segment-num-relocations
-                                                 const-segment-num-relocations)))
-                                      (length symbols)
-                                      (+ (+ reloc-base
-                                            (* 8 (+ text-segment-num-relocations
-                                                    const-segment-num-relocations)))
-                                         (* (length symbols) #x10))
-                                      (round-up
-                                        (+ (+ 2 (length symbols))
-                                           (sum (map bytes-length
-                                                     (map symbol-name symbols))))
-                                        8)))
-                                  (lc-version-min-macosx
-                                    (version-min 10 11 0 10 11 0))
-                                  (lc-data-in-code
-                                    (linkedit-data
-                                      (+ reloc-base
-                                         (* 8 (+ text-segment-num-relocations
-                                                 const-segment-num-relocations)))
-                                      0))))
-                              output)
-                            (write-all-bytes (make-bytes 32) output)
-                            (write-all-bytes text-segment-bytes output)
-                            (write-all-bytes const-segment-bytes output)
-                            (write-all-bytes
-                              (make-bytes
-                                (-
-                                  (round-up (+ (bytes-length text-segment-bytes)
-                                               (bytes-length const-segment-bytes))
-                                            8)
-                                  (+ (bytes-length text-segment-bytes)
-                                     (bytes-length const-segment-bytes)))) output)
-                            (write-text-segment-relocations
-                              text-segment-relocations (map symbol-name symbols) output)
-                            (write-const-segment-relocations
-                              const-segment-relocations (map symbol-name symbols) output)
-                            (write-symbol-table symbols 2 output)
-                            (write-all-bytes (varargs bytes 32 0) output)
-                            (write-all-symbols (map symbol-name symbols) output)
-                            (write-all-bytes
-                              (make-bytes
-                                (-
-                                  (round-up
-                                    (+ (+ 2 (length symbols))
-                                       (sum (map bytes-length
-                                                 (map symbol-name symbols))))
-                                    8)
-                                  (+ (+ 2 (length symbols))
-                                     (sum (map bytes-length
-                                               (map symbol-name symbols))))))
-                              output)
-                            (right (void))))))))))))))))
+      (let ([symbols (collect-symbols fragments (bytes-length text-segment-bytes))])
+        (case (compute-text-segment-relocations* fragments 0 symbols)
+          [(tuple2 local-text-segment-relocations global-text-segment-relocations)
+           (let ([text-segment-num-relocations (length global-text-segment-relocations)])
+             (let ([const-segment-bytes (assemble-const-segment fragments)])
+               (let ([const-segment-relocations
+                       (compute-const-segment-relocations fragments)])
+                 (let ([const-segment-num-relocations (length const-segment-relocations)])
+                   (let ([segment-size (+ (bytes-length text-segment-bytes)
+                                          (bytes-length const-segment-bytes))])
+                     (let ([reloc-base (+ 352 (round-up segment-size 8))])
+                       (call-with-output-file output-file-name
+                         (lambda ([output : OutputPort])
+                           (begin
+                             (write-mach-o-header
+                               (mach-o-header
+                                 (mach-o-library-file)
+                                 (varargs list
+                                   (lc-load-segment64
+                                     (load-segment64 #""
+                                       #x0000000000000000
+                                       segment-size
+                                       352
+                                       segment-size
+                                       #x07
+                                       #x07
+                                       0
+                                       (varargs list
+                                         (section64 #"__TEXT" #"__text"
+                                                    #x00
+                                                    (bytes-length text-segment-bytes)
+                                                    352
+                                                    reloc-base
+                                                    text-segment-num-relocations
+                                                    #x80000400)
+                                         (section64 #"__TEXT" #"__const"
+                                                    (bytes-length text-segment-bytes)
+                                                    (bytes-length const-segment-bytes)
+                                                    (+ 352 (bytes-length text-segment-bytes))
+                                                    (+ reloc-base
+                                                       (* 8 text-segment-num-relocations))
+                                                    const-segment-num-relocations
+                                                    0))))
+                                   (lc-symbol-table
+                                     (symbol-table
+                                       (+ reloc-base
+                                          (* 8 (+ text-segment-num-relocations
+                                                  const-segment-num-relocations)))
+                                       (length symbols)
+                                       (+ (+ reloc-base
+                                             (* 8 (+ text-segment-num-relocations
+                                                     const-segment-num-relocations)))
+                                          (* (length symbols) #x10))
+                                       (round-up
+                                         (+ (+ 2 (length symbols))
+                                            (sum (map bytes-length
+                                                      (map symbol-name symbols))))
+                                         8)))
+                                   (lc-version-min-macosx
+                                     (version-min 10 11 0 10 11 0))
+                                   (lc-data-in-code
+                                     (linkedit-data
+                                       (+ reloc-base
+                                          (* 8 (+ text-segment-num-relocations
+                                                  const-segment-num-relocations)))
+                                       0))))
+                               output)
+                             (write-all-bytes (make-bytes 32) output)
+                             (write-all-bytes text-segment-bytes output)
+                             (write-all-bytes const-segment-bytes output)
+                             (write-all-bytes
+                               (make-bytes
+                                 (-
+                                   (round-up (+ (bytes-length text-segment-bytes)
+                                                (bytes-length const-segment-bytes))
+                                             8)
+                                   (+ (bytes-length text-segment-bytes)
+                                      (bytes-length const-segment-bytes)))) output)
+                             (write-text-segment-relocations
+                               global-text-segment-relocations (map symbol-name symbols) output)
+                             (write-const-segment-relocations
+                               const-segment-relocations (map symbol-name symbols) output)
+                             (write-symbol-table symbols 2 output)
+                             (write-all-bytes (varargs bytes 32 0) output)
+                             (write-all-symbols (map symbol-name symbols) output)
+                             (write-all-bytes
+                               (make-bytes
+                                 (-
+                                   (round-up
+                                     (+ (+ 2 (length symbols))
+                                        (sum (map bytes-length
+                                                  (map symbol-name symbols))))
+                                     8)
+                                   (+ (+ 2 (length symbols))
+                                      (sum (map bytes-length
+                                                (map symbol-name symbols))))))
+                               output)
+                             (right (void)))))))))))])))))
