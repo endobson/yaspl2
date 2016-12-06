@@ -122,63 +122,65 @@
               [_ (empty-jl)]))
           (list->jl fragments)))))
 
-
-  (define (compute-text-segment-relocations*
-            [fragments : (List AssemblyFragment)]
-            [offset : S64]
-            [symbols : (List Symbol)])
-    : (Tuple2 (List TextSegmentRelocation) (List TextSegmentRelocation))
-    (compute-text-segment-relocations fragments offset symbols))
-
-  (define (compute-text-segment-relocations [fragments : (List AssemblyFragment)] [offset : S64])
+  (define (compute-text-segment-relocations [fragments : (List AssemblyFragment)] [offset : S64]
+                                            [symbols : (List Symbol)])
     : (Tuple2 (List TextSegmentRelocation) (List TextSegmentRelocation))
     (case fragments
       [(empty) (tuple2 (empty) (empty))]
       [(cons (function-fragment _ blocks) fragments)
-       (compute-text-segment-relocations/blocks blocks fragments offset)]
+       (compute-text-segment-relocations/blocks blocks fragments offset symbols)]
       [(cons _ fragments)
-       (compute-text-segment-relocations fragments offset)]))
+       (compute-text-segment-relocations fragments offset symbols)]))
 
   (define (compute-text-segment-relocations/blocks
             [blocks : (List BasicBlock)]
-            [fragments : (List AssemblyFragment)] [offset : S64])
+            [fragments : (List AssemblyFragment)] [offset : S64]
+            [symbols : (List Symbol)])
     : (Tuple2 (List TextSegmentRelocation) (List TextSegmentRelocation))
     (case blocks
-      [(empty) (compute-text-segment-relocations fragments offset)]
+      [(empty) (compute-text-segment-relocations fragments offset symbols)]
       [(cons (basic-block _ instructions) blocks)
        (compute-text-segment-relocations/instructions
-         (jl->list instructions) blocks (empty) fragments offset)]))
+         (jl->list instructions) blocks (empty) (empty) fragments offset symbols)]))
 
   (define (compute-text-segment-relocations/instructions
             [instructions : (List Instruction)]
             [blocks : (List BasicBlock)]
-            [acc : (List TextSegmentRelocation)]
-            [fragments : (List AssemblyFragment)] [offset : S64])
+            [local-acc : (List TextSegmentRelocation)]
+            [global-acc : (List TextSegmentRelocation)]
+            [fragments : (List AssemblyFragment)] [offset : S64] [symbols : (List Symbol)])
     : (Tuple2 (List TextSegmentRelocation) (List TextSegmentRelocation))
     (case instructions
       [(empty) 
        (case (compute-text-segment-relocations/blocks blocks fragments offset)
          [(tuple2 local global)
-          (tuple2 local (append acc global))])]
+          (tuple2 (append local-acc local) (append global-acc global))])]
       [(cons inst instructions)
        (case (instruction->mc-command inst)
          [(mc-bytes bytes)
           (compute-text-segment-relocations/instructions
-            instructions blocks acc fragments (+ (bytes-length bytes) offset))]
+            instructions blocks local-acc global-acc fragments (+ (bytes-length bytes) offset) symbols)]
          [(mc-jump (mcj-jmp) name)
           (compute-text-segment-relocations/instructions
-            instructions blocks (cons (text-segment-relocation (+ 1 offset) name) acc) fragments (+ 5 offset))]
+            instructions blocks local-acc
+            (cons (text-segment-relocation (+ 1 offset) name) global-acc)
+            fragments (+ 5 offset) symbols)]
          [(mc-jump (mcj-call) name)
           (compute-text-segment-relocations/instructions
-            instructions blocks (cons (text-segment-relocation (+ 1 offset) name) acc) fragments (+ 5 offset))]
+            instructions blocks local-acc
+            (cons (text-segment-relocation (+ 1 offset) name) global-acc)
+            fragments (+ 5 offset) symbols)]
          [(mc-jump _ name)
           (compute-text-segment-relocations/instructions
-            instructions blocks (cons (text-segment-relocation (+ 2 offset) name) acc) fragments (+ 6 offset))]
+            instructions blocks local-acc
+            (cons (text-segment-relocation (+ 2 offset) name) global-acc)
+            fragments (+ 6 offset) symbols)]
          ;; TODO actually implement this
          [(mc-leaq/rel name _ _)
           (compute-text-segment-relocations/instructions
-            instructions blocks (cons (text-segment-relocation/2 (+ 3 offset) name) acc) fragments
-            (+ 7 offset))])]))
+            instructions blocks local-acc
+            (cons (text-segment-relocation/2 (+ 3 offset) name) global-acc)
+            fragments (+ 7 offset) symbols)])]))
 
 
   (define (instruction-length [inst : Instruction]) : S64
@@ -644,7 +646,7 @@
     : (Either Bytes Void)
     (let ([text-segment-bytes (assemble-text-segment fragments)])
       (let ([symbols (collect-symbols fragments (bytes-length text-segment-bytes))])
-        (case (compute-text-segment-relocations* fragments 0 symbols)
+        (case (compute-text-segment-relocations fragments 0 symbols)
           [(tuple2 local-text-segment-relocations global-text-segment-relocations)
            (let ([text-segment-num-relocations (length global-text-segment-relocations)])
              (let ([const-segment-bytes (assemble-const-segment fragments)])
