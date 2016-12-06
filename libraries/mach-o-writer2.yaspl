@@ -60,15 +60,16 @@
     #:patterns ())
   (types
     (define-type TextSegmentRelocation
-      (text-segment-relocation [offset S64] [symbol Bytes])
-      (text-segment-relocation/2 [offset S64] [symbol Bytes]))
+      (global-text-segment-relocation [offset S64] [symbol Bytes])
+      (global-text-segment-relocation/2 [offset S64] [symbol Bytes]))
     (define-type ConstSegmentRelocation
       (const-segment-relocation [offset S64] [symbol Bytes] [value Bytes]))
     (define-type Symbol
       (defined-symbol [sym DefinedSymbol])
       (undefined-symbol [name Bytes]))
     (define-type DefinedSymbol
-      (text-symbol [name Bytes] [offset Bytes])
+      (global-text-symbol [name Bytes] [offset Bytes])
+      (local-text-symbol [name Bytes] [offset Bytes])
       (const-symbol [name Bytes] [offset Bytes])))
 
   (define (symbol-name [v : Symbol]) : Bytes
@@ -78,7 +79,8 @@
 
   (define (defined-symbol-name [v : DefinedSymbol]) : Bytes
     (case v
-      [(text-symbol name offset) name]
+      [(global-text-symbol name offset) name]
+      [(local-text-symbol name offset) name]
       [(const-symbol name offset) name]))
 
   (define (a) (array->list [offset : S64] [arr : (Array a)]) : (List a)
@@ -225,13 +227,32 @@
       [(cons fragment fragments)
        (case fragment
          [(function-fragment name blocks)
-          (collect-defined-symbols/blocks blocks fragments text-offset const-offset acc)]
+          (collect-defined-symbols/blocks* blocks fragments text-offset const-offset acc)]
          [(address-fragment name value)
           (collect-defined-symbols fragments text-offset (+ const-offset 8)
                                    (cons (const-symbol name const-offset) acc))]
          [(bytes-fragment name value)
           (collect-defined-symbols fragments text-offset (+ const-offset (+ 8 (bytes-length value)))
                                    (cons (const-symbol name const-offset) acc))])]))
+
+  ;; The first block in a function is global as that is the function entry point.
+  (define (collect-defined-symbols/blocks*
+            [blocks : (List BasicBlock)]
+            [fragments : (List AssemblyFragment)]
+            [text-offset : S64]
+            [const-offset : S64]
+            [acc : (List DefinedSymbol)])
+    : (List DefinedSymbol)
+    (case blocks
+      [(empty)
+       (panic #"Empty function")]
+      [(cons (basic-block block-name instructions) blocks)
+       (collect-defined-symbols/blocks
+         blocks fragments
+         (+ text-offset (sum (map instruction-length (jl->list instructions))))
+         const-offset
+         (cons (global-text-symbol block-name text-offset) acc))]))
+
 
   (define (collect-defined-symbols/blocks
             [blocks : (List BasicBlock)]
@@ -248,7 +269,7 @@
          blocks fragments
          (+ text-offset (sum (map instruction-length (jl->list instructions))))
          const-offset
-         (cons (text-symbol block-name text-offset) acc))]))
+         (cons (local-text-symbol block-name text-offset) acc))]))
 
 
   (define (collect-instruction-symbols [fragments : (List AssemblyFragment)]) : (List Bytes)
@@ -409,7 +430,14 @@
             (begin
               (write-quad-le #x00000001 output)
               (write-octo-le #x0000000000000000 output))]
-           [(defined-symbol (text-symbol name offset))
+           [(defined-symbol (global-text-symbol name offset))
+            (begin
+              ;; TODO fix lowercase l => private
+              (if (= (bytes-ref name 0) 108)
+                  (write-quad-le #x0020011f output)
+                  (write-quad-le #x0020010f output))
+              (write-octo-le offset output))]
+           [(defined-symbol (local-text-symbol name offset))
             (begin
               ;; TODO fix lowercase l => private
               (if (= (bytes-ref name 0) 108)
