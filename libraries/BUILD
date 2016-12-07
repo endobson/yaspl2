@@ -193,6 +193,7 @@ yaspl_library(
     ":bytes",
     ":either",
     ":io",
+    ":linker",
     ":list",
     ":mach-o_lib",
     ":mach-o-writer2_lib",
@@ -377,6 +378,14 @@ yaspl_bootstrap_library(
  ]
 )
 
+yaspl_library(
+  name = "linker",
+  srcs = ["linker.yaspl"],
+  deps = [
+    ":list",
+    ":mach-o_lib",
+  ]
+)
 
 yaspl_bootstrap_library(
   name = "list",
