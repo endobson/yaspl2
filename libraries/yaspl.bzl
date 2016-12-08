@@ -19,18 +19,30 @@ def _lib_impl(ctx):
   transitive_objects = _transitive_objects(ctx)
   transitive_src_paths = [src.path for src in transitive_srcs]
 
+  direct_signatures = []
+  for dep in ctx.attr.deps:
+    direct_signatures += [dep.yaspl_signature]
+
   ctx.action(
-    inputs = list(transitive_srcs) + [ctx.executable._library_compiler],
+    inputs = list(transitive_srcs) + direct_signatures + [ctx.executable._library_compiler],
     outputs = [ctx.outputs.object],
     mnemonic = "YasplCompile",
     executable = ctx.executable._library_compiler,
     arguments = [ctx.outputs.object.path] + list(transitive_src_paths)
   )
 
+  ctx.action(
+    inputs = [ctx.outputs.object],
+    outputs = [ctx.outputs.signature],
+    mnemonic = "YasplComputeSignature",
+    command = ["touch", ctx.outputs.signature.path, ctx.outputs.signature.path],
+  )
+
 
   return struct(
     yaspl_transitive_srcs = transitive_srcs,
-    yaspl_transitive_objects = transitive_objects + [ctx.outputs.object]
+    yaspl_transitive_objects = transitive_objects + [ctx.outputs.object],
+    yaspl_signature = ctx.outputs.signature
   )
 
 def _src_impl(ctx):
@@ -100,7 +112,8 @@ _bootstrap_main_stub = attr.label(
 yaspl_library = rule(
   implementation = _lib_impl,
   outputs = {
-    "object": "%{name}.o"
+    "object": "%{name}.o",
+    "signature": "%{name}.sig"
   },
   attrs = {
     "srcs": attr.label_list(
