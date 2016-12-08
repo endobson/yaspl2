@@ -36,10 +36,11 @@ yaspl_binary(
 )
 
 yaspl_binary(
-  name = "extra-action-parser",
-  main_module = "extra_action_parser",
-  deps = [":extra-action-parser_lib"]
+  name = "extra-action-linker",
+  main_module = "extra_action_linker_main",
+  deps = [":extra-action-linker-main"]
 )
+
 
 yaspl_binary(
   name = "http-server",
@@ -187,17 +188,41 @@ yaspl_bootstrap_library(
 )
 
 yaspl_library(
-  name = "extra-action-parser_lib",
+  name = "extra-action-linker-main",
+  srcs = ["extra-action-linker-main.yaspl"],
+  deps = [
+    ":boolean",
+    ":bytes",
+    ":dict",
+    ":either",
+    ":extra-action-parser",
+    ":io",
+    ":linker",
+    ":list",
+    ":mach-o-writer2_lib",
+    ":mach-o_lib",
+    ":maybe",
+    ":numbers",
+    ":set",
+  ]
+)
+
+yaspl_library(
+  name = "extra-action-parser",
   srcs = ["extra-action-parser.yaspl"],
   deps = [
+    ":boolean",
     ":bytes",
+    ":dict",
     ":either",
     ":io",
     ":linker",
     ":list",
-    ":mach-o_lib",
     ":mach-o-writer2_lib",
+    ":mach-o_lib",
+    ":maybe",
     ":numbers",
+    ":set",
   ]
 )
 
@@ -842,7 +867,7 @@ extra_action(
   name = "yaspl_gen_executable",
   out_templates = ["$(ACTION_ID).executable"],
   tools = [
-    ":extra-action-parser",
+    ":extra-action-linker",
   ],
-  cmd = "$(location :extra-action-parser) $(EXTRA_ACTION_FILE) $(output $(ACTION_ID).executable)"
+  cmd = "$(location :extra-action-linker) $(EXTRA_ACTION_FILE) $(output $(ACTION_ID).executable)"
 )
