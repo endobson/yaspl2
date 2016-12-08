@@ -1,13 +1,21 @@
 (module linker
   (import
     (prim
-      #:types (Bytes S64 U8)
-      #:values ()
+      #:types (Bytes S64 U8 Void Boolean)
+      #:values (void bytes-length = + * - panic)
       #:patterns ())
+    (bytes subbytes make-null-terminated bytes=? bytes-append ends-with? bytes<
+           bytes-ref/octo-le bytes-set!/octo-le
+           bytes-ref/quad-le bytes-set!/quad-le)
+    (boolean not)
     (list
       #:types (List)
-      #:values ()
-      #:patterns ())
+      #:values (list-ref map filter append cons empty)
+      #:patterns (cons empty))
+    (maybe
+      #:types (Maybe)
+      #:values (just nothing just-v)
+      #:patterns (just nothing))
     (mach-o
       #:types (MachOLoadCommand MachOFile SymbolTable Section64 SymbolTableEntry
                RelocationEntry)
@@ -20,7 +28,9 @@
     )
   (export
     #:types ()
-    #:values (parsed-mach-o relocation-marker parsed-mach-o-text-section parsed-mach-o-const-section)
+    #:values (parsed-mach-o relocation-marker parsed-mach-o-text-section parsed-mach-o-const-section
+              apply-text-relocations apply-const-relocations get-relocation-markers
+              symbol-table-entry-name< get-offset-symbols symbol-table-entry-name=? parse-mach-o)
     #:patterns ())
   (types
     (define-type ParsedMachO
@@ -35,4 +45,240 @@
         [address S64]
         [symbol Bytes]
         [type U8])))
-  )
+
+  (define (find-symbol-table [load-commands : (List MachOLoadCommand)]) : SymbolTable
+    (case load-commands
+      [(empty) (panic #"No symbol table")]
+      [(cons (lc-symtab v) _) v]
+      [(cons _ lc) (find-symbol-table lc)]))
+
+  (define (find-text-section [load-commands : (List MachOLoadCommand)]) : Section64
+    (case load-commands
+      [(empty) (panic #"No text section")]
+      [(cons (lc-segment64 (load-segment64 _ _ _ _ _ _ _ _ sections)) lc)
+       (case (find-text-section* sections)
+         [(just sec) sec]
+         [_ (find-text-section lc)])]
+      [(cons _ lc) (find-text-section lc)]))
+
+  (define (find-text-section* [sections : (List Section64)]) : (Maybe Section64)
+    (case sections
+      [(empty) (nothing)]
+      [(cons sec secs)
+       (case sec
+         [(section64 #"__text" #"__TEXT" _ _ _ _ _ _)
+          (just sec)]
+         [_ (find-text-section* secs)])]))
+
+  (define (find-const-section [load-commands : (List MachOLoadCommand)]) : Section64
+    (case load-commands
+      [(empty) (panic #"No const section")]
+      [(cons (lc-segment64 (load-segment64 _ _ _ _ _ _ _ _ sections)) lc)
+       (case (find-const-section* sections)
+         [(just sec) sec]
+         [_ (find-const-section lc)])]
+      [(cons _ lc) (find-const-section lc)]))
+
+  (define (find-const-section* [sections : (List Section64)]) : (Maybe Section64)
+    (case sections
+      [(empty) (nothing)]
+      [(cons sec secs)
+       (case sec
+         [(section64 #"__const" #"__TEXT" _ _ _ _ _ _)
+          (just sec)]
+         [_ (find-const-section* secs)])]))
+
+  (define (read-symbol-table [mach-o : MachOFile]) : (List SymbolTableEntry)
+    (case mach-o
+      [(mach-o-file header load-commands bytes)
+       (case (find-symbol-table load-commands)
+         [(symbol-table offset num-symbols string-offset string-size)
+          (read-symbol-table/symbols
+            0
+            ;; Need to accout for 32 bytes of mach-header and  the load commands.
+            (let ([start (- offset (+ 32 (mach-o-header-commands-size header)))])
+              (subbytes bytes start (+ start (* num-symbols 16))))
+            ;; Need to accout for 32 bytes of mach-header and  the load commands.
+            (let ([start (- string-offset (+ 32 (mach-o-header-commands-size header)))])
+              (subbytes bytes start (+ start string-size))))])]))
+
+  (define (read-relocations [num : S64] [offset : S64] [bytes : Bytes]) : (List RelocationEntry)
+    (if (= 0 num)
+        (empty)
+        (cons
+          (read-relocation-entry offset bytes)
+          (read-relocations (- num 1) (+ offset 8) bytes))))
+
+  (define (read-text-section [mach-o : MachOFile]) : Bytes
+    (case mach-o
+      [(mach-o-file header load-commands bytes)
+       (case (find-text-section load-commands)
+        [(section64 _ _ _ size offset _ _ _)
+         ;; Need to accout for 32 bytes of mach-header and the load commands
+         (let ([start (- offset (+ 32 (mach-o-header-commands-size header)))])
+           (subbytes bytes start (+ start size)))])]))
+
+  (define (read-text-relocations [mach-o : MachOFile]) : Bytes
+    (case mach-o
+      [(mach-o-file header load-commands bytes)
+       (case (find-text-section load-commands)
+        [(section64 _ _ _ _ _ relocation-offset num-relocations _)
+         ;; Need to accout for 32 bytes of mach-header and the load commands
+         (let ([start (- relocation-offset (+ 32 (mach-o-header-commands-size header)))])
+           (read-relocations num-relocations start bytes))])]))
+
+
+  (define (read-const-section [mach-o : MachOFile]) : Bytes
+    (case mach-o
+      [(mach-o-file header load-commands bytes)
+       (case (find-const-section load-commands)
+        [(section64 _ _ _ size offset _ _ _)
+         ;; Need to accout for 32 bytes of mach-header and the load commands
+         (let ([start (- offset (+ 32 (mach-o-header-commands-size header)))])
+           (subbytes bytes start (+ start size)))])]))
+
+  (define (read-const-relocations [mach-o : MachOFile]) : Bytes
+    (case mach-o
+      [(mach-o-file header load-commands bytes)
+       (case (find-const-section load-commands)
+        [(section64 _ _ _ _ _ relocation-offset num-relocations _)
+         ;; Need to accout for 32 bytes of mach-header and the load commands
+         (let ([start (- relocation-offset (+ 32 (mach-o-header-commands-size header)))])
+           (read-relocations num-relocations start bytes))])]))
+
+  (define (symbol-table-entry-name=? [s1 : SymbolTableEntry] [s2 : SymbolTableEntry]) : Boolean
+    (case s1
+      [(symbol-table-entry name1 _ _ _ _)
+       (case s2
+         [(symbol-table-entry name2 _ _ _ _)
+          (bytes=? name1 name2)])]))
+
+  (define (symbol-table-entry-name< [s1 : SymbolTableEntry] [s2 : SymbolTableEntry]) : Boolean
+    (case s1
+      [(symbol-table-entry name1 _ _ _ _)
+       (case s2
+         [(symbol-table-entry name2 _ _ _ _)
+          (bytes< name1 name2)])]))
+
+  (define (parse-mach-o [mach-o : MachOFile]) : ParsedMachO
+    (parsed-mach-o
+      (read-text-section mach-o)
+      (read-const-section mach-o)
+      (read-text-relocations mach-o)
+      (read-const-relocations mach-o)
+      (read-symbol-table mach-o)))
+
+
+  (define (get-offset-symbols [parsed-mach-os : (List ParsedMachO)] [text-offset : S64] [const-offset : S64])
+    : (List SymbolTableEntry)
+    (case parsed-mach-os
+      [(empty) (empty)]
+      [(cons (parsed-mach-o text const _ _ symbols) parsed-mach-os)
+       (append
+         (filter
+           (lambda ([entry : SymbolTableEntry])
+             (case entry
+               [(symbol-table-entry _ type _ _ _)
+                (not (= type 1))]))
+           (map
+             (lambda ([entry : SymbolTableEntry])
+               (case entry
+                 [(symbol-table-entry name type 1 desc value)
+                  (symbol-table-entry name type 1 desc (+ text-offset value))]
+                 [(symbol-table-entry name type 2 desc value)
+                  (symbol-table-entry name type 2 desc (- (+ const-offset value) (bytes-length text)))]
+                 [(symbol-table-entry name type sect desc value)
+                  (symbol-table-entry name type sect desc value)]))
+             symbols))
+         (get-offset-symbols parsed-mach-os
+                             (+ text-offset (bytes-length text))
+                             (+ const-offset (bytes-length const))))]))
+
+
+  (define (get-relocation-markers [parsed-mach-os : (List ParsedMachO)] [text-offset : S64] [const-offset : S64])
+    : (List RelocationMarker)
+    (case parsed-mach-os
+      [(empty) (empty)]
+      [(cons (parsed-mach-o text const text-relocations const-relocations symbols) parsed-mach-os)
+       (append
+         (map
+           (lambda ([entry : RelocationEntry])
+             (case entry
+               [(relocation-entry address symbol-num type)
+                (relocation-marker
+                  (+ text-offset address)
+                  (symbol-table-entry-name (just-v (list-ref symbols symbol-num)))
+                  type)]))
+           text-relocations)
+         (append
+           (map
+             (lambda ([entry : RelocationEntry])
+               (case entry
+                 [(relocation-entry address symbol-num type)
+                  (relocation-marker
+                    (+ const-offset address)
+                    (symbol-table-entry-name (just-v (list-ref symbols symbol-num)))
+                    type)]))
+             const-relocations)
+           (get-relocation-markers parsed-mach-os
+                                   (+ text-offset (bytes-length text))
+                                   (+ const-offset (bytes-length const)))))]))
+
+  (define (find-symbol-entry [symbol : Bytes] [symbols : (List SymbolTableEntry)]) : SymbolTableEntry
+    (case symbols
+      [(empty) (panic #"Couldn't find symbol")]
+      [(cons entry symbols)
+       (case entry
+         [(symbol-table-entry name _ _ _ _)
+          (if (bytes=? symbol name)
+              entry
+              (find-symbol-entry symbol symbols))])]))
+
+  (define (apply-const-relocations
+            [rels : (List RelocationMarker)]
+            [symbols : (List SymbolTableEntry)]
+            [const-section : Bytes]) : Void
+    (case rels
+      [(empty) (void)]
+      [(cons (relocation-marker offset symbol #x0E) rels)
+       (begin
+         (bytes-set!/octo-le
+           const-section
+           offset
+           (+ (bytes-ref/octo-le const-section offset)
+              (symbol-table-entry-value
+                (find-symbol-entry symbol symbols))))
+         (apply-const-relocations rels symbols const-section))]
+      [(cons _ rels)
+       (apply-const-relocations rels symbols const-section)]))
+
+
+  (define (apply-text-relocations
+            [rels : (List RelocationMarker)]
+            [symbols : (List SymbolTableEntry)]
+            [text-section : Bytes]
+            [text-start-offset : S64]) : Void
+    (case rels
+      [(empty) (void)]
+      [(cons (relocation-marker offset symbol #x2D) rels)
+       (begin
+         (bytes-set!/quad-le
+           text-section
+           offset
+           (+ (bytes-ref/quad-le text-section offset)
+              (- (symbol-table-entry-value
+                   (find-symbol-entry symbol symbols))
+                 (+ (+ offset 4) text-start-offset))))
+         (apply-text-relocations rels symbols text-section text-start-offset))]
+      [(cons (relocation-marker offset symbol #x1D) rels)
+       (begin
+         (bytes-set!/quad-le
+           text-section
+           offset
+           (+ (bytes-ref/quad-le text-section offset)
+              (- (symbol-table-entry-value
+                   (find-symbol-entry symbol symbols))
+                 (+ (+ offset 4) text-start-offset))))
+         (apply-text-relocations rels symbols text-section text-start-offset))]
+      [(cons _ rels)
+       (apply-text-relocations rels symbols text-section text-start-offset)])))
