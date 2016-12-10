@@ -1,7 +1,7 @@
 (module x86-64-stack-machine
   (import
     (prim
-      #:types (Bytes Byte OutputPort Void Boolean S32 S64 Int)
+      #:types (Bytes Byte OutputPort Void Boolean S32 Int)
       #:values (bytes-length bytes-ref * + - = >= panic void >
                 bitwise-and bitwise-ior logical-shift-left s32 s32->s64)
       #:patterns ())
@@ -19,7 +19,11 @@
       #:types (JoinList)
       #:values (jl->list single-jl join-list empty-jl cons-jl append-jl append-jl* map-jl list->jl)
       #:patterns ())
-    (bytes subbytes bytes-append bytes bytes-set!/octo-le bytes-set!/s32-le)
+    (bytes
+      #:types (EightBytesLe)
+      #:values (subbytes bytes-append bytes bytes-set!/octo-le bytes-set!/s32-le
+                eight-bytes-le->int int->eight-bytes-le bytes-set!/eight-bytes-le)
+      #:patterns ())
     (stack-machine
       #:types (StackFunction StackBasicBlock StackCmd StackTerminal VariantCases TopLevelObject)
       #:values ()
@@ -209,7 +213,7 @@
       (rmi-imm [v Immediate]))
     (define-type Immediate
       (imm-s32 [v S32])
-      (imm-s64 [v S64]))
+      (imm-s64 [v EightBytesLe]))
     (define-type Scale
       (scale-1)
       (scale-2)
@@ -507,7 +511,7 @@
           (bytes-set!/s32-le v 1 imm)
           v))))
 
-   (define (single-byte-op-s64/IO [opcode : Byte] [rexW : Boolean] [imm : S64] [reg : Register]) : Bytes
+   (define (single-byte-op-s64/IO [opcode : Byte] [rexW : Boolean] [imm : EightBytesLe] [reg : Register]) : Bytes
      (let ([reg-val (register->byte reg)])
        (add-maybe-byte
          (rex-byte rexW #f #f (>= reg-val 8))
@@ -515,7 +519,7 @@
                     (bitwise-ior opcode (bitwise-and reg-val #x07))
                     0 0 0 0 0 0 0 0)])
            (begin
-             (bytes-set!/octo-le v 1 imm)
+             (bytes-set!/eight-bytes-le v 1 imm)
              v)))))
 
   (define (single-byte-op/M/mem [opcode : Byte] [op-ext : Byte] [rexW : Boolean] [reg : Register]) : Bytes
@@ -1149,7 +1153,7 @@
       [(rmi-imm (imm-s32 v))
        (bytes-append (varargs list #"$" (integer->decimal-bytes (s32->s64 v))))]
       [(rmi-imm (imm-s64 v))
-       (bytes-append (varargs list #"$" (integer->decimal-bytes v)))]))
+       (bytes-append (varargs list #"$" (integer->decimal-bytes (eight-bytes-le->int v))))]))
 
   (define (reg [r : Register]) : RegMemImm
     (rmi-register r))
@@ -1949,7 +1953,7 @@
          (popq (reg (rax))))]
       [(num-lit-cmd v)
        (varargs join-list
-         (movq (rmi-imm (imm-s64 v)) (reg (rax)))
+         (movq (rmi-imm (imm-s64 (int->eight-bytes-le v))) (reg (rax)))
          (pushq (reg (rax))))]
       [(boolean-lit-cmd v)
        (varargs join-list
