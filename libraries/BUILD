@@ -41,6 +41,11 @@ yaspl_binary(
   deps = [":extra-action-linker-main"]
 )
 
+yaspl_binary(
+  name = "extra-action-linter",
+  main_module = "extra_action_linter_main",
+  deps = [":extra-action-linter-main"]
+)
 
 yaspl_binary(
   name = "http-server",
@@ -204,6 +209,27 @@ yaspl_library(
     ":maybe",
     ":numbers",
     ":set",
+  ]
+)
+
+yaspl_library(
+  name = "extra-action-linter-main",
+  srcs = ["extra-action-linter-main.yaspl"],
+  deps = [
+    ":boolean",
+    ":bytes",
+    ":dict",
+    ":either",
+    ":extra-action-parser",
+    ":io",
+    ":linker",
+    ":list",
+    ":mach-o-writer2_lib",
+    ":mach-o_lib",
+    ":maybe",
+    ":numbers",
+    ":set",
+    ":unused-imports",
   ]
 )
 
@@ -808,6 +834,20 @@ yaspl_library(
   ]
 )
 
+yaspl_library(
+  name = "unused-imports",
+  srcs = ["unused-imports.yaspl"],
+  deps = [
+    ":source-language",
+    ":list",
+    ":validator",
+    ":set",
+    ":multi-set",
+    ":bytes",
+  ]
+)
+
+
 yaspl_bootstrap_library(
   name = "validator",
   srcs = ["validator.yaspl"],
@@ -863,6 +903,13 @@ action_listener(
   extra_actions = [":yaspl_gen_executable"]
 )
 
+action_listener(
+  name = "yaspl-lint",
+  mnemonics = ["YasplCompile"],
+  extra_actions = [":yaspl-lint-action"]
+)
+
+
 extra_action(
   name = "yaspl_gen_executable",
   out_templates = ["$(ACTION_ID).executable"],
@@ -870,4 +917,13 @@ extra_action(
     ":extra-action-linker",
   ],
   cmd = "$(location :extra-action-linker) $(EXTRA_ACTION_FILE) $(output $(ACTION_ID).executable)"
+)
+
+extra_action(
+  name = "yaspl-lint-action",
+  out_templates = ["$(ACTION_ID).lint"],
+  tools = [
+    ":extra-action-linter",
+  ],
+  cmd = "$(location :extra-action-linter) $(EXTRA_ACTION_FILE) $(output $(ACTION_ID).lint)"
 )

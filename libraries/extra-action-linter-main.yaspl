@@ -1,0 +1,112 @@
+(module extra-action-linter-main
+  (import
+    (prim
+      #:types (Array Bytes InputPort OutputPort Void Byte S64 Boolean U8)
+      #:values (array-length < array-ref bytes-ref bytes-length + *
+                = > >= <= - bitwise-and logical-shift-right void panic read-bytes
+                make-bytes quotient)
+      #:patterns ())
+    (bytes subbytes make-null-terminated bytes=? bytes-append ends-with? bytes<
+           bytes-ref/octo-le bytes-set!/octo-le
+           bytes-ref/quad-le bytes-set!/quad-le)
+    (set make-set set->list set-add-all)
+    (boolean not)
+    (unused-imports unused-imports)
+    (source-language parse-module)
+    (sexp-parser parse-sexp)
+    (maybe
+      #:types (Maybe)
+      #:values (just nothing just-v)
+      #:patterns (just nothing))
+    (list
+      #:types (List)
+      #:values (cons empty map reverse list length append* filter sort append list-ref cons-head)
+      #:patterns (cons empty))
+    (either
+      #:types (Either)
+      #:values (right left)
+      #:patterns (right left))
+    (dict
+      #:types (Dict)
+      #:values (make-dict dict-add)
+      #:patterns ())
+    (numbers integer->decimal-bytes integer->hex-bytes)
+    (mach-o
+      #:types (MachOLoadCommand MachOFile SymbolTable Section64 SymbolTableEntry
+               RelocationEntry)
+      #:values (read-mach-o mach-o-file read-symbol-table/strings mach-o-header-commands-size
+                read-symbol-table/symbols symbol-table-entry-name symbol-table-entry
+                read-relocation-entry symbol-table-entry-value)
+      #:patterns (mach-o-file mach-o-header lc-segment64 lc-symtab lc-version-min-macosx
+                  lc-data-in-code symbol-table load-segment64 section64
+                  symbol-table-entry relocation-entry))
+    (mach-o-writer2 write-mach-o-executable)
+    (linker
+      #:types (ParsedMachO RelocationMarker)
+      #:values (parsed-mach-o relocation-marker parsed-mach-o-const-section parsed-mach-o-text-section
+                apply-text-relocations apply-const-relocations get-relocation-markers
+                symbol-table-entry-name< get-offset-symbols symbol-table-entry-name=? parse-mach-o)
+      #:patterns (parsed-mach-o relocation-marker))
+    (io write-line read-all-bytes write-all-bytes call-with-input-file call-with-output-file newline)
+    (extra-action-parser
+      #:types ()
+      #:values (proto-parser parse-extra-action-info)
+      #:patterns (extra-action-info spawn-info)))
+  (export)
+  (types)
+
+  (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Byte
+    (if (not (= (array-length args) 3))
+        (begin
+          (write-line #"Too few arguments" stderr)
+          1)
+        (let ([bytes (call-with-input-file (array-ref args 1) read-all-bytes)])
+          (let ([output-file-name (array-ref args 2)])
+            (let ([limit (bytes-length bytes)])
+              (case (parse-extra-action-info (proto-parser bytes 0 limit))
+                [(left msg)
+                 (begin
+                   (write-line msg stderr)
+                   1)]
+                [(right info)
+                 (case info
+                   [(extra-action-info owner id mnemonic (spawn-info arguments input-files output-files))
+                    (case mnemonic
+                      [#"YasplCompile"
+                       (call-with-output-file output-file-name
+                         (lambda ([output-port : OutputPort])
+                           (let ([src-file-path
+                                   (cons-head (reverse
+                                     (filter
+                                       (lambda ([input-path : Bytes])
+                                         (ends-with? input-path #".yaspl"))
+                                       input-files)))])
+                             (case (parse-sexp (call-with-input-file src-file-path read-all-bytes))
+                              [(left v)
+                               (begin
+                                 (write-line v stderr)
+                                 1)]
+                              [(right sexp)
+                               (case (parse-module sexp)
+                                [(left v)
+                                 (begin
+                                   (write-line v stderr)
+                                   1)]
+                                [(right module)
+                                 (begin
+                                   (case (unused-imports module)
+                                     [(empty) (void)]
+                                     [unused
+                                      (begin
+                                       (write-line src-file-path output-port)
+                                       (map
+                                         (lambda ([unused-import : Bytes])
+                                           (begin
+                                             (write-all-bytes #"  " output-port)
+                                             (write-line unused-import output-port)))
+                                         unused))])
+                                   0)])]))))]
+                      [x
+                        (begin
+                          (write-line x stderr)
+                          1)])])])))))))
