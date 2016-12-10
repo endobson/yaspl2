@@ -79,7 +79,6 @@
     'U8 (u8-ty)
     'S32 (s32-ty)
     'U32 (u32-ty)
-    'S64 (int-ty)
     'Byte (int-ty)
     'Int (int-ty)
     'Bytes (bytes-ty)
