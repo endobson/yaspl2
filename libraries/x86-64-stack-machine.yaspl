@@ -205,11 +205,16 @@
       (rmi-register [r Register])
       (rmi-direct-memory [reg Register])
       (rmi-displaced-memory [reg Register] [offset S32])
-      (rmi-scaled-memory [reg Register] [scale Byte] [index-reg Register] [offset S32])
+      (rmi-scaled-memory [reg Register] [scale Scale] [index-reg Register] [offset S32])
       (rmi-imm [v Immediate]))
     (define-type Immediate
       (imm-s32 [v S32])
-      (imm-s64 [v S64])))
+      (imm-s64 [v S64]))
+    (define-type Scale
+      (scale-1)
+      (scale-2)
+      (scale-4)
+      (scale-8)))
 
 
   (define (compile-stack-machine
@@ -541,7 +546,7 @@
 
   (define (single-byte-op/M/scaled-mem
             [opcode : Byte] [op-ext : Byte] [rexW : Boolean]
-            [reg1 : Register] [scale : S64] [reg2 : Register] [displacement : S32]) : Bytes
+            [reg1 : Register] [scale : Scale] [reg2 : Register] [displacement : S32]) : Bytes
     (let ([base (register->byte reg1)])
       (let ([index (register->byte reg2)])
         (add-maybe-byte
@@ -652,7 +657,7 @@
   (define (single-byte-op/RM/scaled-mem
             [opcode : Byte] [rexW : Boolean]
             [reg1 : Register]
-            [reg2 : Register] [scale : S64] [reg3 : Register] [displacement : S32]) : Bytes
+            [reg2 : Register] [scale : Scale] [reg3 : Register] [displacement : S32]) : Bytes
     (let ([reg (register->byte reg1)])
       (let ([base (register->byte reg2)])
         (let ([index (register->byte reg3)])
@@ -715,7 +720,7 @@
 
   (define (single-byte-op/MR/scaled-mem
             [opcode : Byte] [rexW : Boolean]
-            [reg1 : Register] [scale : S64] [reg2 : Register] [displacement : S32]
+            [reg1 : Register] [scale : Scale] [reg2 : Register] [displacement : S32]
             [reg3 : Register]) : Bytes
     (let ([base (register->byte reg1)])
       (let ([index (register->byte reg2)])
@@ -748,7 +753,7 @@
 
   (define (double-byte-op/MR/scaled-mem
             [opcode : Byte] [rexW : Boolean]
-            [reg1 : Register] [scale : S64] [reg2 : Register] [displacement : S32]
+            [reg1 : Register] [scale : Scale] [reg2 : Register] [displacement : S32]
             [reg3 : Register]) : Bytes
     (let ([base (register->byte reg1)])
       (let ([index (register->byte reg2)])
@@ -797,14 +802,13 @@
             (nothing)
             (just val)))))
 
-  (define (sib-byte [scale : S64] [index : Register] [base : Register]) : Byte
+  (define (sib-byte [scale : Scale] [index : Register] [base : Register]) : Byte
     (bitwise-ior
       (case scale
-        [1 #x00]
-        [2 #x40]
-        [4 #x80]
-        [8 #xc0]
-        [_ (panic #"Bad scale")])
+        [(scale-1) #x00]
+        [(scale-2) #x40]
+        [(scale-4) #x80]
+        [(scale-8) #xc0])
       (bitwise-ior
         (logical-shift-left (bitwise-and (register->byte index) #x07) 3)
         (bitwise-and (register->byte base) #x07))))
@@ -1135,7 +1139,12 @@
            #", "
            (register->bytes index)
            #", "
-           (integer->decimal-bytes scale)
+           (integer->decimal-bytes 
+             (case scale
+               [(scale-1) 1]
+               [(scale-2) 2]
+               [(scale-4) 4]
+               [(scale-8) 8]))
            #")"))]
       [(rmi-imm (imm-s32 v))
        (bytes-append (varargs list #"$" (integer->decimal-bytes (s32->s64 v))))]
@@ -1147,8 +1156,8 @@
   (define (mem [r : Register] [offset : Byte]) : RegMemImm
     (case r
       ;; rsp as the index means 0 index
-      [(rsp) (rmi-scaled-memory r 1 (rsp) (s32 offset))]
-      [(r12) (rmi-scaled-memory r 1 (rsp) (s32 offset))]
+      [(rsp) (rmi-scaled-memory r (scale-1) (rsp) (s32 offset))]
+      [(r12) (rmi-scaled-memory r (scale-1) (rsp) (s32 offset))]
       [(rbp) (rmi-displaced-memory r (s32 offset))]
       [(r13) (rmi-displaced-memory r (s32 offset))]
       [_ (if (= offset 0)
@@ -1156,7 +1165,7 @@
              (rmi-displaced-memory r (s32 offset)))]))
   (define (imm [v : Int]) : RegMemImm
     (rmi-imm (imm-s32 (s32 v))))
-  (define (scaled [r : Register] [scale : Byte] [index : Register] [offset : Byte]) : RegMemImm
+  (define (scaled [r : Register] [scale : Scale] [index : Register] [offset : Byte]) : RegMemImm
     (rmi-scaled-memory r scale index (s32 offset)))
 
   (define (write-assembly-commands [cmds : (List AssemblyCommand)] [output : OutputPort]) : Void
@@ -1229,7 +1238,7 @@
             (movq (imm 0) (reg (r11))) ; r11 is the index of the current string
 
             (movq (reg (r8)) (mem (r15) 0))
-            (leaq (scaled (r15) 8 (r8) 8) (r15))
+            (leaq (scaled (r15) (scale-8) (r8) 8) (r15))
 
             (cmpq (reg (r11)) (reg (r8)))
             (je #"start_copy_args_end")
@@ -1251,7 +1260,7 @@
             (decq (rcx))
 
             ;; Copy bytes
-            (movq (reg (r15)) (scaled (r10) 8 (r11) 8))
+            (movq (reg (r15)) (scaled (r10) (scale-8) (r11) 8))
             (movq (reg (rcx)) (mem (r15) 0))
             (addq (imm 8) (r15))
             (movq (reg (r9)) (reg (rsi)))
@@ -1305,7 +1314,7 @@
 
           ;; %rdi is now the file descriptor
           ;; Make %rsi the start of the buffer
-          (leaq (scaled (rsi) 1 (rdx) 8) (rsi))
+          (leaq (scaled (rsi) (scale-1) (rdx) 8) (rsi))
           ;; Make %rdx the length to write
           (subq (reg (rdx)) (rcx))
           (movq (reg (rcx)) (reg (rdx)))
@@ -1324,7 +1333,7 @@
 
           ;; %rdi is the file descriptor
           ;; Make %rsi the start of the buffer
-          (leaq (scaled (rsi) 1 (rdx) 8) (rsi))
+          (leaq (scaled (rsi) (scale-1) (rdx) 8) (rsi))
           ;; Make %rdx the length to read
           (subq (reg (rdx)) (rcx))
           (movq (reg (rcx)) (reg (rdx)))
@@ -1564,7 +1573,7 @@
       ;; bytes-ref
       (prim-assembly-function #"bytes_ref"
         (varargs list
-          (movzbq (scaled (rdi) 1 (rsi) 8) (rax))
+          (movzbq (scaled (rdi) (scale-1) (rsi) 8) (rax))
           (ret)))
       ;; make-bytes
       (prim-assembly-function #"make_bytes"
@@ -1584,7 +1593,7 @@
       ;; bytes-set!
       (prim-assembly-function #"bytes_set"
         (varargs list
-          (movb (reg (dl)) (scaled (rdi) 1 (rsi) 8))
+          (movb (reg (dl)) (scaled (rdi) (scale-1) (rsi) 8))
           (movq (imm 0) (reg (rax)))
           (ret)))
       ;; bytes-length
@@ -2053,10 +2062,10 @@
          (movq (imm num-args) (reg (rcx)))
          (movq (reg (rsp)) (reg (rsi)))
          (movq (reg (r15)) (reg (rax)))
-         (leaq (scaled (rsp) 8 (rcx) 0) (rsp))
+         (leaq (scaled (rsp) (scale-8) (rcx) 0) (rsp))
          (movq (reg (rcx)) (mem (r15) 0))
          (leaq (mem (r15) 8) (rdi))
-         (leaq (scaled (r15) 8 (rcx) 8) (r15))
+         (leaq (scaled (r15) (scale-8) (rcx) 8) (r15))
          (cld)
          (rep-movsq)
          (pushq (reg (rax))))]
@@ -2068,13 +2077,13 @@
        (varargs join-list
          (popq (reg (rcx)))
          (popq (reg (rax)))
-         (pushq (scaled (rax) 8 (rcx) 8)))]
+         (pushq (scaled (rax) (scale-8) (rcx) 8)))]
       [(array-set!-cmd)
        (varargs join-list
          (popq (reg (rdx)))
          (popq (reg (rcx)))
          (popq (reg (rax)))
-         (movq (reg (rdx)) (scaled (rax) 8 (rcx) 8))
+         (movq (reg (rdx)) (scaled (rax) (scale-8) (rcx) 8))
          (pushq (imm 0)))]
 
       [(bin-logic-math-cmd op)
