@@ -1,7 +1,7 @@
 (module x86-64-stack-machine
   (import
     (prim
-      #:types (Bytes Byte OutputPort Void Boolean S32 Int)
+      #:types (Bytes OutputPort Void Boolean S32 Int)
       #:values (bytes-length bytes-ref * + - = >= panic void >
                 bitwise-and bitwise-ior logical-shift-left s32 s32->s64)
       #:patterns ())
@@ -83,7 +83,7 @@
       (global-directive [label Bytes])
       (label-directive [name Bytes])
       (quad-directive/label [label Bytes])
-      (quad-directive/integer [value Byte])
+      (quad-directive/integer [value Int])
       (ascii-directive [value Bytes]))
     (define-type Instruction
       (addq [rmi RegMemImm] [reg Register])
@@ -262,7 +262,7 @@
          (escape-bytes value 0 0)
          (single-jl #"\""))]))
 
-  (define (escape-bytes [src : Bytes] [start : Byte] [cur : Byte]) : (JoinList Bytes)
+  (define (escape-bytes [src : Bytes] [start : Int] [cur : Int]) : (JoinList Bytes)
     (if (= cur (bytes-length src))
         (single-jl (subbytes src start cur))
         (let ([byte (bytes-ref src cur)])
@@ -486,14 +486,15 @@
       [(leaq/rel label reg1 reg2)
        (mc-leaq/rel label reg1 reg2)]))
 
-  (define (single-byte-op/O [opcode : Byte] [reg : Register]) : Bytes
+  ;; TODO refine types of opcodes to be the right number of bits.
+  (define (single-byte-op/O [opcode : Int] [reg : Register]) : Bytes
     (let ([reg-val (register->byte reg)])
       (add-maybe-byte
         (rex-byte #f #f #f (>= reg-val 8))
         (varargs bytes
           (bitwise-ior opcode (bitwise-and reg-val #x07))))))
 
-  (define (single-byte-op/M [opcode : Byte] [op-ext : Byte] [rexW : Boolean] [reg : Register]) : Bytes
+  (define (single-byte-op/M [opcode : Int] [op-ext : Int] [rexW : Boolean] [reg : Register]) : Bytes
     (let ([rm (register->byte reg)])
       (add-maybe-byte
         (rex-byte rexW #f #f (>= rm 8))
@@ -503,7 +504,7 @@
              (bitwise-ior (logical-shift-left op-ext 3)
                           (bitwise-and rm #x07)))))))
 
-  (define (single-byte-op/I [opcode : Byte] [rexW : Boolean] [imm : S32]) : Bytes
+  (define (single-byte-op/I [opcode : Int] [rexW : Boolean] [imm : S32]) : Bytes
     (add-maybe-byte
       (rex-byte rexW #f #f #f)
       (let ([v (varargs bytes opcode 0 0 0 0)])
@@ -511,7 +512,7 @@
           (bytes-set!/s32-le v 1 imm)
           v))))
 
-   (define (single-byte-op-s64/IO [opcode : Byte] [rexW : Boolean] [imm : EightBytesLe] [reg : Register]) : Bytes
+   (define (single-byte-op-s64/IO [opcode : Int] [rexW : Boolean] [imm : EightBytesLe] [reg : Register]) : Bytes
      (let ([reg-val (register->byte reg)])
        (add-maybe-byte
          (rex-byte rexW #f #f (>= reg-val 8))
@@ -522,7 +523,7 @@
              (bytes-set!/eight-bytes-le v 1 imm)
              v)))))
 
-  (define (single-byte-op/M/mem [opcode : Byte] [op-ext : Byte] [rexW : Boolean] [reg : Register]) : Bytes
+  (define (single-byte-op/M/mem [opcode : Int] [op-ext : Int] [rexW : Boolean] [reg : Register]) : Bytes
     (let ([rm (register->byte reg)])
       (add-maybe-byte
         (rex-byte rexW #f #f (>= rm 8))
@@ -534,7 +535,7 @@
 
   ;; Doesn't support rsp or r12. This is because the instruction set doesn't support them.
   (define (single-byte-op/M/displaced-mem
-            [opcode : Byte] [op-ext : Byte] [rexW : Boolean] [reg : Register] [displacement : S32]) : Bytes
+            [opcode : Int] [op-ext : Int] [rexW : Boolean] [reg : Register] [displacement : S32]) : Bytes
     (let ([rm (register->byte reg)])
       (add-maybe-byte
         (rex-byte rexW #f #f (>= rm 8))
@@ -549,7 +550,7 @@
             v)))))
 
   (define (single-byte-op/M/scaled-mem
-            [opcode : Byte] [op-ext : Byte] [rexW : Boolean]
+            [opcode : Int] [op-ext : Int] [rexW : Boolean]
             [reg1 : Register] [scale : Scale] [reg2 : Register] [displacement : S32]) : Bytes
     (let ([base (register->byte reg1)])
       (let ([index (register->byte reg2)])
@@ -567,7 +568,7 @@
               v))))))
 
 
-  (define (single-byte-op/IM [opcode : Byte] [op-ext : Byte] [rexW : Boolean]
+  (define (single-byte-op/IM [opcode : Int] [op-ext : Int] [rexW : Boolean]
                              [val : S32] [reg : Register]) : Bytes
     (let ([rm (register->byte reg)])
       (add-maybe-byte
@@ -582,7 +583,7 @@
             (bytes-set!/s32-le v 2 val)
             v)))))
 
-  (define (single-byte-op/IM/mem [opcode : Byte] [op-ext : Byte] [rexW : Boolean]
+  (define (single-byte-op/IM/mem [opcode : Int] [op-ext : Int] [rexW : Boolean]
                                  [val : S32] [reg : Register]) : Bytes
     (let ([rm (register->byte reg)])
       (add-maybe-byte
@@ -599,7 +600,7 @@
 
   ;; Doesn't support rsp or r12. This is because the instruction set doesn't support them.
   (define (single-byte-op/IM/displaced-mem
-            [opcode : Byte] [op-ext : Byte] [rexW : Boolean] [val : S32]
+            [opcode : Int] [op-ext : Int] [rexW : Boolean] [val : S32]
             [reg : Register] [displacement : S32]) : Bytes
     (let ([rm (register->byte reg)])
       (add-maybe-byte
@@ -615,7 +616,7 @@
             (bytes-set!/s32-le v 6 val)
             v)))))
 
-  (define (single-byte-op/RM [opcode : Byte] [rexW : Boolean] [reg1 : Register] [reg2 : Register]) : Bytes
+  (define (single-byte-op/RM [opcode : Int] [rexW : Boolean] [reg1 : Register] [reg2 : Register]) : Bytes
     (let ([reg (register->byte reg1)])
       (let ([rm (register->byte reg2)])
         (add-maybe-byte
@@ -627,7 +628,7 @@
                             (bitwise-and rm #x07))))))))
 
   ;; Doesn't support rsp, rbp, r12 or r13. This is because the instruction set doesn't support them.
-  (define (single-byte-op/RM/mem [opcode : Byte] [rexW : Boolean] [reg1 : Register] [reg2 : Register]) : Bytes
+  (define (single-byte-op/RM/mem [opcode : Int] [rexW : Boolean] [reg1 : Register] [reg2 : Register]) : Bytes
     (let ([reg (register->byte reg1)])
       (let ([rm (register->byte reg2)])
         (add-maybe-byte
@@ -641,7 +642,7 @@
 
   ;; Doesn't support rsp or r12. This is because the instruction set doesn't support them.
   (define (single-byte-op/RM/displaced-mem
-            [opcode : Byte] [rexW : Boolean]
+            [opcode : Int] [rexW : Boolean]
             [reg1 : Register]
             [reg2 : Register] [displacement : S32]) : Bytes
     (let ([reg (register->byte reg1)])
@@ -659,7 +660,7 @@
               v))))))
 
   (define (single-byte-op/RM/scaled-mem
-            [opcode : Byte] [rexW : Boolean]
+            [opcode : Int] [rexW : Boolean]
             [reg1 : Register]
             [reg2 : Register] [scale : Scale] [reg3 : Register] [displacement : S32]) : Bytes
     (let ([reg (register->byte reg1)])
@@ -679,7 +680,7 @@
                 v)))))))
 
 
-  (define (single-byte-op/MR [opcode : Byte] [rexW : Boolean] [reg1 : Register] [reg2 : Register]) : Bytes
+  (define (single-byte-op/MR [opcode : Int] [rexW : Boolean] [reg1 : Register] [reg2 : Register]) : Bytes
     (let ([rm (register->byte reg1)])
       (let ([reg (register->byte reg2)])
         (add-maybe-byte
@@ -692,7 +693,7 @@
 
   ;; Doesn't support rsp or r12. This is because the instruction set doesn't support them.
   (define (single-byte-op/MR/displaced-mem
-            [opcode : Byte] [rexW : Boolean]
+            [opcode : Int] [rexW : Boolean]
             [reg1 : Register] [displacement : S32]
             [reg2 : Register]) : Bytes
     (let ([rm (register->byte reg1)])
@@ -711,7 +712,7 @@
 
 
   ;; Doesn't support rsp, rbp, r12 or r13. This is because the instruction set doesn't support them.
-  (define (single-byte-op/MR/mem [opcode : Byte] [rexW : Boolean] [reg1 : Register] [reg2 : Register]) : Bytes
+  (define (single-byte-op/MR/mem [opcode : Int] [rexW : Boolean] [reg1 : Register] [reg2 : Register]) : Bytes
     (let ([rm (register->byte reg1)])
       (let ([reg (register->byte reg2)])
         (add-maybe-byte
@@ -723,7 +724,7 @@
                             (bitwise-and rm #x07))))))))
 
   (define (single-byte-op/MR/scaled-mem
-            [opcode : Byte] [rexW : Boolean]
+            [opcode : Int] [rexW : Boolean]
             [reg1 : Register] [scale : Scale] [reg2 : Register] [displacement : S32]
             [reg3 : Register]) : Bytes
     (let ([base (register->byte reg1)])
@@ -743,7 +744,7 @@
                 v)))))))
 
 
-  (define (double-byte-op/MR [opcode : Byte] [rexW : Boolean] [reg1 : Register] [reg2 : Register]) : Bytes
+  (define (double-byte-op/MR [opcode : Int] [rexW : Boolean] [reg1 : Register] [reg2 : Register]) : Bytes
     (let ([rm (register->byte reg1)])
       (let ([reg (register->byte reg2)])
         (add-maybe-byte
@@ -756,7 +757,7 @@
                             (bitwise-and rm #x07))))))))
 
   (define (double-byte-op/MR/scaled-mem
-            [opcode : Byte] [rexW : Boolean]
+            [opcode : Int] [rexW : Boolean]
             [reg1 : Register] [scale : Scale] [reg2 : Register] [displacement : S32]
             [reg3 : Register]) : Bytes
     (let ([base (register->byte reg1)])
@@ -777,7 +778,7 @@
                 v)))))))
 
 
-  (define (double-byte-op/M [opcode : Byte] [op-ext : Byte] [rexW : Boolean] [reg : Register]) : Bytes
+  (define (double-byte-op/M [opcode : Int] [op-ext : Int] [rexW : Boolean] [reg : Register]) : Bytes
     (let ([rm (register->byte reg)])
       (add-maybe-byte
         (rex-byte rexW #f #f (>= rm 8))
@@ -788,14 +789,16 @@
              (bitwise-ior (logical-shift-left op-ext 3)
                           (bitwise-and rm #x07)))))))
 
-  (define (add-maybe-byte [mv : (Maybe Byte)] [bs : Bytes]) : Bytes
+  ;; TODO make this take a U8
+  (define (add-maybe-byte [mv : (Maybe Int)] [bs : Bytes]) : Bytes
     (case mv
       [(nothing) bs]
       [(just v) (bytes-append (cons (varargs bytes v) (cons bs (empty))))]))
 
 
+  ;; TODO make this return a U8
   (define (rex-byte [w : Boolean] [r : Boolean] [x : Boolean] [b : Boolean])
-    : (Maybe Byte)
+    : (Maybe Int)
     (let ([ind (lambda ([v : Boolean]) (if v 1 0))])
       (let ([val (bitwise-ior #x40
                    (bitwise-ior (logical-shift-left (ind w) 3)
@@ -806,7 +809,8 @@
             (nothing)
             (just val)))))
 
-  (define (sib-byte [scale : Scale] [index : Register] [base : Register]) : Byte
+  ;; TODO make this return a U8
+  (define (sib-byte [scale : Scale] [index : Register] [base : Register]) : Int
     (bitwise-ior
       (case scale
         [(scale-1) #x00]
@@ -817,7 +821,8 @@
         (logical-shift-left (bitwise-and (register->byte index) #x07) 3)
         (bitwise-and (register->byte base) #x07))))
 
-  (define (register->byte [reg : Register]) : Byte
+  ;; TODO make this return a U8
+  (define (register->byte [reg : Register]) : Int
     (case reg
       ;; 8 Bit registers
       [(al) 0]
@@ -907,7 +912,7 @@
       [(cons x (empty)) (cons x (empty))]
       [(cons x xs) (cons x (cons sep (interleave sep xs)))]))
 
-  (define (extract-hex-bytes [bytes : Bytes] [offset : Byte]) : (List Bytes)
+  (define (extract-hex-bytes [bytes : Bytes] [offset : Int]) : (List Bytes)
     (if (= offset (bytes-length bytes))
         (empty)
         (cons
@@ -1157,7 +1162,7 @@
 
   (define (reg [r : Register]) : RegMemImm
     (rmi-register r))
-  (define (mem [r : Register] [offset : Byte]) : RegMemImm
+  (define (mem [r : Register] [offset : Int]) : RegMemImm
     (case r
       ;; rsp as the index means 0 index
       [(rsp) (rmi-scaled-memory r (scale-1) (rsp) (s32 offset))]
@@ -1169,7 +1174,7 @@
              (rmi-displaced-memory r (s32 offset)))]))
   (define (imm [v : Int]) : RegMemImm
     (rmi-imm (imm-s32 (s32 v))))
-  (define (scaled [r : Register] [scale : Scale] [index : Register] [offset : Byte]) : RegMemImm
+  (define (scaled [r : Register] [scale : Scale] [index : Register] [offset : Int]) : RegMemImm
     (rmi-scaled-memory r scale index (s32 offset)))
 
   (define (write-assembly-commands [cmds : (List AssemblyCommand)] [output : OutputPort]) : Void
@@ -1794,7 +1799,7 @@
              (basic-blocks->commands blocks))))]))
 
 
-  (define (convert-basic-blocks [fun-name : Bytes] [index : Byte] [blocks : (List StackBasicBlock)])
+  (define (convert-basic-blocks [fun-name : Bytes] [index : Int] [blocks : (List StackBasicBlock)])
     : (List BasicBlock)
     (case blocks
       [(empty) (empty)]
@@ -1803,7 +1808,7 @@
          (convert-basic-block fun-name index block)
          (convert-basic-blocks fun-name (+ index 1) blocks))]))
 
-  (define (convert-basic-block [fun-name : Bytes] [index : Byte] [block : StackBasicBlock])
+  (define (convert-basic-block [fun-name : Bytes] [index : Int] [block : StackBasicBlock])
     : BasicBlock
     (case block
       [(stack-basic-block cmds terminal)
@@ -2183,7 +2188,7 @@
   ;; Generates assembly to copy `args` arguments from the top of the stack to the
   ;; memory starting at %r15 %r15 ends up pointing right after after the last argument written.
   ;; Dirties %rax
-  (define (copy-extra-arguments [arg : Byte] [args : Byte]) : (JoinList Instruction)
+  (define (copy-extra-arguments [arg : Int] [args : Int]) : (JoinList Instruction)
     (if (= arg args)
         (empty-jl)
         (cons-jl
@@ -2197,7 +2202,7 @@
   ;; Generates assembly to copy `args` arguments from the top of the stack to the
   ;; memory starting at %r15 %r15 ends up pointing right after after the last argument written.
   ;; Dirties %rax
-  (define (copy-extra-arguments* [arg : Byte] [args : Byte]) : (JoinList Instruction)
+  (define (copy-extra-arguments* [arg : Int] [args : Int]) : (JoinList Instruction)
     (if (= arg args)
         (empty-jl)
         (cons-jl
@@ -2210,7 +2215,7 @@
 
 
   ;; Generates assembly to install `args` arguments from %r10 ontop of the stack
-  (define (install-extra-arguments [arg : Byte] [args : Byte]) : (JoinList Instruction)
+  (define (install-extra-arguments [arg : Int] [args : Int]) : (JoinList Instruction)
     (if (= arg args)
         (empty-jl)
         (cons-jl
@@ -2220,7 +2225,7 @@
 
   ;; Generates assembly to copy n objects from the top of the stack to the
   ;; memory starting at %r15 %r15 ends up pointing right after after the last object written.
-  (define (copy-objects [n : Byte]) : (JoinList Instruction)
+  (define (copy-objects [n : Int]) : (JoinList Instruction)
     (if (> n 0)
         (cons-jl
           (popq (mem (r15) 0))
