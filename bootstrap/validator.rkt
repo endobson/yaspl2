@@ -349,7 +349,7 @@
         [(u8-ty) t]
         [(s32-ty) t]
         [(u32-ty) t]
-        [(s64-ty) t]
+        [(int-ty) t]
         [(bytes-ty) t]
         [(boolean-ty) t]
         [(fun-ty '() arg-tys result-ty)
@@ -378,7 +378,7 @@
         [(u8-ty) (void)]
         [(s32-ty) (void)]
         [(u32-ty) (void)]
-        [(s64-ty) (void)]
+        [(int-ty) (void)]
         [(bytes-ty) (void)]
         [(boolean-ty) (void)]
         [(input-port-ty) (void)]
@@ -419,7 +419,7 @@
           (loop type-map pairs)]
          [((u32-ty) (u32-ty))
           (loop type-map pairs)]
-         [((s64-ty) (s64-ty))
+         [((int-ty) (int-ty))
           (loop type-map pairs)]
          [((bytes-ty) (bytes-ty))
           (loop type-map pairs)]
@@ -451,7 +451,7 @@
     [(u8-ty) t]
     [(s32-ty) t]
     [(u32-ty) t]
-    [(s64-ty) t]
+    [(int-ty) t]
     [(bytes-ty) t]
     [(boolean-ty) t]
     [(input-port-ty) t]
@@ -482,7 +482,7 @@
            'type-check "Types don't match: Got ~s but expected ~s in ~s"
            actual-type expected-type expr))]))
   (match expr
-    [(byte& _) (check (s64-ty))]
+    [(byte& _) (check (int-ty))]
     [(bytes& _) (check (bytes-ty))]
     [(boolean& _) (check (boolean-ty))]
     [(variable& v)
@@ -643,7 +643,7 @@
   (define pattern->template-data (pattern->template-data/env env))
   (match pattern
     [(bytes-pattern& _) (template-data empty (hash) empty (bytes-ty))]
-    [(byte-pattern& _) (template-data empty (hash) empty (s64-ty))]
+    [(byte-pattern& _) (template-data empty (hash) empty (int-ty))]
     [(variable-pattern& v)
      (define tv (fresh-ty-var v))
      (template-data (list tv) (hash v (type-var-ty tv)) empty (type-var-ty tv))]
