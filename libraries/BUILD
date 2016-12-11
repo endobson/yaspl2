@@ -367,6 +367,7 @@ yaspl_bootstrap_library(
   name = "lexer",
   srcs = ["lexer.yaspl"],
   deps = [
+    ":boolean",
     ":bytes",
     ":io",
     ":numbers",
