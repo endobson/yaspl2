@@ -4,7 +4,7 @@
       #:types (Bytes OutputPort MachPort Void Int U8 U32 S32)
       #:values (make-bytes bytes-length bytes-ref
                 mach-task-self mach-thread-self mach-reply-port mach-msg mach-port-mod-refs
-                thread-bootstrap-address
+                mach-start-thread
                 - + = panic u32)
       #:patterns ())
     (io write-line)
@@ -102,35 +102,33 @@
                 (panic #"Bad MachMessageDescriptor")))
           (parse-mach-message-body/loop bytes (+ offset 12) (- num-descriptors 1)))))
 
+  (define (write-default-x86-thread-state-64 [bytes : Bytes]) : Void
+    (begin
+      ;; Set NDR record
+      (bytes-set!/eight-bytes-le bytes 24 (ndr-record))
+      ;; Set the state type (x86_THREAD_STATE64 = 4)
+      (bytes-set!/quad-le bytes 32 (u32 4))
+      ;; Set the size of the state (x86_THREAD_STATE64_COUNT = 42, 21 64bit registers)
+      (bytes-set!/quad-le bytes 36 (u32 42))
+      ;; Set the all registers to 0
+      (bytes-set!/eight-bytes-le bytes 40 (int->eight-bytes-le 0))
+      (bytes-set!/eight-bytes-le bytes 48 (int->eight-bytes-le 0))
+      (bytes-set!/eight-bytes-le bytes 56 (int->eight-bytes-le 0))
+      (bytes-set!/eight-bytes-le bytes 64 (int->eight-bytes-le 0))
+      (bytes-set!/eight-bytes-le bytes 72 (int->eight-bytes-le 0))
+      (bytes-set!/eight-bytes-le bytes 80 (int->eight-bytes-le 0))
+      (bytes-set!/eight-bytes-le bytes 88 (int->eight-bytes-le 0))
+      (bytes-set!/eight-bytes-le bytes 96 (int->eight-bytes-le 0))
+      (bytes-set!/eight-bytes-le bytes 104 (int->eight-bytes-le 0))
+      (bytes-set!/eight-bytes-le bytes 112 (int->eight-bytes-le 0))
+      (bytes-set!/eight-bytes-le bytes 120 (int->eight-bytes-le 0))
+      (bytes-set!/eight-bytes-le bytes 128 (int->eight-bytes-le 0))
+      (bytes-set!/eight-bytes-le bytes 136 (int->eight-bytes-le 0))
+      (bytes-set!/eight-bytes-le bytes 144 (int->eight-bytes-le 0))
+      (bytes-set!/eight-bytes-le bytes 152 (int->eight-bytes-le 0))
+      (bytes-set!/eight-bytes-le bytes 160 (int->eight-bytes-le 0))
+      (bytes-set!/eight-bytes-le bytes 168 (int->eight-bytes-le 0))))
 
-  (define (write-x86-thread-state-64 [state : X86ThreadState64] [bytes : Bytes]) : Void
-    (case state
-      [(x86-thread-state-64 rax rbx rcx rdx rdi rsi rbp rsp r8 r9 r10 r11 r12 r13 r14 r15 rip)
-       (begin
-         ;; Set NDR record
-         (bytes-set!/eight-bytes-le bytes 24 (ndr-record))
-         ;; Set the state type (x86_THREAD_STATE64 = 4)
-         (bytes-set!/quad-le bytes 32 (u32 4))
-         ;; Set the size of the state (x86_THREAD_STATE64_COUNT = 42, 21 64bit registers)
-         (bytes-set!/quad-le bytes 36 (u32 42))
-         ;; Set the registers
-         (bytes-set!/eight-bytes-le bytes 40 rax)
-         (bytes-set!/eight-bytes-le bytes 48 rbx)
-         (bytes-set!/eight-bytes-le bytes 56 rcx)
-         (bytes-set!/eight-bytes-le bytes 64 rdx)
-         (bytes-set!/eight-bytes-le bytes 72 rdi)
-         (bytes-set!/eight-bytes-le bytes 80 rsi)
-         (bytes-set!/eight-bytes-le bytes 88 rbp)
-         (bytes-set!/eight-bytes-le bytes 96 rsp)
-         (bytes-set!/eight-bytes-le bytes 104 r8)
-         (bytes-set!/eight-bytes-le bytes 112 r9)
-         (bytes-set!/eight-bytes-le bytes 120 r10)
-         (bytes-set!/eight-bytes-le bytes 128 r11)
-         (bytes-set!/eight-bytes-le bytes 136 r12)
-         (bytes-set!/eight-bytes-le bytes 144 r13)
-         (bytes-set!/eight-bytes-le bytes 152 r14)
-         (bytes-set!/eight-bytes-le bytes 160 r15)
-         (bytes-set!/eight-bytes-le bytes 168 rip))]))
 
   (define (ndr-record) : EightBytesLe
     (int->eight-bytes-le #x100000000))
@@ -236,28 +234,8 @@
           ;; UNSAFE
           ;; These function turn GC pointers into ints
           ;; TODO move within the core.
-          (write-x86-thread-state-64 
-            (x86-thread-state-64
-              (int->eight-bytes-le (thread-start fun))
-              (int->eight-bytes-le 0)
-              (int->eight-bytes-le 0)
-              (int->eight-bytes-le 0)
-              (int->eight-bytes-le 0)
-              (int->eight-bytes-le 0)
-              (int->eight-bytes-le 0)
-              (int->eight-bytes-le (+ (make-bytes #x100000) #x100000))
-              (int->eight-bytes-le 0)
-              (int->eight-bytes-le 0)
-              (int->eight-bytes-le 0)
-              (int->eight-bytes-le 0)
-              (int->eight-bytes-le 0)
-              (int->eight-bytes-le 0)
-              (int->eight-bytes-le 0)
-              (int->eight-bytes-le (make-bytes #x100000))
-              (int->eight-bytes-le thread-bootstrap-address))
-            buffer)
-
-          (mach-msg/send-recv buffer 208 reply-port)
+          (write-default-x86-thread-state-64 buffer)
+          (mach-start-thread buffer (thread-start fun) reply-port)
           (mach-unref-reply-port reply-port)))))
 
   (define (spawn [fun : (-> Void)]) : Void

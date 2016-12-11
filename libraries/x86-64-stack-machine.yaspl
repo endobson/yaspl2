@@ -1565,6 +1565,48 @@
           (addq (imm #x10) (rsp)) ;; 2 pop
           (ret)))
 
+      ;; mach_start_thread
+      ;; This function is needed because we cannot cast the function to be called
+      ;; to a int without being atomic with respect to GC.
+      (prim-assembly-function/panic #"mach_start_thread"
+        (varargs list
+          ;; Argument 1: buffer (rdi)
+          ;; Argument 2: closure (rsi)
+          ;; Argument 3: reply-port (rdx)
+
+          ;; Alocate the stack and fill in the stack pointer
+          ;; The stack grows down so we adjust the pointer first
+          (addq (imm #xFFFFF) (r15))
+          (movq (reg (r15)) (mem (rdi) 104))
+          (addq (imm #x1) (r15))
+          ;; Alocate the heap and fill in the heap pointer
+          (movq (reg (r15)) (mem (rdi) 168))
+          (addq (imm #x100000) (r15))
+          ;; Set the instruction pointer to the bootstrap function
+          (leaq/rel #"prim_thread_bootstrap" (rip) (rax))
+          (movq (reg (rax)) (mem (rdi) 176))
+          ;; Set rax on the new thread to the closure
+          (movq (reg (rsi)) (mem (rdi) 48))
+
+          (movq (mem (rdi) 0) (reg (r10))) ;; Load buffer's length
+          (movq (reg (rdx)) (reg (r8))) ;; Move reply-port to correct register
+          (addq (imm 8) (rdi)) ;; Adjust past buffer's length field
+          (movq (imm 3) (reg (rsi))) ;; We want to send and receive
+          (movq (imm 208) (reg (rdx))) ;; The length of the incoming message
+          (movq (imm 0) (reg (r9))) ;; Specify that there is no timeout
+          (pushq (imm 0)) ;; Specify no notify port
+          (pushq (imm 0)) ;; Put a dummy return address since syscalls don't return like functions
+
+          (movq (imm #x100001f) (reg (rax)))
+          (syscall)
+          (cmpq (imm 0) (reg (rax)))
+          (jne #"prim_mach_start_thread_panic")
+
+          ;; TODO do GC magic to register new thread here
+          (addq (imm #x10) (rsp)) ;; 2 pop
+          (ret)))
+
+
       ;; and
       (prim-assembly-function #"and"
         (varargs list
