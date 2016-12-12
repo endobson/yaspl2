@@ -809,6 +809,8 @@ yaspl_bootstrap_library(
   deps = [
     ":intermediate-language",
     ":types",
+    ":list",
+    ":dict",
     ":maybe",
   ]
 )
