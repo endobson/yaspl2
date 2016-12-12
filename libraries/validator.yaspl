@@ -19,7 +19,7 @@
     (bytes bytes=? bytes-append bytes-copy!)
     (multi-set
       #:types (MultiSet)
-      #:values (make-multi-set multi-set-add multi-set-keys multi-set-count)
+      #:values (make-multi-set multi-set-add multi-set-keys multi-set-count multi-set-add-all)
       #:patterns ())
     (set
       #:types (Set)
@@ -33,7 +33,8 @@
       #:types (Module Expression CaseClause Pattern FunctionDefinition TypeDefinition
                       VariantDefinition VariantField Imports Import PreType)
       #:values (module-definitions module-name module-types variant-field-type case-clause-expr
-                module-exports exports-patterns exports-types exports-values export-local-name)
+                module-exports exports-patterns exports-types exports-values
+                export-local-name export-exported-name)
       #:patterns (int-literal bytes-literal boolean-literal var-expr if-expr begin-expr app-expr
                   varargs-app-expr let-expr case-expr case-clause bytes-pattern int-pattern
                   lambda-expr
@@ -59,12 +60,19 @@
       [(right (tuple3 type-env env pat-env))
        (run-checks
          (varargs list
+           ;; Check for free bindings
            (lambda () (validate-module/free-variables mod env))
            (lambda () (validate-module/free-patterns mod pat-env))
            (lambda () (validate-module/free-types mod type-env))
+           ;; Check for undefined exported bindings
            (lambda () (validate-module/exported-variables mod env))
            (lambda () (validate-module/exported-patterns mod pat-env))
            (lambda () (validate-module/exported-types mod type-env))
+           ;; Check for duplicate exported bindings
+           (lambda () (validate-module/duplicate-exported-variables mod))
+           (lambda () (validate-module/duplicate-exported-patterns mod))
+           (lambda () (validate-module/duplicate-exported-types mod))
+
            (lambda () (validate-module/unique-name mod sigs))))]))
 
   (define (run-checks [checks : (List (-> (Maybe Bytes)))]) : (Maybe Bytes)
@@ -165,6 +173,39 @@
       [(empty) (nothing)]
       [patterns
         (just (warn-undefined-exports #"types" (module-name mod) patterns))]))
+
+
+  (define (warn-duplicate-exports [kind : Bytes] [module-name : Bytes] [names : (List Bytes)]) : Bytes
+    (bytes-append
+       (append
+         (varargs list #"Duplicate exported " kind #" in module " module-name #":\n")
+         (map add-newline (map indent names)))))
+
+
+  (define (validate-module/duplicate-exported-variables [mod : Module]) : (Maybe Bytes)
+    (case (find-duplicates
+            (multi-set-add-all
+              (make-multi-set bytes=?)
+              (map export-exported-name (exports-values (module-exports mod)))))
+      [(empty) (nothing)]
+      [duplicates (just (warn-duplicate-exports #"values" (module-name mod) duplicates))]))
+
+  (define (validate-module/duplicate-exported-patterns [mod : Module]) : (Maybe Bytes)
+    (case (find-duplicates
+            (multi-set-add-all
+              (make-multi-set bytes=?)
+              (map export-exported-name (exports-patterns (module-exports mod)))))
+      [(empty) (nothing)]
+      [duplicates (just (warn-duplicate-exports #"patterns" (module-name mod) duplicates))]))
+
+  (define (validate-module/duplicate-exported-types [mod : Module]) : (Maybe Bytes)
+    (case (find-duplicates
+            (multi-set-add-all
+              (make-multi-set bytes=?)
+              (map export-exported-name (exports-types (module-exports mod)))))
+      [(empty) (nothing)]
+      [duplicates (just (warn-duplicate-exports #"types" (module-name mod) duplicates))]))
+
 
   (define (validate-module/free-types [mod : Module] [env : (Set Bytes)]) : (Maybe Bytes)
     (let ([free-types (free-types/module mod env (make-set bytes=?))])
