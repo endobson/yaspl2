@@ -1,0 +1,79 @@
+(module byte-escapes
+  (import
+    (prim
+      #:types (Bytes Int U8 Boolean)
+      #:values (bytes-length - + = u8->s64 bytes-set! make-bytes u8)
+      #:patterns ())
+    (either
+      #:types (Either)
+      #:values (left right)
+      #:patterns (left right))
+    (bytes bytes-ref/u8))
+  (export
+    #:types ()
+    #:values (unescape-bytes)
+    #:patterns ())
+  (types)
+
+
+  (define (unescape-bytes [bytes : Bytes]) : (Either Bytes Bytes)
+    (let ([len (bytes-length bytes)])
+      (case (count-escapes bytes 0 len 0)
+        [(left v) (left v)]
+        [(right num-escapes)
+         (unescape-bytes* bytes 0 len (make-bytes (- len num-escapes)) 0)])))
+
+  (define (double-quote? [v : U8]) : Boolean
+    (= (u8->s64 v) 34))
+
+  (define (back-slash? [v : U8]) : Boolean
+    (= (u8->s64 v) 92))
+
+  (define (n? [v : U8]) : Boolean
+    (= (u8->s64 v) 110))
+
+  (define (r? [v : U8]) : Boolean
+    (= (u8->s64 v) 114))
+
+
+  (define (count-escapes
+            [src : Bytes] [src-offset : Int] [src-end : Int] [num-escapes : Int])
+    : (Either Bytes Int)
+    (if (= src-offset src-end)
+        (right num-escapes)
+        (let ([byte (bytes-ref/u8 src src-offset)])
+          (if (back-slash? byte)
+              (if (= (+ src-offset 1) src-end)
+                  (left #"Bad escape: last character is \\")
+                  (count-escapes src (+ src-offset 2) src-end (+ num-escapes 1)))
+              (count-escapes src (+ src-offset 1) src-end num-escapes)))))
+
+  (define (unescape-bytes*
+            [src : Bytes] [src-offset : Int] [src-end : Int] [dest : Bytes] [dest-offset : Int])
+    : (Either Bytes Bytes)
+    (if (= src-offset src-end)
+        (right dest)
+        (let ([byte (bytes-ref/u8 src src-offset)])
+          (if (back-slash? byte)
+              (let ([src-offset (+ 1 src-offset)])
+                (let ([byte (bytes-ref/u8 src src-offset)])
+                  (if (double-quote? byte)
+                      (begin
+                        (bytes-set! dest dest-offset byte)
+                        (unescape-bytes* src (+ 1 src-offset) src-end dest (+ 1 dest-offset)))
+                      (if (n? byte)
+                          (begin
+                            (bytes-set! dest dest-offset (u8 10)) ;; newline
+                            (unescape-bytes* src (+ 1 src-offset) src-end dest (+ 1 dest-offset)))
+                          (if (back-slash? byte)
+                              (begin
+                                (bytes-set! dest dest-offset (u8 92)) ;; backslash
+                                (unescape-bytes* src (+ 1 src-offset) src-end dest (+ 1 dest-offset)))
+                              (if (r? byte)
+                                  (begin
+                                    (bytes-set! dest dest-offset (u8 13)) ;; carriage return
+                                    (unescape-bytes* src (+ 1 src-offset) src-end dest (+ 1 dest-offset)))
+                                  (left #"Unknown escape")))))))
+              (begin
+                (bytes-set! dest dest-offset byte)
+                (unescape-bytes* src (+ 1 src-offset) src-end dest (+ 1 dest-offset))))))))

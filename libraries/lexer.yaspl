@@ -2,9 +2,14 @@
   (import
     (prim
       #:types (Bytes Boolean InputPort OutputPort Array Int U8)
-      #:values (+ = make-bytes bytes-length bytes-ref bytes-set! or and <= < panic u8 u8->s64)
+      #:values (+ = bytes-length bytes-ref or and <= < u8 u8->s64)
       #:patterns ())
     (numbers digit?)
+    (either
+      #:types ()
+      #:values ()
+      #:patterns (left right))
+    (byte-escapes unescape-bytes)
     (boolean not)
     (bytes subbytes bytes-ref/u8)
     (io read-all-bytes))
@@ -153,7 +158,7 @@
             (if (colon? (u8 byte))
                 (lex-keyword bytes next-pos next-pos)
                 (if (double-quote? (u8 byte))
-                    (lex-bytes bytes next-pos next-pos 0)
+                    (lex-bytes bytes next-pos next-pos)
                     (if (= byte 116)
                         (lex-result (boolean-lexeme #t) (lexer bytes next-pos))
                         (if (= byte 102)
@@ -172,7 +177,7 @@
             (lex-result (keyword-lexeme (subbytes bytes start cur))
                         (lexer bytes cur)))))
 
-  (define (lex-bytes [bytes : Bytes] [start : Int] [cur : Int] [len : Int]) : Result
+  (define (lex-bytes [bytes : Bytes] [start : Int] [cur : Int]) : Result
     (if (= (bytes-length bytes) cur)
         (bad-input)
         (let ([byte (bytes-ref/u8 bytes cur)])
@@ -185,45 +190,16 @@
                                   (back-slash? (u8 byte)))
                               (or (= byte 110) ;; n
                                   (= byte 114))) ;; r
-                          (lex-bytes bytes start (+ 1 cur) (+ 1 len))
+                          (lex-bytes bytes start (+ 1 cur))
                           (bad-input)))))
               (if (bytes-continue-byte? byte)
-                  (lex-bytes bytes start (+ 1 cur) (+ 1 len))
+                  (lex-bytes bytes start (+ 1 cur))
                   (if (double-quote? byte)
-                      (lex-result
-                        (bytes-lexeme (extract-lexed-bytes bytes start cur (make-bytes len) 0))
-                        (lexer bytes (+ 1 cur)))
+                      (case (unescape-bytes (subbytes bytes start cur))
+                        [(left _) (bad-input)]
+                        [(right v)
+                         (lex-result (bytes-lexeme v) (lexer bytes (+ 1 cur)))])
                       (bad-input)))))))
-
-  (define (extract-lexed-bytes
-            [src : Bytes] [src-offset : Int] [src-end : Int] [dest : Bytes] [dest-offset : Int])
-    : Bytes
-    (if (= src-offset src-end)
-        dest
-        (let ([byte (bytes-ref/u8 src src-offset)])
-          (if (back-slash? byte)
-              (let ([src-offset (+ 1 src-offset)])
-                (let ([byte (bytes-ref src src-offset)])
-                  (if (double-quote? (u8 byte))
-                      (begin
-                        (bytes-set! dest dest-offset (u8 byte))
-                        (extract-lexed-bytes src (+ 1 src-offset) src-end dest (+ 1 dest-offset)))
-                      (if (= byte 110) ;; n
-                          (begin
-                            (bytes-set! dest dest-offset (u8 10)) ;; newline
-                            (extract-lexed-bytes src (+ 1 src-offset) src-end dest (+ 1 dest-offset)))
-                          (if (back-slash? (u8 byte))
-                              (begin
-                                (bytes-set! dest dest-offset (u8 92)) ;; backslash
-                                (extract-lexed-bytes src (+ 1 src-offset) src-end dest (+ 1 dest-offset)))
-                              (if (= byte 114) ;; n
-                                  (begin
-                                    (bytes-set! dest dest-offset (u8 13)) ;; carriage return
-                                    (extract-lexed-bytes src (+ 1 src-offset) src-end dest (+ 1 dest-offset)))
-                                  (panic #"Unknown escape")))))))
-              (begin
-                (bytes-set! dest dest-offset byte)
-                (extract-lexed-bytes src (+ 1 src-offset) src-end dest (+ 1 dest-offset)))))))
 
   (define (lex-decimal [bytes : Bytes] [start : Int] [cur : Int]) : Result
     (if (= (bytes-length bytes) cur)

@@ -130,6 +130,30 @@ yaspl_bootstrap_library(
   ]
 )
 
+yaspl_bootstrap_library(
+  name = "byte-escapes",
+  srcs = ["byte-escapes.yaspl"],
+  deps = [
+    ":bytes",
+    ":either",
+  ]
+)
+
+
+yaspl_test(
+  name = "byte-escapes-test",
+  main_module = "byte_escapes_test",
+  srcs = ["byte-escapes-test.yaspl"],
+  deps = [
+    ":byte-escapes",
+    ":bytes",
+    ":list",
+    ":yunit",
+  ]
+)
+
+
+
 yaspl_test(
   name = "bytes-test",
   main_module = "bytes_test",
@@ -369,6 +393,7 @@ yaspl_bootstrap_library(
   deps = [
     ":boolean",
     ":bytes",
+    ":byte-escapes",
     ":io",
     ":numbers",
   ]
