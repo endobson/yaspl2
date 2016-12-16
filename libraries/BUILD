@@ -659,7 +659,6 @@ yaspl_test(
   ]
 )
 
-
 yaspl_bootstrap_library(
   name = "sexp-parser",
   srcs = ["sexp-parser.yaspl"],
@@ -682,6 +681,29 @@ yaspl_test(
     ":either",
     ":list",
     ":sexp-parser",
+    ":yunit",
+  ]
+)
+
+yaspl_bootstrap_library(
+  name = "sexp-printer",
+  srcs = ["sexp-printer.yaspl"],
+  deps = [
+    ":sexp-parser",
+    ":join-list",
+  ]
+)
+
+yaspl_test(
+  name = "sexp-printer-test",
+  main_module = "sexp_printer_test",
+  srcs = ["sexp-printer-test.yaspl"],
+  deps = [
+    ":bytes",
+    ":either",
+    ":list",
+    ":sexp-parser",
+    ":sexp-printer",
     ":yunit",
   ]
 )
