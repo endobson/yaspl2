@@ -22,7 +22,6 @@ filegroup(
   data = [":main-stub_lib.srcs", ":main-stub_lib.src.list"]
 )
 
-
 yaspl_binary(
   name = "compiler",
   main_module = "compiler_main",
@@ -65,43 +64,10 @@ yaspl_binary(
   deps = [":main-stub_lib"]
 )
 
-
 yaspl_binary(
   name = "print-stack-function",
   main_module = "print_stack_function",
   deps = [":print-stack-function_lib"]
-)
-
-yaspl_binary(
-  name = "thread-example",
-  main_module = "thread_example",
-  deps = [":thread-example_lib"]
-)
-
-yaspl_binary(
-  name = "true",
-  main_module = "true",
-  deps = [":true_lib"]
-)
-
-yaspl_binary(
-  name = "wc",
-  main_module = "wc",
-  deps = [":wc_lib"]
-)
-
-
-yaspl_binary(
-  name = "hello-world",
-  main_module = "hello_world",
-  deps = [":hello-world_lib"]
-)
-
-
-yaspl_binary(
-  name = "udp-echo-server",
-  main_module = "udp_echo_server",
-  deps = [":udp-echo-server_lib"]
 )
 
 yaspl_library(
@@ -686,34 +652,12 @@ yaspl_test(
   ]
 )
 
-yaspl_bootstrap_library(
-  name = "true_lib",
-  srcs = ["true.yaspl"],
-  deps = [],
-)
-
-yaspl_library(
-  name = "hello-world_lib",
-  srcs = ["hello-world.yaspl"],
-  deps = [],
-)
-
-
 yaspl_library(
   name = "tcp",
   srcs = ["tcp.yaspl"],
   deps = [
     ":ip",
     "//libraries/data:tuples",
-  ]
-)
-
-yaspl_library(
-  name = "thread-example_lib",
-  srcs = ["thread-example.yaspl"],
-  deps = [
-    ":io",
-    ":mach",
   ]
 )
 
@@ -749,17 +693,6 @@ yaspl_library(
 )
 
 yaspl_library(
-  name = "udp-echo-server_lib",
-  srcs = ["udp-echo-server.yaspl"],
-  deps = [
-    ":io",
-    ":ip",
-    ":udp",
-    "//libraries/data:tuples",
-  ]
-)
-
-yaspl_library(
   name = "unused-imports",
   srcs = ["unused-imports.yaspl"],
   deps = [
@@ -788,14 +721,6 @@ yaspl_bootstrap_library(
   ]
 )
 
-
-yaspl_library(
-  name = "wc_lib",
-  srcs = ["wc.yaspl"],
-  deps = [
-    "//libraries/data:numbers",
-  ]
-)
 
 yaspl_bootstrap_library(
   name = "x86-64-stack-machine",
