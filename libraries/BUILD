@@ -99,7 +99,8 @@ yaspl_test(
     "//libraries/data:bytes",
     "//libraries/data:list",
     ":yunit",
-  ]
+  ],
+  size = "small",
 )
 
 yaspl_test(
@@ -111,7 +112,8 @@ yaspl_test(
     "//libraries/data:bytes",
     "//libraries/data:list",
     ":yunit",
-  ]
+  ],
+  size = "small",
 )
 
 yaspl_bootstrap_library(
@@ -310,7 +312,8 @@ yaspl_test(
   deps = [
     "//libraries/data:list",
     ":yunit",
-  ]
+  ],
+  size = "small",
 )
 
 
@@ -336,7 +339,8 @@ yaspl_test(
     "//libraries/data:list",
     ":lexer",
     ":yunit",
-  ]
+  ],
+  size = "small",
 )
 
 yaspl_bootstrap_library(
@@ -529,7 +533,8 @@ yaspl_test(
     "//libraries/data:list",
     ":sexp-parser",
     ":yunit",
-  ]
+  ],
+  size = "small",
 )
 
 yaspl_bootstrap_library(
@@ -552,7 +557,8 @@ yaspl_test(
     ":sexp-parser",
     ":sexp-printer",
     ":yunit",
-  ]
+  ],
+  size = "small",
 )
 
 
@@ -649,7 +655,8 @@ yaspl_test(
   deps = [
     "//libraries/data:list",
     ":yunit",
-  ]
+  ],
+  size = "small",
 )
 
 yaspl_library(

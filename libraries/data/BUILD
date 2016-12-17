@@ -93,7 +93,8 @@ yaspl_test(
     ":maybe",
     ":set",
     "//libraries:yunit",
-  ]
+  ],
+  size = "small",
 )
 
 yaspl_bootstrap_library(
