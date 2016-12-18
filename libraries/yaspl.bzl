@@ -25,17 +25,10 @@ def _lib_impl(ctx):
 
   ctx.action(
     inputs = list(transitive_srcs) + direct_signatures + [ctx.executable._library_compiler],
-    outputs = [ctx.outputs.object],
+    outputs = [ctx.outputs.object, ctx.outputs.signature],
     mnemonic = "YasplCompile",
     executable = ctx.executable._library_compiler,
-    arguments = [ctx.outputs.object.path] + list(transitive_src_paths)
-  )
-
-  ctx.action(
-    inputs = [ctx.outputs.object],
-    outputs = [ctx.outputs.signature],
-    mnemonic = "YasplComputeSignature",
-    command = ["touch", ctx.outputs.signature.path, ctx.outputs.signature.path],
+    arguments = [ctx.outputs.object.path, ctx.outputs.signature.path] + list(transitive_src_paths)
   )
 
 
