@@ -13,6 +13,22 @@ yaspl_library(
 )
 
 yaspl_binary(
+  name = "env",
+  main_module = "env",
+  deps = [":env_lib"]
+)
+
+yaspl_library(
+  name = "env_lib",
+  srcs = ["env.yaspl"],
+  deps = [
+    "//libraries:io",
+    "//libraries/data:list",
+  ]
+)
+
+
+yaspl_binary(
   name = "thread-example",
   main_module = "thread_example",
   deps = [":thread-example_lib"]
