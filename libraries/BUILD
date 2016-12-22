@@ -348,7 +348,6 @@ yaspl_bootstrap_library(
   srcs = ["library-compiler-main.yaspl"],
   deps = [
     "//libraries/data:bytes",
-    "//libraries/data:dict",
     "//libraries/data:either",
     ":io",
     ":compiler_lib",
@@ -357,7 +356,6 @@ yaspl_bootstrap_library(
     ":sexp-parser",
     ":source-language",
     ":intermediate-to-stack",
-    ":stack-machine",
     ":stack-machine-optimizer",
     "//libraries/data:tuples",
     ":type-checker",
