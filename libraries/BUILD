@@ -460,12 +460,21 @@ yaspl_bootstrap_library(
 )
 
 yaspl_bootstrap_library(
+  name = "module-signature",
+  srcs = ["module-signature.yaspl"],
+  deps = [
+    "//libraries/data:dict",
+  ]
+)
+
+yaspl_bootstrap_library(
   name = "prim-implementation",
   srcs = ["prim-implementation.yaspl"],
   deps = [
     "//libraries/data:dict",
     "//libraries/data:bytes",
-    ":intermediate-to-module-signature",
+    ":module-signature",
+    ":intermediate-to-static-module-signature",
     "//libraries/data:list",
     ":stack-machine",
     "//libraries/data:tuples",
@@ -597,16 +606,17 @@ yaspl_bootstrap_library(
   name = "intermediate-to-module-signature",
   srcs = ["intermediate-to-module-signature.yaspl"],
   deps = [
-    "//libraries/data:bytes",
-    "//libraries/data:dict",
-    "//libraries/data:either",
     ":environment",
-    "//libraries/data:join-list",
-    "//libraries/data:list",
-    "//libraries/data:maybe",
+    ":module-signature",
     ":source-language",
     ":source-to-intermediate-language",
     ":stack-machine",
+    "//libraries/data:bytes",
+    "//libraries/data:dict",
+    "//libraries/data:either",
+    "//libraries/data:join-list",
+    "//libraries/data:list",
+    "//libraries/data:maybe",
     "//libraries/data:tuples",
   ]
 )
@@ -616,17 +626,18 @@ yaspl_bootstrap_library(
   name = "intermediate-to-stack",
   srcs = ["intermediate-to-stack.yaspl"],
   deps = [
-    "//libraries/data:bytes",
-    "//libraries/data:dict",
-    "//libraries/data:either",
     ":environment",
     ":intermediate-to-module-signature",
-    "//libraries/data:join-list",
-    "//libraries/data:list",
-    "//libraries/data:maybe",
+    ":module-signature",
     ":source-language",
     ":source-to-intermediate-language",
     ":stack-machine",
+    "//libraries/data:bytes",
+    "//libraries/data:dict",
+    "//libraries/data:either",
+    "//libraries/data:join-list",
+    "//libraries/data:list",
+    "//libraries/data:maybe",
     "//libraries/data:tuples",
   ]
 )
@@ -715,13 +726,14 @@ yaspl_bootstrap_library(
   name = "validator",
   srcs = ["validator.yaspl"],
   deps = [
+    ":source-language",
+    ":module-signature",
     "//libraries/data:bytes",
     "//libraries/data:dict",
     "//libraries/data:list",
     "//libraries/data:maybe",
     "//libraries/data:multi-set",
-    ":source-language",
-    ":intermediate-to-module-signature",
+    "//libraries/data:set",
     "//libraries/data:tuples",
   ]
 )
