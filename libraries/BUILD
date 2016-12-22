@@ -468,6 +468,29 @@ yaspl_bootstrap_library(
 )
 
 yaspl_bootstrap_library(
+  name = "module-signature-serialization",
+  srcs = ["module-signature-serialization.yaspl"],
+  deps = [
+    ":module-signature",
+    "//libraries/data:dict",
+    "//libraries/data:either",
+  ]
+)
+
+yaspl_test(
+  name = "module-signature-serialization-test",
+  main_module = "module_signature_serialization_test",
+  srcs = ["module-signature-serialization-test.yaspl"],
+  deps = [
+    ":module-signature",
+    ":module-signature-serialization",
+    ":yunit",
+    "//libraries/data:list",
+  ]
+)
+
+
+yaspl_bootstrap_library(
   name = "prim-implementation",
   srcs = ["prim-implementation.yaspl"],
   deps = [
