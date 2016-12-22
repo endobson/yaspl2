@@ -75,6 +75,20 @@ yaspl_library(
   ]
 )
 
+yaspl_test(
+  name = "regexp-test",
+  main_module = "regexp_test",
+  srcs = ["regexp-test.yaspl"],
+  deps = [
+    ":boolean",
+    ":list",
+    ":regexp",
+    "//libraries:yunit",
+  ],
+  size = "small",
+)
+
+
 yaspl_bootstrap_library(
   name = "set",
   srcs = ["set.yaspl"],
