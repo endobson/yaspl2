@@ -119,6 +119,7 @@
       (rep-stosq)
       (repe-cmpsb)
       (repne-scasb)
+      (repne-scasq)
       (ret)
       (sete [reg Register])
       (setg [reg Register])
@@ -452,6 +453,7 @@
       [(rep-stosq) (mc-bytes (varargs bytes #xF3 #x48 #xAB))]
       [(repe-cmpsb) (mc-bytes (varargs bytes #xF3 #x48 #xA6))]
       [(repne-scasb) (mc-bytes (varargs bytes #xF2 #x48 #xAE))]
+      [(repne-scasq) (mc-bytes (varargs bytes #xF2 #x48 #xAF))]
       [(ret) (mc-bytes (varargs bytes #xC3))]
       [(sete reg)
        (mc-bytes (double-byte-op/M #x94 0 #f reg))]
@@ -1027,6 +1029,8 @@
        (single-jl #"repe cmpsb")]
       [(repne-scasb)
        (single-jl #"repne scasb")]
+      [(repne-scasq)
+       (single-jl #"repne scasq")]
       [(ret)
        (single-jl #"ret")]
       [(sete reg)
@@ -1245,15 +1249,31 @@
               ;; Save heap to %r15 which is our bump pointer
               (movq (reg (rax)) (reg (r15)))
 
-              ;; Construct args
-              (popq (reg (r8))) ; r8 is the number of c strings
+              ;; Ignore number of args as we want to reuse code for environment.
+              (addq (imm 8) (rsp))
+              ;; Clear direction for all the scans that will be done when 
+              (cld)
+
+              ;; Count number of args
+              (movq (reg (rsp)) (reg (rdi)))
+              (movq (imm 0) (reg (rax)))
+              ;; Assumption: Strings cannot be longer than 2^64-1
+              ;; Loads treat the immediate as a 32 bit signed number, which is sign extended.
+              ;; Then repne-scasq treats it as unsigned which means -1 => 2^64-1
+              (movq (imm (- 0 1)) (reg (rcx)))
+              (repne-scasq)
+              (notq (rcx))
+              (decq (rcx))
+              (movq (reg (rcx)) (reg (r8)))
+
+
               (movq (reg (r15)) (reg (r10))) ; r10 is the array of bytes
               (movq (reg (r10)) (reg (r11))) ; r11 is the address of the last bytes put into the array
 
-              (movq (reg (r8)) (mem (r15) 0))
-              (leaq (scaled (r15) (scale-8) (r8) 8) (r15))
+              (movq (reg (r8)) (mem (r10) 0))
+              (leaq (scaled (r10) (scale-8) (r8) 8) (r15))
 
-              (cld)))
+              (jmp #"start_copy_args_test")))
 
           (basic-block #"start_copy_args_test"
             (varargs join-list
@@ -1286,16 +1306,73 @@
               (movq (reg (rdi)) (reg (r15)))
               (jmp #"start_copy_args_test")))
 
-
-          ;; Call main and then exit
           (basic-block #"start_copy_args_end"
             (varargs join-list
 
+              ;; Count number of env
+              (movq (reg (rsp)) (reg (rdi)))
+              (movq (imm 0) (reg (rax)))
+              ;; Assumption: Strings cannot be longer than 2^64-1
+              ;; Loads treat the immediate as a 32 bit signed number, which is sign extended.
+              ;; Then repne-scasq treats it as unsigned which means -1 => 2^64-1
+              (movq (imm (- 0 1)) (reg (rcx)))
+              (repne-scasq)
+              (notq (rcx))
+              (decq (rcx))
+              (movq (reg (rcx)) (reg (r8)))
 
+              (movq (reg (r15)) (reg (r14))) ; r14 is the array of bytes
+              (movq (reg (r14)) (reg (r11))) ; r11 is the address of the last bytes put into the array
+
+              (movq (reg (r8)) (mem (r14) 0))
+              (leaq (scaled (r14) (scale-8) (r8) 8) (r15))
+
+              (jmp #"start_copy_env_test")))
+
+          (basic-block #"start_copy_env_test"
+            (varargs join-list
+              (popq (reg (r9))) ; r9 is now the current string
+              (cmpq (imm 0) (reg (r9)))
+              (je #"start_copy_env_end")))
+
+          (basic-block #"start_copy_env_body"
+            (varargs join-list
+
+              ;; Count string length
+              (movq (reg (r9)) (reg (rdi)))
+              (movq (imm 0) (reg (rax)))
+              ;; Assumption: Strings cannot be longer than 2^64-1
+              ;; Loads treat the immediate as a 32 bit signed number, which is sign extended.
+              ;; Then repne-scasb treats it as unsigned which means -1 => 2^64-1
+              (movq (imm (- 0 1)) (reg (rcx)))
+              (repne-scasb)
+              (notq (rcx))
+              (decq (rcx))
+
+              ;; Copy bytes
+              (addq (imm 8) (r11))
+              (movq (reg (r15)) (mem (r11) 0))
+              (movq (reg (rcx)) (mem (r15) 0))
+              (addq (imm 8) (r15))
+              (movq (reg (r9)) (reg (rsi)))
+              (movq (reg (r15)) (reg (rdi)))
+              (rep-movsb)
+              (movq (reg (rdi)) (reg (r15)))
+              (jmp #"start_copy_env_test")))
+
+
+          (basic-block #"start_copy_env_end"
+            (varargs join-list
+              (nop)))
+
+
+          ;; Call main and then exit
+          (basic-block #"start_call_main"
+            (varargs join-list
 
               ;; Set up initial base pointer
               (movq (imm 0) (reg (rbp)))
-              (movq (reg (r10)) (reg (rdi)))
+              (movq (reg (r10)) (reg (rdi))) ;; Arguments
               (pushq (reg (rdi)))
               (movq (imm 0) (reg (rsi)))
               (pushq (reg (rsi)))
@@ -1303,6 +1380,8 @@
               (pushq (reg (rdx)))
               (movq (imm 2) (reg (rcx)))
               (pushq (reg (rcx)))
+              (movq (reg (r14)) (reg (r8))) ;; Environment
+              (pushq (reg (r8)))
               (pushq (imm 0)) ;; Bogus closure
               (call (bytes-append (varargs list #"y" main-function-name #"_code")))
               ;; Closure is still on the stack
