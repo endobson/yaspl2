@@ -16,6 +16,18 @@ yaspl_bootstrap_library(
   ]
 )
 
+yaspl_test(
+  name = "bytes-test",
+  main_module = "bytes_test",
+  srcs = ["bytes-test.yaspl"],
+  deps = [
+    ":boolean",
+    ":bytes",
+    "//libraries:yunit",
+    ":list",
+  ]
+)
+
 yaspl_bootstrap_library(
   name = "dict",
   srcs = ["dict.yaspl"],
