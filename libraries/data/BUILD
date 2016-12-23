@@ -42,9 +42,23 @@ yaspl_bootstrap_library(
   srcs = ["list.yaspl"],
   deps = [
     ":either",
-    ":maybe"
+    ":maybe",
+    ":tuples",
   ]
 )
+
+
+yaspl_test(
+  name = "list-test",
+  main_module = "list_test",
+  srcs = ["list-test.yaspl"],
+  deps = [
+    ":boolean",
+    "//libraries:yunit",
+    ":list",
+  ]
+)
+
 
 yaspl_bootstrap_library(
   name = "maybe",
