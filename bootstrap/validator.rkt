@@ -279,8 +279,10 @@
           (match (hash-ref type-env def-name)
             [(fun-ty type-vars arg-types result-type)
              (let ([values (foldl (λ (k v h) (hash-set h k v)) type-env args arg-types)])
-               ((type-check/env (binding-env values inductive-signatures pattern-env type-name-env))
-                body result-type))])]))
+               (let ([type-name-env
+                       (foldl (λ (k h) (hash-set h k (type-var-ty k))) type-name-env type-vars)])
+                 ((type-check/env (binding-env values inductive-signatures pattern-env type-name-env))
+                  body result-type)))])]))
 
      (define exported-value-bindings
        (for/hash ([export (exports&-values exports)])
