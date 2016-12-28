@@ -473,6 +473,7 @@ yaspl_bootstrap_library(
   deps = [
     ":module-signature",
     ":sexp-parser",
+    ":sexp-printer",
     "//libraries/data:dict",
     "//libraries/data:either",
   ]
