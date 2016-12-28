@@ -472,6 +472,7 @@ yaspl_bootstrap_library(
   srcs = ["module-signature-serialization.yaspl"],
   deps = [
     ":module-signature",
+    ":sexp-parser",
     "//libraries/data:dict",
     "//libraries/data:either",
   ]
