@@ -35,6 +35,7 @@ yaspl_bootstrap_library(
     ":list",
     ":maybe",
     ":tuples",
+    ":set",
   ]
 )
 
@@ -96,6 +97,7 @@ yaspl_bootstrap_library(
   srcs = ["multi-set.yaspl"],
   deps = [
     ":dict",
+    ":set",
   ]
 )
 
