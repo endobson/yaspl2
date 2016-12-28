@@ -4,6 +4,14 @@
       #:types (OutputPort Bytes Boolean Void Int)
       #:values (void)
       #:patterns ())
+    (maybe
+      #:types (Maybe)
+      #:values ()
+      #:patterns (just nothing))
+    (tuples
+      #:types (Tuple2)
+      #:values (tuple2)
+      #:patterns (tuple2))
     (list
       #:types (List)
       #:values (empty cons)
@@ -11,19 +19,30 @@
     (io write-all-bytes newline write-line))
   (export
     #:types (TestCase)
-    #:values (yunit/main test-case)
+    #:values (yunit/main test-case new-test-case failure)
     #:patterns ())
   (types
     (define-type TestCase
-      (test-case [name Bytes] [run (-> Boolean)])))
+      (test-case [name Bytes] [run (-> Boolean)])
+      (new-test-case [name Bytes] [run (-> (Maybe FailedAssertion))]))
 
-  (define (run-test-cases [tests : (List TestCase)]) : (List Bytes)
+    (define-type FailedAssertion
+      (silent-failure)
+      (failure [message Bytes])
+      (unequal [expected Bytes] [actual Bytes])))
+
+  (define (run-test-cases [tests : (List TestCase)]) : (List (Tuple2 Bytes FailedAssertion))
     (case tests
       [(empty) (empty)]
       [(cons (test-case name action) tests)
        (if (action)
            (run-test-cases tests)
-           (cons name (run-test-cases tests)))]))
+           (cons (tuple2 name (silent-failure)) (run-test-cases tests)))]
+      [(cons (new-test-case name action) tests)
+       (case (action)
+         [(nothing) (run-test-cases tests)]
+         [(just f)
+          (cons (tuple2 name f) (run-test-cases tests))])]))
 
   (define (write-indented-lines [lines : (List Bytes)] [out : OutputPort]) : Void
     (case lines
@@ -31,7 +50,15 @@
       [(cons line lines)
        (begin
          (write-all-bytes #"  " out)
-         (write-all-bytes line out)
+         (case line
+           [(tuple2 name f)
+            (begin
+              (write-all-bytes name out)
+              (write-all-bytes #": " out)
+              (case f
+                [(silent-failure) (void)]
+                [(failure m) (write-all-bytes m out)]
+                [(unequal x y) (write-all-bytes #"unequal" out)]))])
          (newline out)
          (write-indented-lines lines out))]))
 
