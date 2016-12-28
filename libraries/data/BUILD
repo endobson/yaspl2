@@ -38,6 +38,20 @@ yaspl_bootstrap_library(
   ]
 )
 
+yaspl_test(
+  name = "dict-test",
+  main_module = "dict_test",
+  srcs = ["dict-test.yaspl"],
+  deps = [
+    ":dict",
+    ":list",
+    ":maybe",
+    ":set",
+    "//libraries:yunit",
+  ]
+)
+
+
 yaspl_bootstrap_library(
   name = "either",
   srcs = ["either.yaspl"],
