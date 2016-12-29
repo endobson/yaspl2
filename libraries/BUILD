@@ -464,6 +464,7 @@ yaspl_bootstrap_library(
   name = "module-signature",
   srcs = ["module-signature.yaspl"],
   deps = [
+    ":types",
     "//libraries/data:dict",
   ]
 )
