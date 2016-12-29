@@ -614,18 +614,18 @@ yaspl_bootstrap_library(
   name = "source-to-intermediate-language",
   srcs = ["source-to-intermediate-language.yaspl"],
   deps = [
-    "//libraries/data:bytes",
-    "//libraries/data:dict",
     ":free-variables",
     ":intermediate-language",
-    ":intermediate-to-static-module-signature",
+    ":module-signature",
+    ":source-language",
+    ":types",
+    "//libraries/data:bytes",
+    "//libraries/data:dict",
     "//libraries/data:list",
     "//libraries/data:maybe",
     "//libraries/data:numbers",
     "//libraries/data:set",
-    ":source-language",
     "//libraries/data:tuples",
-    ":types",
   ]
 )
 
@@ -656,6 +656,7 @@ yaspl_bootstrap_library(
   deps = [
     ":environment",
     ":intermediate-to-module-signature",
+    ":intermediate-to-static-module-signature",
     ":module-signature",
     ":source-language",
     ":source-to-intermediate-language",
