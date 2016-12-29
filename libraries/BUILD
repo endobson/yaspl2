@@ -144,6 +144,7 @@ yaspl_bootstrap_library(
   name = "environment",
   srcs = ["environment.yaspl"],
   deps = [
+    ":types",
     "//libraries/data:dict",
     "//libraries/data:bytes",
     "//libraries/data:list",
