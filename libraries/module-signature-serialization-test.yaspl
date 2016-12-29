@@ -2,19 +2,22 @@
   (import
     (prim
       #:types (Array Bytes InputPort OutputPort Boolean Int)
-      #:values ()
+      #:values (=)
       #:patterns ())
-    (list list)
+    (list list append empty)
     (bytes bytes=? bytes-append)
     (maybe
       #:types (Maybe) 
       #:values (just nothing)
-      #:patterns ())
+      #:patterns (just nothing))
     (yunit
       #:types (FailedAssertion) 
-      #:values (yunit/main test-case new-test-case failure)
+      #:values (yunit/main test-case new-test-case failure and-check)
       #:patterns ())
-    (dict make-dict dict-add)
+    (dict 
+      #:types (Dict)
+      #:values (make-dict dict-add dict-ref dict-map)
+      #:patterns ())
     (either
       #:types ()
       #:values ()
@@ -36,6 +39,33 @@
           (nothing)
           (just (failure (bytes-append (varargs list #"Expected: " expected #" Actual: " actual)))))))
 
+  (define (A B) (check-dict=?
+                  [val=? : (B B -> Boolean)]
+                  [expected : (Dict A B)]
+                  [actual : (Dict A B)]) : (-> (Maybe FailedAssertion))
+    (and-check
+      (append
+        (dict-map 
+          actual
+          (lambda ([k : A] [v : B])
+            (lambda ()
+               (case (dict-ref expected k)
+                 [(nothing) (just (failure #"Extra key"))]
+                 [(just v2)
+                  (if (val=? v v2)
+                      (nothing)
+                      (just (failure #"Values don't match at key")))]))))
+        (dict-map
+          expected
+          (lambda ([k : A] [v : B])
+            (lambda ()
+              (case (dict-ref actual k)
+                [(nothing) (just (failure #"Missing key"))]
+                [(just v2)
+                 (if (val=? v v2)
+                     (nothing)
+                     (just (failure #"Values don't match at key")))])))))))
+
   (define (test-round-trip [sig : ModuleSignature]) : (-> (Maybe FailedAssertion))
     (lambda ()
       (case (deserialize-module-signature (serialize-module-signature sig))
@@ -44,7 +74,12 @@
         [(right (module-signature name value-exports pattern-exports))
          (case sig
            [(module-signature orig-name orig-value-exports orig-pattern-exports)
-            ((check-bytes=? orig-name name))])])))
+            ((and-check
+               (varargs list
+                 (check-bytes=? orig-name name)
+                 (check-dict=? bytes=? orig-value-exports value-exports)
+                 ;(check-dict=? = orig-pattern-exports pattern-exports)
+                 )))])])))
 
   (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Int
     (yunit/main stderr
