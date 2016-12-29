@@ -347,21 +347,22 @@ yaspl_bootstrap_library(
   name = "library-compiler-main",
   srcs = ["library-compiler-main.yaspl"],
   deps = [
-    "//libraries/data:bytes",
-    "//libraries/data:either",
     ":io",
     ":compiler_lib",
-    "//libraries/data:list",
-    "//libraries/data:maybe",
     ":sexp-parser",
     ":source-language",
     ":intermediate-to-stack",
+    ":module-signature-serialization",
     ":stack-machine-optimizer",
-    "//libraries/data:tuples",
     ":type-checker",
     ":validator",
     ":x86-64-stack-machine",
     ":mach-o-writer2_lib",
+    "//libraries/data:bytes",
+    "//libraries/data:either",
+    "//libraries/data:list",
+    "//libraries/data:maybe",
+    "//libraries/data:tuples",
  ]
 )
 
