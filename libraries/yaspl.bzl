@@ -9,39 +9,55 @@ def _dependent_srcs(ctx):
     dependent_srcs += dep.yaspl_transitive_srcs
   return dependent_srcs
 
-
 def _transitive_objects(ctx):
-  transitive_objects = set(order="link")
+  transitive_objects = set(order="compile")
   for dep in ctx.attr.deps:
     transitive_objects += dep.yaspl_transitive_objects
   return transitive_objects
 
+def _dependent_dep_infos(ctx):
+  dependent_dep_infos = set(order="compile")
+  for dep in ctx.attr.deps:
+    dependent_dep_infos += dep.yaspl_transitive_deps
+  return dependent_dep_infos
+
+
+
 def _lib_impl(ctx):
-  dependent_srcs = _dependent_srcs(ctx)
+  dependent_dep_infos = _dependent_dep_infos(ctx)
+  dependent_src_paths = [dep.source.path for dep in dependent_dep_infos]
+  dependent_srcs = [dep.source for dep in dependent_dep_infos]
+
   transitive_srcs = dependent_srcs + ctx.files.srcs
-  dependent_src_paths = [src.path for src in dependent_srcs]
-  transitive_objects = _transitive_objects(ctx)
   if (len(ctx.files.srcs) != 1):
     fail("Only one source is supported", "srcs")
   src_path = ctx.files.srcs[0].path
+
 
   direct_signatures = []
   for dep in ctx.attr.deps:
     direct_signatures += [dep.yaspl_signature]
 
   ctx.action(
-    inputs = list(transitive_srcs) + direct_signatures + [ctx.executable._library_compiler],
+    inputs = dependent_srcs + direct_signatures + ctx.files.srcs + [ctx.executable._library_compiler],
     outputs = [ctx.outputs.object, ctx.outputs.signature],
     mnemonic = "YasplCompile",
     executable = ctx.executable._library_compiler,
     arguments = [ctx.outputs.object.path, ctx.outputs.signature.path, src_path] + list(dependent_src_paths)
   )
 
+  dep_info = struct(
+    source = ctx.files.srcs[0],
+    object = ctx.outputs.object,
+    signature = ctx.outputs.signature
+  )
+
+  dependent_objects = [dep.object for dep in dependent_dep_infos]
 
   return struct(
-    yaspl_transitive_srcs = transitive_srcs,
-    yaspl_transitive_objects = transitive_objects + [ctx.outputs.object],
-    yaspl_signature = ctx.outputs.signature
+    yaspl_transitive_objects = dependent_objects + [ctx.outputs.object],
+    yaspl_signature = ctx.outputs.signature,
+    yaspl_transitive_deps = list(dependent_dep_infos + [dep_info])
   )
 
 def _src_impl(ctx):
@@ -90,9 +106,6 @@ def _bin_impl(ctx):
 
 _yaspl_src_file_type = FileType([".yaspl"])
 
-_src_deps_attr = attr.label_list(
-  providers = ["yaspl_transitive_srcs"],
-)
 
 _bootstrap_library_compiler = attr.label(
  default=Label("//bootstrap:library_compiler"),
@@ -120,7 +133,9 @@ yaspl_library = rule(
       mandatory=True,
       non_empty=True
     ),
-    "deps": _src_deps_attr,
+    "deps": attr.label_list(
+       providers = ["yaspl_transitive_deps"],
+    ),
     "_library_compiler": _bootstrap_library_compiler
   }
 )
@@ -162,7 +177,9 @@ yaspl_srcs = rule(
     "srcs": attr.label_list(
       allow_files=_yaspl_src_file_type,
     ),
-    "deps": _src_deps_attr,
+    "deps": attr.label_list(
+      providers = ["yaspl_transitive_srcs"],
+    )
   }
 )
 
