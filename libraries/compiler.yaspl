@@ -8,7 +8,7 @@
       #:types ()
       #:values ()
       #:patterns (just nothing))
-    (bytes bytes-append)
+    (bytes bytes-append bytes=?)
     (io call-with-input-file read-all-bytes)
     (list
       #:types (List)
@@ -16,7 +16,7 @@
       #:patterns (empty cons))
     (dict
       #:types (Dict)
-      #:values (dict-add)
+      #:values (dict-add merge-dicts* make-dict)
       #:patterns ())
     (tuples
       #:types (Tuple2 Tuple3)
@@ -40,12 +40,11 @@
       #:patterns (trivial-closure-tlo))
     (module-signature
       #:types (ModuleSignature)
-      #:values ()
+      #:values (module-signature-known-functions)
       #:patterns ())
     (source-to-intermediate-language source->intermediate)
     (stack-machine-optimizer optimize-tlos)
-    (prim-implementation prim-signature prim-implementation
-                         prim-known-functions)
+    (prim-implementation prim-signature prim-implementation)
     (validator validate-module)
     (either
       #:types (Either)
@@ -57,21 +56,17 @@
     #:patterns ())
   (types)
 
-  (define (compile-main-module
-            [main-module : Module]
-            [mods : (List Module)])
+  (define (compile-main-module [main-module : Module] [mods : (List Module)])
     : (Either Bytes (Tuple2 (List TopLevelObject) ModuleSignature))
     (compile-main-module*
       main-module
       mods
-      (cons (prim-signature) (empty))
-      (prim-known-functions)))
+      (cons (prim-signature) (empty))))
 
   (define (compile-main-module*
             [main-module : Module]
             [mods : (List Module)]
-            [sigs : (List ModuleSignature)]
-            [known-funcs : (Dict Bytes Bytes)])
+            [sigs : (List ModuleSignature)])
     : (Either Bytes (Tuple2 (List TopLevelObject) ModuleSignature))
     (case (compile-module-list* mods sigs (empty))
       [(left v)
@@ -83,8 +78,9 @@
          [(right (compiled-module new-tlos sig))
           (right
             (tuple2
-              (optimize-tlos new-tlos (add-known-functions new-tlos
-                                        (add-known-functions tlos known-funcs)))
+              (optimize-tlos new-tlos
+                (merge-dicts* (make-dict bytes=?) (map module-signature-known-functions
+                                                       (cons sig sigs))))
               sig))])]))
 
   (define (compile-modules [mods : (List Module)])
@@ -102,10 +98,10 @@
     (case (compile-module-list* mods sigs tlos)
       [(left v)
        (left v)]
-      [(right (tuple2 _ tlos))
+      [(right (tuple2 sigs tlos))
        (right (optimize-tlos
                 (append (prim-implementation) tlos)
-                (add-known-functions tlos (prim-known-functions))))]))
+                (merge-dicts* (make-dict bytes=?) (map module-signature-known-functions sigs))))]))
 
   (define (compile-module-list*
             [mods : (List Module)]
@@ -135,15 +131,6 @@
       [(nothing)
        (let ([intermediate (source->intermediate mod sigs)])
          (compile-module intermediate sigs))]))
-
-  (define (add-known-functions [tlos : (List TopLevelObject)]
-                               [dict : (Dict Bytes Bytes)]) : (Dict Bytes Bytes)
-    (case tlos
-      [(empty) dict]
-      [(cons (trivial-closure-tlo name fun-name) tlos)
-       (add-known-functions tlos (dict-add dict name fun-name))]
-      [(cons _ tlos)
-       (add-known-functions tlos dict)]))
 
   (define (parse-module-files [modules : (List Bytes)])
     : (Either Bytes (List Module))
