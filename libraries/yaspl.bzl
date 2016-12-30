@@ -1,9 +1,14 @@
 def _transitive_srcs(ctx):
-  transitive_srcs = set(order="compile")
-  for dep in ctx.attr.deps:
-    transitive_srcs += dep.yaspl_transitive_srcs
+  transitive_srcs = _dependent_srcs(ctx)
   transitive_srcs += ctx.files.srcs
   return transitive_srcs
+
+def _dependent_srcs(ctx):
+  dependent_srcs = set(order="compile")
+  for dep in ctx.attr.deps:
+    dependent_srcs += dep.yaspl_transitive_srcs
+  return dependent_srcs
+
 
 def _transitive_objects(ctx):
   transitive_objects = set(order="link")
@@ -11,13 +16,14 @@ def _transitive_objects(ctx):
     transitive_objects += dep.yaspl_transitive_objects
   return transitive_objects
 
-
-
 def _lib_impl(ctx):
-
-  transitive_srcs = _transitive_srcs(ctx)
+  dependent_srcs = _dependent_srcs(ctx)
+  transitive_srcs = dependent_srcs + ctx.files.srcs
+  dependent_src_paths = [src.path for src in dependent_srcs]
   transitive_objects = _transitive_objects(ctx)
-  transitive_src_paths = [src.path for src in transitive_srcs]
+  if (len(ctx.files.srcs) != 1):
+    fail("Only one source is supported", "srcs")
+  src_path = ctx.files.srcs[0].path
 
   direct_signatures = []
   for dep in ctx.attr.deps:
@@ -28,7 +34,7 @@ def _lib_impl(ctx):
     outputs = [ctx.outputs.object, ctx.outputs.signature],
     mnemonic = "YasplCompile",
     executable = ctx.executable._library_compiler,
-    arguments = [ctx.outputs.object.path, ctx.outputs.signature.path] + list(transitive_src_paths)
+    arguments = [ctx.outputs.object.path, ctx.outputs.signature.path, src_path] + list(dependent_src_paths)
   )
 
 
