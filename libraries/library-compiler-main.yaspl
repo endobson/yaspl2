@@ -6,16 +6,16 @@
       #:patterns ())
     (io write-line call-with-output-file write-all-bytes)
     (list
-      #:types ()
-      #:values (reverse array->list)
+      #:types (List)
+      #:values (reverse array->list map cons empty)
       #:patterns (empty cons))
     (x86-64-stack-machine convert-objects)
     (mach-o-writer2 write-mach-o-library/fragments)
     (compiler compile-main-module parse-module-files)
     (module-signature-serialization serialize-module-signature)
     (tuples
-      #:types ()
-      #:values ()
+      #:types (Tuple2)
+      #:values (tuple2)
       #:patterns (tuple2))
     (either
       #:types ()
@@ -23,6 +23,18 @@
       #:patterns (left right)))
   (export)
   (types)
+
+
+  ;; Splits the even and odd elements into two separate lists
+  (define (split-inputs [l : (List Bytes)]) : (Tuple2 (List Bytes) (List Bytes))
+    (case l
+      [(empty) (tuple2 (empty) (empty))]
+      [(cons e1 (cons e2 l))
+       (case (split-inputs l)
+         [(tuple2 l1 l2)
+          (tuple2 (cons e1 l1) (cons e2 l2))])]))
+
+
 
   (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Int
     (case (array->list args)
@@ -39,28 +51,30 @@
          (write-line #"No output signature file name supplied." stderr)
          1)]
       [(cons _ (cons output-object-file (cons output-signature-file module-files)))
-       (case (parse-module-files module-files)
-         [(left v)
-          (begin
-            (write-line v stderr)
-            1)]
-         [(right modules)
-          (case modules
-            [(cons main-module other-modules)
-             (case (compile-main-module main-module other-modules)
+       (case module-files
+         [(cons main-module-file mods+sigs)
+          (case (split-inputs mods+sigs)
+            [(tuple2 other-module-files sig-files)
+             (case (parse-module-files (cons main-module-file other-module-files))
                [(left v)
                 (begin
                   (write-line v stderr)
                   1)]
-               [(right (tuple2 objects sig))
-                (case (write-mach-o-library/fragments output-object-file (convert-objects objects))
+               [(right (cons main-module other-modules))
+                (case (compile-main-module main-module other-modules)
                   [(left v)
                    (begin
                      (write-line v stderr)
                      1)]
-                  [(right _)
-                   (begin
-                     (call-with-output-file output-signature-file
-                       (lambda ([output-port : OutputPort])
-                         (write-all-bytes (serialize-module-signature sig) output-port)))
-                     0)])])])])])))
+                  [(right (tuple2 objects sig))
+                   (case (write-mach-o-library/fragments output-object-file (convert-objects objects))
+                     [(left v)
+                      (begin
+                        (write-line v stderr)
+                        1)]
+                     [(right _)
+                      (begin
+                        (call-with-output-file output-signature-file
+                          (lambda ([output-port : OutputPort])
+                            (write-all-bytes (serialize-module-signature sig) output-port)))
+                        0)])])])])])])))
