@@ -157,3 +157,14 @@ yaspl_bootstrap_library(
   name = "tuples",
   srcs = ["tuples.yaspl"],
 )
+
+yaspl_test(
+  name = "tuples-test",
+  main_module = "tuples_test",
+  srcs = ["tuples-test.yaspl"],
+  deps = [
+    ":boolean",
+    ":tuples",
+    "//libraries:yunit",
+  ]
+)
