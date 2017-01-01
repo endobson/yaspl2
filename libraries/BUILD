@@ -695,9 +695,23 @@ yaspl_bootstrap_library(
   name = "types",
   srcs = ["types.yaspl"],
   deps = [
+    "//libraries/data:bytes",
+    "//libraries/data:list",
+    "//libraries/data:tuples",
+  ]
+)
+
+yaspl_test(
+  name = "types-test",
+  main_module = "types_test",
+  srcs = ["types-test.yaspl"],
+  deps = [
+    ":types",
+    ":yunit",
     "//libraries/data:list",
   ]
 )
+
 
 yaspl_bootstrap_library(
   name = "type-checker",
