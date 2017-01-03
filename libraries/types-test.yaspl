@@ -4,6 +4,7 @@
       #:types (Array Bytes InputPort OutputPort Boolean Int)
       #:values ()
       #:patterns ())
+    (bytes bytes-append bytes=?)
     (maybe
       #:types (Maybe)
       #:values (just nothing)
@@ -14,7 +15,8 @@
       #:patterns ())
     (types
       #:types (Type Kind)
-      #:values (var-type type=? abstract-type fun-type star-kind type-constructor fun-kind kind=?)
+      #:values (var-type type=? abstract-type fun-type star-kind type-constructor fun-kind kind=?
+                serialize-kind serialize-type)
       #:patterns ())
     (list
       #:types ()
@@ -46,6 +48,23 @@
       (if (kind=? k1 k2)
           (just (failure #"Equal kinds"))
           (nothing))))
+
+  (define (check-kind-serialization [k : Kind] [expected : Bytes]) : (-> (Maybe FailedAssertion))
+    (lambda ()
+      (let ([actual (serialize-kind k)])
+        (if (bytes=? actual expected)
+            (nothing)
+            (just (failure (bytes-append
+                             (varargs list #"Expected: " expected #" Actual: " actual))))))))
+
+  (define (check-type-serialization [t : Type] [expected : Bytes]) : (-> (Maybe FailedAssertion))
+    (lambda ()
+      (let ([actual (serialize-type t)])
+        (if (bytes=? actual expected)
+            (nothing)
+            (just (failure (bytes-append
+                             (varargs list #"Expected: " expected #" Actual: " actual))))))))
+
 
   (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Int
     (yunit/main stderr
@@ -110,4 +129,38 @@
         (new-test-case #"(* -> *) = (* -> *)"
           (check-kinds-equal?
             (fun-kind (varargs list (star-kind)) (star-kind))
-            (fun-kind (varargs list (star-kind)) (star-kind))))))))
+            (fun-kind (varargs list (star-kind)) (star-kind))))
+
+        (new-test-case #"serialize *"
+          (check-kind-serialization (star-kind) #"*"))
+        (new-test-case #"serialize (() -> *)"
+          (check-kind-serialization (fun-kind (empty) (star-kind)) #"(() -> *)"))
+        (new-test-case #"serialize ((* *) -> *)"
+          (check-kind-serialization (fun-kind (varargs list (star-kind) (star-kind)) (star-kind))
+                                    #"((* *) -> *)"))
+
+        (new-test-case #"serialize a"
+          (check-type-serialization (var-type #"a") #"(var #\"a\")"))
+        (new-test-case #"serialize (a -> b)"
+          (check-type-serialization
+            (fun-type (empty) (varargs list (var-type #"a")) (var-type #"b"))
+            #"(fun () (var #\"a\") (var #\"b\"))"))
+        (new-test-case #"serialize (forall (a b) (a b -> b))"
+          (check-type-serialization
+            (fun-type (varargs list #"a" #"b") (varargs list (var-type #"a") (var-type #"b")) (var-type #"b"))
+            #"(fun (#\"a\" #\"b\") (var #\"a\") (var #\"b\") (var #\"b\"))"))
+        (new-test-case #"serialize Bytes"
+          (check-type-serialization (abstract-type #"prim" #"Bytes" (empty))
+                                    #"(abstract #\"prim\" #\"Bytes\")"))
+        (new-test-case #"serialize (List Bytes)"
+          (check-type-serialization
+            (abstract-type #"list" #"List" (varargs list (abstract-type #"prim" #"Bytes" (empty))))
+            #"(abstract #\"list\" #\"List\" (abstract #\"prim\" #\"Bytes\"))"))
+        (new-test-case #"serialize (Int -> Bytes)"
+          (check-type-serialization
+            (abstract-type #"list" #"List" (varargs list (abstract-type #"prim" #"Bytes" (empty))))
+            #"(abstract #\"list\" #\"List\" (abstract #\"prim\" #\"Bytes\"))"))
+        (new-test-case #"serialize List"
+          (check-type-serialization
+            (type-constructor #"list" #"List" (varargs list (star-kind)))
+            #"(tcon #\"list\" #\"List\" *)"))))))

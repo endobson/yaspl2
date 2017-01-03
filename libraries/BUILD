@@ -695,6 +695,8 @@ yaspl_bootstrap_library(
   name = "types",
   srcs = ["types.yaspl"],
   deps = [
+    ":sexp-parser",
+    ":sexp-printer",
     "//libraries/data:bytes",
     "//libraries/data:list",
     "//libraries/data:tuples",
