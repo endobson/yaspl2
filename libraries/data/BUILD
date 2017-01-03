@@ -92,6 +92,18 @@ yaspl_bootstrap_library(
   srcs = ["maybe.yaspl"],
 )
 
+
+yaspl_test(
+  name = "maybe-test",
+  main_module = "maybe_test",
+  srcs = ["maybe-test.yaspl"],
+  deps = [
+    ":maybe",
+    ":list",
+    "//libraries:yunit",
+  ]
+)
+
 yaspl_bootstrap_library(
   name = "multi-set",
   srcs = ["multi-set.yaspl"],
