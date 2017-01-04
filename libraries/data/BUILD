@@ -48,6 +48,7 @@ yaspl_test(
     ":list",
     ":maybe",
     ":set",
+    ":tuples",
     "//libraries:yunit",
   ]
 )
@@ -81,8 +82,11 @@ yaspl_test(
   srcs = ["list-test.yaspl"],
   deps = [
     ":boolean",
-    "//libraries:yunit",
+    ":bytes",
     ":list",
+    ":maybe",
+    ":tuples",
+    "//libraries:yunit",
   ]
 )
 
@@ -98,8 +102,10 @@ yaspl_test(
   main_module = "maybe_test",
   srcs = ["maybe-test.yaspl"],
   deps = [
+    ":bytes",
     ":maybe",
     ":list",
+    ":tuples",
     "//libraries:yunit",
   ]
 )
@@ -108,6 +114,8 @@ yaspl_bootstrap_library(
   name = "multi-set",
   srcs = ["multi-set.yaspl"],
   deps = [
+    ":maybe",
+    ":list",
     ":dict",
     ":set",
   ]
@@ -137,6 +145,7 @@ yaspl_test(
     ":boolean",
     ":list",
     ":regexp",
+    ":maybe",
     "//libraries:yunit",
   ],
   size = "small",
@@ -176,6 +185,9 @@ yaspl_test(
   srcs = ["tuples-test.yaspl"],
   deps = [
     ":boolean",
+    ":bytes",
+    ":list",
+    ":maybe",
     ":tuples",
     "//libraries:yunit",
   ]

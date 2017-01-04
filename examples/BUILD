@@ -82,6 +82,8 @@ yaspl_library(
     "//libraries:io",
     "//libraries:ip",
     "//libraries:udp",
+    "//libraries/data:bytes",
+    "//libraries/data:numbers",
     "//libraries/data:tuples",
   ]
 )

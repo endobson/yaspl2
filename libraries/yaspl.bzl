@@ -24,31 +24,19 @@ def _dependent_dep_infos(ctx):
 
 
 def _lib_impl(ctx):
-  dependent_dep_infos = _dependent_dep_infos(ctx)
-  dependent_srcs = [dep.source for dep in dependent_dep_infos]
-  dependent_sig_paths = [dep.signature.path for dep in dependent_dep_infos]
-
-  transitive_srcs = dependent_srcs + ctx.files.srcs
   if (len(ctx.files.srcs) != 1):
     fail("Only one source is supported", "srcs")
   src_path = ctx.files.srcs[0].path
 
-
-  # TODO use these instead of the transitive ones
-  direct_signatures = []
-  for dep in ctx.attr.deps:
-    direct_signatures += [dep.yaspl_signature]
-
-  transitive_signatures = set(order="compile")
-  for dep in ctx.attr.deps:
-    transitive_signatures += dep.yaspl_transitive_sigs
+  direct_signatures = [dep.yaspl_signature for dep in ctx.attr.deps]
+  direct_signature_paths = [sig.path for sig in direct_signatures]
 
   ctx.action(
-    inputs = dependent_srcs + list(transitive_signatures) + ctx.files.srcs + [ctx.executable._library_compiler],
+    inputs = direct_signatures + ctx.files.srcs + [ctx.executable._library_compiler],
     outputs = [ctx.outputs.object, ctx.outputs.signature],
     mnemonic = "YasplCompile",
     executable = ctx.executable._library_compiler,
-    arguments = [ctx.outputs.object.path, ctx.outputs.signature.path, src_path] + dependent_sig_paths
+    arguments = [ctx.outputs.object.path, ctx.outputs.signature.path, src_path] + direct_signature_paths
   )
 
   dep_info = struct(
@@ -57,13 +45,13 @@ def _lib_impl(ctx):
     signature = ctx.outputs.signature
   )
 
+  dependent_dep_infos = _dependent_dep_infos(ctx)
   dependent_objects = [dep.object for dep in dependent_dep_infos]
 
   return struct(
     yaspl_transitive_objects = dependent_objects + [ctx.outputs.object],
     yaspl_signature = ctx.outputs.signature,
     yaspl_transitive_deps = list(dependent_dep_infos + [dep_info]),
-    yaspl_transitive_sigs = list(transitive_signatures + [ctx.outputs.signature])
   )
 
 def _src_impl(ctx):

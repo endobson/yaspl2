@@ -96,9 +96,10 @@ yaspl_test(
   srcs = ["byte-escapes-test.yaspl"],
   deps = [
     ":byte-escapes",
-    "//libraries/data:bytes",
-    "//libraries/data:list",
     ":yunit",
+    "//libraries/data:bytes",
+    "//libraries/data:either",
+    "//libraries/data:list",
   ],
   size = "small",
 )
@@ -189,6 +190,9 @@ yaspl_library(
     "//libraries/data:maybe",
     "//libraries/data:numbers",
     "//libraries/data:set",
+    "//libraries/data:tuples",
+    ":source-language",
+    ":sexp-parser",
     ":unused-imports",
   ]
 )
@@ -258,7 +262,12 @@ yaspl_library(
     ":ip",
     ":mach",
     ":tcp",
+    "//libraries/data:bytes",
     "//libraries/data:tuples",
+    "//libraries/data:list",
+    "//libraries/data:maybe",
+    "//libraries/data:numbers",
+    "//libraries/data:regexp",
   ]
 )
 
@@ -288,6 +297,7 @@ yaspl_library(
   deps = [
     "//libraries/data:bytes",
     "//libraries/data:list",
+    "//libraries/data:maybe",
     "//libraries/data:numbers",
     "//libraries/data:regexp",
   ],
@@ -309,10 +319,11 @@ yaspl_bootstrap_library(
   name = "lexer",
   srcs = ["lexer.yaspl"],
   deps = [
-    "//libraries/data:boolean",
-    "//libraries/data:bytes",
     ":byte-escapes",
     ":io",
+    "//libraries/data:boolean",
+    "//libraries/data:bytes",
+    "//libraries/data:either",
     "//libraries/data:numbers",
   ]
 )
@@ -340,6 +351,7 @@ yaspl_bootstrap_library(
     ":sexp-parser",
     ":source-language",
     ":intermediate-to-stack",
+    ":module-signature",
     ":module-signature-serialization",
     ":stack-machine-optimizer",
     ":type-checker",
@@ -358,18 +370,22 @@ yaspl_bootstrap_library(
   name = "compiler_lib",
   srcs = ["compiler.yaspl"],
   deps = [
+    ":intermediate-to-stack",
+    ":io",
+    ":module-signature",
+    ":prim-implementation",
+    ":sexp-parser",
+    ":source-language",
+    ":source-to-intermediate-language",
+    ":stack-machine",
+    ":stack-machine-optimizer",
+    ":validator",
     "//libraries/data:bytes",
     "//libraries/data:dict",
     "//libraries/data:either",
     "//libraries/data:list",
     "//libraries/data:maybe",
-    ":prim-implementation",
-    ":source-language",
-    ":intermediate-to-stack",
-    ":stack-machine",
-    ":stack-machine-optimizer",
     "//libraries/data:tuples",
-    ":validator",
  ]
 )
 
@@ -377,8 +393,11 @@ yaspl_library(
   name = "linker",
   srcs = ["linker.yaspl"],
   deps = [
-    "//libraries/data:list",
     ":mach-o_lib",
+    "//libraries/data:boolean",
+    "//libraries/data:bytes",
+    "//libraries/data:list",
+    "//libraries/data:maybe",
   ]
 )
 
@@ -397,10 +416,11 @@ yaspl_bootstrap_library(
   name = "mach-o_lib",
   srcs = ["mach-o.yaspl"],
   deps = [
+    ":io",
     "//libraries/data:boolean",
     "//libraries/data:bytes",
     "//libraries/data:either",
-    ":io",
+    "//libraries/data:list",
     "//libraries/data:numbers",
   ]
 )
@@ -422,16 +442,20 @@ yaspl_bootstrap_library(
   srcs = ["mach-o-writer2.yaspl"],
   deps = [
     ":io",
-    "//libraries/data:bytes",
-    "//libraries/data:list",
     ":x86-64-stack-machine",
-    "//libraries/data:dict",
     ":prim-implementation",
     ":source-language",
     ":sexp-parser",
-    "//libraries/data:either",
     ":mach-o-writer_lib",
     ":mach-o_lib",
+    "//libraries/data:bytes",
+    "//libraries/data:dict",
+    "//libraries/data:either",
+    "//libraries/data:join-list",
+    "//libraries/data:list",
+    "//libraries/data:maybe",
+    "//libraries/data:set",
+    "//libraries/data:tuples",
   ]
 )
 
@@ -439,12 +463,16 @@ yaspl_bootstrap_library(
   name = "main-stub_lib",
   srcs = ["main-stub.yaspl"],
   deps = [
-    "//libraries/data:bytes",
     ":io",
-    "//libraries/data:list",
     ":stack-machine-optimizer",
     ":x86-64-stack-machine",
     ":mach-o-writer2_lib",
+    ":stack-machine",
+    ":prim-implementation",
+    "//libraries/data:bytes",
+    "//libraries/data:dict",
+    "//libraries/data:either",
+    "//libraries/data:list",
   ]
 )
 
@@ -464,8 +492,12 @@ yaspl_bootstrap_library(
     ":module-signature",
     ":sexp-parser",
     ":sexp-printer",
+    ":types",
+    "//libraries/data:bytes",
     "//libraries/data:dict",
     "//libraries/data:either",
+    "//libraries/data:list",
+    "//libraries/data:maybe",
   ]
 )
 
@@ -476,8 +508,13 @@ yaspl_test(
   deps = [
     ":module-signature",
     ":module-signature-serialization",
+    ":types",
     ":yunit",
+    "//libraries/data:bytes",
+    "//libraries/data:dict",
+    "//libraries/data:either",
     "//libraries/data:list",
+    "//libraries/data:maybe",
   ]
 )
 
@@ -486,11 +523,12 @@ yaspl_bootstrap_library(
   name = "prim-implementation",
   srcs = ["prim-implementation.yaspl"],
   deps = [
+    ":module-signature",
+    ":stack-machine",
+    ":types",
     "//libraries/data:dict",
     "//libraries/data:bytes",
-    ":module-signature",
     "//libraries/data:list",
-    ":stack-machine",
     "//libraries/data:tuples",
     "//libraries/data:set",
   ]
@@ -500,15 +538,17 @@ yaspl_library(
   name = "print-stack-function_lib",
   srcs = ["print-stack-function.yaspl"],
   deps = [
-    "//libraries/data:bytes",
-    "//libraries/data:either",
-    ":io",
-    "//libraries/data:list",
     ":compiler_lib",
+    ":intermediate-to-stack",
+    ":io",
     ":sexp-parser",
     ":source-language",
-    ":intermediate-to-stack",
     ":stack-machine",
+    "//libraries/data:bytes",
+    "//libraries/data:either",
+    "//libraries/data:join-list",
+    "//libraries/data:list",
+    "//libraries/data:numbers",
     "//libraries/data:tuples",
  ]
 )
@@ -517,16 +557,18 @@ yaspl_bootstrap_library(
   name = "stack-machine-optimizer",
   srcs = ["stack-machine-optimizer.yaspl"],
   deps = [
-    "//libraries/data:bytes",
-    "//libraries/data:dict",
-    "//libraries/data:either",
+    ":intermediate-to-stack",
     ":io",
-    "//libraries/data:list",
     ":prim-implementation",
     ":sexp-parser",
     ":source-language",
-    ":intermediate-to-stack",
     ":stack-machine",
+    "//libraries/data:bytes",
+    "//libraries/data:dict",
+    "//libraries/data:either",
+    "//libraries/data:list",
+    "//libraries/data:maybe",
+    "//libraries/data:set",
     "//libraries/data:tuples",
  ]
 )
@@ -535,9 +577,9 @@ yaspl_bootstrap_library(
   name = "sexp-parser",
   srcs = ["sexp-parser.yaspl"],
   deps = [
-    "//libraries/data:either",
     ":io",
     ":lexer",
+    "//libraries/data:either",
     "//libraries/data:list",
     "//libraries/data:maybe",
     "//libraries/data:numbers",
@@ -549,11 +591,12 @@ yaspl_test(
   main_module = "sexp_parser_test",
   srcs = ["sexp-parser-test.yaspl"],
   deps = [
-    "//libraries/data:boolean",
-    "//libraries/data:either",
-    "//libraries/data:list",
     ":sexp-parser",
     ":yunit",
+    "//libraries/data:boolean",
+    "//libraries/data:bytes",
+    "//libraries/data:either",
+    "//libraries/data:list",
   ],
   size = "small",
 )
@@ -563,7 +606,10 @@ yaspl_bootstrap_library(
   srcs = ["sexp-printer.yaspl"],
   deps = [
     ":sexp-parser",
+    "//libraries/data:bytes",
     "//libraries/data:join-list",
+    "//libraries/data:list",
+    "//libraries/data:numbers",
   ]
 )
 
@@ -572,12 +618,13 @@ yaspl_test(
   main_module = "sexp_printer_test",
   srcs = ["sexp-printer-test.yaspl"],
   deps = [
-    "//libraries/data:bytes",
-    "//libraries/data:either",
-    "//libraries/data:list",
     ":sexp-parser",
     ":sexp-printer",
     ":yunit",
+    ":io",
+    "//libraries/data:bytes",
+    "//libraries/data:either",
+    "//libraries/data:list",
   ],
   size = "small",
 )
@@ -625,6 +672,8 @@ yaspl_bootstrap_library(
     ":source-language",
     ":source-to-intermediate-language",
     ":stack-machine",
+    ":types",
+    ":intermediate-language",
     "//libraries/data:bytes",
     "//libraries/data:dict",
     "//libraries/data:either",
@@ -646,6 +695,8 @@ yaspl_bootstrap_library(
     ":source-language",
     ":source-to-intermediate-language",
     ":stack-machine",
+    ":types",
+    ":intermediate-language",
     "//libraries/data:bytes",
     "//libraries/data:dict",
     "//libraries/data:either",
@@ -699,6 +750,7 @@ yaspl_bootstrap_library(
     ":sexp-printer",
     "//libraries/data:bytes",
     "//libraries/data:list",
+    "//libraries/data:maybe",
     "//libraries/data:tuples",
   ]
 )
@@ -710,7 +762,10 @@ yaspl_test(
   deps = [
     ":types",
     ":yunit",
+    "//libraries/data:bytes",
     "//libraries/data:list",
+    "//libraries/data:maybe",
+    "//libraries/data:numbers",
   ]
 )
 
@@ -743,11 +798,12 @@ yaspl_library(
   srcs = ["unused-imports.yaspl"],
   deps = [
     ":source-language",
-    "//libraries/data:list",
     ":validator",
-    "//libraries/data:set",
-    "//libraries/data:multi-set",
     "//libraries/data:bytes",
+    "//libraries/data:list",
+    "//libraries/data:multi-set",
+    "//libraries/data:set",
+    "//libraries/data:tuples",
   ]
 )
 
@@ -760,6 +816,7 @@ yaspl_bootstrap_library(
     ":module-signature",
     "//libraries/data:bytes",
     "//libraries/data:dict",
+    "//libraries/data:either",
     "//libraries/data:list",
     "//libraries/data:maybe",
     "//libraries/data:multi-set",
@@ -773,15 +830,17 @@ yaspl_bootstrap_library(
   name = "x86-64-stack-machine",
   srcs = ["x86-64-stack-machine.yaspl"],
   deps = [
-    "//libraries/data:boolean",
-    "//libraries/data:bytes",
-    "//libraries/data:either",
     ":io",
-    "//libraries/data:list",
-    "//libraries/data:numbers",
     ":prim-implementation",
     ":sexp-parser",
     ":stack-machine",
+    "//libraries/data:boolean",
+    "//libraries/data:bytes",
+    "//libraries/data:either",
+    "//libraries/data:join-list",
+    "//libraries/data:list",
+    "//libraries/data:maybe",
+    "//libraries/data:numbers",
   ]
 )
 
@@ -791,6 +850,8 @@ yaspl_library(
   deps = [
     ":io",
     "//libraries/data:list",
+    "//libraries/data:maybe",
+    "//libraries/data:tuples",
   ]
 )
 
