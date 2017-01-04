@@ -26,9 +26,7 @@ def _dependent_dep_infos(ctx):
 def _lib_impl(ctx):
   dependent_dep_infos = _dependent_dep_infos(ctx)
   dependent_srcs = [dep.source for dep in dependent_dep_infos]
-  dependent_src_sig_paths = []
-  for dep in dependent_dep_infos:
-    dependent_src_sig_paths += [dep.source.path, dep.signature.path]
+  dependent_sig_paths = [dep.signature.path for dep in dependent_dep_infos]
 
   transitive_srcs = dependent_srcs + ctx.files.srcs
   if (len(ctx.files.srcs) != 1):
@@ -50,7 +48,7 @@ def _lib_impl(ctx):
     outputs = [ctx.outputs.object, ctx.outputs.signature],
     mnemonic = "YasplCompile",
     executable = ctx.executable._library_compiler,
-    arguments = [ctx.outputs.object.path, ctx.outputs.signature.path, src_path] + dependent_src_sig_paths
+    arguments = [ctx.outputs.object.path, ctx.outputs.signature.path, src_path] + dependent_sig_paths
   )
 
   dep_info = struct(
