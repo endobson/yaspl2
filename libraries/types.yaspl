@@ -7,7 +7,7 @@
     (bytes bytes=?)
     (list
       #:types (List)
-      #:values (list=? list cons empty append map extract-justs)
+      #:values (list=? list cons empty append map extract-justs reverse)
       #:patterns (cons empty))
     (maybe
       #:types (Maybe)
@@ -26,7 +26,7 @@
     #:types (Type)
     #:values (star-kind fun-kind kind=? serialize-kind
               abstract-type var-type fun-type type-constructor type=? serialize-type
-              kind->sexp sexp->kind)
+              kind->sexp sexp->kind type->sexp sexp->type)
     #:patterns (type-constructor))
   (types
     (define-type Kind
@@ -97,6 +97,42 @@
                    (cons (bytes-sexp mod)
                          (cons (bytes-sexp name)
                                (map kind->sexp args)))))]))
+
+  (define (extract-type-var [sexp : Sexp]) : (Maybe Bytes)
+    (case sexp
+      [(bytes-sexp tv) (just tv)]
+      [_ (nothing)]))
+
+  (define (sexp->type [sexp : Sexp]) : (Maybe Type)
+    (case sexp
+      [(node (cons (symbol-sexp #"var") (cons (bytes-sexp v) (empty))))
+       (just (var-type v))]
+      [(node (cons (symbol-sexp #"fun") (cons (node type-vars) types)))
+       (case (extract-justs (reverse (map sexp->type types)))
+         [(nothing) (nothing)]
+         [(just (empty)) (nothing)]
+         [(just (cons result rev-arg-types))
+          (case (extract-justs (map extract-type-var type-vars))
+            [(nothing) (nothing)]
+            [(just type-vars)
+             (just (fun-type type-vars (reverse rev-arg-types) result))])])]
+      [(node (cons (symbol-sexp #"abstract")
+                   (cons (bytes-sexp mod)
+                         (cons (bytes-sexp name)
+                               types))))
+       (case (extract-justs (map sexp->type types))
+         [(nothing) (nothing)]
+         [(just types)
+          (just (abstract-type mod name types))])]
+      [(node (cons (symbol-sexp #"tcon")
+                   (cons (bytes-sexp mod)
+                         (cons (bytes-sexp name)
+                               kinds))))
+       (case (extract-justs (map sexp->kind kinds))
+         [(nothing) (nothing)]
+         [(just kinds)
+          (just (type-constructor mod name kinds))])]
+      [_ (nothing)]))
 
   (define (serialize-kind [kind : Kind]) : Bytes
     (print-sexp (kind->sexp kind)))
