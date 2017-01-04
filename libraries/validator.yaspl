@@ -21,20 +21,24 @@
       #:types (MultiSet)
       #:values (make-multi-set multi-set-add multi-set-keys multi-set-count multi-set-add-all)
       #:patterns ())
+    (dict
+      #:types ()
+      #:values (dict-keys)
+      #:patterns ())
     (set
       #:types (Set)
       #:values (make-set set->list set-add set-add-all set-member? set-remove-all)
       #:patterns ())
     (list
       #:types (List)
-      #:values (cons empty list map append)
+      #:values (cons empty list map append findf)
       #:patterns (cons empty))
     (source-language
       #:types (Module Expression CaseClause Pattern FunctionDefinition TypeDefinition
                       VariantDefinition VariantField Imports Import PreType)
       #:values (module-definitions module-name module-types variant-field-type case-clause-expr
-                module-exports exports-patterns exports-types exports-values
-                export-local-name export-exported-name)
+                module-imports module-exports exports-patterns exports-types exports-values
+                export-local-name export-exported-name import-exported-name)
       #:patterns (int-literal bytes-literal boolean-literal var-expr if-expr begin-expr app-expr
                   varargs-app-expr let-expr case-expr case-clause bytes-pattern int-pattern
                   lambda-expr
@@ -43,7 +47,7 @@
                   var-pre-type fun-pre-type type-app-pre-type))
     (module-signature
       #:types (ModuleSignature)
-      #:values ()
+      #:values (module-signature-name)
       #:patterns (module-signature)))
   (export
     #:types ()
@@ -73,6 +77,7 @@
            (lambda () (validate-module/duplicate-exported-patterns mod))
            (lambda () (validate-module/duplicate-exported-types mod))
 
+           (lambda () (validate-module/imports-exist mod sigs))
            (lambda () (validate-module/unique-name mod sigs))))]))
 
   (define (run-checks [checks : (List (-> (Maybe Bytes)))]) : (Maybe Bytes)
@@ -630,4 +635,43 @@
     (case exprs
       [(empty) acc]
       [(cons expr exprs)
-       (free-types/exprs exprs env (free-types/expr expr env acc))])))
+       (free-types/exprs exprs env (free-types/expr expr env acc))]))
+
+  (define (A) (first-just [ms : (List (Maybe A))]) : (Maybe A)
+    (case ms
+      [(empty) (nothing)]
+      [(cons (nothing) ms) (first-just ms)]
+      [(cons (just v) ms) (just v)]))
+
+  (define (no-error) : (Maybe Bytes)
+    (nothing))
+
+  (define (validate-imports [imports : (List Import)] [exported : (Set Bytes)])
+    : (Maybe Bytes)
+    (first-just
+      (map (lambda ([import : Import])
+             (if (set-member? exported (import-exported-name import))
+                 (no-error)
+                 (just #"Export missing")))
+           imports)))
+
+  (define (find-signature [name : Bytes] [sigs : (List ModuleSignature)]) : (Maybe ModuleSignature)
+    (findf (lambda ([sig : ModuleSignature]) (bytes=? name (module-signature-name sig))) sigs))
+
+  (define (validate-module/imports-exist [mod : Module] [sigs : (List ModuleSignature)]) :
+    (Maybe Bytes)
+    (first-just
+      (map
+        (lambda ([imports : Imports])
+          (case imports
+            [(imports import-name types values patterns)
+             (case (find-signature import-name sigs)
+               [(nothing) (just #"Missing module")]
+               [(just (module-signature mod-name e-vals e-patterns e-types _ _))
+                (first-just
+                  (varargs list
+                    (validate-imports values (dict-keys e-vals))
+                    (validate-imports types (dict-keys e-types))
+                    (validate-imports patterns (dict-keys e-patterns))))])]))
+        (module-imports mod)))
+    ))
