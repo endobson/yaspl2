@@ -8,19 +8,23 @@
       #:types (Bytes Int)
       #:values ()
       #:patterns ())
-    (dict 
+    (dict
       #:types (Dict)
       #:values (make-dict dict-map dict-add)
       #:patterns ())
     (bytes bytes=?)
     (types
       #:types (Type)
-      #:values ()
+      #:values (var-type type->sexp sexp->type)
       #:patterns ())
     (list
       #:types (List)
       #:values (list empty)
       #:patterns (cons empty))
+    (maybe
+      #:types (Maybe)
+      #:values ()
+      #:patterns (just nothing))
     (either
       #:types (Either)
       #:values (left right)
@@ -29,7 +33,7 @@
     (sexp-parser
       #:types (Sexp)
       #:values (parse-sexp node bytes-sexp number-sexp boolean-sexp)
-      #:patterns (node bytes-sexp number-sexp)))
+      #:patterns (node bytes-sexp number-sexp boolean-sexp)))
   (export
     #:types ()
     #:values (serialize-module-signature deserialize-module-signature)
@@ -52,9 +56,13 @@
                                                 (bytes-sexp value)
                                                 (number-sexp num-spots))))))
              (node (dict-map type-bindings
+                             (lambda ([name : Bytes] [type : Type])
+                               (node (varargs list (bytes-sexp name)
+                                                   (type->sexp type))))))
+             (node (dict-map value-types
                              (lambda ([value : Bytes] [type : Type])
-                               (node (varargs list (bytes-sexp value) (boolean-sexp #f))))))
-             (node (empty))
+                               (node (varargs list (bytes-sexp value)
+                                                   (type->sexp type))))))
              (node (dict-map known-functions
                              (lambda ([value : Bytes] [fun-name : Type])
                                (node (varargs list
@@ -69,6 +77,15 @@
       [(cons (node (cons (bytes-sexp k) (cons (bytes-sexp v) (empty)))) value-exports)
        (value-exports->dict value-exports (dict-add acc k v))]))
 
+  (define (type-exports->dict [type-exports : (List Sexp)] [acc : (Dict Bytes Type)])
+    : (Dict Bytes Type)
+    (case type-exports
+      [(empty) acc]
+      [(cons (node (cons (bytes-sexp k) (cons type (empty)))) type-exports)
+       (case (sexp->type type)
+         [(just type)
+          (type-exports->dict type-exports (dict-add acc k (var-type #"free-var")))])]))
+
   (define (pattern-exports->dict [pattern-exports : (List Sexp)] [acc : (Dict Bytes Int)])
     : (Dict Bytes Int)
     (case pattern-exports
@@ -76,7 +93,7 @@
       [(cons (node (cons (bytes-sexp k) (cons (number-sexp v) (empty)))) pattern-exports)
        (pattern-exports->dict pattern-exports (dict-add acc k v))]))
 
-  
+
   (define (deserialize-module-signature [bytes : Bytes]) : (Either Bytes ModuleSignature)
     (case (parse-sexp bytes)
       [(left v) (left v)]
@@ -84,15 +101,15 @@
                           (cons (node value-exports)
                                 (cons (node pattern-exports)
                                       (cons (node type-bindings)
-                                            (cons (node value-types) 
+                                            (cons (node value-types)
                                                   (cons (node known-functions) (empty)))))))))
        (right
          (module-signature
            name
            (value-exports->dict value-exports (make-dict bytes=?))
            (pattern-exports->dict pattern-exports (make-dict bytes=?))
-           (make-dict bytes=?)
-           (make-dict bytes=?)
+           (type-exports->dict type-bindings (make-dict bytes=?))
+           (type-exports->dict value-types (make-dict bytes=?))
            (value-exports->dict known-functions (make-dict bytes=?))))]
       [(right _)
        (left #"Unexpected sexp shape")])))
