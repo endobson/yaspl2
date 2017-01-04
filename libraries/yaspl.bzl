@@ -36,12 +36,17 @@ def _lib_impl(ctx):
   src_path = ctx.files.srcs[0].path
 
 
+  # TODO use these instead of the transitive ones
   direct_signatures = []
   for dep in ctx.attr.deps:
     direct_signatures += [dep.yaspl_signature]
 
+  transitive_signatures = set(order="compile")
+  for dep in ctx.attr.deps:
+    transitive_signatures += dep.yaspl_transitive_sigs
+
   ctx.action(
-    inputs = dependent_srcs + direct_signatures + ctx.files.srcs + [ctx.executable._library_compiler],
+    inputs = dependent_srcs + list(transitive_signatures) + ctx.files.srcs + [ctx.executable._library_compiler],
     outputs = [ctx.outputs.object, ctx.outputs.signature],
     mnemonic = "YasplCompile",
     executable = ctx.executable._library_compiler,
@@ -59,7 +64,8 @@ def _lib_impl(ctx):
   return struct(
     yaspl_transitive_objects = dependent_objects + [ctx.outputs.object],
     yaspl_signature = ctx.outputs.signature,
-    yaspl_transitive_deps = list(dependent_dep_infos + [dep_info])
+    yaspl_transitive_deps = list(dependent_dep_infos + [dep_info]),
+    yaspl_transitive_sigs = list(transitive_signatures + [ctx.outputs.signature])
   )
 
 def _src_impl(ctx):
