@@ -134,7 +134,6 @@ yaspl_bootstrap_library(
     ":stack-machine",
     ":stack-machine-optimizer",
     "//libraries/data:tuples",
-    ":type-checker",
     ":validator",
     ":x86-64-stack-machine",
  ]
@@ -354,7 +353,6 @@ yaspl_bootstrap_library(
     ":module-signature",
     ":module-signature-serialization",
     ":stack-machine-optimizer",
-    ":type-checker",
     ":validator",
     ":x86-64-stack-machine",
     ":mach-o-writer2_lib",
@@ -670,7 +668,6 @@ yaspl_bootstrap_library(
   deps = [
     ":environment",
     ":module-signature",
-    ":source-language",
     ":source-to-intermediate-language",
     ":stack-machine",
     ":types",
@@ -777,9 +774,32 @@ yaspl_bootstrap_library(
   deps = [
     ":intermediate-language",
     ":module-signature",
+    ":sexp-printer",
     ":source-language",
     ":types",
-    ":sexp-printer",
+    ":type-unification",
+    ":prim-implementation",
+    "//libraries/data:bytes",
+    "//libraries/data:dict",
+    "//libraries/data:either",
+    "//libraries/data:join-list",
+    "//libraries/data:list",
+    "//libraries/data:maybe",
+    "//libraries/data:numbers",
+    "//libraries/data:tuples",
+  ]
+)
+
+yaspl_test(
+  name = "type-checker-test",
+  main_module = "type_checker_test",
+  srcs = ["type-checker-test.yaspl"],
+  deps = [
+    ":source-language",
+    ":types",
+    ":type-checker",
+    ":type-unification",
+    ":yunit",
     "//libraries/data:bytes",
     "//libraries/data:dict",
     "//libraries/data:either",
@@ -851,8 +871,8 @@ yaspl_bootstrap_library(
   name = "validator",
   srcs = ["validator.yaspl"],
   deps = [
-    ":source-language",
     ":module-signature",
+    ":source-language",
     "//libraries/data:bytes",
     "//libraries/data:dict",
     "//libraries/data:either",

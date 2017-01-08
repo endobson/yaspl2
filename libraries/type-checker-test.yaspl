@@ -1,0 +1,116 @@
+(module type-checker-test
+  (import
+    (prim
+      #:types (Array Bytes InputPort OutputPort Int)
+      #:values ()
+      #:patterns ())
+    (source-language
+      #:types (Expression)
+      #:values (var-expr app-expr)
+      #:patterns ())
+    (yunit
+      #:types (FailedAssertion)
+      #:values (yunit/main new-test-case failure)
+      #:patterns ())
+    (bytes bytes=?)
+    (maybe
+      #:types (Maybe)
+      #:values (just nothing)
+      #:patterns (just nothing))
+    (either
+      #:types ()
+      #:values ()
+      #:patterns (right left))
+    (dict
+      #:types ()
+      #:values (make-dict dict-add-all)
+      #:patterns ())
+    (tuples
+      #:types ()
+      #:values (tuple2)
+      #:patterns ())
+    (types
+      #:types (Type)
+      #:values (abstract-type var-type fun-type)
+      #:patterns ())
+    (type-checker
+      #:types (Context)
+      #:values (attempt-result-based-unification context type-check/expr)
+      #:patterns ())
+    (list
+      #:types (List)
+      #:values (list empty)
+      #:patterns ()))
+  (export)
+  (types)
+
+  (define (nothing/failed-assertion) : (Maybe FailedAssertion)
+    (nothing))
+
+  (define (check-arbu
+            [tvars : (List Bytes)]
+            [result-type : Type]
+            [expected-type : (Maybe Type)])
+    : (-> (Maybe FailedAssertion))
+    (lambda ()
+      (case (attempt-result-based-unification tvars result-type expected-type)
+        [(nothing)
+         (just (failure #"Couldn't unify"))]
+        [(just _) (nothing/failed-assertion)])))
+
+
+  (define (check-type-check
+            [expr : Expression]
+            [context : Context]
+            [expected-type : (Maybe Type)])
+    : (-> (Maybe FailedAssertion))
+    (lambda ()
+      (case (type-check/expr expr context expected-type)
+        [(left v) (just (failure v))]
+        [(right v) (nothing)])))
+
+  (define (list-type [t : Type]) : Type
+    (abstract-type #"list" #"List" (varargs list t)))
+
+
+  (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Int
+    (yunit/main stderr
+      (varargs list
+        (new-test-case #"attempt-rbu (a) (List a) (just (List a))"
+          (check-arbu
+            (varargs list #"a")
+            (list-type (var-type #"a"))
+            (just (list-type (var-type #"a")))))
+        (new-test-case #"attempt-rbu (a) (List a) (just (List b))"
+          (check-arbu
+            (varargs list #"a")
+            (list-type (var-type #"a"))
+            (just (list-type (var-type #"b")))))
+        (new-test-case #"type-check: reverse"
+          (check-type-check
+            (app-expr
+              (var-expr #"helper")
+              (varargs list
+                (var-expr #"l")
+                (app-expr (var-expr #"empty") (empty))))
+            (context
+              (make-dict bytes=?)
+              (make-dict bytes=?)
+              (dict-add-all
+                (make-dict bytes=?)
+                (varargs list
+                  (tuple2
+                    #"helper"
+                    (fun-type
+                      (varargs list #"a")
+                      (varargs list
+                        (list-type (var-type #"a"))
+                        (list-type (var-type #"a")))
+                      (list-type (var-type #"a"))))
+                  (tuple2 #"l" (list-type (var-type #"a")))
+                  (tuple2 #"empty" 
+                    (fun-type
+                      (varargs list #"a")
+                      (empty)
+                      (list-type (var-type #"a")))))))
+            (just (list-type (var-type #"a")))))))))
