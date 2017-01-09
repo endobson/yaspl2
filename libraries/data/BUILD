@@ -44,6 +44,7 @@ yaspl_test(
   main_module = "dict_test",
   srcs = ["dict-test.yaspl"],
   deps = [
+    ":bytes",
     ":dict",
     ":list",
     ":maybe",

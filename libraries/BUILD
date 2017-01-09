@@ -849,6 +849,7 @@ yaspl_library(
   srcs = ["yunit.yaspl"],
   deps = [
     ":io",
+    "//libraries/data:dict",
     "//libraries/data:list",
     "//libraries/data:maybe",
     "//libraries/data:tuples",
