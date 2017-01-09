@@ -1,0 +1,117 @@
+(module type-unification-test
+  (import
+    (prim
+      #:types (Array Bytes InputPort OutputPort Boolean Int)
+      #:values (= +)
+      #:patterns ())
+    (yunit
+      #:types (TestCase FailedAssertion)
+      #:values (yunit/main test-case new-test-case failure
+                check-dict=?)
+      #:patterns ())
+    (bytes bytes=? bytes-append)
+    (maybe
+      #:types (Maybe)
+      #:values (just nothing)
+      #:patterns (just nothing))
+    (dict
+      #:types (Dict)
+      #:values (make-dict dict-add dict-keys dict-map dict-value-map dict-ref)
+      #:patterns ())
+    (tuples
+      #:types (Tuple2)
+      #:values (tuple2)
+      #:patterns (tuple2))
+    (types
+      #:types (Type)
+      #:values (abstract-type type=? serialize-type)
+      #:patterns ())
+    (type-unification
+      #:types (UnificationVar Constraint)
+      #:values (unify constrain-abstract-type uvar constrain-uvar eq-constraint uvar->bytes)
+      #:patterns ())
+    (list
+      #:types (List)
+      #:values (list andmap empty)
+      #:patterns (cons empty)))
+  (export)
+  (types)
+
+  (define (check-unify
+            [constraints : (List Constraint)]
+            [expectations : (List (Tuple2 UnificationVar Type))])
+    : (-> (Maybe FailedAssertion))
+    (lambda ()
+      (case (unify constraints)
+        [(nothing) (just (failure #"Unification failed"))]
+        [(just solution)
+         (check-expectations expectations solution)])))
+
+
+  (define (check-not-unify
+            [constraints : (List Constraint)]
+            [expectations : (List (Tuple2 UnificationVar Type))])
+    : (-> (Maybe FailedAssertion))
+    (lambda ()
+      (case (unify constraints)
+        [(nothing) (nothing)]
+        [(just solution)
+         (just (failure #"Unification succeded"))])))
+
+  (define (check-expectations 
+            [expectations : (List (Tuple2 UnificationVar Type))]
+            [solution : (Dict UnificationVar Type)])
+    : (Maybe FailedAssertion)
+    (case expectations
+      [(empty) (nothing)]
+      [(cons (tuple2 uvar expected-type) expectations)
+       (case (dict-ref solution uvar)
+         [(nothing) (just (failure
+                            (bytes-append
+                              (varargs list
+                                #"Unification doesn't have result for: "
+                                (uvar->bytes uvar)))))]
+         [(just t)
+          (if (type=? t expected-type)
+              (check-expectations expectations solution)
+              (just
+                (failure
+                  (bytes-append
+                    (varargs list
+                      (uvar->bytes uvar)
+                      #": Expected: " (serialize-type expected-type)
+                      #" Actual: " (serialize-type t))))))])]))
+
+  (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Int
+    (yunit/main stderr
+      (varargs list
+        (new-test-case #"unify 1=Bytes 1,Bytes"
+          (check-unify
+            (varargs list
+              (eq-constraint
+                (constrain-uvar (uvar 1))
+                (constrain-abstract-type #"prim" #"Bytes" (empty))))
+            (varargs list
+              (tuple2 (uvar 1) (abstract-type #"prim" #"Bytes" (empty))))))
+        (new-test-case #"unify 1=(List 2),2=Bytes 1=(List Bytes)"
+          (check-unify
+            (varargs list
+              (eq-constraint
+                (constrain-uvar (uvar 1))
+                (constrain-abstract-type #"list" #"List"
+                  (varargs list (constrain-uvar (uvar 2)))))
+              (eq-constraint
+                (constrain-uvar (uvar 2))
+                (constrain-abstract-type #"prim" #"Bytes" (empty))))
+            (varargs list
+              (tuple2 (uvar 1)
+                      (abstract-type
+                        #"list" #"List"
+                        (varargs list (abstract-type #"prim" #"Bytes" (empty))))))))
+        (new-test-case #"unify 1=(List 1)"
+          (check-not-unify
+            (varargs list
+              (eq-constraint
+                (constrain-uvar (uvar 1))
+                (constrain-abstract-type #"list" #"List"
+                  (varargs list (constrain-uvar (uvar 1))))))))))))

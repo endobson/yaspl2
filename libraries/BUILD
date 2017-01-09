@@ -782,6 +782,36 @@ yaspl_bootstrap_library(
   ]
 )
 
+yaspl_bootstrap_library(
+  name = "type-unification",
+  srcs = ["type-unification.yaspl"],
+  deps = [
+    ":types",
+    "//libraries/data:bytes",
+    "//libraries/data:dict",
+    "//libraries/data:list",
+    "//libraries/data:maybe",
+    "//libraries/data:numbers",
+    "//libraries/data:tuples",
+  ]
+)
+
+yaspl_test(
+  name = "type-unification-test",
+  main_module = "type_unification_test",
+  srcs = ["type-unification-test.yaspl"],
+  deps = [
+    ":types",
+    ":type-unification",
+    ":yunit",
+    "//libraries/data:bytes",
+    "//libraries/data:dict",
+    "//libraries/data:list",
+    "//libraries/data:maybe",
+    "//libraries/data:tuples",
+  ]
+)
+
 
 
 yaspl_library(
