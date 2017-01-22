@@ -515,6 +515,7 @@ yaspl_test(
     "//libraries/data:either",
     "//libraries/data:list",
     "//libraries/data:maybe",
+    "//libraries/data:tuples",
   ]
 )
 
