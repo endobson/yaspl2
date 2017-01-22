@@ -58,13 +58,15 @@
                 make-varargs-array function-tlo trivial-closure-tlo load-free-var bytes-tlo)
       #:patterns (gen-state tmp-slot var-slot trivial-closure-tlo))
     (source-language
-      #:types (Imports Import TypeDefinition VariantDefinition
-               VariantField)
+      #:types (Imports Import)
       #:values ()
-      #:patterns (imports import variant-definition type-definition variant-field))
+      #:patterns (imports import))
     (intermediate-language
       #:types ((Module i:Module)
                (FunctionDefinition i:FunctionDefinition)
+               TypeDefinition
+               VariantDefinition
+               VariantField
                Pattern
                Expression CaseClause ClosureConstant BytesConstant)
       #:values ((module-name i:module-name)
@@ -77,6 +79,9 @@
                 closure-constant-name
                 bytes-constant-name)
       #:patterns ((function-definition i:function-definition)
+                  type-definition
+                  variant-definition
+                  variant-field
                   int-literal boolean-literal let-expr local-var-expr
                   global-var-expr if-expr
                   create-closure-expr call-closure-expr
@@ -149,7 +154,7 @@
     : (Either Bytes (Dict Bytes Type))
     (right
       (add-imported-types/importss (i:module-imports imod) sigs
-        (add-type-definitions (i:module-name imod) (i:module-types imod) (make-dict bytes=?)))))
+        (add-type-definitions (i:module-types imod) (make-dict bytes=?)))))
 
   (define (add-imported-types/importss
             [importss : (List Imports)]
@@ -195,21 +200,14 @@
               [(just type) type])))]))
 
 
-  (define (add-type-definitions [mod-name : Bytes] [types : (List TypeDefinition)] [env : (Dict Bytes Type)])
+  (define (add-type-definitions [types : (List TypeDefinition)] [env : (Dict Bytes Type)])
     : (Dict Bytes Type)
     (case types
       [(empty) env]
-      [(cons (type-definition name (nothing) _) types)
+      [(cons (type-definition name _ self-type  _) types)
        (add-type-definitions
-         mod-name
          types
-         (dict-add env name (abstract-type mod-name name (empty))))]
-      [(cons (type-definition name (just syms) _) types)
-       (add-type-definitions
-         mod-name
-         types
-         (dict-add env name
-            (type-constructor mod-name name (map (lambda ([v : Bytes]) (star-kind)) syms))))]))
+         (dict-add env name self-type))]))
 
   (define (setup-value-environment [imod : i:Module] [sigs : (List ModuleSignature)])
     : (Either Bytes (Dict Bytes VarReference))
@@ -396,7 +394,7 @@
       (foldl
         (lambda ([def : TypeDefinition] [env : (Dict Bytes VarReference)])
           (case def
-            [(type-definition name _ variants)
+            [(type-definition name _ _ variants)
              (add-variant-definitions-functions env mod-name name variants)]))
         (i:module-types imod)
         env)))
@@ -422,7 +420,7 @@
             [type-name : Bytes]
             [def : VariantDefinition]) : (Dict Bytes VarReference)
     (case def
-      [(variant-definition name fields)
+      [(variant-definition name _ fields)
        (add-variant-definition-accessors
          (dict-add
            env
@@ -468,22 +466,20 @@
     : (Dict Bytes VariantInfo)
     (case defs
       [(empty) env]
-      [(cons (type-definition _ _ variants) defs)
+      [(cons (type-definition _ _ _ variants) defs)
        (add-type-definitions-variant-infos
-         (add-variant-definitions-variant-infos env 0 variants)
+         (add-variant-definitions-variant-infos env variants)
          defs)]))
 
   (define (add-variant-definitions-variant-infos
             [env : (Dict Bytes VariantInfo)]
-            [index : Int]
             [defs : (List VariantDefinition)])
     : (Dict Bytes VariantInfo)
     (case defs
       [(empty) env]
-      [(cons (variant-definition name _) defs)
+      [(cons (variant-definition name tag _) defs)
        (add-variant-definitions-variant-infos
-         (dict-add env name (variant-info index))
-         (+ index 1)
+         (dict-add env name (variant-info tag))
          defs)]))
 
   (define (add-all-locals [env : Environment] [names : (List Bytes)])
@@ -520,13 +516,12 @@
             [def : TypeDefinition]
             [acc : (List TopLevelObject)]) : (List TopLevelObject)
     (case def
-      [(type-definition name _ variants)
-       (compile-type-definition/variants mod-name name 0 variants acc)]))
+      [(type-definition name _ _ variants)
+       (compile-type-definition/variants mod-name name variants acc)]))
 
   (define (compile-type-definition/variants
             [mod-name : Bytes]
             [type-name : Bytes]
-            [variant-index : Int]
             [variants : (List VariantDefinition)]
             [acc : (List TopLevelObject)]) : (List TopLevelObject)
     (case variants
@@ -535,18 +530,16 @@
        (compile-type-definition/variants
          mod-name
          type-name
-         (+ variant-index 1)
          variants
-         (compile-variant-definition mod-name type-name variant-index variant acc))]))
+         (compile-variant-definition mod-name type-name variant acc))]))
 
   (define (compile-variant-definition
             [mod-name : Bytes]
             [type-name : Bytes]
-            [variant-index : Int]
             [def : VariantDefinition]
             [acc : (List TopLevelObject)]) : (List TopLevelObject)
     (case def
-      [(variant-definition name fields)
+      [(variant-definition name variant-tag fields)
        (let ([mangled-name
               (mangle-name (bytes-append (varargs list mod-name #"_" type-name #"_" name)))])
          (cons
@@ -560,7 +553,7 @@
                      0 
                      (length fields)
                      (cons
-                       (alloc-variant-cmd variant-index (length fields))
+                       (alloc-variant-cmd variant-tag (length fields))
                        (empty)))
                    (return (length fields)))
                  (empty))))
@@ -572,7 +565,7 @@
                mod-name
                type-name
                name
-               variant-index
+               variant-tag
                0
                fields
                acc))))]))
@@ -581,7 +574,7 @@
             [mod-name : Bytes]
             [type-name : Bytes]
             [variant-name : Bytes]
-            [variant-index : Int]
+            [variant-tag : Int]
             [field-index : Int]
             [fields : (List VariantField)]
             [acc : (List TopLevelObject)]) : (List TopLevelObject)
@@ -592,7 +585,7 @@
          mod-name
          type-name
          variant-name
-         variant-index
+         variant-tag
          (+ field-index 1)
          fields
          (let ([mangled-name
@@ -605,7 +598,7 @@
                  1
                  (cons
                    (stack-basic-block
-                     (add-reversed-args 0 1 (cons (variant-ref-cmd variant-index field-index) (empty)))
+                     (add-reversed-args 0 1 (cons (variant-ref-cmd variant-tag field-index) (empty)))
                      (return 1))
                    (empty))))
              (cons

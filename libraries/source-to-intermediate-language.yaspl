@@ -15,7 +15,7 @@
       #:patterns (empty cons))
     (maybe
       #:types ()
-      #:values ()
+      #:values (just-v)
       #:patterns (nothing just))
     (types
       #:types (Type)
@@ -38,6 +38,9 @@
     (intermediate-language
       #:types
         ((Module i:Module)
+         (TypeDefinition i:TypeDefinition)
+         (VariantDefinition i:VariantDefinition)
+         (VariantField i:VariantField)
          (FunctionDefinition i:FunctionDefinition)
          (BytesConstant i:BytesConstant)
          (Expression i:Expression)
@@ -46,6 +49,9 @@
          ClosureConstant)
       #:values
         ((module i:module)
+         (type-definition i:type-definition)
+         (variant-definition i:variant-definition)
+         (variant-field i:variant-field)
          (function-definition i:function-definition)
          (int-literal i:int-literal)
          (boolean-literal i:boolean-literal)
@@ -68,14 +74,14 @@
       #:patterns ())
     (source-language
       #:types (Module FunctionDefinition Expression CaseClause Pattern PreType TypeDefinition
-                      Import Imports)
+               VariantDefinition VariantField Import Imports)
       #:values ()
       #:patterns (module function-definition int-literal bytes-literal
                   boolean-literal var-expr if-expr begin-expr lambda-expr
                   let-expr case-expr case-clause app-expr varargs-app-expr
                   bytes-pattern int-pattern variable-pattern ignore-pattern abstraction-pattern
                   var-pre-type fun-pre-type type-app-pre-type
-                  type-definition import imports)))
+                  type-definition variant-definition variant-field import imports)))
   (export
     #:types ()
     #:values (source->intermediate)
@@ -90,19 +96,20 @@
   (define (source->intermediate [mod : Module] [sigs : (List ModuleSignature)]) : i:Module
     (case mod
       [(module name imports exports types definitions)
-       (case (convert-function-definitions
-               definitions
-               (environment (make-type-environment mod sigs))
-               (state (empty) (empty) 0))
-         [(state funcs byte-constants _)
-          (i:module
-            name
-            imports
-            exports
-            types
-            funcs
-            (create-closures definitions (empty))
-            byte-constants)])]))
+       (let ([type-env (make-type-environment mod sigs)])
+         (case (convert-function-definitions
+                 definitions
+                 (environment type-env)
+                 (state (empty) (empty) 0))
+           [(state funcs byte-constants _)
+            (i:module
+              name
+              imports
+              exports
+              (convert-type-definitions types type-env)
+              funcs
+              (create-closures definitions (empty))
+              byte-constants)]))]))
 
   (define (make-type-environment [mod : Module] [sigs : (List ModuleSignature)])
     : (Dict Bytes Type)
@@ -182,6 +189,66 @@
        (create-closures
          funs
          (cons (closure-constant name (bytes-append (varargs list name #"-code"))) acc))]))
+
+
+  (define (convert-type-definitions
+            [types : (List TypeDefinition)]
+            [env : (Dict Bytes Type)])
+    : (List i:TypeDefinition)
+    (map
+      (lambda ([def : TypeDefinition]) (convert-type-definition def env))
+      types))
+
+  (define (convert-type-definition
+            [type : TypeDefinition]
+            [env : (Dict Bytes Type)])
+    : i:TypeDefinition
+    (case type
+      [(type-definition name type-vars variants)
+       (i:type-definition
+         name
+         (case type-vars
+           [(nothing) (empty)]
+           [(just tvs) tvs])
+         (just-v (dict-ref env name))
+         (convert-variant-definitions
+           variants 0
+           (case type-vars
+             [(nothing) env]
+             [(just tvs) (add-type-vars tvs env)])))]))
+
+
+  (define (convert-variant-definitions
+            [variants : (List VariantDefinition)]
+            [index : Int]
+            [env : (Dict Bytes Type)])
+    : (List i:VariantDefinition)
+    (case variants
+      [(empty) (empty)]
+      [(cons v vs)
+       (cons
+         (convert-variant-definition v index env)
+         (convert-variant-definitions vs (+ index 1) env))]))
+
+  (define (convert-variant-definition
+            [variant : VariantDefinition]
+            [index : Int]
+            [env : (Dict Bytes Type)])
+    : i:VariantDefinition
+    (case variant
+      [(variant-definition name fields)
+       (i:variant-definition
+         name
+         index
+         (map (lambda ([f : VariantField]) (convert-variant-field f env)) fields))]))
+
+  (define (convert-variant-field
+            [field : VariantField]
+            [env : (Dict Bytes Type)])
+    : i:VariantField
+    (case field
+      [(variant-field name pre-type)
+       (i:variant-field name (convert-type env pre-type))]))
 
   (define (convert-function-definitions
             [funs : (List FunctionDefinition)]
