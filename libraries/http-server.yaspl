@@ -88,11 +88,11 @@
         (bytes-regexp #":")
         (group-regexp (rep-regexp (any-regexp))))))
 
-  (define (parse-request-header [header-line : Bytes]) : (Maybe (Tuple2 Bytes Bytes))
+  (define (parse-request-header [header-line : Bytes]) : (Maybe HttpRequestHeader)
     (case (regexp-match (request-header-regexp) header-line)
       [(nothing) (nothing)]
       [(just (cons _ (cons header-name (cons header-value (empty)))))
-       (just (tuple2 header-name header-value))]
+       (just (http-request-header header-name header-value))]
       [(just _) (panic #"Bad header regexp return")]))
 
   (define (write-http-response [response : HttpResponse] [out : OutputPort]) : Void
@@ -137,6 +137,8 @@
                   headers)])
              (bytes-append (map add-newline (cons resource header-lines)))))]))
 
+  (define (panic/http-request-header [v : Bytes]) : HttpRequestHeader
+    (panic v))
 
   (define (read-loop [buffered-port : BufferedPort] [lines : (List Bytes)] [sock : Socket]
                      [request-handler : (HttpRequest -> HttpResponse)]) : Void
@@ -156,7 +158,7 @@
                          (lambda ([header-line : Bytes])
                            (case (parse-request-header header-line)
                              [(just request-header) request-header ]
-                             [(nothing) (panic #"Unparseable header")]))
+                             [(nothing) (panic/http-request-header #"Unparseable header")]))
                          header-lines))])
                 (begin
                   (write-http-response (request-handler request) sock)
@@ -188,7 +190,10 @@
         (case (bytes->ipv4-address (array-ref args 1))
           [(just ip-addr)
            (let ([address (tcp-address ip-addr (decimal-bytes->integer (array-ref args 2)))])
-             (run-http-server address request-handler))]
+             (begin
+               (run-http-server address request-handler)
+               (write-line #"Server unexpectedly exitted" stderr)
+               1))]
           [(nothing)
            (begin
              (write-line #"Unparsable ip address" stderr)
