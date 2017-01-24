@@ -529,7 +529,8 @@
                    (unify-types type-vars (map list arg-types (map type-infer args)))
                    body-type))
                (for ([arg (in-list args)] [arg-type (in-list arg-types)])
-                 (type-check arg (substitute body-substitution arg-type)))) ])])]
+                 (type-check arg (substitute body-substitution arg-type))))])]
+       [t (raise-user-error 'type-check "Cannot apply non function type: ~a" t)])]
     [(varargs-app& op args)
      ;; TODO make this use the type information on the op instead
      (match (type-infer op)
