@@ -45,6 +45,6 @@
 
 
   (add-modules!
-    (for/list ([file-path (in-list paths)]) 
+    (for/list ([file-path (in-list paths)])
       (call-with-input-file* file-path read-module)))
   (set->list modules))

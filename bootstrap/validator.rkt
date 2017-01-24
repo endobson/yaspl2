@@ -145,7 +145,7 @@
                                        exported-name
                                        (lambda ()
                                          (raise-user-error
-                                           'validator 
+                                           'validator
                                            "Module ~s doesn`t have exported type ~a"
                                            src-mod exported-name)))
                         [(inductive-signature orig-mod-name ty-name #f variants)
@@ -198,7 +198,7 @@
                                exported-name
                                (lambda ()
                                  (raise-user-error
-                                   'validator 
+                                   'validator
                                    "Error validating ~s: Module ~s doesn`t have exported value ~a"
                                    module-name src-mod exported-name))))]))
 
