@@ -2,7 +2,8 @@
   (import
     (prim
       #:types (Bytes InputPort U32 U8 Int)
-      #:values (- * + < = >= read-bytes make-bytes panic bytes-ref bytes-length or bitwise-and)
+      #:values (- * + < = >= read-bytes make-bytes panic bytes-ref bytes-length or bitwise-and
+                u8 u32 u32->s64)
       #:patterns ())
     (boolean not)
     (list
@@ -15,8 +16,11 @@
       #:patterns (left right))
     (io read-all-bytes)
     (numbers integer->hex-bytes)
-    (bytes subbytes bytes-ref/quad-le bytes-ref/octo-le bytes-ref/eight-bytes-le
-           eight-bytes-le->int bytes-append))
+    (bytes
+      #:types (EightBytesLe)
+      #:values (subbytes bytes-ref/quad-le bytes-ref/eight-bytes-le
+                eight-bytes-le->int bytes-append)
+      #:patterns ()))
   (export
     #:types (MachOFile MachOLoadCommand SymbolTableEntry RelocationEntry SymbolTable
              Section64)
@@ -50,10 +54,10 @@
     (define-type LoadSegment64
       (load-segment64
         [name Bytes]
-        [vm-addr Int]
-        [vm-size Int]
-        [file-offset Int]
-        [file-size Int]
+        [vm-addr EightBytesLe]
+        [vm-size EightBytesLe]
+        [file-offset EightBytesLe]
+        [file-size EightBytesLe]
         [max-protection U32]
         [init-protection U32]
         [flags U32]
@@ -63,8 +67,8 @@
       (section64
         [name Bytes]
         [segment-name Bytes]
-        [addr Int]
-        [size Int]
+        [addr EightBytesLe]
+        [size EightBytesLe]
         [offset Int]
         [relocation-offset Int]
         [num-relocations Int]
@@ -134,13 +138,13 @@
                 (lc-segment64
                   (load-segment64
                     (read-16-byte-name bytes #x00 0)
-                    (bytes-ref/octo-le bytes #x10)
-                    (bytes-ref/octo-le bytes #x18)
-                    (bytes-ref/octo-le bytes #x20)
-                    (bytes-ref/octo-le bytes #x28)
-                    (bytes-ref/quad-le bytes #x30)
-                    (bytes-ref/quad-le bytes #x34)
-                    (bytes-ref/quad-le bytes #x3c)
+                    (bytes-ref/eight-bytes-le bytes #x10)
+                    (bytes-ref/eight-bytes-le bytes #x18)
+                    (bytes-ref/eight-bytes-le bytes #x20)
+                    (bytes-ref/eight-bytes-le bytes #x28)
+                    (u32 (bytes-ref/quad-le bytes #x30))
+                    (u32 (bytes-ref/quad-le bytes #x34))
+                    (u32 (bytes-ref/quad-le bytes #x3c))
                     (parse-section64s num-sections #x40 bytes))))))))
 
   (define (parse-section64s [amount : Int] [offset : Int] [bytes : Bytes]) : (List Section64)
@@ -154,13 +158,13 @@
     (section64
       (read-16-byte-name bytes (+ offset #x00) 0)
       (read-16-byte-name bytes (+ offset #x10) 0)
-      (bytes-ref/octo-le bytes (+ offset #x20))
-      (bytes-ref/octo-le bytes (+ offset #x28))
+      (bytes-ref/eight-bytes-le bytes (+ offset #x20))
+      (bytes-ref/eight-bytes-le bytes (+ offset #x28))
       (bytes-ref/quad-le bytes (+ offset #x30))
       ;; TODO Check that this is 0
       (bytes-ref/quad-le bytes (+ offset #x38))
       (bytes-ref/quad-le bytes (+ offset #x3c))
-      (bytes-ref/quad-le bytes (+ offset #x40))
+      (u32 (bytes-ref/quad-le bytes (+ offset #x40)))
       ;; TODO Check that this is 0
       ;; TODO Check that this is 0
       ;; TODO Check that this is 0
@@ -191,8 +195,8 @@
         (right
           (lc-data-in-code
             (linkedit-data
-              (bytes-ref/quad-le bytes #x00)
-              (bytes-ref/quad-le bytes #x04))))))
+              (u32 (bytes-ref/quad-le bytes #x00))
+              (u32 (bytes-ref/quad-le bytes #x04)))))))
 
   (define (parse-lc-version-min-macosx [bytes : Bytes]) : (Either Bytes MachOLoadCommand)
     (if (not (= (bytes-length bytes) #x08))
@@ -203,12 +207,12 @@
             (right
             (lc-version-min-macosx
               (version-min
-                (bytes-ref bytes #x02)
-                (bytes-ref bytes #x01)
-                (bytes-ref bytes #x00)
-                (bytes-ref bytes #x06)
-                (bytes-ref bytes #x05)
-                (bytes-ref bytes #x04)))))))
+                (u8 (bytes-ref bytes #x02))
+                (u8 (bytes-ref bytes #x01))
+                (u8 (bytes-ref bytes #x00))
+                (u8 (bytes-ref bytes #x06))
+                (u8 (bytes-ref bytes #x05))
+                (u8 (bytes-ref bytes #x04))))))))
 
 
   (define (read-load-commands [amount : Int] [input : InputPort])
@@ -241,9 +245,9 @@
       (let ([string (read-null-terminated-string strings string-offset string-offset)])
         (symbol-table-entry
           string
-          (bytes-ref entries (+ offset 4))
-          (bytes-ref entries (+ offset 5))
-          0 ;;(bytes-ref/double-le entries (+ offset 6))
+          (u8 (bytes-ref entries (+ offset 4)))
+          (u8 (bytes-ref entries (+ offset 5)))
+          (u8 0) ;;(bytes-ref/double-le entries (+ offset 6))
           (eight-bytes-le->int
             (bytes-ref/eight-bytes-le entries (+ offset 8)))))))
 
@@ -267,9 +271,9 @@
 
   (define (read-relocation-entry [offset : Int] [bytes : Bytes]) : RelocationEntry
     (relocation-entry
-      (bytes-ref/quad-le offset bytes)
-      (bitwise-and #xFFFFFF (bytes-ref/quad-le (+ offset 4) bytes))
-      (bytes-ref (+ offset 7) bytes)))
+      (bytes-ref/quad-le bytes offset)
+      (bitwise-and #xFFFFFF (bytes-ref/quad-le bytes (+ offset 4)))
+      (u8 (bytes-ref bytes (+ offset 7)))))
 
   (define (read-mach-o [input : InputPort]) : (Either Bytes MachOFile)
     (let ([header-bytes (make-bytes 32)])
@@ -277,15 +281,15 @@
           (left #"Not enough bytes")
           (let ([header
                  (mach-o-header
-                   (bytes-ref/quad-le header-bytes 0)
-                   (bytes-ref/quad-le header-bytes 4)
-                   (bytes-ref/quad-le header-bytes 8)
-                   (bytes-ref/quad-le header-bytes 12)
-                   (bytes-ref/quad-le header-bytes 16)
-                   (bytes-ref/quad-le header-bytes 20)
-                   (bytes-ref/quad-le header-bytes 24)
-                   (bytes-ref/quad-le header-bytes 28))])
-            (case (read-load-commands (mach-o-header-number-commands header) input)
+                   (u32 (bytes-ref/quad-le header-bytes 0))
+                   (u32 (bytes-ref/quad-le header-bytes 4))
+                   (u32 (bytes-ref/quad-le header-bytes 8))
+                   (u32 (bytes-ref/quad-le header-bytes 12))
+                   (u32 (bytes-ref/quad-le header-bytes 16))
+                   (u32 (bytes-ref/quad-le header-bytes 20))
+                   (u32 (bytes-ref/quad-le header-bytes 24))
+                   (u32 (bytes-ref/quad-le header-bytes 28)))])
+            (case (read-load-commands (u32->s64 (mach-o-header-number-commands header)) input)
               [(left v) (left v)]
               [(right commands)
                (right (mach-o-file header commands (read-all-bytes input)))]))))))

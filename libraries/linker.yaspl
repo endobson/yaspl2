@@ -1,11 +1,11 @@
 (module linker
   (import
     (prim
-      #:types (Bytes Int U8 Void Boolean)
-      #:values (void bytes-length = + * - panic)
+      #:types (Bytes Int Void Boolean)
+      #:values (void bytes-length = + * - panic u8->s64 u32->s64 u32)
       #:patterns ())
-    (bytes subbytes bytes=? bytes< bytes-ref/octo-le bytes-set!/octo-le bytes-ref/quad-le
-           bytes-set!/quad-le)
+    (bytes subbytes bytes=? bytes< bytes-set!/octo-le bytes-ref/quad-le
+           bytes-set!/quad-le bytes-ref/eight-bytes-le eight-bytes-le->int)
     (boolean not)
     (list
       #:types (List)
@@ -27,7 +27,7 @@
     )
   (export
     #:types ()
-    #:values (parsed-mach-o relocation-marker parsed-mach-o-text-section parsed-mach-o-const-section
+    #:values (parsed-mach-o parsed-mach-o-text-section parsed-mach-o-const-section
               apply-text-relocations apply-const-relocations get-relocation-markers
               symbol-table-entry-name< get-offset-symbols symbol-table-entry-name=? parse-mach-o)
     #:patterns ())
@@ -43,7 +43,8 @@
       (relocation-marker
         [address Int]
         [symbol Bytes]
-        [type U8])))
+        ;; Type should be a U8 but then pattern matching doesn't work
+        [type Int])))
 
   (define (find-symbol-table [load-commands : (List MachOLoadCommand)]) : SymbolTable
     (case load-commands
@@ -95,10 +96,10 @@
           (read-symbol-table/symbols
             0
             ;; Need to accout for 32 bytes of mach-header and  the load commands.
-            (let ([start (- offset (+ 32 (mach-o-header-commands-size header)))])
+            (let ([start (- offset (+ 32 (u32->s64 (mach-o-header-commands-size header))))])
               (subbytes bytes start (+ start (* num-symbols 16))))
             ;; Need to accout for 32 bytes of mach-header and  the load commands.
-            (let ([start (- string-offset (+ 32 (mach-o-header-commands-size header)))])
+            (let ([start (- string-offset (+ 32 (u32->s64 (mach-o-header-commands-size header))))])
               (subbytes bytes start (+ start string-size))))])]))
 
   (define (read-relocations [num : Int] [offset : Int] [bytes : Bytes]) : (List RelocationEntry)
@@ -114,16 +115,16 @@
        (case (find-text-section load-commands)
         [(section64 _ _ _ size offset _ _ _)
          ;; Need to accout for 32 bytes of mach-header and the load commands
-         (let ([start (- offset (+ 32 (mach-o-header-commands-size header)))])
-           (subbytes bytes start (+ start size)))])]))
+         (let ([start (- offset (+ 32 (u32->s64 (mach-o-header-commands-size header))))])
+           (subbytes bytes start (+ start (eight-bytes-le->int size))))])]))
 
-  (define (read-text-relocations [mach-o : MachOFile]) : Bytes
+  (define (read-text-relocations [mach-o : MachOFile]) : (List RelocationEntry)
     (case mach-o
       [(mach-o-file header load-commands bytes)
        (case (find-text-section load-commands)
         [(section64 _ _ _ _ _ relocation-offset num-relocations _)
          ;; Need to accout for 32 bytes of mach-header and the load commands
-         (let ([start (- relocation-offset (+ 32 (mach-o-header-commands-size header)))])
+         (let ([start (- relocation-offset (+ 32 (u32->s64 (mach-o-header-commands-size header))))])
            (read-relocations num-relocations start bytes))])]))
 
 
@@ -133,16 +134,16 @@
        (case (find-const-section load-commands)
         [(section64 _ _ _ size offset _ _ _)
          ;; Need to accout for 32 bytes of mach-header and the load commands
-         (let ([start (- offset (+ 32 (mach-o-header-commands-size header)))])
-           (subbytes bytes start (+ start size)))])]))
+         (let ([start (- offset (+ 32 (u32->s64 (mach-o-header-commands-size header))))])
+           (subbytes bytes start (+ start (eight-bytes-le->int size))))])]))
 
-  (define (read-const-relocations [mach-o : MachOFile]) : Bytes
+  (define (read-const-relocations [mach-o : MachOFile]) : (List RelocationEntry)
     (case mach-o
       [(mach-o-file header load-commands bytes)
        (case (find-const-section load-commands)
         [(section64 _ _ _ _ _ relocation-offset num-relocations _)
          ;; Need to accout for 32 bytes of mach-header and the load commands
-         (let ([start (- relocation-offset (+ 32 (mach-o-header-commands-size header)))])
+         (let ([start (- relocation-offset (+ 32 (u32->s64 (mach-o-header-commands-size header))))])
            (read-relocations num-relocations start bytes))])]))
 
   (define (symbol-table-entry-name=? [s1 : SymbolTableEntry] [s2 : SymbolTableEntry]) : Boolean
@@ -181,16 +182,16 @@
            (lambda ([entry : SymbolTableEntry])
              (case entry
                [(symbol-table-entry _ type _ _ _)
-                (not (= type 1))]))
+                (not (= (u8->s64 type) 1))]))
            (map
              (lambda ([entry : SymbolTableEntry])
                (case entry
-                 [(symbol-table-entry name type 1 desc value)
-                  (symbol-table-entry name type 1 desc (+ text-offset value))]
-                 [(symbol-table-entry name type 2 desc value)
-                  (symbol-table-entry name type 2 desc (- (+ const-offset value) (bytes-length text)))]
                  [(symbol-table-entry name type sect desc value)
-                  (symbol-table-entry name type sect desc value)]))
+                  (symbol-table-entry name type sect desc
+                    (case (u8->s64 sect)
+                      [1 (+ text-offset value)]
+                      [2 (- (+ const-offset value) (bytes-length text))]
+                      [_ value]))]))
              symbols))
          (get-offset-symbols parsed-mach-os
                              (+ text-offset (bytes-length text))
@@ -213,7 +214,7 @@
                 (relocation-marker
                   (+ text-offset address)
                   (symbol-table-entry-name (just-v (list-ref symbols symbol-num)))
-                  type)]))
+                  (u8->s64 type))]))
            text-relocations)
          (append
            (map
@@ -223,7 +224,7 @@
                   (relocation-marker
                     (+ const-offset address)
                     (symbol-table-entry-name (just-v (list-ref symbols symbol-num)))
-                    type)]))
+                    (u8->s64 type))]))
              const-relocations)
            (get-relocation-markers parsed-mach-os
                                    (+ text-offset (bytes-length text))
@@ -250,7 +251,7 @@
          (bytes-set!/octo-le
            const-section
            offset
-           (+ (bytes-ref/octo-le const-section offset)
+           (+ (eight-bytes-le->int (bytes-ref/eight-bytes-le const-section offset))
               (symbol-table-entry-value
                 (find-symbol-entry symbol symbols))))
          (apply-const-relocations rels symbols const-section))]
@@ -270,20 +271,22 @@
          (bytes-set!/quad-le
            text-section
            offset
-           (+ (bytes-ref/quad-le text-section offset)
-              (- (symbol-table-entry-value
-                   (find-symbol-entry symbol symbols))
-                 (+ (+ offset 4) text-start-offset))))
+           (u32
+             (+ (bytes-ref/quad-le text-section offset)
+                (- (symbol-table-entry-value
+                     (find-symbol-entry symbol symbols))
+                   (+ (+ offset 4) text-start-offset)))))
          (apply-text-relocations rels symbols text-section text-start-offset))]
       [(cons (relocation-marker offset symbol #x1D) rels)
        (begin
          (bytes-set!/quad-le
            text-section
            offset
-           (+ (bytes-ref/quad-le text-section offset)
-              (- (symbol-table-entry-value
-                   (find-symbol-entry symbol symbols))
-                 (+ (+ offset 4) text-start-offset))))
+           (u32
+             (+ (bytes-ref/quad-le text-section offset)
+                (- (symbol-table-entry-value
+                     (find-symbol-entry symbol symbols))
+                   (+ (+ offset 4) text-start-offset)))))
          (apply-text-relocations rels symbols text-section text-start-offset))]
       [(cons _ rels)
        (apply-text-relocations rels symbols text-section text-start-offset)])))
