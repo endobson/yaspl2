@@ -620,7 +620,6 @@ yaspl_test(
     ":sexp-parser",
     ":sexp-printer",
     ":yunit",
-    ":io",
     "//libraries/data:bytes",
     "//libraries/data:either",
     "//libraries/data:list",
