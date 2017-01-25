@@ -406,9 +406,7 @@ yaspl_library(
   srcs = ["mach.yaspl"],
   deps = [
     "//libraries/data:bytes",
-    ":io",
     "//libraries/data:list",
-    "//libraries/data:numbers",
   ]
 )
 

@@ -1,13 +1,12 @@
 (module mach
   (import
     (prim
-      #:types (Bytes OutputPort MachPort Void Int U8 U32 S32)
+      #:types (Bytes MachPort Void Int U8 U32 S32)
       #:values (make-bytes bytes-length bytes-ref
                 mach-task-self mach-thread-self mach-reply-port mach-msg mach-port-mod-refs
                 mach-start-thread
-                - + = panic u32)
+                - + = panic u8 u32 s32 mach-port->u32 s32->s64 u32->mach-port)
       #:patterns ())
-    (io write-line)
     (list
       #:types (List)
       #:values (cons empty)
@@ -16,8 +15,7 @@
       #:types (EightBytesLe)
       #:values (bytes-ref/quad-le bytes-set!/quad-le
                 int->eight-bytes-le bytes-set!/eight-bytes-le)
-      #:patterns ())
-    (numbers integer->hex-bytes))
+      #:patterns ()))
   (export
     #:types ()
     #:values (spawn)
@@ -60,31 +58,13 @@
     (case hdr
       [(mach-message-header options size remote-port local-port voucher-port message-id)
        (begin
-         (bytes-set!/quad-le bytes 0 (u32 options))
-         (bytes-set!/quad-le bytes 4 (u32 size))
-         (bytes-set!/quad-le bytes 8 (u32 remote-port))
-         (bytes-set!/quad-le bytes 12 (u32 local-port))
-         (bytes-set!/quad-le bytes 16 (u32 voucher-port))
-         (bytes-set!/quad-le bytes 20 (u32 message-id)))]))
-
-  (define (parse-mach-message-header [bytes : Bytes]) : MachMessageHeader
-    (mach-message-header
-      (bytes-ref/quad-le bytes 0)
-      (bytes-ref/quad-le bytes 4)
-      (bytes-ref/quad-le bytes 8)
-      (bytes-ref/quad-le bytes 12)
-      (bytes-ref/quad-le bytes 16)
-      (bytes-ref/quad-le bytes 20)))
-  (define (debug-mach-message-header [hdr : MachMessageHeader] [out : OutputPort]) : Void
-    (case hdr
-      [(mach-message-header options size remote-port local-port voucher-port message-id)
-       (begin
-         (write-line (integer->hex-bytes options) out)
-         (write-line (integer->hex-bytes size) out)
-         (write-line (integer->hex-bytes remote-port) out)
-         (write-line (integer->hex-bytes local-port) out)
-         (write-line (integer->hex-bytes voucher-port) out)
-         (write-line (integer->hex-bytes message-id) out))]))
+         (bytes-set!/quad-le bytes 0 options)
+         (bytes-set!/quad-le bytes 4 size)
+         (bytes-set!/quad-le bytes 8 (mach-port->u32 remote-port))
+         (bytes-set!/quad-le bytes 12 (mach-port->u32 local-port))
+         (bytes-set!/quad-le bytes 16 (mach-port->u32 voucher-port))
+         ;; TODO make this work for s32 as well
+         (bytes-set!/quad-le bytes 20 (u32 (s32->s64 message-id))))]))
 
   (define (parse-mach-message-body [bytes : Bytes]) : (List MachMessageDescriptor)
     (parse-mach-message-body/loop bytes 28 (bytes-ref/quad-le bytes 24)))
@@ -97,8 +77,8 @@
           (let ([descriptor-type (bytes-ref bytes (+ offset 11))])
             (if (= descriptor-type 0)
                 (mach-port-descriptor
-                  (bytes-ref/quad-le bytes offset)
-                  (bytes-ref bytes (+ offset 10)))
+                  (u32->mach-port (u32 (bytes-ref/quad-le bytes offset)))
+                  (u8 (bytes-ref bytes (+ offset 10))))
                 (panic #"Bad MachMessageDescriptor")))
           (parse-mach-message-body/loop bytes (+ offset 12) (- num-descriptors 1)))))
 
@@ -147,12 +127,12 @@
         (begin
           (write-mach-message-header
             (mach-message-header
-              #x1511
-              0
+              (u32 #x1511)
+              (u32 0)
               thread
               reply-port
-              0
-              #xE10)
+              (u32->mach-port (u32 0))
+              (s32 #xE10))
             buffer)
           (mach-msg/send-recv buffer 24 reply-port)
           (mach-unref-reply-port reply-port)))))
@@ -163,12 +143,12 @@
         (begin
           (write-mach-message-header
             (mach-message-header
-              #x1513
-              0
+              (u32 #x1513)
+              (u32 0)
               thread
               reply-port
-              0
-              #xE15)
+              (u32->mach-port (u32 0))
+              (s32 #xE15))
             buffer)
           (mach-msg/send-recv buffer 24 reply-port)
           (mach-unref-reply-port reply-port)))))
@@ -179,12 +159,12 @@
         (begin
           (write-mach-message-header
             (mach-message-header
-              #x1513
-              0
+              (u32 #x1513)
+              (u32 0)
               thread
               reply-port
-              0
-              #xE16)
+              (u32->mach-port (u32 0))
+              (s32 #xE16))
             buffer)
           (mach-msg/send-recv buffer 24 reply-port)
           (mach-unref-reply-port reply-port)))))
@@ -203,12 +183,12 @@
             (begin
               (write-mach-message-header
                 (mach-message-header
-                  #x1513
-                  0
+                  (u32 #x1513)
+                  (u32 0)
                   task-port
                   reply-port
-                  0
-                  #xD53)
+                  (u32->mach-port (u32 0))
+                  (s32 #xD53))
                 buffer)
               (mach-msg/send-recv buffer 24 reply-port)
               (mach-unref-reply-port reply-port))))
@@ -223,12 +203,12 @@
         (begin
           (write-mach-message-header
             (mach-message-header
-              #x1513
-              0
+              (u32 #x1513)
+              (u32 0)
               thread
               reply-port
-              0
-              #xE14)
+              (u32->mach-port (u32 0))
+              (s32 #xE14))
             buffer)
 
           ;; UNSAFE
