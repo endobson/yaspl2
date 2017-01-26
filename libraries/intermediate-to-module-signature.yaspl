@@ -11,12 +11,11 @@
     (bytes bytes=?)
     (environment
       #:types (Environment)
-      #:values (global-value-name environment-value-ref
-                environment-type-bindings)
+      #:values (global-value-name environment-value-ref)
       #:patterns ())
     (dict
       #:types (Dict)
-      #:values (make-dict dict-add dict-ref)
+      #:values (make-dict dict-add)
       #:patterns ())
     (maybe
       #:types ()
@@ -27,17 +26,14 @@
       #:values (module-signature pattern-signature)
       #:patterns ())
     (intermediate-language
-      #:types (Module TypeDefinition VariantDefinition)
-      #:values (module-name module-types module-exports variant-field-type)
-      #:patterns (variant-definition type-definition))
+      #:types (Module TypeDefinition VariantDefinition TypedExport)
+      #:values (module-name module-types module-exports variant-field-type
+                exports-values exports-types)
+      #:patterns (variant-definition type-definition typed-export))
     (types
       #:types (Type)
       #:values ()
-      #:patterns ())
-    (source-language
-      #:types (Export)
-      #:values (exports-values exports-types)
-      #:patterns (export)))
+      #:patterns ()))
   (export
     #:types ()
     #:values (module->module-signature)
@@ -53,16 +49,24 @@
         (module-name mod)
         (make-exports (exports-values exports) env (make-dict bytes=?))
         (make-exported-patterns (module-types mod) (make-dict bytes=?))
-        (make-type-exports (exports-types exports) (environment-type-bindings env)
-                           (make-dict bytes=?))
-        (make-dict bytes=?)
+        (make-type-exports (exports-types exports) (make-dict bytes=?))
+        (make-value-type-exports (exports-values exports) (make-dict bytes=?))
         known-funcs)))
 
-  (define (make-exports [exports : (List Export)] [env : Environment] [acc : (Dict Bytes Bytes)])
+  (define (make-value-type-exports
+            [exports : (List TypedExport)]
+            [acc : (Dict Bytes Type)])
+    : (Dict Bytes Type)
+    (case exports
+      [(empty) acc]
+      [(cons (typed-export _ exported-name type) exports)
+       (make-value-type-exports exports (dict-add acc exported-name type))]))
+
+  (define (make-exports [exports : (List TypedExport)] [env : Environment] [acc : (Dict Bytes Bytes)])
     : (Dict Bytes Bytes)
     (case exports
       [(empty) acc]
-      [(cons (export local-name exported-name) exports)
+      [(cons (typed-export local-name exported-name _) exports)
        (case (environment-value-ref env local-name)
          [(nothing)
           (panic #"Exported value has no definition")]
@@ -76,24 +80,13 @@
               (global-value-name exported-name*)))])]))
 
   (define (make-type-exports
-            [exports : (List Export)]
-            [env : (Dict Bytes Type)]
+            [exports : (List TypedExport)]
             [acc : (Dict Bytes Type)])
     : (Dict Bytes Type)
     (case exports
       [(empty) acc]
-      [(cons (export local-name exported-name) exports)
-       (case (dict-ref env local-name)
-         [(nothing)
-          (panic #"Exported type has no definition")]
-         [(just exported-type)
-          (make-type-exports
-            exports
-            env
-            (dict-add
-              acc
-              exported-name
-              exported-type))])]))
+      [(cons (typed-export _ exported-name type) exports)
+       (make-type-exports exports (dict-add acc exported-name type))]))
 
   (define (make-exported-patterns
             [types : (List TypeDefinition)]

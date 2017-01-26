@@ -4,15 +4,15 @@
       #:types (Bytes Int)
       #:values (+ = panic)
       #:patterns ())
-    (bytes bytes-append bytes=?)
+    (bytes bytes-append)
     (dict
       #:types (Dict)
-      #:values (dict-ref dict-add make-dict)
+      #:values (dict-ref dict-add)
       #:patterns ())
     (either
       #:types (Either)
-      #:values (right)
-      #:patterns ())
+      #:values (left right)
+      #:patterns (left right))
     (list
       #:types (List)
       #:values (empty cons list map length)
@@ -23,7 +23,7 @@
       #:patterns (nothing just))
     (types
       #:types (Type)
-      #:values (var-type fun-type abstract-type star-kind type-constructor)
+      #:values (var-type fun-type abstract-type)
       #:patterns (type-constructor))
     (set
       #:types ()
@@ -37,7 +37,7 @@
     (free-variables free-variables)
     (module-signature
       #:types (ModuleSignature)
-      #:values (module-signature-type-bindings module-signature-name)
+      #:values ()
       #:patterns ())
     (intermediate-language
       #:types
@@ -50,6 +50,9 @@
          (Expression i:Expression)
          (CaseClause i:CaseClause)
          (Pattern i:Pattern)
+         (Export i:Export)
+         (TypedExport i:TypedExport)
+         (Exports i:Exports)
          ClosureConstant)
       #:values
         ((module i:module)
@@ -73,19 +76,23 @@
          (abstraction-pattern i:abstraction-pattern)
          (bytes-pattern i:bytes-pattern)
          (int-pattern i:int-pattern)
+         (exports i:exports)
+         (export i:export)
+         (typed-export i:typed-export)
          closure-constant
          bytes-constant)
       #:patterns ())
     (source-language
       #:types (Module FunctionDefinition Expression CaseClause Pattern PreType TypeDefinition
-               VariantDefinition VariantField Import Imports)
+               VariantDefinition VariantField Export Exports)
       #:values ()
       #:patterns (module function-definition int-literal bytes-literal
                   boolean-literal var-expr if-expr begin-expr lambda-expr
                   let-expr case-expr case-clause app-expr varargs-app-expr
                   bytes-pattern int-pattern variable-pattern ignore-pattern abstraction-pattern
                   var-pre-type fun-pre-type type-app-pre-type
-                  type-definition variant-definition variant-field import imports)))
+                  type-definition variant-definition variant-field export exports))
+    (type-checker type-check context-types context-values))
   (export
     #:types ()
     #:values (source->intermediate)
@@ -99,92 +106,50 @@
 
   (define (source->intermediate [mod : Module] [sigs : (List ModuleSignature)])
     : (Either Bytes i:Module)
-    (case mod
-      [(module name imports exports types definitions)
-       (let ([type-env (make-type-environment mod sigs)])
-         (case (convert-function-definitions
-                 definitions
-                 (environment type-env)
-                 (state (empty) (empty) 0))
-           [(state funcs byte-constants _)
-            (right
-              (i:module
-                name
-                imports
-                exports
-                (convert-type-definitions name types type-env)
-                funcs
-                (create-closures definitions (empty))
-                byte-constants))]))]))
+    (case (type-check mod sigs)
+      [(left v) (left v)]
+      [(right context)
+       (case mod
+         [(module name imports exports types definitions)
+          (let ([type-env (context-types context)])
+            (case (convert-function-definitions
+                    definitions
+                    (environment type-env)
+                    (state (empty) (empty) 0))
+              [(state funcs byte-constants _)
+               (right
+                 (i:module
+                   name
+                   imports
+                   (convert-exports exports type-env (context-values context))
+                   (convert-type-definitions name types type-env)
+                   funcs
+                   (create-closures definitions (empty))
+                   byte-constants))]))])]))
 
-  (define (make-type-environment [mod : Module] [sigs : (List ModuleSignature)])
-    : (Dict Bytes Type)
-    (case mod
-      [(module name importss _ types _)
-       (add-imported-types/importss importss sigs
-         (add-type-definitions name types (make-dict bytes=?)))]))
+  (define (convert-exports
+            [exports : Exports]
+            [type-env : (Dict Bytes Type)]
+            [value-env : (Dict Bytes Type)]) : i:Exports
+    (case exports
+      [(exports types values patterns)
+       (i:exports
+         (map (lambda ([e : Export]) (convert-typed-export e type-env)) types)
+         (map (lambda ([e : Export]) (convert-typed-export e value-env)) values)
+         (map convert-export patterns))]))
 
-  (define (add-imported-types/importss
-            [importss : (List Imports)]
-            [sigs : (List ModuleSignature)]
-            [env : (Dict Bytes Type)])
-    : (Dict Bytes Type)
-    (case importss
-      [(empty) env]
-      [(cons (imports module-name types _ _) importss)
-       (add-imported-types/importss
-         importss
-         sigs
-         (add-imported-types module-name types
-           (module-signature-type-bindings (lookup-signature module-name sigs)) env))]))
-
-  (define (lookup-signature [name : Bytes] [sigs : (List ModuleSignature)])
-    : ModuleSignature
-    (case sigs
-      [(empty) (panic #"No such signature")]
-      [(cons sig sigs)
-       (if (bytes=? (module-signature-name sig) name)
-           sig
-           (lookup-signature name sigs))]))
+  (define (convert-typed-export [export : Export] [env : (Dict Bytes Type)]) : i:TypedExport
+    (case export
+      [(export local exported)
+       (case (dict-ref env local)
+         [(nothing) (panic #"Export not in environment")]
+         [(just t) (i:typed-export local exported t)])]))
 
 
-  (define (add-imported-types
-            [module-name : Bytes]
-            [types : (List Import)]
-            [external-types : (Dict Bytes Type)]
-            [env : (Dict Bytes Type)])
-    : (Dict Bytes Type)
-    (case types
-      [(empty) env]
-      [(cons (import external-name local-name) types)
-       (add-imported-types
-         module-name
-         types
-         external-types
-         (dict-add env local-name
-            (case (dict-ref external-types external-name)
-              [(nothing) (panic (bytes-append (varargs list #"No type " external-name #" exported by "
-                                                       module-name)))]
-              [(just type) type])))]))
-
-
-  (define (add-type-definitions [mod-name : Bytes] [types : (List TypeDefinition)] [env : (Dict Bytes Type)])
-    : (Dict Bytes Type)
-    (case types
-      [(empty) env]
-      [(cons (type-definition name (nothing) _) types)
-       (add-type-definitions
-         mod-name
-         types
-         (dict-add env name (abstract-type mod-name name (empty))))]
-      [(cons (type-definition name (just syms) _) types)
-       (add-type-definitions
-         mod-name
-         types
-         (dict-add env name
-            (type-constructor mod-name name (map (lambda ([v : Bytes]) (star-kind)) syms))))]))
-
-
+  (define (convert-export [export : Export]) : i:Export
+    (case export
+      [(export local exported)
+       (i:export local exported)]))
 
   (define (create-closures
             [funs : (List FunctionDefinition)]

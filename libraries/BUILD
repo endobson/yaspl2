@@ -651,6 +651,7 @@ yaspl_bootstrap_library(
     ":module-signature",
     ":source-language",
     ":types",
+    ":type-checker",
     "//libraries/data:bytes",
     "//libraries/data:dict",
     "//libraries/data:either",
