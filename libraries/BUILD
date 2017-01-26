@@ -774,10 +774,16 @@ yaspl_bootstrap_library(
   srcs = ["type-checker.yaspl"],
   deps = [
     ":intermediate-language",
+    ":module-signature",
+    ":source-language",
     ":types",
-    "//libraries/data:list",
+    ":sexp-printer",
+    "//libraries/data:bytes",
     "//libraries/data:dict",
+    "//libraries/data:either",
+    "//libraries/data:list",
     "//libraries/data:maybe",
+    "//libraries/data:tuples",
   ]
 )
 
