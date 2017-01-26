@@ -786,6 +786,8 @@ yaspl_bootstrap_library(
   srcs = ["type-unification.yaspl"],
   deps = [
     ":types",
+    ":sexp-parser",
+    ":sexp-printer",
     "//libraries/data:bytes",
     "//libraries/data:dict",
     "//libraries/data:list",
