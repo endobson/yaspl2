@@ -5,8 +5,8 @@
       #:values (module-signature pattern-signature)
       #:patterns (module-signature pattern-signature))
     (prim
-      #:types (Bytes Int)
-      #:values ()
+      #:types (Bytes)
+      #:values (panic)
       #:patterns ())
     (dict
       #:types (Dict)
@@ -19,7 +19,7 @@
       #:patterns ())
     (list
       #:types (List)
-      #:values (list)
+      #:values (list map extract-justs)
       #:patterns (cons empty))
     (maybe
       #:types ()
@@ -32,8 +32,8 @@
     (sexp-printer print-sexp)
     (sexp-parser
       #:types (Sexp)
-      #:values (parse-sexp node bytes-sexp number-sexp)
-      #:patterns (node bytes-sexp number-sexp)))
+      #:values (parse-sexp node bytes-sexp number-sexp symbol-sexp)
+      #:patterns (node bytes-sexp number-sexp symbol-sexp)))
   (export
     #:types ()
     #:values (serialize-module-signature deserialize-module-signature)
@@ -53,10 +53,13 @@
                                               (bytes-sexp fun-name))))))
              (node (dict-map patterns (lambda ([value : Bytes] [sig : PatternSignature])
                                         (case sig
-                                          [(pattern-signature tag)
+                                          [(pattern-signature tag type-vars self-type field-types)
                                            (node (varargs list
                                                    (bytes-sexp value)
-                                                   (number-sexp tag)))]))))
+                                                   (number-sexp tag)
+                                                   (node (map symbol-sexp type-vars))
+                                                   (type->sexp self-type)
+                                                   (node (map type->sexp field-types))))]))))
              (node (dict-map type-bindings
                              (lambda ([name : Bytes] [type : Type])
                                (node (varargs list (bytes-sexp name)
@@ -66,7 +69,7 @@
                                (node (varargs list (bytes-sexp value)
                                                    (type->sexp type))))))
              (node (dict-map known-functions
-                             (lambda ([value : Bytes] [fun-name : Type])
+                             (lambda ([value : Bytes] [fun-name : Bytes])
                                (node (varargs list
                                        (bytes-sexp value)
                                        (bytes-sexp fun-name)))))))))]))
@@ -88,14 +91,35 @@
          [(just type)
           (type-exports->dict type-exports (dict-add acc k type))])]))
 
-  (define (pattern-exports->dict [pattern-exports : (List Sexp)] [acc : (Dict Bytes Int)])
-    : (Dict Bytes Int)
+  (define (parse-type-var-sexp [s : Sexp]) : Bytes
+    (case s
+      [(symbol-sexp v) v]
+      [_ (panic #"Not a valid type-var")]))
+
+  (define (pattern-exports->dict
+            [pattern-exports : (List Sexp)]
+            [acc : (Dict Bytes PatternSignature)])
+    : (Dict Bytes PatternSignature)
     (case pattern-exports
       [(empty) acc]
-      [(cons (node (cons (bytes-sexp k) (cons (number-sexp v) (empty)))) pattern-exports)
-       (pattern-exports->dict
-         pattern-exports
-         (dict-add acc k (pattern-signature v)))]))
+      [(cons (node (cons (bytes-sexp k)
+                         (cons (number-sexp v)
+                               (cons (node type-var-sexps)
+                                     (cons self-type-sexp
+                                           (cons (node field-type-sexps) (empty)))))))
+             pattern-exports)
+       (case (sexp->type self-type-sexp)
+         [(just self-type)
+          (case (extract-justs (map sexp->type field-type-sexps))
+            [(just field-types)
+             (pattern-exports->dict
+               pattern-exports
+               (dict-add acc k
+                         (pattern-signature
+                           v
+                           (map parse-type-var-sexp type-var-sexps)
+                           self-type
+                           field-types)))])])]))
 
 
   (define (deserialize-module-signature [bytes : Bytes]) : (Either Bytes ModuleSignature)

@@ -480,6 +480,7 @@ yaspl_bootstrap_library(
   deps = [
     ":types",
     "//libraries/data:dict",
+    "//libraries/data:list",
   ]
 )
 
