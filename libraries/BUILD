@@ -176,23 +176,22 @@ yaspl_library(
   name = "extra-action-linter-main",
   srcs = ["extra-action-linter-main.yaspl"],
   deps = [
+    ":extra-action-parser",
+    ":io",
+    ":linker",
+    ":mach-o-writer2_lib",
+    ":mach-o_lib",
+    ":sexp-parser",
+    ":source-language",
+    ":unused-bindings",
     "//libraries/data:boolean",
     "//libraries/data:bytes",
     "//libraries/data:dict",
     "//libraries/data:either",
-    ":extra-action-parser",
-    ":io",
-    ":linker",
     "//libraries/data:list",
-    ":mach-o-writer2_lib",
-    ":mach-o_lib",
     "//libraries/data:maybe",
     "//libraries/data:numbers",
     "//libraries/data:set",
-    "//libraries/data:tuples",
-    ":source-language",
-    ":sexp-parser",
-    ":unused-imports",
   ]
 )
 
@@ -853,8 +852,8 @@ yaspl_library(
 )
 
 yaspl_library(
-  name = "unused-imports",
-  srcs = ["unused-imports.yaspl"],
+  name = "unused-bindings",
+  srcs = ["unused-bindings.yaspl"],
   deps = [
     ":source-language",
     ":validator",
@@ -862,7 +861,6 @@ yaspl_library(
     "//libraries/data:list",
     "//libraries/data:multi-set",
     "//libraries/data:set",
-    "//libraries/data:tuples",
   ]
 )
 
