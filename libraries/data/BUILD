@@ -21,7 +21,6 @@ yaspl_test(
   main_module = "bytes_test",
   srcs = ["bytes-test.yaspl"],
   deps = [
-    ":boolean",
     ":bytes",
     "//libraries:yunit",
     ":list",
@@ -103,10 +102,8 @@ yaspl_test(
   main_module = "maybe_test",
   srcs = ["maybe-test.yaspl"],
   deps = [
-    ":bytes",
     ":maybe",
     ":list",
-    ":tuples",
     "//libraries:yunit",
   ]
 )
@@ -143,7 +140,6 @@ yaspl_test(
   main_module = "regexp_test",
   srcs = ["regexp-test.yaspl"],
   deps = [
-    ":boolean",
     ":list",
     ":regexp",
     ":maybe",
@@ -168,7 +164,6 @@ yaspl_test(
   deps = [
     ":boolean",
     ":list",
-    ":maybe",
     ":set",
     "//libraries:yunit",
   ],
@@ -185,7 +180,6 @@ yaspl_test(
   main_module = "tuples_test",
   srcs = ["tuples-test.yaspl"],
   deps = [
-    ":boolean",
     ":bytes",
     ":list",
     ":maybe",
