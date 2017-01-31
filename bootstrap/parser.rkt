@@ -67,7 +67,7 @@
 (define (parse-type-definitions types)
   (define (parse-variant variant)
     (match variant
-      [(list variant-name [list field-name (app parse-pre-type field-type)] ...)
+      [(list variant-name [list field-name ': (app parse-pre-type field-type)] ...)
        (variant& variant-name (map variant-field& field-name field-type))]))
   (define (parse-type-definition type)
     (match type
