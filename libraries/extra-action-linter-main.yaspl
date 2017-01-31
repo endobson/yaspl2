@@ -1,10 +1,10 @@
 (module extra-action-linter-main
   (import
     (prim
-      #:types (Array Bytes InputPort OutputPort Int)
+      #:types (Array Bytes InputPort OutputPort Int Void)
       #:values (array-length array-ref = void bytes-length)
       #:patterns ())
-    (bytes ends-with?)
+    (bytes ends-with? bytes-append)
     (boolean not)
     (unused-bindings
       #:types (UnusedBindings)
@@ -13,8 +13,8 @@
     (source-language parse-module)
     (sexp-parser parse-sexp)
     (list
-      #:types ()
-      #:values (reverse filter cons-head for-each)
+      #:types (List)
+      #:values (reverse filter cons-head for-each map list)
       #:patterns (empty))
     (tuples
       #:types (Tuple2)
@@ -24,7 +24,7 @@
       #:types (Either)
       #:values (right left)
       #:patterns (right left))
-    (io write-line read-all-bytes write-all-bytes call-with-input-file call-with-output-file)
+    (io write-line read-all-bytes call-with-input-file call-with-output-file)
     (extra-action-parser
       #:types ()
       #:values (proto-parser parse-extra-action-info)
@@ -32,14 +32,28 @@
   (export)
   (types)
 
+  (define (indent2 [bytes : Bytes]) : Bytes
+    (bytes-append (varargs list #"    " bytes)))
+
+  (define (indent [bytes : Bytes]) : Bytes
+    (bytes-append (varargs list #"  " bytes)))
 
   (define (handle-failure-result [msg : Bytes] [stderr : OutputPort]) : Int
     (begin
       (write-line msg stderr)
       1))
 
+  (define (write-results-section [title : Bytes] [unused : (List Bytes)] [output : OutputPort]) : Void
+    (let ([write-out-line (lambda ([x : Bytes]) (write-line x output))])
+      (case unused
+        [(empty) (void)]
+        [unused
+         (begin
+           (write-out-line (indent title))
+           (for-each write-out-line (map indent2 unused)))])))
+
   (define (handle-result
-            [output-port : OutputPort]
+            [output : OutputPort]
             [stderr : OutputPort]
             [result : (Either Bytes (Tuple2 Bytes UnusedBindings))]) : Int
     (case result
@@ -49,51 +63,11 @@
        0]
       [(right (tuple2 src-file-path (unused-bindings unused-types unused-vars unused-patterns unused-var-defs)))
        (begin
-        (write-line src-file-path output-port)
-        (case unused-types
-          [(empty) (void)]
-          [unused
-           (begin
-             (write-line #"  Unused types" output-port)
-             (for-each
-               (lambda ([unused-import : Bytes])
-                 (begin
-                   (write-all-bytes #"    " output-port)
-                   (write-line unused-import output-port)))
-               unused))])
-        (case unused-vars
-          [(empty) (void)]
-          [unused
-           (begin
-             (write-line #"  Unused variables:" output-port)
-             (for-each
-               (lambda ([unused-import : Bytes])
-                 (begin
-                   (write-all-bytes #"    " output-port)
-                   (write-line unused-import output-port)))
-               unused))])
-        (case unused-patterns
-          [(empty) (void)]
-          [unused
-           (begin
-             (write-line #"  Unused patterns" output-port)
-             (for-each
-               (lambda ([unused-import : Bytes])
-                 (begin
-                   (write-all-bytes #"    " output-port)
-                   (write-line unused-import output-port)))
-               unused))])
-        (case unused-var-defs
-          [(empty) (void)]
-          [unused
-           (begin
-             (write-line #"  Unused defined variables:" output-port)
-             (for-each
-               (lambda ([unused-definition : Bytes])
-                 (begin
-                   (write-all-bytes #"    " output-port)
-                   (write-line unused-definition output-port)))
-               unused))])
+        (write-line src-file-path output)
+        (write-results-section #"Unused types:" unused-types output)
+        (write-results-section #"Unused variables:" unused-vars output)
+        (write-results-section #"Unused patterns:" unused-patterns output)
+        (write-results-section #"Unused defined-functions" unused-var-defs output)
         0)]))
 
   (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Int
