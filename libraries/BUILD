@@ -192,6 +192,7 @@ yaspl_library(
     "//libraries/data:maybe",
     "//libraries/data:numbers",
     "//libraries/data:set",
+    "//libraries/data:tuples",
   ]
 )
 

@@ -6,8 +6,8 @@
       #:patterns ())
     (bytes ends-with?)
     (boolean not)
-    (unused-imports
-      #:types ()
+    (unused-bindings
+      #:types (UnusedBindings)
       #:values (module-unused-bindings)
       #:patterns (unused-bindings))
     (source-language parse-module)
@@ -16,9 +16,13 @@
       #:types ()
       #:values (reverse filter cons-head for-each)
       #:patterns (empty))
+    (tuples
+      #:types (Tuple2)
+      #:values (tuple2)
+      #:patterns (tuple2))
     (either
-      #:types ()
-      #:values ()
+      #:types (Either)
+      #:values (right left)
       #:patterns (right left))
     (io write-line read-all-bytes write-all-bytes call-with-input-file call-with-output-file)
     (extra-action-parser
@@ -28,97 +32,100 @@
   (export)
   (types)
 
+
+  (define (handle-failure-result [msg : Bytes] [stderr : OutputPort]) : Int
+    (begin
+      (write-line msg stderr)
+      1))
+
+  (define (handle-result
+            [output-port : OutputPort]
+            [stderr : OutputPort]
+            [result : (Either Bytes (Tuple2 Bytes UnusedBindings))]) : Int
+    (case result
+      [(left v)
+       (handle-failure-result v stderr)]
+      [(right (tuple2 _ (unused-bindings (empty) (empty) (empty) (empty))))
+       0]
+      [(right (tuple2 src-file-path (unused-bindings unused-types unused-vars unused-patterns unused-var-defs)))
+       (begin
+        (write-line src-file-path output-port)
+        (case unused-types
+          [(empty) (void)]
+          [unused
+           (begin
+             (write-line #"  Unused types" output-port)
+             (for-each
+               (lambda ([unused-import : Bytes])
+                 (begin
+                   (write-all-bytes #"    " output-port)
+                   (write-line unused-import output-port)))
+               unused))])
+        (case unused-vars
+          [(empty) (void)]
+          [unused
+           (begin
+             (write-line #"  Unused variables:" output-port)
+             (for-each
+               (lambda ([unused-import : Bytes])
+                 (begin
+                   (write-all-bytes #"    " output-port)
+                   (write-line unused-import output-port)))
+               unused))])
+        (case unused-patterns
+          [(empty) (void)]
+          [unused
+           (begin
+             (write-line #"  Unused patterns" output-port)
+             (for-each
+               (lambda ([unused-import : Bytes])
+                 (begin
+                   (write-all-bytes #"    " output-port)
+                   (write-line unused-import output-port)))
+               unused))])
+        (case unused-var-defs
+          [(empty) (void)]
+          [unused
+           (begin
+             (write-line #"  Unused defined variables:" output-port)
+             (for-each
+               (lambda ([unused-definition : Bytes])
+                 (begin
+                   (write-all-bytes #"    " output-port)
+                   (write-line unused-definition output-port)))
+               unused))])
+        0)]))
+
   (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Int
     (if (not (= (array-length args) 3))
-        (begin
-          (write-line #"Too few arguments" stderr)
-          1)
+        (handle-failure-result #"Too few arguments" stderr)
         (let ([bytes (call-with-input-file (array-ref args 1) read-all-bytes)])
           (let ([output-file-name (array-ref args 2)])
-            (let ([limit (bytes-length bytes)])
-              (case (parse-extra-action-info (proto-parser bytes 0 limit))
-                [(left msg)
-                 (begin
-                   (write-line msg stderr)
-                   1)]
-                [(right info)
-                 (case info
-                   [(extra-action-info owner id mnemonic (spawn-info arguments input-files output-files))
-                    (case mnemonic
-                      [#"YasplCompile"
-                       (call-with-output-file output-file-name
-                         (lambda ([output-port : OutputPort])
-                           (let ([src-file-path
-                                   (cons-head (reverse
-                                     (filter
-                                       (lambda ([input-path : Bytes])
-                                         (ends-with? input-path #".yaspl"))
-                                       input-files)))])
-                             (case (parse-sexp (call-with-input-file src-file-path read-all-bytes))
-                              [(left v)
-                               (begin
-                                 (write-line v stderr)
-                                 1)]
-                              [(right sexp)
-                               (case (parse-module sexp)
+            (call-with-output-file output-file-name
+              (lambda ([output-port : OutputPort])
+                (handle-result output-port stderr
+                  (let ([limit (bytes-length bytes)])
+                    (case (parse-extra-action-info (proto-parser bytes 0 limit))
+                      [(left msg)
+                       (left msg)]
+                      [(right info)
+                       (case info
+                         [(extra-action-info owner id mnemonic (spawn-info arguments input-files output-files))
+                          (case mnemonic
+                            [#"YasplCompile"
+                             (let ([src-file-path
+                                     (cons-head (reverse
+                                       (filter
+                                         (lambda ([input-path : Bytes])
+                                           (ends-with? input-path #".yaspl"))
+                                         input-files)))])
+                               (case (parse-sexp (call-with-input-file src-file-path read-all-bytes))
                                 [(left v)
-                                 (begin
-                                   (write-line v stderr)
-                                   1)]
-                                [(right module)
-                                 (begin
-                                   (case (module-unused-bindings module)
-                                     [(unused-bindings (empty) (empty) (empty) (empty)) (void)]
-                                     [(unused-bindings unused-types unused-vars unused-patterns
-                                                       unused-var-defs)
-                                      (begin
-                                       (write-line src-file-path output-port)
-                                       (case unused-types
-                                         [(empty) (void)]
-                                         [unused
-                                          (begin
-                                            (write-line #"  Unused types" output-port)
-                                            (for-each
-                                              (lambda ([unused-import : Bytes])
-                                                (begin
-                                                  (write-all-bytes #"    " output-port)
-                                                  (write-line unused-import output-port)))
-                                              unused))])
-                                       (case unused-vars
-                                         [(empty) (void)]
-                                         [unused
-                                          (begin
-                                            (write-line #"  Unused variables:" output-port)
-                                            (for-each
-                                              (lambda ([unused-import : Bytes])
-                                                (begin
-                                                  (write-all-bytes #"    " output-port)
-                                                  (write-line unused-import output-port)))
-                                              unused))])
-                                       (case unused-patterns
-                                         [(empty) (void)]
-                                         [unused
-                                          (begin
-                                            (write-line #"  Unused patterns" output-port)
-                                            (for-each
-                                              (lambda ([unused-import : Bytes])
-                                                (begin
-                                                  (write-all-bytes #"    " output-port)
-                                                  (write-line unused-import output-port)))
-                                              unused))])
-                                       (case unused-var-defs
-                                         [(empty) (void)]
-                                         [unused
-                                          (begin
-                                            (write-line #"  Unused defined variables:" output-port)
-                                            (for-each
-                                              (lambda ([unused-definition : Bytes])
-                                                (begin
-                                                  (write-all-bytes #"    " output-port)
-                                                  (write-line unused-definition output-port)))
-                                              unused))]))])
-                                   0)])]))))]
-                      [x
-                        (begin
-                          (write-line x stderr)
-                          1)])])])))))))
+                                 (left v)]
+                                [(right sexp)
+                                 (case (parse-module sexp)
+                                  [(left v)
+                                   (left v)]
+                                  [(right module)
+                                   (right (tuple2 src-file-path (module-unused-bindings module)))])]))]
+                            [x (left x)])])]))))))))))
