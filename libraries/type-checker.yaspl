@@ -1,7 +1,7 @@
 (module type-checker
   (import
     (prim
-      #:types (Bytes)
+      #:types (Bytes Boolean)
       #:values (panic =)
       #:patterns ())
     (prim-implementation int-type bytes-type void-type boolean-type)
@@ -220,6 +220,7 @@
   (define (variant-definition->context
             [def : VariantDefinition]
             [type-vars : (List Bytes)]
+            [gen-accessors : Boolean]
             [self-type : Type]
             [ctx : Context]) : Context
     (case def
@@ -259,20 +260,22 @@
                              [(right t) t])]))
                       fields)
                  self-type))
-             (map (lambda ([field-definition : VariantField])
-                    (case field-definition
-                      [(variant-field field-name pre-type)
-                       (tuple2 (bytes-append (varargs list name #"-" field-name))
-                               (fun-type
-                                 type-vars
-                                 (varargs list self-type)
-                                 (case (pre-type->type pre-type
-                                          (context-add-types
-                                            ctx
-                                            (map (lambda ([v : Bytes]) (tuple2 v (var-type v))) type-vars)))
-                                   [(left v) (panic/type v)]
-                                   [(right t) t])))]))
-                  fields))))]))
+             (if gen-accessors
+                 (map (lambda ([field-definition : VariantField])
+                        (case field-definition
+                          [(variant-field field-name pre-type)
+                           (tuple2 (bytes-append (varargs list name #"-" field-name))
+                                   (fun-type
+                                     type-vars
+                                     (varargs list self-type)
+                                     (case (pre-type->type pre-type
+                                              (context-add-types
+                                                ctx
+                                                (map (lambda ([v : Bytes]) (tuple2 v (var-type v))) type-vars)))
+                                       [(left v) (panic/type v)]
+                                       [(right t) t])))]))
+                      fields)
+                 (empty)))))]))
 
   (define (simplify-type-vars [type-vars : (Maybe (List Bytes))]) : (List Bytes)
     (case type-vars
@@ -284,10 +287,13 @@
       [(type-definition name type-vars variants)
        (let ([simple-type-vars (simplify-type-vars type-vars)])
          (let ([self-type (abstract-type mod-name name (map var-type simple-type-vars))])
-           (merge-contexts*
-             (map (lambda ([v : VariantDefinition])
-                    (variant-definition->context v simple-type-vars self-type ctx))
-                  variants))))]))
+           (let ([gen-accessors (case variants
+                                  [(cons _ (empty)) #t]
+                                  [_ #f])])
+             (merge-contexts*
+               (map (lambda ([v : VariantDefinition])
+                      (variant-definition->context v simple-type-vars gen-accessors self-type ctx))
+                    variants)))))]))
 
   (define (find-signature [name : Bytes] [sigs : (List ModuleSignature)]) : (Maybe ModuleSignature)
     (findf (lambda ([sig : ModuleSignature]) (bytes=? name (module-signature-name sig))) sigs))
