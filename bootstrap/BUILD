@@ -35,6 +35,17 @@ racket_binary(
   deps = [":main-stub-compiler"],
 )
 
+racket_binary(
+  name = "linker-compiler_bin",
+  main_module =
+    ":linker-compiler.rkt",
+  data = [
+    "//libraries:compiler_library_files",
+    "//libraries:linker_library_files"
+  ],
+  deps = [":linker-compiler"],
+)
+
 
 
 racket_library(
@@ -64,6 +75,17 @@ racket_library(
   name = "main-stub-compiler",
   srcs = [
     "main-stub-compiler.rkt"
+  ],
+  deps = [
+    ":compiler",
+    ":libraries"
+  ]
+)
+
+racket_library(
+  name = "linker-compiler",
+  srcs = [
+    "linker-compiler.rkt"
   ],
   deps = [
     ":compiler",
@@ -288,10 +310,39 @@ genrule(
 )
 
 genrule(
+  name = "gen_bootstrap_linker",
+  tools = [":linker-compiler_bin"],
+  outs = ["bootstrap_linker.s"],
+  cmd = "$(location :linker-compiler_bin) $@"
+)
+
+genrule(
+  name = "assemble_bootstrap_linker",
+  srcs = ["bootstrap_linker.s"],
+  outs = ["bootstrap_linker.o"],
+  cmd = "as $(location bootstrap_linker.s) -o $(location bootstrap_linker.o)"
+)
+
+
+genrule(
+  name = "link_bootstrap_linker",
+  srcs = ["bootstrap_linker.o"],
+  outs = ["bootstrap_linker"],
+  executable = 1,
+  output_to_bindir = 1,
+  cmd = "ld -arch x86_64 " +
+    "-macosx_version_min 10.11 " +
+    "-static " +
+    "-sectcreate __DATA __data /dev/null " +
+    "$(location bootstrap_linker.o) -o $(location bootstrap_linker)"
+)
+
+genrule(
   name = "gen_compiler_binaries",
   outs = ["compiler_binaries"],
   tools = [
     ":bootstrap_library_compiler",
+    ":bootstrap_linker",
     ":bootstrap_main_stub",
   ],
   cmd = "touch $@"
@@ -312,6 +363,15 @@ filegroup(
     "//conditions:default" : [":saved_main_stub"]
   }),
 )
+
+filegroup(
+  name = "linker",
+  srcs = select({
+    ":yaspl_bootstrap" : [":bootstrap_linker"],
+    "//conditions:default" : [":saved_linker"]
+  }),
+)
+
 
 config_setting(
     name = "yaspl_bootstrap",

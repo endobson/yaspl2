@@ -69,7 +69,6 @@ def _src_impl(ctx):
 
 
 def _bin_impl(ctx):
-
   ctx.action(
     inputs = [ctx.executable._main_stub],
     outputs = [ctx.outputs.main_stub_object],
@@ -83,19 +82,13 @@ def _bin_impl(ctx):
 
   input_objects = list(_transitive_objects(ctx)) + [ctx.outputs.main_stub_object]
   input_object_paths = [obj.path for obj in input_objects]
+
   ctx.action(
-    inputs = input_objects,
+    inputs = [ctx.executable._linker] + input_objects,
     outputs = [ctx.outputs.executable],
-    mnemonic = "YasplLink",
-    command = "ld -arch x86_64 " +
-    "-macosx_version_min 10.11 " +
-    "-static " +
-    "-no_uuid " +
-    "-sectcreate __DATA __data /dev/null " +
-    "%s -o %s" % (
-      " ".join(input_object_paths),
-      ctx.outputs.executable.path
-    )
+    mnemonic = "YasplLink2",
+    executable = ctx.executable._linker,
+    arguments = [ctx.outputs.executable.path] + input_object_paths
   )
 
 _yaspl_src_file_type = FileType([".yaspl"])
@@ -114,6 +107,14 @@ _bootstrap_main_stub = attr.label(
  allow_files=True,
  cfg="host",
 )
+
+_bootstrap_linker = attr.label(
+ default=Label("//bootstrap:linker"),
+ executable=True,
+ allow_files=True,
+ cfg="host",
+)
+
 
 yaspl_library = rule(
   implementation = _lib_impl,
@@ -144,6 +145,7 @@ yaspl_binary = rule(
     "main_module": attr.string(mandatory=True),
     "deps": attr.label_list(),
     "_main_stub": _bootstrap_main_stub,
+    "_linker": _bootstrap_linker,
   }
 )
 
@@ -159,6 +161,7 @@ yaspl_prim_test = rule(
     "main_module": attr.string(mandatory=True),
     "deps": attr.label_list(),
     "_main_stub": _bootstrap_main_stub,
+    "_linker": _bootstrap_linker,
   }
 )
 

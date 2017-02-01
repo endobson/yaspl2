@@ -6,3 +6,5 @@ cp bazel-out/host/bin/bootstrap/bootstrap_library_compiler bootstrap/saved_libra
 chmod ug+w bootstrap/saved_library_compiler
 cp bazel-out/host/bin/bootstrap/bootstrap_main_stub bootstrap/saved_main_stub
 chmod ug+w bootstrap/saved_main_stub
+cp bazel-out/host/bin/bootstrap/bootstrap_linker bootstrap/saved_linker
+chmod ug+w bootstrap/saved_linker

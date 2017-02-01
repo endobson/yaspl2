@@ -22,6 +22,12 @@ filegroup(
   data = [":main-stub_lib.srcs", ":main-stub_lib.src.list"]
 )
 
+filegroup(
+  name = "linker_library_files",
+  visibility = ["//visibility:public"],
+  data = [":linker-main.srcs", ":linker-main.src.list"]
+)
+
 yaspl_binary(
   name = "compiler",
   main_module = "compiler_main",
@@ -32,12 +38,6 @@ yaspl_binary(
   name = "code-http-server",
   main_module = "code_http_server",
   deps = [":code-http-server_lib"]
-)
-
-yaspl_binary(
-  name = "extra-action-linker",
-  main_module = "extra_action_linker_main",
-  deps = [":extra-action-linker-main"]
 )
 
 yaspl_binary(
@@ -56,6 +56,12 @@ yaspl_binary(
   name = "library-compiler",
   main_module = "library_compiler_main",
   deps = [":library-compiler-main"]
+)
+
+yaspl_binary(
+  name = "linker",
+  main_module = "linker_main",
+  deps = [":linker-main"]
 )
 
 yaspl_binary(
@@ -143,13 +149,12 @@ yaspl_bootstrap_library(
   ]
 )
 
-yaspl_library(
-  name = "extra-action-linker-main",
-  srcs = ["extra-action-linker-main.yaspl"],
+yaspl_bootstrap_library(
+  name = "linker-main",
+  srcs = ["linker-main.yaspl"],
   deps = [
-    ":extra-action-parser",
     ":io",
-    ":linker",
+    ":linker_lib",
     ":mach-o-writer2_lib",
     ":mach-o_lib",
     "//libraries/data:bytes",
@@ -349,8 +354,8 @@ yaspl_bootstrap_library(
  ]
 )
 
-yaspl_library(
-  name = "linker",
+yaspl_bootstrap_library(
+  name = "linker_lib",
   srcs = ["linker.yaspl"],
   deps = [
     ":mach-o_lib",
@@ -844,25 +849,9 @@ yaspl_library(
 )
 
 action_listener(
-  name = "yaspl_gen_executables",
-  mnemonics = ["YasplLink"],
-  extra_actions = [":yaspl_gen_executable"]
-)
-
-action_listener(
   name = "yaspl-lint",
   mnemonics = ["YasplCompile"],
   extra_actions = [":yaspl-lint-action"]
-)
-
-
-extra_action(
-  name = "yaspl_gen_executable",
-  out_templates = ["$(ACTION_ID).executable"],
-  tools = [
-    ":extra-action-linker",
-  ],
-  cmd = "$(location :extra-action-linker) $(EXTRA_ACTION_FILE) $(output $(ACTION_ID).executable)"
 )
 
 extra_action(
