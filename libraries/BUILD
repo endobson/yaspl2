@@ -218,6 +218,7 @@ yaspl_library(
     ":print-stack-function_lib",
     ":stack-machine",
     ":tcp",
+    ":xml",
     ":x86-64-stack-machine",
     "//libraries/data:bytes",
     "//libraries/data:either",
@@ -833,6 +834,16 @@ yaspl_bootstrap_library(
     "//libraries/data:list",
     "//libraries/data:maybe",
     "//libraries/data:numbers",
+  ]
+)
+
+yaspl_library(
+  name = "xml",
+  srcs = ["xml.yaspl"],
+  deps = [
+    "//libraries/data:list",
+    "//libraries/data:bytes",
+    "//libraries/data:join-list",
   ]
 )
 
