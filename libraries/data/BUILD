@@ -59,6 +59,16 @@ yaspl_bootstrap_library(
   srcs = ["either.yaspl"],
 )
 
+yaspl_library(
+  name = "graph",
+  srcs = ["graph.yaspl"],
+  deps = [
+    ":dict",
+    ":maybe",
+    ":tuples",
+  ]
+)
+
 yaspl_bootstrap_library(
   name = "join-list",
   srcs = ["join-list.yaspl"],
