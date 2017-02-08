@@ -2,7 +2,7 @@
   (import
     (prim
       #:types (Array Bytes InputPort OutputPort Int)
-      #:values (bytes-length)
+      #:values (bytes-length =)
       #:patterns ())
     (io write-line)
     (numbers decimal-bytes->integer)
@@ -130,93 +130,75 @@
          [(nothing) (map/maybe f l)]
          [(just e) (cons e (map/maybe f l))])]))
 
+  (define (not-found) : HttpResponse
+    (http-response 404 #"Not Found" #"text/plain" #"Not Found"))
+
+  (define (xhtml-ok-response [node : Node]) : HttpResponse
+    (http-response 200 #"OK" #"application/xhtml+xml" (document->xml-bytes node)))
+
+  (define (serve-assembly-response
+            [fragments : (List AssemblyFragment)]
+            [name : Bytes]) : HttpResponse
+    (if (= (bytes-length name) 0)
+        (xhtml-ok-response
+          (html
+            (head)
+            (body (map fragment->node fragments))))
+        (case (find-fragment name fragments)
+          [(nothing) (not-found)]
+          [(just fragment)
+           (xhtml-ok-response
+             (html
+               (head)
+               (body
+                 (cons
+                   (pre (code (text-node (assembly-commands->bytes
+                                           (jl->list (fragment->commands fragment))))))
+                   (empty)))))])))
+
+  (define (serve-stack-response
+            [objects : (List TopLevelObject)]
+            [name : Bytes]) : HttpResponse
+    (if (= (bytes-length name) 0)
+        (xhtml-ok-response
+          (html
+            (head)
+            (body (map/maybe top-level-object->node objects))))
+        (case (find-function name objects)
+          [(nothing) (not-found)]
+          [(just function)
+           (xhtml-ok-response
+             (html
+               (head)
+               (body
+                 (cons
+                   (pre (code (text-node (function->bytes function))))
+                   (empty)))))])))
+
+  (define (serve-index-response) : HttpResponse
+    (xhtml-ok-response
+      (html
+        (head)
+        (body
+          (varargs list
+             (div (link (single-jl #"/stack/") (text-node (single-jl #"stack"))))
+             (div (link (single-jl #"/assembly/") (text-node (single-jl #"assembly")))))))))
 
   (define (make-request-handler
             [objects : (List TopLevelObject)]
             [fragments : (List AssemblyFragment)]) : (HttpRequest -> HttpResponse)
     (lambda ([request : HttpRequest])
       (case request
-        [(http-request resource headers)
-         (case resource
-           [#"/"
-            (http-response
-              200
-              #"OK"
-              #"application/xhtml+xml"
-              (document->xml-bytes
-                (html
-                  (head)
-                  (body
-                    (varargs list
-                       (div (link (single-jl #"/stack/") (text-node (single-jl #"stack"))))
-                       (div (link (single-jl #"/assembly/") (text-node (single-jl #"assembly")))))))))]
-           [#"/assembly/"
-            (http-response
-              200
-              #"OK"
-              #"application/xhtml+xml"
-              (document->xml-bytes
-                (html
-                  (head)
-                  (body (map fragment->node fragments)))))]
-           [#"/stack/"
-            (http-response
-              200
-              #"OK"
-              #"application/xhtml+xml"
-              (document->xml-bytes
-                (html
-                  (head)
-                  (body (map/maybe top-level-object->node objects)))))]
-           [path
+        [(http-request path headers)
+         (if (bytes=? path #"/")
+             (serve-index-response)
              (if (starts-with? path #"/assembly/")
                  (let ([name (subbytes path 10 (bytes-length path))])
-                   (case (find-fragment name fragments)
-                     [(nothing)
-                      (http-response
-                        404
-                        #"Not Found"
-                        #"text/plain"
-                        #"Not Found")]
-                     [(just fragment)
-                      (http-response
-                        200
-                        #"OK"
-                        #"application/xhtml+xml"
-                        (document->xml-bytes
-                          (html
-                            (head)
-                            (body
-                              (cons
-                                (pre (code (text-node (assembly-commands->bytes
-                                                        (jl->list (fragment->commands fragment))))))
-                                (empty))))))]))
+                   (serve-assembly-response fragments name))
                  (if (starts-with? path #"/stack/")
                      (let ([name (subbytes path 7 (bytes-length path))])
-                       (case (find-function name objects)
-                         [(nothing)
-                          (http-response
-                            404
-                            #"Not Found"
-                            #"text/plain"
-                            #"Not Found")]
-                         [(just function)
-                          (http-response
-                            200
-                            #"OK"
-                            #"application/xhtml+xml"
-                            (document->xml-bytes
-                              (html
-                                (head)
-                                (body
-                                  (cons
-                                    (pre (code (text-node (function->bytes function))))
-                                    (empty))))))]))
-                     (http-response
-                       404
-                       #"Not Found"
-                       #"text/plain"
-                       #"Not Found")))])])))
+                       (serve-stack-response objects name))
+                     (not-found))))])))
 
   (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Int
     (case (array->list args)
