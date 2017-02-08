@@ -217,6 +217,7 @@ yaspl_library(
     ":ip",
     ":print-stack-function_lib",
     ":stack-machine",
+    ":svg",
     ":tcp",
     ":xml",
     ":x86-64-stack-machine",
@@ -661,6 +662,16 @@ yaspl_bootstrap_library(
   ],
 )
 
+yaspl_library(
+  name = "svg",
+  srcs = ["svg.yaspl"],
+  deps = [
+    ":xml",
+    "//libraries/data:join-list",
+    "//libraries/data:list",
+    "//libraries/data:numbers",
+  ],
+)
 
 yaspl_test(
   name = "tail-call-test",

@@ -2,7 +2,7 @@
   (import
     (prim
       #:types (Array Bytes InputPort OutputPort Int)
-      #:values (bytes-length =)
+      #:values (bytes-length = + * panic)
       #:patterns ())
     (io write-line)
     (numbers decimal-bytes->integer)
@@ -20,15 +20,15 @@
       #:values (single-jl jl->list)
       #:patterns ())
     (stack-machine
-      #:types (TopLevelObject StackFunction)
+      #:types (TopLevelObject StackFunction StackBasicBlock)
       #:values ()
-      #:patterns (stack-function function-tlo trivial-closure-tlo bytes-tlo))
+      #:patterns (stack-function function-tlo trivial-closure-tlo bytes-tlo stack-basic-block))
     (list
       #:types (List)
-      #:values (cons empty map list array->list)
+      #:values (cons empty map list array->list build-list length append* list-ref)
       #:patterns (cons empty))
     (tcp tcp-address)
-    (print-stack-function extract-top-level-objects function->bytes)
+    (print-stack-function extract-top-level-objects function->bytes block->bytes)
     (http-server
       #:types (HttpResponse HttpRequest)
       #:values (run-http-server http-response)
@@ -40,6 +40,10 @@
     (ip
       #:types ()
       #:values (bytes->ipv4-address)
+      #:patterns ())
+    (svg
+      #:types ()
+      #:values (svg rect fill stroke foreign-object html-body)
       #:patterns ())
     (xml
       #:types (Node)
@@ -135,6 +139,8 @@
 
   (define (xhtml-ok-response [node : Node]) : HttpResponse
     (http-response 200 #"OK" #"application/xhtml+xml" (document->xml-bytes node)))
+  (define (svg-ok-response [node : Node]) : HttpResponse
+    (http-response 200 #"OK" #"image/svg+xml" (document->xml-bytes node)))
 
   (define (serve-assembly-response
             [fragments : (List AssemblyFragment)]
@@ -175,6 +181,42 @@
                    (pre (code (text-node (function->bytes function))))
                    (empty)))))])))
 
+  (define (serve-stack-graphic-response
+            [objects : (List TopLevelObject)]
+            [name : Bytes]) : HttpResponse
+    (if (= (bytes-length name) 0)
+        (xhtml-ok-response
+          (html
+            (head)
+            (body (map/maybe top-level-object->node objects))))
+        (case (find-function name objects)
+          [(nothing) (not-found)]
+          [(just (stack-function _ _ basic-blocks))
+           (svg-ok-response
+             (svg
+               (append*
+                 (build-list
+                   (length basic-blocks)
+                   (lambda ([index : Int])
+                     (case (list-ref basic-blocks index)
+                       [(nothing) (panic #"Bad index")]
+                       [(just block)
+                        (let ([height (+ 2 (* 15 (basic-block-size block)))])
+                          (varargs list
+                            (rect (+ 10 (* index 200)) 10 150 height
+                                  (varargs list (fill #"none") (stroke #"black")))
+                            (foreign-object
+                              (+ 10 (* index 200)) 10 150 height (empty)
+                              (varargs list
+                                (html-body
+                                  (varargs list
+                                     (pre (code (text-node (block->bytes block))))))))))]))))))])))
+
+  (define (basic-block-size [block : StackBasicBlock]) : Int
+    (case block
+      [(stack-basic-block cmds _)
+       (+ 1 (length cmds))]))
+
   (define (serve-index-response) : HttpResponse
     (xhtml-ok-response
       (html
@@ -182,6 +224,7 @@
         (body
           (varargs list
              (div (link (single-jl #"/stack/") (text-node (single-jl #"stack"))))
+             (div (link (single-jl #"/stack-graphic/") (text-node (single-jl #"stack-graphic"))))
              (div (link (single-jl #"/assembly/") (text-node (single-jl #"assembly")))))))))
 
   (define (make-request-handler
@@ -198,7 +241,10 @@
                  (if (starts-with? path #"/stack/")
                      (let ([name (subbytes path 7 (bytes-length path))])
                        (serve-stack-response objects name))
-                     (not-found))))])))
+                     (if (starts-with? path #"/stack-graphic/")
+                         (let ([name (subbytes path 15 (bytes-length path))])
+                           (serve-stack-graphic-response objects name))
+                         (not-found)))))])))
 
   (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Int
     (case (array->list args)
