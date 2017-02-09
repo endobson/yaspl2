@@ -7,12 +7,12 @@
     (io write-all-bytes write-line)
     (list
       #:types (List)
-      #:values (list array->list)
+      #:values (list array->list map)
       #:patterns (empty cons))
     (numbers integer->decimal-bytes)
     (join-list
       #:types (JoinList)
-      #:values (empty-jl cons-jl append-jl append-jl* join-list jl->list single-jl)
+      #:values (empty-jl cons-jl snoc-jl append-jl append-jl* join-list jl->list single-jl concat-jl)
       #:patterns ())
     (bytes bytes=? bytes-append)
     (stack-machine
@@ -37,7 +37,7 @@
     (compiler compile-modules parse-module-files))
   (export
     #:types ()
-    #:values (extract-top-level-objects function->bytes block->bytes)
+    #:values (extract-top-level-objects function->bytes command->bytes terminal->bytes)
     #:patterns ())
   (types)
 
@@ -84,167 +84,144 @@
     (case block
       [(stack-basic-block cmds terminal)
        (append-jl
-         (commands->bytes cmds)
-         (terminal->bytes terminal))]))
+         (concat-jl (map make-indented-line (map command->bytes cmds)))
+         (make-indented-line (terminal->bytes terminal)))]))
 
-  (define (commands->bytes [commands : (List StackCmd)]) : (JoinList Bytes)
-    (case commands
-     [(empty) (empty-jl)]
-     [(cons command commands)
-      (varargs append-jl*
-        (single-jl #"  ")
-        (case command
-          [(num-lit-cmd v)
-           (varargs join-list
-             #"numeric-literal: "
-             (integer->decimal-bytes v)
-             #"\n")]
-          [(boolean-lit-cmd v)
-           (varargs join-list
-             #"boolean-literal: "
-             (if v #"true" #"false")
-             #"\n")]
-          [(bytes-cmp-cmd)
-           (single-jl #"bytes-cmp \n")]
-          [(create-closure-cmd free-vars)
-           (varargs join-list
-             #"create-closure: "
-             (integer->decimal-bytes free-vars)
-             #"\n")]
-          [(load-global-cmd name)
-           (varargs join-list
-             #"load-global: "
-             name
-             #"\n")]
-          [(dup-cmd offset)
-           (varargs join-list
-             #"dup: "
-             (integer->decimal-bytes offset)
-             #"\n")]
-          [(dup-free-var-cmd index offset)
-           (varargs join-list
-             #"dup-free-var: "
-             (integer->decimal-bytes index)
-             #" "
-             (integer->decimal-bytes offset)
-             #"\n")]
-          [(alloc-variant-cmd tag _)
-           (varargs join-list
-             #"alloc-variant: "
-             (integer->decimal-bytes tag)
-             #"\n")]
-          [(variant-ref-cmd tag field)
-           (varargs join-list
-             #"variant-ref: "
-             (integer->decimal-bytes tag)
-             #" "
-             (integer->decimal-bytes field)
-             #"\n")]
-          [(bin-math-cmd op)
-           (varargs join-list
-             (case op
-               [(bin-add-op) #"add"]
-               [(bin-sub-op) #"sub"]
-               [(bin-mult-op) #"mult"]
-               [(bin-quotient-op) #"quotient"]
-               [(bin-remainder-op) #"remainder"]
-               [(bin-bitwise-and-op) #"bitwise and"]
-               [(bin-bitwise-ior-op) #"bitwise ior"]
-               [(bin-logical-shift-left-op) #"logical shift left"]
-               [(bin-logical-shift-right-op) #"logical shift right"]
-               [_ #"unknown math op"])
-             #"\n")]
-          [(bin-logic-math-cmd op)
-           (varargs join-list
-             (case op
-               [(less-than-op) #"<"]
-               [(less-than-or-equal-op) #"<="]
-               [(equal-op) #"="]
-               [(greater-than-or-equal-op) #">="]
-               [(greater-than-op) #">"]
-               [_ #"unknown comparison op"])
-             #"\n")]
-          [(make-array-from-stack-cmd num-args)
-           (varargs join-list
-             #"make-array-from-stack: "
-             (integer->decimal-bytes num-args)
-             #"\n")]
-          [(make-array-cmd)
-           (single-jl #"make-array\n")]
-          [(array-length-cmd)
-           (single-jl #"array-length\n")]
-          [(array-ref-cmd)
-           (single-jl #"array-ref\n")]
-          [(array-set!-cmd)
-           (single-jl #"array-set!\n")]
-          [(pop-cmd)
-           (single-jl #"pop\n")]
-          [(swap-cmd)
-           (single-jl #"swap\n")]
-          [(fun-call-cmd num-args)
-           (varargs join-list
-             #"fun-call: "
-             (integer->decimal-bytes num-args)
-             #"\n")]
-          [(known-fun-call-cmd name num-args)
-           (varargs join-list
-             #"known-fun-call: "
-             name
-             #" "
-             (integer->decimal-bytes num-args)
-             #"\n")]
-          [_
-           (single-jl #"unknown-op\n")])
-          (commands->bytes commands))]))
+  (define (command->bytes [command : StackCmd]) : (JoinList Bytes)
+    (case command
+      [(num-lit-cmd v)
+       (varargs join-list
+         #"numeric-literal: "
+         (integer->decimal-bytes v))]
+      [(boolean-lit-cmd v)
+       (varargs join-list
+         #"boolean-literal: "
+         (if v #"true" #"false"))]
+      [(bytes-cmp-cmd)
+       (single-jl #"bytes-cmp")]
+      [(create-closure-cmd free-vars)
+       (varargs join-list
+         #"create-closure: "
+         (integer->decimal-bytes free-vars))]
+      [(load-global-cmd name)
+       (varargs join-list
+         #"load-global: "
+         name)]
+      [(dup-cmd offset)
+       (varargs join-list
+         #"dup: "
+         (integer->decimal-bytes offset))]
+      [(dup-free-var-cmd index offset)
+       (varargs join-list
+         #"dup-free-var: "
+         (integer->decimal-bytes index)
+         #" "
+         (integer->decimal-bytes offset))]
+      [(alloc-variant-cmd tag _)
+       (varargs join-list
+         #"alloc-variant: "
+         (integer->decimal-bytes tag))]
+      [(variant-ref-cmd tag field)
+       (varargs join-list
+         #"variant-ref: "
+         (integer->decimal-bytes tag)
+         #" "
+         (integer->decimal-bytes field))]
+      [(bin-math-cmd op)
+       (single-jl
+         (case op
+           [(bin-add-op) #"add"]
+           [(bin-sub-op) #"sub"]
+           [(bin-mult-op) #"mult"]
+           [(bin-quotient-op) #"quotient"]
+           [(bin-remainder-op) #"remainder"]
+           [(bin-bitwise-and-op) #"bitwise and"]
+           [(bin-bitwise-ior-op) #"bitwise ior"]
+           [(bin-logical-shift-left-op) #"logical shift left"]
+           [(bin-logical-shift-right-op) #"logical shift right"]
+           [_ #"unknown math op"]))]
+      [(bin-logic-math-cmd op)
+       (single-jl
+         (case op
+           [(less-than-op) #"<"]
+           [(less-than-or-equal-op) #"<="]
+           [(equal-op) #"="]
+           [(greater-than-or-equal-op) #">="]
+           [(greater-than-op) #">"]
+           [_ #"unknown comparison op"]))]
+      [(make-array-from-stack-cmd num-args)
+       (varargs join-list
+         #"make-array-from-stack: "
+         (integer->decimal-bytes num-args))]
+      [(make-array-cmd)
+       (single-jl #"make-array")]
+      [(array-length-cmd)
+       (single-jl #"array-length")]
+      [(array-ref-cmd)
+       (single-jl #"array-ref")]
+      [(array-set!-cmd)
+       (single-jl #"array-set!")]
+      [(pop-cmd)
+       (single-jl #"pop")]
+      [(swap-cmd)
+       (single-jl #"swap")]
+      [(fun-call-cmd num-args)
+       (varargs join-list
+         #"fun-call: "
+         (integer->decimal-bytes num-args))]
+      [(known-fun-call-cmd name num-args)
+       (varargs join-list
+         #"known-fun-call: "
+         name
+         #" "
+         (integer->decimal-bytes num-args))]
+      [_
+       (single-jl #"unknown-op")]))
+
+
+  (define (make-indented-line [text : (JoinList Bytes)]) : (JoinList Bytes)
+    (snoc-jl (cons-jl #"  " text) #"\n"))
 
   (define (terminal->bytes [terminal : StackTerminal]) : (JoinList Bytes)
-    (append-jl
-      (single-jl #"  ")
-      (case terminal
-        [(boolean-jmp true false)
-         (varargs join-list
-           #"cond-jmp "
-           (integer->decimal-bytes true)
-           #" "
-           (integer->decimal-bytes false)
-           #"\n")]
-        [(uncond-jmp index)
-         (varargs join-list
-           #"jmp "
-           (integer->decimal-bytes index)
-           #"\n")]
-        [(variant-switch cases)
-         (cons-jl #"switch" (cases->bytes cases))]
-        [(return n)
-         (varargs join-list
-           #"ret "
-           (integer->decimal-bytes n)
-           #"\n")]
-        [(tail-call num-args num-cleanup)
-         (varargs join-list
-           #"tail-call "
-           (integer->decimal-bytes num-args)
-           #" "
-           (integer->decimal-bytes num-cleanup)
-           #"\n")]
-        [(known-tail-call name num-args num-cleanup)
-         (varargs join-list
-           #"known-tail-call: "
-           name
-           #" "
-           (integer->decimal-bytes num-args)
-           #" "
-           (integer->decimal-bytes num-cleanup)
-           #"\n")])))
+    (case terminal
+      [(boolean-jmp true false)
+       (varargs join-list
+         #"cond-jmp "
+         (integer->decimal-bytes true)
+         #" "
+         (integer->decimal-bytes false))]
+      [(uncond-jmp index)
+       (varargs join-list
+         #"jmp "
+         (integer->decimal-bytes index))]
+      [(variant-switch cases)
+       (cons-jl #"switch" (cases->bytes cases))]
+      [(return n)
+       (varargs join-list
+         #"ret "
+         (integer->decimal-bytes n))]
+      [(tail-call num-args num-cleanup)
+       (varargs join-list
+         #"tail-call "
+         (integer->decimal-bytes num-args)
+         #" "
+         (integer->decimal-bytes num-cleanup))]
+      [(known-tail-call name num-args num-cleanup)
+       (varargs join-list
+         #"known-tail-call: "
+         name
+         #" "
+         (integer->decimal-bytes num-args)
+         #" "
+         (integer->decimal-bytes num-cleanup))]))
 
   (define (cases->bytes [cases : VariantCases]) : (JoinList Bytes)
     (case cases
-      [(no-catch-all-case) (single-jl #"\n")]
+      [(no-catch-all-case) (single-jl #"")]
       [(catch-all-case index)
        (varargs join-list
          #" _->"
-         (integer->decimal-bytes index)
-         #"\n")]
+         (integer->decimal-bytes index))]
       [(variant-case tag index cases)
        (append-jl
          (varargs join-list

@@ -2,7 +2,7 @@
   (import
     (prim
       #:types (Array Bytes InputPort OutputPort Int)
-      #:values (bytes-length = + * panic)
+      #:values (bytes-length = + * <)
       #:patterns ())
     (io write-line)
     (numbers decimal-bytes->integer)
@@ -17,7 +17,7 @@
     (bytes bytes=? subbytes starts-with?)
     (join-list
       #:types (JoinList)
-      #:values (single-jl jl->list)
+      #:values (single-jl jl->list concat-jl append-jl snoc-jl)
       #:patterns ())
     (stack-machine
       #:types (TopLevelObject StackFunction StackBasicBlock)
@@ -25,10 +25,14 @@
       #:patterns (stack-function function-tlo trivial-closure-tlo bytes-tlo stack-basic-block))
     (list
       #:types (List)
-      #:values (cons empty map list array->list build-list length append* list-ref)
+      #:values (cons empty map list array->list length foldl)
       #:patterns (cons empty))
     (tcp tcp-address)
-    (print-stack-function extract-top-level-objects function->bytes block->bytes)
+    (print-stack-function extract-top-level-objects function->bytes command->bytes terminal->bytes)
+    (tuples
+      #:types (Tuple2)
+      #:values (tuple2)
+      #:patterns (tuple2))
     (http-server
       #:types (HttpResponse HttpRequest)
       #:values (run-http-server http-response)
@@ -36,7 +40,7 @@
     (x86-64-stack-machine
       #:types (AssemblyFragment)
       #:values (convert-objects assembly-commands->bytes fragment->commands)
-      #:patterns (function-fragment address-fragment bytes-fragment ))
+      #:patterns (function-fragment address-fragment bytes-fragment))
     (ip
       #:types ()
       #:values (bytes->ipv4-address)
@@ -53,7 +57,9 @@
     #:types ()
     #:values ()
     #:patterns ())
-  (types)
+  (types
+    (define-type GraphicBlock
+      (graphic-block [width : Int] [height : Int] [content : Node])))
 
   (define (html [head : Node] [body : Node]) : Node
     (element-node
@@ -181,6 +187,9 @@
                    (pre (code (text-node (function->bytes function))))
                    (empty)))))])))
 
+  (define (empty/node) : (List Node)
+    (empty))
+
   (define (serve-stack-graphic-response
             [objects : (List TopLevelObject)]
             [name : Bytes]) : HttpResponse
@@ -194,28 +203,65 @@
           [(just (stack-function _ _ basic-blocks))
            (svg-ok-response
              (svg
-               (append*
-                 (build-list
-                   (length basic-blocks)
-                   (lambda ([index : Int])
-                     (case (list-ref basic-blocks index)
-                       [(nothing) (panic #"Bad index")]
-                       [(just block)
-                        (let ([height (+ 2 (* 15 (basic-block-size block)))])
-                          (varargs list
-                            (rect (+ 10 (* index 200)) 10 150 height
-                                  (varargs list (fill #"none") (stroke #"black")))
-                            (foreign-object
-                              (+ 10 (* index 200)) 10 150 height (empty)
-                              (varargs list
-                                (html-body
-                                  (varargs list
-                                     (pre (code (text-node (block->bytes block))))))))))]))))))])))
+               (let ([blocks
+                       (map (lambda ([block : StackBasicBlock])
+                              (graphic-block
+                                (+ 15 (* 8 (basic-block-width block)))
+                                (+ 2 (* 15 (basic-block-size block)))
+                                (html-body (varargs list (block->node block)))))
+                            basic-blocks)])
+                 (case
+                   (foldl
+                     (lambda ([graphic-block : GraphicBlock] [acc : (Tuple2 Int (List Node))])
+                       (case acc
+                         [(tuple2 offset nodes)
+                          (case graphic-block
+                            [(graphic-block width height html)
+                             (tuple2
+                               (+ (+ offset width) 20)
+                               (cons
+                                 (rect offset 10 width height
+                                       (varargs list (fill #"none") (stroke #"black")))
+                                 (cons
+                                   (foreign-object offset 10 width height (empty) (varargs list html))
+                                   nodes)))])]))
+                     blocks
+                     (tuple2 10 (empty/node)))
+                   [(tuple2 _ nodes)
+                    nodes]))))])))
+
+  (define (block->node [block : StackBasicBlock]) : Node
+    (let ([make-line (lambda ([text : (JoinList Bytes)]) (snoc-jl text #"\n"))])
+      (case block
+        [(stack-basic-block cmds terminal)
+         (pre (code (text-node
+                      (append-jl
+                        (concat-jl (map make-line (map command->bytes cmds)))
+                        (make-line (terminal->bytes terminal))))))])))
+
+
 
   (define (basic-block-size [block : StackBasicBlock]) : Int
     (case block
       [(stack-basic-block cmds _)
        (+ 1 (length cmds))]))
+
+  (define (jl-bytes-length [v : (JoinList Bytes)]) : Int
+    (foldl (lambda ([v : Bytes] [sum : Int]) (+ sum (bytes-length v)))
+           (jl->list v) 0))
+  (define (max [v1 : Int] [v2 : Int]) : Int
+    (if (< v1 v2) v2 v1))
+  (define (max* [v : Int] [vs : (List Int)]) : Int
+    (case vs
+      [(empty) v]
+      [(cons v2 vs) (max* (max v v2) vs)]))
+
+  (define (basic-block-width [block : StackBasicBlock]) : Int
+    (case block
+      [(stack-basic-block cmds terminal)
+       (max* (jl-bytes-length (terminal->bytes terminal))
+             (map jl-bytes-length (map command->bytes cmds)))]))
+
 
   (define (serve-index-response) : HttpResponse
     (xhtml-ok-response
