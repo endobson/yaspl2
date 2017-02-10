@@ -2,7 +2,7 @@
   (import
     (prim
       #:types (Array Bytes InputPort OutputPort Int)
-      #:values (bytes-length = + * <)
+      #:values (bytes-length = + * < panic)
       #:patterns ())
     (io write-line)
     (numbers decimal-bytes->integer)
@@ -15,24 +15,30 @@
       #:values (just nothing)
       #:patterns (just nothing))
     (bytes bytes=? subbytes starts-with?)
+    (dict
+      #:types (Dict)
+      #:values (dict-add dict-ref make-dict dict-values dict-map dict-update)
+      #:patterns ())
     (join-list
       #:types (JoinList)
       #:values (single-jl jl->list concat-jl append-jl snoc-jl)
       #:patterns ())
     (stack-machine
-      #:types (TopLevelObject StackFunction StackBasicBlock)
-      #:values ()
-      #:patterns (stack-function function-tlo trivial-closure-tlo bytes-tlo stack-basic-block))
+      #:types (TopLevelObject StackFunction StackBasicBlock StackTerminal VariantCases)
+      #:values (stack-basic-block-terminal)
+      #:patterns (stack-function function-tlo trivial-closure-tlo bytes-tlo stack-basic-block
+                  variant-case catch-all-case no-catch-all-case boolean-jmp uncond-jmp
+                  variant-switch return tail-call known-tail-call))
     (list
       #:types (List)
-      #:values (cons empty map list array->list length foldl)
+      #:values (cons empty map list array->list length foldl list-ref build-list)
       #:patterns (cons empty))
     (tcp tcp-address)
     (print-stack-function extract-top-level-objects function->bytes command->bytes terminal->bytes)
     (tuples
-      #:types (Tuple2)
-      #:values (tuple2)
-      #:patterns (tuple2))
+      #:types (Tuple2 Tuple3)
+      #:values (tuple2 tuple3)
+      #:patterns (tuple2 tuple3))
     (http-server
       #:types (HttpResponse HttpRequest)
       #:values (run-http-server http-response)
@@ -49,6 +55,7 @@
       #:types ()
       #:values (svg rect fill stroke foreign-object html-body)
       #:patterns ())
+    (depth-first-search depth-first-search)
     (xml
       #:types (Node)
       #:values (text-node element-node attribute document->xml-bytes)
@@ -186,6 +193,136 @@
                  (cons
                    (pre (code (text-node (function->bytes function))))
                    (empty)))))])))
+  (define (terminal->successors [term : StackTerminal]) : (List Int)
+    (case term
+      [(boolean-jmp true false) (varargs list true false)]
+      [(uncond-jmp index) (varargs list index)]
+      [(variant-switch cases) (variant-cases->successors cases)]
+      [(return _) (empty)]
+      [(tail-call _ _) (empty)]
+      [(known-tail-call _ _ _) (empty)]))
+
+  (define (variant-cases->successors [cases : VariantCases]) : (List Int)
+    (case cases
+      [(no-catch-all-case) (empty)]
+      [(catch-all-case index) (varargs list index)]
+      [(variant-case _ index cases)
+       (cons index (variant-cases->successors cases))]))
+
+  (define (panic/int-list [bytes : Bytes]) : (List Int)
+    (panic bytes))
+  (define (panic/int [bytes : Bytes]) : Int
+    (panic bytes))
+  (define (panic/stack-basic-block-list [bytes : Bytes]) : (List StackBasicBlock)
+    (panic bytes))
+  (define (panic/dict-int-stack-basic-block-list [bytes : Bytes]) : (Dict Int (List StackBasicBlock))
+    (panic bytes))
+  (define (empty/int-list) : (List Int)
+    (empty))
+  (define (empty/stack-basic-block-list) : (List StackBasicBlock)
+    (empty))
+  (define (make-dict/int-stack-basic-block-list) : (Dict Int (List StackBasicBlock))
+    (make-dict =))
+
+
+  (define (make-blocks-by-depth
+            [depths : (Dict Int Int)]
+            [blocks : (List StackBasicBlock)])
+    : (Dict Int (List StackBasicBlock))
+    (foldl
+      (lambda ([entry : (Tuple2 Int Int)] [acc : (Dict Int (List StackBasicBlock))])
+        (case entry
+          [(tuple2 index depth)
+           (case (list-ref blocks index)
+             [(nothing) (panic/dict-int-stack-basic-block-list #"Bad index")]
+             [(just block)
+              (dict-update
+                acc
+                depth
+                (lambda ([blocks : (List StackBasicBlock)]) (cons block blocks))
+                (empty/stack-basic-block-list))])]))
+      (dict-map depths (lambda ([key : Int] [value : Int]) (tuple2 key value)))
+      (make-dict/int-stack-basic-block-list)))
+
+  (define (layer-blocks [blocks : (List StackBasicBlock)]) : (List (List StackBasicBlock))
+    (let ([succ
+            (lambda ([index : Int])
+              (case (list-ref blocks index)
+                [(nothing) (panic/int-list #"Bad index")]
+                [(just block) (terminal->successors (stack-basic-block-terminal block))]))])
+      (case (depth-first-search succ (varargs list 0) = (empty/int-list))
+        [(left v) (panic v)]
+        [(right ordered-indices)
+         (let ([depths (compute-depths succ ordered-indices (dict-add (make-dict =) 0 0))])
+           (let ([max-depth (max* 0 (dict-values depths))])
+             (let ([blocks-by-depth (make-blocks-by-depth depths blocks)])
+               (let ([ref (lambda ([depth : Int])
+                            (case (dict-ref blocks-by-depth depth)
+                              [(nothing) (panic/stack-basic-block-list #"Bad index")]
+                              [(just blocks) blocks]))])
+                 (build-list (+ max-depth 1) ref)))))])))
+
+
+  (define (compute-depths [succ : (Int -> (List Int))] [vs : (List Int)]
+                          [acc : (Dict Int Int)]) : (Dict Int Int)
+    (case vs
+      [(empty) acc]
+      [(cons v vs)
+       (let ([cur-height
+              (case (dict-ref acc v)
+                [(nothing) (panic/int #"Bad index")]
+                [(just v) v])])
+         (compute-depths
+           succ
+           vs
+           (foldl (lambda ([v : Int] [acc : (Dict Int Int)])
+                    (dict-update acc v
+                                 (lambda ([old-height : Int])
+                                   (max old-height (+ 1 cur-height)))
+                                 0))
+                  (succ v)
+                  acc)))]))
+
+
+  (define (layout-blocks [blocks : (List (List StackBasicBlock))]) : (List Node)
+    (case
+      (foldl
+        (lambda ([blocks : (List StackBasicBlock)] [acc : (Tuple2 Int (List Node))])
+          (case acc
+            [(tuple2 y-offset nodes)
+             (case
+               (foldl
+                 (lambda ([block : StackBasicBlock] [acc : (Tuple3 Int Int (List Node))])
+                   (case acc
+                     [(tuple3 x-offset max-height nodes)
+                      (case (block->graphic-block block)
+                        [(graphic-block width height html)
+                         (tuple3
+                           (+ (+ x-offset width) 20)
+                           (max max-height height)
+                           (cons
+                             (rect x-offset y-offset width height
+                                   (varargs list (fill #"none") (stroke #"black")))
+                             (cons
+                               (foreign-object x-offset y-offset width height (empty) (varargs list html))
+                               nodes)))])]))
+                 blocks
+                 (tuple3 10 0 nodes))
+               [(tuple3 _ height nodes)
+                (tuple2 (+ y-offset (+ height 20)) nodes)])]))
+        blocks
+        (tuple2 10 (empty/node)))
+      [(tuple2 _ nodes) nodes]))
+
+
+
+
+  (define (block->graphic-block [block : StackBasicBlock]) : GraphicBlock
+    (graphic-block
+      (+ 15 (* 8 (basic-block-width block)))
+      (+ 2 (* 15 (basic-block-size block)))
+      (html-body (varargs list (block->node block)))))
+
 
   (define (empty/node) : (List Node)
     (empty))
@@ -202,33 +339,7 @@
           [(nothing) (not-found)]
           [(just (stack-function _ _ basic-blocks))
            (svg-ok-response
-             (svg
-               (let ([blocks
-                       (map (lambda ([block : StackBasicBlock])
-                              (graphic-block
-                                (+ 15 (* 8 (basic-block-width block)))
-                                (+ 2 (* 15 (basic-block-size block)))
-                                (html-body (varargs list (block->node block)))))
-                            basic-blocks)])
-                 (case
-                   (foldl
-                     (lambda ([graphic-block : GraphicBlock] [acc : (Tuple2 Int (List Node))])
-                       (case acc
-                         [(tuple2 offset nodes)
-                          (case graphic-block
-                            [(graphic-block width height html)
-                             (tuple2
-                               (+ (+ offset width) 20)
-                               (cons
-                                 (rect offset 10 width height
-                                       (varargs list (fill #"none") (stroke #"black")))
-                                 (cons
-                                   (foreign-object offset 10 width height (empty) (varargs list html))
-                                   nodes)))])]))
-                     blocks
-                     (tuple2 10 (empty/node)))
-                   [(tuple2 _ nodes)
-                    nodes]))))])))
+             (svg (layout-blocks (layer-blocks basic-blocks))))])))
 
   (define (block->node [block : StackBasicBlock]) : Node
     (let ([make-line (lambda ([text : (JoinList Bytes)]) (snoc-jl text #"\n"))])
