@@ -541,7 +541,7 @@
             body
             (context-set-value context name expr-type)
             expected-type)])]
-      [(lambda-expr args body)
+      [(lambda-expr args maybe-pre-return body)
        (case (extract-rights
                (map (lambda ([arg : (Tuple2 Bytes PreType)])
                       (case arg
@@ -551,37 +551,48 @@
                            [(right type) (right/bytes (tuple2 name type))])]))
                     args))
          [(left v) (left v)]
-         [(right arg-types)
-          (case expected-type
-            [(nothing)
-             (case (type-check/expr
-                     body
-                     (context-set-values context arg-types)
-                     (nothing))
-              [(left v) (left v)]
-              [(right return-type)
-               (right
-                 (fun-type
-                   (empty)
-                   (map (lambda ([t : (Tuple2 Bytes Type)]) (case t [(tuple2 _ ty) ty])) arg-types)
-                   return-type))])]
-            [(just expected-type)
-             (case expected-type
-               [(fun-type (empty) _ expected-body-type)
-                (case (type-check/expr
-                        body
-                        (context-set-values context arg-types)
-                        (just expected-body-type))
-                  [(left v) (left v)]
-                  [(right return-type)
-                   (check-expected
-                     (fun-type
-                       (empty)
-                       (map (lambda ([t : (Tuple2 Bytes Type)]) (case t [(tuple2 _ ty) ty])) arg-types)
-                       return-type)
-                     (just expected-type))])]
-               [_
-                (left #"Lambda can only match monomorphic function type.")])])])]
+         [(right named-arg-types)
+          (let ([arg-types (map (lambda ([t : (Tuple2 Bytes Type)])
+                                  (case t [(tuple2 _ ty) ty]))
+                                named-arg-types)])
+            (case maybe-pre-return
+              [(nothing)
+               (case expected-type
+                 [(nothing)
+                  (case (type-check/expr
+                          body
+                          (context-set-values context named-arg-types)
+                          (nothing))
+                   [(left v) (left v)]
+                   [(right return-type)
+                    (right (fun-type (empty) arg-types return-type))])]
+                 [(just expected-type)
+                  (case expected-type
+                    [(fun-type (empty) _ expected-body-type)
+                     (case (type-check/expr
+                             body
+                             (context-set-values context named-arg-types)
+                             (just expected-body-type))
+                       [(left v) (left v)]
+                       [(right return-type)
+                        (check-expected
+                          (fun-type (empty) arg-types return-type)
+                          (just expected-type))])]
+                    [_
+                     (left #"Lambda can only match monomorphic function type.")])])]
+              [(just pre-return)
+               (case (pre-type->type pre-return context)
+                 [(left v) (left v)]
+                 [(right return-type)
+                  (case (type-check/expr
+                          body
+                          (context-set-values context named-arg-types)
+                          (just return-type))
+                    [(left v) (left v)]
+                    [(right ty)
+                     (check-expected
+                       (fun-type (empty) arg-types ty)
+                       expected-type)])])]))])]
       [(app-expr op args)
        (case (type-check/expr op context (nothing))
          [(left v) (left v) ]
