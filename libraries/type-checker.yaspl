@@ -214,8 +214,6 @@
        (type-constructor mod-name name (map (lambda ([v : Bytes]) (star-kind)) vars))]))
 
 
-  (define (panic/type [msg : Bytes]) : Type
-    (panic msg))
 
   (define (variant-definition->context
             [def : VariantDefinition]
@@ -233,14 +231,14 @@
            (pattern-descriptor
              type-vars
              self-type
-             (map (lambda ([field : VariantField])
+             (map (lambda ([field : VariantField]) : Type
                     (case field
                       [(variant-field _ pre-type)
                        (case (pre-type->type pre-type
                                 (context-add-types
                                   ctx
                                   (map (lambda ([v : Bytes]) (tuple2 v (var-type v))) type-vars)))
-                         [(left v) (panic/type v)]
+                         [(left v) (panic v)]
                          [(right t) t])]))
                   fields)))
          (dict-add-all
@@ -249,19 +247,19 @@
              (tuple2 name
                (fun-type
                  type-vars
-                 (map (lambda ([field-definition : VariantField])
+                 (map (lambda ([field-definition : VariantField]) : Type
                         (case field-definition
                           [(variant-field field-name pre-type)
                            (case (pre-type->type pre-type
                                     (context-add-types
                                       ctx
                                       (map (lambda ([v : Bytes]) (tuple2 v (var-type v))) type-vars)))
-                             [(left v) (panic/type v)]
+                             [(left v) (panic v)]
                              [(right t) t])]))
                       fields)
                  self-type))
              (if gen-accessors
-                 (map (lambda ([field-definition : VariantField])
+                 (map (lambda ([field-definition : VariantField]) : (Tuple2 Bytes Type)
                         (case field-definition
                           [(variant-field field-name pre-type)
                            (tuple2 (bytes-append (varargs list name #"-" field-name))
@@ -272,7 +270,7 @@
                                               (context-add-types
                                                 ctx
                                                 (map (lambda ([v : Bytes]) (tuple2 v (var-type v))) type-vars)))
-                                       [(left v) (panic/type v)]
+                                       [(left v) (panic v)]
                                        [(right t) t])))]))
                       fields)
                  (empty)))))]))
@@ -432,11 +430,6 @@
          [(right _)
           (type-check/begin-exprs next-expr exprs context expected-type)])]))
 
-  (define (A) (left/name-type [v : A]) : (Either A (Tuple2 Bytes Type))
-    (left v))
-  (define (A) (right/bytes [v : A]) : (Either Bytes A)
-    (right v))
-
   (define (substitute [t : Type] [subst : (Dict Bytes Type)]) : Type
     (case t
       [(var-type v)
@@ -491,11 +484,11 @@
               [(just uvar-dict)
                (case (extract-justs
                        (map
-                         (lambda ([t : (Tuple2 Bytes UnificationVar)])
+                         (lambda ([t : (Tuple2 Bytes UnificationVar)]) : (Maybe (Tuple2 Bytes Type))
                            (case t
                              [(tuple2 tvar uvar)
                               (case (dict-ref uvar-dict uvar)
-                                [(nothing) (nothing/name-type)]
+                                [(nothing) (nothing)]
                                 [(just type) (just (tuple2 tvar type))])]))
                          type-var-uvars))
                  [(nothing)
@@ -543,12 +536,12 @@
             expected-type)])]
       [(lambda-expr args maybe-pre-return body)
        (case (extract-rights
-               (map (lambda ([arg : (Tuple2 Bytes PreType)])
+               (map (lambda ([arg : (Tuple2 Bytes PreType)]) : (Either Bytes (Tuple2 Bytes Type))
                       (case arg
                         [(tuple2 name pre-type)
                          (case (pre-type->type pre-type context)
-                           [(left v) (left/name-type v)]
-                           [(right type) (right/bytes (tuple2 name type))])]))
+                           [(left v) (left v)]
+                           [(right type) (right (tuple2 name type))])]))
                     args))
          [(left v) (left v)]
          [(right named-arg-types)
@@ -785,9 +778,9 @@
           (case (extract-justs
                   (dict-map
                     vars
-                    (lambda ([var : Bytes] [uvar : UnificationVar])
+                    (lambda ([var : Bytes] [uvar : UnificationVar]) : (Maybe (Tuple2 Bytes Type))
                       (case (dict-ref uvar-types uvar)
-                        [(nothing) (nothing/name-type)]
+                        [(nothing) (nothing)]
                         [(just type) (just (tuple2 var type))]))))
             [(nothing)
              (left #"Unification didn't have a value for a variable")]
@@ -796,9 +789,6 @@
                expr
                (context-set-values context var-types)
                expected-type)])])]))
-
-  (define (nothing/name-type) : (Maybe (Tuple2 Bytes Type))
-    (nothing))
 
   (define (a b) (find-map [f : (a -> (Maybe b))] [l : (List a)]) : (Maybe b)
     (case l
