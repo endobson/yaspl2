@@ -46,7 +46,7 @@
       [(let& name expr body)
        (recur expr)
        ((recur/env (set-add env name)) body)]
-      [(lambda& (list (list args _) ...) body)
+      [(lambda& (list (list args _) ...) _ body)
        ((recur/env (set-union env (list->set args))) body)]
       [(case& expr clauses)
        (recur expr)
@@ -569,36 +569,36 @@
      (let* ([expr-type (type-infer expr)]
             [type-env (binding-env-value-set env name expr-type)])
        ((type-check/env type-env) body type))]
-    [(lambda& (list (list args arg-pre-types) ...) body)
-     (cond
-       [(unknown-ty? type)
-        (define arg-types
-          (for/list ([pre-type (in-list arg-pre-types)])
-            ((parse-type/env (binding-env-types env)) pre-type)))
-        (fun-ty
-          empty
-          arg-types
-          (let ([env (for/fold ([env env]) ([arg (in-list args)] [arg-type arg-types])
-                       (binding-env-value-set env arg arg-type))])
-            ((type-check/env env) body (unknown-ty))))]
-       [else
-        (match type
-          [(fun-ty (list) arg-types body-type)
-           (define documented-arg-types
-             (for/list ([pre-type (in-list arg-pre-types)])
-               ((parse-type/env (binding-env-types env)) pre-type)))
-           (check
-             (fun-ty
-               empty
-               documented-arg-types
-               (let ([env (for/fold ([env env]) ([arg (in-list args)] [arg-type documented-arg-types])
-                            (binding-env-value-set env arg arg-type))])
-                 ((type-check/env env) body body-type)
-                 body-type)))]
-          [(fun-ty (list) arg-types body-type)
-           (raise-user-error 'typecheck "Expected a polymorphic function: got a lambda expression")]
-          [_
-           (raise-user-error 'typecheck "Expected a non function: got a lambda expression")])])]
+    [(lambda& (list (list args arg-pre-types) ...) pre-return-type body)
+     (define arg-types
+       (for/list ([pre-type (in-list arg-pre-types)])
+         ((parse-type/env (binding-env-types env)) pre-type)))
+     (define return-type
+       (and pre-return-type ((parse-type/env (binding-env-types env)) pre-return-type)))
+     (let ([env (for/fold ([env env]) ([arg (in-list args)] [arg-type (in-list arg-types)])
+                  (binding-env-value-set env arg arg-type))])
+       (check
+         (fun-ty
+           empty
+           arg-types
+           (cond
+             [return-type
+               (begin
+                 ((type-check/env env) body return-type)
+                 return-type)]
+             [(unknown-ty? type)
+              ((type-check/env env) body (unknown-ty))]
+             [else
+              (match type
+                [(fun-ty (list) arg-types body-type)
+                 (begin
+                   ((type-check/env env) body body-type)
+                   body-type)]
+                [(fun-ty _ arg-types body-type)
+                 (raise-user-error 'typecheck "Expected a polymorphic function: got a lambda expression")]
+                [_
+                 (raise-user-error 'typecheck
+                                   "Expected a non function: got a lambda expression")])]))))]
     [(case& expr clauses)
      (check-patterns-complete/not-useless env (map case-clause&-pattern clauses))
 

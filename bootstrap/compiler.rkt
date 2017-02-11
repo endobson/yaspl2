@@ -179,7 +179,7 @@
         (define temp (generate-temporary name))
         `(,#'let ([,temp ,compiled-expr])
             ,(compile-expr pat-env (hash-set env name temp) body))])]
-    [(lambda& (list (list arg-names _) ...) body)
+    [(lambda& (list (list arg-names _) ...) _ body)
      (define ids (generate-temporaries arg-names))
      (define new-env
        (for/fold ([env env]) ([name (in-list arg-names)] [id (in-list ids)])

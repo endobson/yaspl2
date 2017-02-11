@@ -116,7 +116,9 @@
                 (parse-pattern pattern)
                 (parse body))))]
     [`(lambda ([,(? symbol? args) : ,arg-types] ...) ,body)
-     (lambda& (map list args (map parse-pre-type arg-types)) (parse body))]
+     (lambda& (map list args (map parse-pre-type arg-types)) #f (parse body))]
+    [`(lambda ([,(? symbol? args) : ,arg-types] ...) : ,return-type ,body)
+     (lambda& (map list args (map parse-pre-type arg-types)) (parse-pre-type return-type) (parse body))]
 
     [(list op args ...)
      (app& (parse op) (map parse args))]))
