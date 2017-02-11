@@ -42,6 +42,9 @@ def _lib_impl(ctx):
   if (not(src_name.rpartition(".rkt")[0] == ctx.label.name)):
     fail("Source file must match rule name", "srcs")
 
+  # This generated file is needed because the racket compiler
+  # wants the source file to be in the same directory as the
+  # previously generated files.
   gen_rkt = ctx.new_file("%s.gen.rkt" % ctx.label.name)
 
   ctx.template_action(
