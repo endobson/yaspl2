@@ -2,7 +2,7 @@
   (import
     (prim
       #:types (Bytes Int)
-      #:values (panic +)
+      #:values (panic + =)
       #:patterns ())
     (bytes bytes=?)
     (list
@@ -45,12 +45,12 @@
     (define-type Environment
       (environment [vars : (Dict Bytes Var)]))
     (define-type State
-      (state [temp-counter : Int]))
+      (state [var-counter : Int] [block-counter : Int]))
     (define-type Accumulator
       (accumulator
         [cur-args : (List Var)]
         [reversed-instructions : (List Instruction)]
-        [blocks : (List BasicBlock)])))
+        [blocks : (Dict Int BasicBlock)])))
 
   (define (convert-function [f : p:FunctionDefinition]) : r:FunctionDefinition
     (case f
@@ -58,14 +58,15 @@
        (case (map-state fresh-name args (initial-state))
          [(tuple2 freshened-args state)
           (let ([env (add-all-args freshened-args (empty-environment))])
-            (case (convert-statements body (accumulator (map new-arg freshened-args) (empty) (empty)) env state)
+            (case (convert-statements body (accumulator (map new-arg freshened-args) (empty)
+                                                        (make-dict =)) env state)
               [(tuple2 (accumulator args instructions blocks) state)
                (case instructions
                  [(cons _ _) (panic #"Incorrectly terminated function")]
                  [_ (r:function-definition name blocks)])]))])]))
 
   (define (initial-state) : State
-    (state 0))
+    (state 0 0))
   (define (new-arg [fresh-arg : (Tuple2 Bytes Var)]) : Var
     (case fresh-arg
       [(tuple2 _ v) v]))
@@ -83,10 +84,18 @@
 
   (define (fresh-name [v : Bytes] [s : State]) : (Tuple2 (Tuple2 Bytes Var) State)
     (case s
-      [(state counter)
+      [(state var-counter block-counter)
        (tuple2
-         (tuple2 v (var v counter))
-         (state (+ 1 counter)))]))
+         (tuple2 v (var v var-counter))
+         (state (+ 1 var-counter) block-counter))]))
+
+  (define (fresh-block-number [s : State]) : (Tuple2 Int State)
+    (case s
+      [(state var-counter block-counter)
+       (tuple2
+         block-counter
+         (state var-counter (+ 1 block-counter)))]))
+
 
   (define (a b s) (map-state [f : (a s -> (Tuple2 b s))] [l : (List a)] [s : s]) : (Tuple2 (List b) s)
     (case l
@@ -130,11 +139,15 @@
          [(tuple2 (tuple2 temp acc) state)
           (case acc
             [(accumulator args rev-instructions blocks)
-             (tuple2
-               (accumulator (empty) (empty)
-                            (cons (basic-block args (reverse rev-instructions) (r:return temp))
-                                  blocks))
-               (tuple2 state env))])])]
+             (case (fresh-block-number state)
+               [(tuple2 block-num state)
+                (tuple2
+                  (accumulator (empty) (empty)
+                               (dict-add
+                                 blocks
+                                 block-num
+                                 (basic-block args (reverse rev-instructions) (r:return temp))))
+                   (tuple2 state env))])])])]
       [(p:declaration name expr)
        (case (convert-expr expr acc env state)
          [(tuple2 (tuple2 temp acc) state)

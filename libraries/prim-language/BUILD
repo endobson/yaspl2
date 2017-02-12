@@ -52,8 +52,8 @@ yaspl_library(
     ":register-language",
     "//libraries/data:join-list",
     "//libraries/data:list",
+    "//libraries/data:dict",
     "//libraries/data:bytes",
-    "//libraries/data:maybe",
     "//libraries/data:numbers",
   ]
 )
@@ -79,5 +79,6 @@ yaspl_library(
   deps = [
     ":prim-language",
     "//libraries/data:list",
+    "//libraries/data:dict",
   ]
 )
