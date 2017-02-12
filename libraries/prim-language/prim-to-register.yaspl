@@ -1,0 +1,146 @@
+(module prim-to-register
+  (import
+    (prim
+      #:types (Bytes Int)
+      #:values (panic +)
+      #:patterns ())
+    (bytes bytes-append bytes=?)
+    (numbers integer->decimal-bytes)
+    (list
+      #:types (List)
+      #:values (cons empty list reverse map)
+      #:patterns (cons empty))
+    (maybe
+      #:types ()
+      #:values ()
+      #:patterns (just nothing))
+    (dict
+      #:types (Dict)
+      #:values (dict-add-all make-dict dict-ref)
+      #:patterns ())
+    (register-language
+      #:types ((FunctionDefinition r:FunctionDefinition)
+               BasicBlock Instruction)
+      #:values ((function-definition r:function-definition)
+                (return r:return)
+                basic-block)
+      #:patterns ())
+    (tuples
+      #:types (Tuple2)
+      #:values (tuple2)
+      #:patterns (tuple2))
+    (prim-language
+      #:types ((FunctionDefinition p:FunctionDefinition)
+               Statement Expr)
+      #:values ()
+      #:patterns ((function-definition p:function-definition)
+                  (return p:return)
+                  var-expr)))
+  (export
+    #:types ()
+    #:values (convert-function)
+    #:patterns ())
+  (types
+    (define-type Environment
+      (environment [vars : (Dict Bytes Bytes)]))
+    (define-type State
+      (state [temp-counter : Int]))
+    (define-type Accumulator
+      (accumulator
+        [cur-args : (List Bytes)]
+        [reversed-instructions : (List Instruction)]
+        [blocks : (List BasicBlock)])))
+
+  (define (convert-function [f : p:FunctionDefinition]) : r:FunctionDefinition
+    (case f
+      [(p:function-definition name args body)
+       (case (map-state fresh-name args (initial-state))
+         [(tuple2 freshened-args state)
+          (let ([env (add-all-args freshened-args (empty-environment))])
+            (case (convert-statements body (accumulator (map new-arg freshened-args) (empty) (empty)) env state)
+              [(tuple2 (accumulator args instructions blocks) state)
+               (case instructions
+                 [(cons _ _) (panic #"Incorrectly terminated function")]
+                 [_ (r:function-definition name blocks)])]))])]))
+
+  (define (initial-state) : State
+    (state 0))
+  (define (new-arg [fresh-arg : (Tuple2 Bytes Bytes)]) : Bytes
+    (case fresh-arg
+      [(tuple2 _ v) v]))
+
+  (define (empty-environment) : Environment
+    (environment (make-dict bytes=?)))
+
+  (define (env-ref [env : Environment] [name : Bytes]) : Bytes
+    (case (dict-ref (environment-vars env) name)
+      [(nothing) (panic #"unbound variable")]
+      [(just v) v]))
+
+  (define (fresh-name [v : Bytes] [s : State]) : (Tuple2 (Tuple2 Bytes Bytes) State)
+    (case s
+      [(state counter)
+       (tuple2
+         (tuple2 v (bytes-append (varargs list v #"_" (integer->decimal-bytes counter))))
+         (state (+ 1 counter)))]))
+
+  (define (a b s) (map-state [f : (a s -> (Tuple2 b s))] [l : (List a)] [s : s]) : (Tuple2 (List b) s)
+    (case l
+      [(empty) (tuple2 (empty) s)]
+      [(cons e l)
+       (case (f e s)
+         [(tuple2 v s)
+          (case (map-state f l s)
+            [(tuple2 vs s)
+             (tuple2 (cons v vs) s)])])]))
+
+  (define (add-all-args [args : (List (Tuple2 Bytes Bytes))] [env : Environment]) : Environment
+    (case env
+      [(environment vars)
+       (environment (dict-add-all vars args))]))
+
+
+  (define (convert-statements
+            [statements : (List Statement)]
+            [acc : Accumulator]
+            [env : Environment]
+            [state : State])
+    : (Tuple2 Accumulator State)
+    (case statements
+      [(empty) (tuple2 acc state)]
+      [(cons statement statements)
+       (case (convert-statement statement acc env state)
+         [(tuple2 acc (tuple2 state env))
+          (convert-statements statements acc env state)])]))
+
+
+  (define (convert-statement
+            [statement : Statement]
+            [acc : Accumulator]
+            [env : Environment]
+            [state : State])
+    : (Tuple2 Accumulator (Tuple2 State Environment))
+    (case statement
+      [(p:return expr)
+       (case (convert-expr expr acc env state)
+         [(tuple2 (tuple2 temp acc) state)
+          (case acc
+            [(accumulator args rev-instructions blocks)
+             (tuple2
+               (accumulator (empty) (empty)
+                            (cons (basic-block args (reverse rev-instructions) (r:return temp))
+                                  blocks))
+               (tuple2 state env))])])]
+      [_ (panic #"Unhandled statement")]))
+
+
+  (define (convert-expr
+            [expr : Expr]
+            [acc : Accumulator]
+            [env : Environment]
+            [state : State])
+    : (Tuple2 (Tuple2 Bytes Accumulator) State)
+    (case expr
+      [(var-expr name)
+       (tuple2 (tuple2 (env-ref env name) acc) state)]
+      [_ (panic #"Unhandled expression")])))
