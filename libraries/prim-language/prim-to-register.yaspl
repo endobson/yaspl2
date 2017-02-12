@@ -7,8 +7,12 @@
     (bytes bytes=?)
     (list
       #:types (List)
-      #:values (cons empty reverse map)
+      #:values (cons empty reverse map foldl)
       #:patterns (cons empty))
+    (set
+      #:types (Set)
+      #:values (make-set set-add)
+      #:patterns ())
     (maybe
       #:types ()
       #:values ()
@@ -31,11 +35,13 @@
     (prim-language
       #:types ((FunctionDefinition p:FunctionDefinition)
                Statement Expr)
-      #:values ()
+      #:values ((function-definition-body p:function-definition-body))
       #:patterns ((function-definition p:function-definition)
                   (declaration p:declaration)
                   (return p:return)
                   (if-statement p:if-statement)
+                  (while p:while)
+                  (assignment p:assignment)
                   var-expr bin-op-expr)))
   (export
     #:types ()
@@ -43,7 +49,7 @@
     #:patterns ())
   (types
     (define-type Environment
-      (environment [vars : (Dict Bytes Var)]))
+      (environment [vars : (Dict Bytes Var)] [mutated-vars : (Set Bytes)]))
     (define-type State
       (state [var-counter : Int] [block-counter : Int]))
     (define-type Accumulator
@@ -61,7 +67,7 @@
       [(p:function-definition name args body)
        (case (map-state fresh-name args (initial-state))
          [(tuple2 freshened-args state)
-          (let ([env (add-all-args freshened-args (empty-environment))])
+          (let ([env (add-all-args freshened-args (initial-environment (mutated-vars f)))])
             (case (fresh-block-number state)
               [(tuple2 block-number state)
                 (case (convert-statements
@@ -74,14 +80,26 @@
                      [(cons _ _) (panic #"Incorrectly terminated function")]
                      [_ (r:function-definition name blocks)])])]))])]))
 
+  (define (mutated-vars [f : p:FunctionDefinition]) : (Set Bytes)
+    (foldl mutated-vars* (p:function-definition-body f) (make-set bytes=?)))
+
+  (define (mutated-vars* [s : Statement] [acc : (Set Bytes)]) : (Set Bytes)
+    (case s
+      [(p:return _) acc]
+      [(p:declaration _ _ ) acc]
+      [(p:assignment v _) (set-add acc v)]
+      [(p:while _ body) (foldl mutated-vars* body acc)]
+      [(p:if-statement _ then else)
+       (foldl mutated-vars* else (foldl mutated-vars* then acc))]))
+
   (define (initial-state) : State
     (state 0 0))
   (define (new-arg [fresh-arg : (Tuple2 Bytes Var)]) : Var
     (case fresh-arg
       [(tuple2 _ v) v]))
 
-  (define (empty-environment) : Environment
-    (environment (make-dict bytes=?)))
+  (define (initial-environment [mutated-vars : (Set Bytes)]) : Environment
+    (environment (make-dict bytes=?) mutated-vars))
 
   (define (env-ref [env : Environment] [name : Bytes]) : Var
     (case (dict-ref (environment-vars env) name)
@@ -89,7 +107,9 @@
       [(just v) v]))
 
   (define (env-add [env : Environment] [name : Bytes] [var : Var]) : Environment
-    (environment (dict-add (environment-vars env) name var)))
+    (case env
+      [(environment vars mutated-vars)
+       (environment (dict-add vars name var) mutated-vars)]))
 
   (define (fresh-name [v : Bytes] [s : State]) : (Tuple2 (Tuple2 Bytes Var) State)
     (case s
@@ -121,8 +141,8 @@
 
   (define (add-all-args [args : (List (Tuple2 Bytes Var))] [env : Environment]) : Environment
     (case env
-      [(environment vars)
-       (environment (dict-add-all vars args))]))
+      [(environment vars mutated-vars)
+       (environment (dict-add-all vars args) mutated-vars)]))
 
 
   (define (convert-statements

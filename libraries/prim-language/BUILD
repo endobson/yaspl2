@@ -68,6 +68,7 @@ yaspl_library(
     "//libraries/data:dict",
     "//libraries/data:list",
     "//libraries/data:maybe",
+    "//libraries/data:set",
     "//libraries/data:tuples",
   ]
 )
