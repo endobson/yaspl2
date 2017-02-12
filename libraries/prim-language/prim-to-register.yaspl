@@ -19,7 +19,7 @@
       #:patterns ())
     (register-language
       #:types ((FunctionDefinition r:FunctionDefinition)
-               BasicBlock Instruction Var)
+               BasicBlock Instruction Var Terminal)
       #:values ((function-definition r:function-definition)
                 (return r:return)
                 basic-block bin-op-inst var)
@@ -48,9 +48,13 @@
       (state [var-counter : Int] [block-counter : Int]))
     (define-type Accumulator
       (accumulator
+        [next-block : PendingBasicBlock]
+        [blocks : (Dict Int BasicBlock)]))
+    (define-type PendingBasicBlock
+      (pending-basic-block
+        [index : Int]
         [cur-args : (List Var)]
-        [reversed-instructions : (List Instruction)]
-        [blocks : (Dict Int BasicBlock)])))
+        [reversed-instructions : (List Instruction)])))
 
   (define (convert-function [f : p:FunctionDefinition]) : r:FunctionDefinition
     (case f
@@ -58,12 +62,17 @@
        (case (map-state fresh-name args (initial-state))
          [(tuple2 freshened-args state)
           (let ([env (add-all-args freshened-args (empty-environment))])
-            (case (convert-statements body (accumulator (map new-arg freshened-args) (empty)
-                                                        (make-dict =)) env state)
-              [(tuple2 (accumulator args instructions blocks) state)
-               (case instructions
-                 [(cons _ _) (panic #"Incorrectly terminated function")]
-                 [_ (r:function-definition name blocks)])]))])]))
+            (case (fresh-block-number state)
+              [(tuple2 block-number state)
+                (case (convert-statements
+                         body
+                         (start-block block-number (map new-arg freshened-args) (make-dict =))
+                         env
+                         state)
+                  [(tuple2 (accumulator (pending-basic-block _ _ instructions) blocks) state)
+                   (case instructions
+                     [(cons _ _) (panic #"Incorrectly terminated function")]
+                     [_ (r:function-definition name blocks)])])]))])]))
 
   (define (initial-state) : State
     (state 0 0))
@@ -96,6 +105,9 @@
          block-counter
          (state var-counter (+ 1 block-counter)))]))
 
+  (define (start-block [block-num : Int] [args : (List Var)] [blocks : (Dict Int BasicBlock)]) : Accumulator
+    (accumulator (pending-basic-block block-num args (empty)) blocks))
+
 
   (define (a b s) (map-state [f : (a s -> (Tuple2 b s))] [l : (List a)] [s : s]) : (Tuple2 (List b) s)
     (case l
@@ -126,6 +138,10 @@
          [(tuple2 acc (tuple2 state env))
           (convert-statements statements acc env state)])]))
 
+  (define (add-terminal [a : Accumulator] [term : Terminal]) : (Dict Int BasicBlock)
+    (case a
+      [(accumulator (pending-basic-block n args rev-instructions) blocks)
+       (dict-add blocks n (basic-block args (reverse rev-instructions) term))]))
 
   (define (convert-statement
             [statement : Statement]
@@ -137,17 +153,12 @@
       [(p:return expr)
        (case (convert-expr expr acc env state)
          [(tuple2 (tuple2 temp acc) state)
-          (case acc
-            [(accumulator args rev-instructions blocks)
-             (case (fresh-block-number state)
-               [(tuple2 block-num state)
-                (tuple2
-                  (accumulator (empty) (empty)
-                               (dict-add
-                                 blocks
-                                 block-num
-                                 (basic-block args (reverse rev-instructions) (r:return temp))))
-                   (tuple2 state env))])])])]
+          (case (fresh-block-number state)
+            [(tuple2 block-num state)
+             (tuple2
+               (accumulator (pending-basic-block block-num (empty) (empty))
+                            (add-terminal acc (r:return temp)))
+               (tuple2 state env))])])]
       [(p:declaration name expr)
        (case (convert-expr expr acc env state)
          [(tuple2 (tuple2 temp acc) state)
@@ -157,6 +168,10 @@
        (tuple2 acc (tuple2 state env))]
       [_ (panic #"Unhandled statement")]))
 
+  (define (add-instruction [a : Accumulator] [inst : Instruction]) : Accumulator
+    (case a
+      [(accumulator (pending-basic-block n args rev-instructions) blocks)
+       (accumulator (pending-basic-block n args (cons inst rev-instructions)) blocks)]))
 
   (define (convert-expr
             [expr : Expr]
@@ -174,14 +189,9 @@
             [(tuple2 (tuple2 right-res acc) state)
              (case (fresh-name #"tmp" state)
                [(tuple2 (tuple2 _ name) state)
-                (case acc
-                  [(accumulator args rev-instructions blocks)
-                   (tuple2
-                     (tuple2
-                       name
-                       (accumulator
-                         args
-                         (cons (bin-op-inst name op left-res right-res) rev-instructions)
-                         blocks))
-                     state)])])])])]
+                (tuple2
+                  (tuple2
+                    name
+                    (add-instruction acc (bin-op-inst name op left-res right-res)))
+                  state)])])])]
       [_ (panic #"Unhandled expression")])))
