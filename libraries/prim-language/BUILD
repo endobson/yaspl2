@@ -48,6 +48,7 @@ yaspl_library(
   name = "print-register-language",
   srcs = ["print-register-language.yaspl"],
   deps = [
+    ":prim-language",
     ":register-language",
     "//libraries/data:join-list",
     "//libraries/data:list",

@@ -16,14 +16,14 @@
       #:patterns (just nothing))
     (dict
       #:types (Dict)
-      #:values (dict-add-all make-dict dict-ref)
+      #:values (dict-add-all make-dict dict-ref dict-add)
       #:patterns ())
     (register-language
       #:types ((FunctionDefinition r:FunctionDefinition)
                BasicBlock Instruction)
       #:values ((function-definition r:function-definition)
                 (return r:return)
-                basic-block)
+                basic-block bin-op-inst)
       #:patterns ())
     (tuples
       #:types (Tuple2)
@@ -34,8 +34,9 @@
                Statement Expr)
       #:values ()
       #:patterns ((function-definition p:function-definition)
+                  (declaration p:declaration)
                   (return p:return)
-                  var-expr)))
+                  var-expr bin-op-expr)))
   (export
     #:types ()
     #:values (convert-function)
@@ -76,6 +77,9 @@
     (case (dict-ref (environment-vars env) name)
       [(nothing) (panic #"unbound variable")]
       [(just v) v]))
+
+  (define (env-add [env : Environment] [name : Bytes] [val : Bytes]) : Environment
+    (environment (dict-add (environment-vars env) name val)))
 
   (define (fresh-name [v : Bytes] [s : State]) : (Tuple2 (Tuple2 Bytes Bytes) State)
     (case s
@@ -131,6 +135,10 @@
                             (cons (basic-block args (reverse rev-instructions) (r:return temp))
                                   blocks))
                (tuple2 state env))])])]
+      [(p:declaration name expr)
+       (case (convert-expr expr acc env state)
+         [(tuple2 (tuple2 temp acc) state)
+          (tuple2 acc (tuple2 state (env-add env name temp)))])]
       [_ (panic #"Unhandled statement")]))
 
 
@@ -143,4 +151,21 @@
     (case expr
       [(var-expr name)
        (tuple2 (tuple2 (env-ref env name) acc) state)]
+      [(bin-op-expr op left right)
+       (case (convert-expr left acc env state)
+         [(tuple2 (tuple2 left-res acc) state)
+          (case (convert-expr right acc env state)
+            [(tuple2 (tuple2 right-res acc) state)
+             (case (fresh-name #"tmp" state)
+               [(tuple2 (tuple2 _ name) state)
+                (case acc
+                  [(accumulator args rev-instructions blocks)
+                   (tuple2
+                     (tuple2
+                       name
+                       (accumulator
+                         args
+                         (cons (bin-op-inst name op left-res right-res) rev-instructions)
+                         blocks))
+                     state)])])])])]
       [_ (panic #"Unhandled expression")])))
