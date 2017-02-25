@@ -17,6 +17,10 @@
       #:values (left right)
       #:patterns (left right))
     (bytes bytes=? bytes-append bytes-copy!)
+    (join-list
+      #:types (JoinList)
+      #:values (append-jl* jl->list concat-jl append-jl join-list empty-jl)
+      #:patterns ())
     (multi-set
       #:types (MultiSet)
       #:values (make-multi-set multi-set-add multi-set-keys multi-set-count multi-set-add-all)
@@ -55,13 +59,21 @@
               free-types/module free-variables/definitions free-patterns/definitions
               module-imported-environment module-imported-pattern-environment
               module-imported-type-environment
-              module-defined-functions)
+              module-defined-functions module-errors->bytes)
     #:patterns ())
-  (types)
+  (types
+    (define-type ModuleErrors
+      (module-errors [module-name : Bytes] [error : (Either DuplicateModuleBindings Bytes)]))
 
-  (define (validate-module [mod : Module] [sigs : (List ModuleSignature)]) : (Maybe Bytes)
+    (define-type DuplicateModuleBindings
+      (duplicate-module-bindings
+        [types : (List Bytes)]
+        [values : (List Bytes)]
+        [patterns : (List Bytes)])))
+
+  (define (validate-module [mod : Module] [sigs : (List ModuleSignature)]) : (Maybe ModuleErrors)
     (case (validate-module/duplicate-bindings mod)
-      [(left v) (just v)]
+      [(left v) (just (module-errors (module-name mod) (left v)))]
       [(right (tuple3 type-env env pat-env))
        (run-checks
          (varargs list
@@ -81,12 +93,12 @@
            (lambda () (validate-module/imports-exist mod sigs))
            (lambda () (validate-module/unique-name mod sigs))))]))
 
-  (define (run-checks [checks : (List (-> (Maybe Bytes)))]) : (Maybe Bytes)
+  (define (run-checks [checks : (List (-> (Maybe Bytes)))]) : (Maybe ModuleErrors)
     (case checks
       [(empty) (nothing)]
       [(cons f checks)
        (case (f)
-         [(just v) (just v)]
+         [(just v) (just (module-errors #"" (right v)))]
          [(nothing) (run-checks checks)])]))
 
 
@@ -94,27 +106,23 @@
   ;; If there are returns (left <error-message>), otherwise returns
   ;; (right (tuple3 <types> <values> <patterns>))
   (define (validate-module/duplicate-bindings [mod : Module])
-    : (Either Bytes (Tuple3 (Set Bytes) (Set Bytes) (Set Bytes)))
+    : (Either DuplicateModuleBindings (Tuple3 (Set Bytes) (Set Bytes) (Set Bytes)))
     (let ([env (module-environment mod)])
-      (let ([warn-duplicates
-              (lambda ([kind : Bytes] [imports : (List Bytes)])
-                (let ([first-line
-                        (bytes-append
-                           (varargs list #"Duplicate " kind #" bindings in module " (module-name mod) #":"))])
-                  (bytes-append (map add-newline (cons first-line (map indent imports))))))])
-        (case (find-duplicates env)
-          [(empty)
-           (let ([pattern-env (module-pattern-environment mod)])
-             (case (find-duplicates pattern-env)
-               [(empty)
-                (let ([type-env (module-type-environment mod)])
-                  (case (find-duplicates type-env)
-                    [(empty) (right (tuple3 (multi-set-keys type-env)
+      (case (find-duplicates env)
+        [value-dups
+         (let ([pattern-env (module-pattern-environment mod)])
+           (case (find-duplicates pattern-env)
+             [pattern-dups
+              (let ([type-env (module-type-environment mod)])
+                (case (find-duplicates type-env)
+                  [type-dups
+                   (case (tuple3 value-dups pattern-dups type-dups)
+                     [(tuple3 (empty) (empty) (empty))
+                      (right (tuple3 (multi-set-keys type-env)
                                             (multi-set-keys env)
                                             (multi-set-keys pattern-env)))]
-                    [imports (left (warn-duplicates #"type" imports))]))]
-               [imports (left (warn-duplicates #"pattern" imports))]))]
-          [imports (left (warn-duplicates #"value" imports))]))))
+                     [_
+                      (left (duplicate-module-bindings type-dups value-dups pattern-dups))])]))]))])))
 
   (define (validate-module/unique-name [mod : Module] [sigs : (List ModuleSignature)]) : (Maybe Bytes)
     (case sigs
@@ -684,4 +692,33 @@
                     (validate-imports values (dict-keys e-vals))
                     (validate-imports types (dict-keys e-types))
                     (validate-imports patterns (dict-keys e-patterns))))])]))
-        (module-imports mod)))))
+        (module-imports mod))))
+
+  (define (module-errors->bytes [me : ModuleErrors]) : Bytes
+    (case me
+      [(module-errors mod-name (left dups))
+       (duplicate-module-bindings->bytes mod-name dups)]
+      [(module-errors _ (right value))
+       value]))
+
+  (define (duplicate-module-bindings->bytes [mod-name : Bytes] [dups : DuplicateModuleBindings])
+    : Bytes
+    (let ([warn-duplicates
+            (lambda ([kind : Bytes] [bindings : (List Bytes)]) : (JoinList Bytes)
+              (case bindings
+                [(empty) (empty-jl)]
+                [_
+                 (append-jl
+                   (varargs join-list #"  " kind #" bindings:\n")
+                   (concat-jl (map (lambda ([binding : Bytes])
+                                     (varargs join-list #"    " binding #"\n"))
+                                   bindings)))]))])
+      (case dups
+        [(duplicate-module-bindings types values patterns)
+         (bytes-append
+           (jl->list
+             (varargs append-jl*
+               (varargs join-list #"Duplicate bindings in module " mod-name #":\n")
+               (warn-duplicates #"Type" types)
+               (warn-duplicates #"Value" values)
+               (warn-duplicates #"Pattern" patterns))))]))))
