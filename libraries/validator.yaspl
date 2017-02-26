@@ -35,7 +35,7 @@
       #:patterns ())
     (list
       #:types (List)
-      #:values (cons empty list map append findf)
+      #:values (cons empty list map append findf interleave foldl find/maybe)
       #:patterns (cons empty))
     (source-language
       #:types (Module Expression CaseClause Pattern FunctionDefinition TypeDefinition
@@ -91,7 +91,8 @@
            (lambda () (validate-module/duplicate-exported-types mod))
 
            (lambda () (validate-module/imports-exist mod sigs))
-           (lambda () (validate-module/unique-name mod sigs))))]))
+           (lambda () (validate-module/unique-name mod sigs))
+           (lambda () (validate-module/unique-bindings mod))))]))
 
   (define (run-checks [checks : (List (-> (Maybe Bytes)))]) : (Maybe ModuleErrors)
     (case checks
@@ -693,6 +694,81 @@
                     (validate-imports types (dict-keys e-types))
                     (validate-imports patterns (dict-keys e-patterns))))])]))
         (module-imports mod))))
+
+  (define (validate-module/unique-bindings [mod : Module]) : (Maybe Bytes)
+    (first-just
+      (map
+        check-unique-bindings/function-definition
+        (module-definitions mod))))
+
+  (define (check-unique-bindings/function-definition [def : FunctionDefinition]) : (Maybe Bytes)
+    (case def
+      [(function-definition _ _ args body)
+       (case (check-unique-bindings/args args)
+         [(just v)
+          (just v)]
+         [(nothing)
+          (check-unique-bindings/expr body)])]))
+
+  (define (check-unique-bindings/args [args : (List Bytes)]) : (Maybe Bytes)
+    (case (find-duplicates (multi-set-add-all (make-multi-set bytes=?) args))
+      [(empty)
+       (nothing)]
+      [dups
+        (just (bytes-append (cons #"Duplicate bindings: " (interleave dups #", "))))]))
+
+  (define (check-unique-bindings/expr [expr : Expression]) : (Maybe Bytes)
+    (case expr
+      [(int-literal _) (nothing)]
+      [(bytes-literal _) (nothing)]
+      [(boolean-literal _) (nothing)]
+      [(var-expr _) (nothing)]
+      [(if-expr c t f)
+       (check-unique-bindings/exprs (varargs list c t f))]
+      [(begin-expr first rest)
+       (check-unique-bindings/exprs (cons first rest))]
+      [(app-expr op args)
+       (check-unique-bindings/exprs (cons op args))]
+      [(varargs-app-expr op args)
+       (check-unique-bindings/exprs (cons op args))]
+      [(let-expr name expr body)
+       (check-unique-bindings/exprs (varargs list expr body))]
+      [(lambda-expr args return-type body)
+       (case (check-unique-bindings/args
+               (map (lambda ([t : (Tuple2 Bytes PreType)]) (case t [(tuple2 name _) name])) args))
+         [(just v) (just v)]
+         [(nothing)
+          (check-unique-bindings/expr body)])]
+      [(case-expr expr clauses)
+       (case (check-unique-bindings/expr expr)
+         [(just v) (just v)]
+         [(nothing)
+          (check-unique-bindings/clauses clauses)])]))
+
+  (define (check-unique-bindings/exprs [exprs : (List Expression)]) : (Maybe Bytes)
+    (find/maybe check-unique-bindings/expr exprs))
+
+  (define (check-unique-bindings/clauses [clauses : (List CaseClause)]) : (Maybe Bytes)
+    (find/maybe
+      (lambda ([clause : CaseClause])
+        (case clause
+          [(case-clause pattern expr)
+           (case (check-unique-bindings/args (pattern-bindings pattern))
+             [(just v) (just v)]
+             [(nothing)
+              (check-unique-bindings/expr expr)])]))
+      clauses))
+
+  (define (pattern-bindings [p : Pattern]) : (List Bytes)
+    (pattern-bindings* p (empty)))
+  (define (pattern-bindings* [p : Pattern] [acc : (List Bytes)]) : (List Bytes)
+    (case p
+      [(bytes-pattern _) acc]
+      [(int-pattern _) acc]
+      [(ignore-pattern) acc]
+      [(variable-pattern v) (cons v acc)]
+      [(abstraction-pattern _ pats)
+       (foldl pattern-bindings* pats acc)]))
 
   (define (module-errors->bytes [me : ModuleErrors]) : Bytes
     (case me
