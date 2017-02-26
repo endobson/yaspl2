@@ -82,16 +82,26 @@
 (define (parse-definitions defs)
   (define (parse-definition sexp)
     (match sexp
-      [`(define (,name (,(? symbol? args) : ,arg-types) ...) : ,return-type ,body)
+      [`(define (,name (,(? symbol? args) : ,arg-types) ...) : ,return-type . ,body)
         (define type (fun-pre-type empty (map parse-pre-type arg-types) (parse-pre-type return-type)))
-        (values name (definition& type args (block& empty (parse-expression body))))]
-      [`(define (,(? symbol? type-vars) ...) (,name (,(? symbol? args) : ,arg-types) ...) : ,return-type ,body)
+        (values name (definition& type args (parse-block body)))]
+      [`(define (,(? symbol? type-vars) ...) (,name (,(? symbol? args) : ,arg-types) ...) :
+                ,return-type . ,body)
         (define type (fun-pre-type type-vars (map parse-pre-type arg-types) (parse-pre-type return-type)))
-        (values name (definition& type args (block& empty (parse-expression body))))]))
+        (values name (definition& type args (parse-block body)))]))
 
   (for/hash ([def (in-list defs)])
     (parse-definition def)))
 
+
+(define (parse-block sexps)
+  (define (recur sexps rev-defs)
+    (match sexps
+      [`(,expr)
+       (block& (reverse rev-defs) (parse-expression expr))]
+      [`((match ,pattern ,expr) . ,sexps)
+        (recur sexps (cons (match-def& (parse-pattern pattern) (parse-expression expr)) rev-defs))]))
+  (recur sexps empty))
 
 (define (parse-expression sexp)
   (define parse parse-expression)
