@@ -199,11 +199,10 @@ yaspl_bootstrap_library(
   name = "free-variables",
   srcs = ["free-variables.yaspl"],
   deps = [
-    "//libraries/data:bytes",
+    ":source-language",
     "//libraries/data:list",
     "//libraries/data:tuples",
     "//libraries/data:set",
-    ":source-language",
   ]
 )
 
@@ -811,6 +810,7 @@ yaspl_library(
   deps = [
     ":source-language",
     ":validator",
+    ":free-variables",
     "//libraries/data:bytes",
     "//libraries/data:list",
     "//libraries/data:multi-set",
@@ -825,6 +825,7 @@ yaspl_bootstrap_library(
   deps = [
     ":module-signature",
     ":source-language",
+    ":free-variables",
     "//libraries/data:bytes",
     "//libraries/data:dict",
     "//libraries/data:either",

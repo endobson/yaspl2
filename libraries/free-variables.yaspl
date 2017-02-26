@@ -8,31 +8,56 @@
       #:types (Tuple2)
       #:values ()
       #:patterns (tuple2))
-    (bytes bytes=?)
     (list
       #:types (List)
       #:values (cons empty map)
       #:patterns (cons empty))
     (set
       #:types (Set)
-      #:values (set-add make-set set-member? set-add-all)
+      #:values (set-add set-member? set-add-all)
       #:patterns ())
     (source-language
-      #:types (Expression CaseClause Pattern PreType)
+      #:types (Expression CaseClause Pattern PreType BlockDefinition Block FunctionDefinition)
       #:values ()
       #:patterns (int-literal bytes-literal boolean-literal var-expr if-expr begin-expr app-expr
                   varargs-app-expr let-expr case-expr case-clause bytes-pattern int-pattern
-                  lambda-expr variable-pattern ignore-pattern abstraction-pattern)))
+                  lambda-expr variable-pattern ignore-pattern abstraction-pattern match-def block
+                  function-definition)))
   (export
     #:types ()
-    #:values (free-variables)
+    #:values (free-variables/expr free-variables/definitions)
     #:patterns ())
   (types)
 
-  (define (free-variables [expr : Expression]) : (Set Bytes)
-    (free-variables* expr (make-set bytes=?) (make-set bytes=?)))
+  (define (free-variables/definitions
+            [defs : (List FunctionDefinition)]
+            [env : (Set Bytes)]
+            [acc : (Set Bytes)]) : (Set Bytes)
+    (case defs
+      [(empty) acc]
+      [(cons (function-definition _ _ args body) defs)
+       (let ([fun-env (set-add-all env args)])
+         (free-variables/definitions defs env (free-variables/block body fun-env acc)))]))
 
-  (define (free-variables* [expr : Expression] [env : (Set Bytes)] [acc : (Set Bytes)])
+  (define (free-variables/block [block : Block] [env : (Set Bytes)] [acc : (Set Bytes)])
+    : (Set Bytes)
+    (match-define (block defs body) block)
+    (free-variables/block* defs body env acc))
+
+  (define (free-variables/block*
+            [defs : (List BlockDefinition)]
+            [final-expr : Expression]
+            [env : (Set Bytes)]
+            [acc : (Set Bytes)]) : (Set Bytes)
+    (case defs
+      [(empty) (free-variables/expr final-expr env acc)]
+      [(cons (match-def pattern expr) defs)
+       (free-variables/block*
+         defs final-expr
+         (add-pattern-bindings pattern env)
+         (free-variables/expr expr env acc))]))
+
+  (define (free-variables/expr [expr : Expression] [env : (Set Bytes)] [acc : (Set Bytes)])
     : (Set Bytes)
     (case expr
       [(int-literal _) acc]
@@ -47,11 +72,11 @@
       [(varargs-app-expr op args)
        (free-variables/list (cons op args) env acc)]
       [(let-expr name expr body)
-       (free-variables* body (set-add env name) (free-variables* expr env acc))]
+       (free-variables/expr body (set-add env name) (free-variables/expr expr env acc))]
       [(case-expr expr clauses)
-       (free-variables/clauses clauses env (free-variables* expr env acc))]
+       (free-variables/clauses clauses env (free-variables/expr expr env acc))]
       [(lambda-expr args+tys _ body)
-       (free-variables* body (set-add-all env (map extract-arg args+tys)) acc)]
+       (free-variables/expr body (set-add-all env (map extract-arg args+tys)) acc)]
       [(var-expr v)
        (if (set-member? env v)
            acc
@@ -64,7 +89,7 @@
     (case exprs
       [(empty) acc]
       [(cons expr exprs)
-       (free-variables/list exprs env (free-variables* expr env acc))]))
+       (free-variables/list exprs env (free-variables/expr expr env acc))]))
 
   (define (free-variables/clauses
             [exprs : (List CaseClause)]
@@ -73,7 +98,7 @@
     (case exprs
       [(empty) acc]
       [(cons (case-clause pattern expr) clauses)
-       (free-variables/clauses clauses env (free-variables* expr (add-pattern-bindings pattern env) acc))]))
+       (free-variables/clauses clauses env (free-variables/expr expr (add-pattern-bindings pattern env) acc))]))
 
   (define (add-pattern-bindings [p : Pattern] [env : (Set Bytes)]) : (Set Bytes)
     (case p

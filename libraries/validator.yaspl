@@ -33,6 +33,7 @@
       #:types (Set)
       #:values (make-set set->list set-add set-add-all set-member? set-remove-all)
       #:patterns ())
+    (free-variables free-variables/definitions)
     (list
       #:types (List)
       #:values (cons empty list map append findf interleave foldl find/maybe)
@@ -57,7 +58,7 @@
   (export
     #:types ()
     #:values (validate-module
-              free-types/module free-variables/definitions free-patterns/definitions
+              free-types/module free-patterns/definitions
               module-imported-environment module-imported-pattern-environment
               module-imported-type-environment
               module-defined-functions module-errors->bytes)
@@ -402,21 +403,6 @@
       [(cons (import _ name) imports)
        (add-imports-bindings imports (multi-set-add env name))]))
 
-  (define (free-variables/definitions
-            [defs : (List FunctionDefinition)]
-            [env : (Set Bytes)]
-            [acc : (Set Bytes)]) : (Set Bytes)
-    (case defs
-      [(empty) acc]
-      [(cons (function-definition _ _ args (block block-defs body)) defs)
-       (let ([fun-env (add-arg-bindings args env)])
-         (free-variables/definitions defs env (free-variables/block block-defs body fun-env acc)))]))
-
-  (define (add-arg-bindings [args : (List Bytes)] [env : (Set Bytes)]) : (Set Bytes)
-    (case args
-      [(empty) env]
-      [(cons arg args) (add-arg-bindings args (set-add env arg))]))
-
 
   (define (free-patterns/definitions
             [defs : (List FunctionDefinition)]
@@ -470,85 +456,10 @@
       [(cons (variant-definition name fields) variants)
        (free-types/variants variants env (free-types/types (map variant-field-type fields) env acc))]))
 
-
-  (define (extract-arg [arg+ty : (Tuple2 Bytes PreType)]) : Bytes
-    (case arg+ty
-      [(tuple2 arg _)
-       arg]))
-
   (define (extract-ty [arg+ty : (Tuple2 Bytes PreType)]) : PreType
     (case arg+ty
       [(tuple2 _ ty)
        ty]))
-
-  (define (free-variables [expr : Expression] [env : (Set Bytes)] [acc : (Set Bytes)])
-    : (Set Bytes)
-    (case expr
-      [(int-literal _) acc]
-      [(bytes-literal _) acc]
-      [(boolean-literal _) acc]
-      [(if-expr c t f)
-       (free-variables/list (cons c (cons t (cons f (empty)))) env acc)]
-      [(begin-expr e es)
-       (free-variables/list (cons e es) env acc)]
-      [(app-expr op args)
-       (free-variables/list (cons op args) env acc)]
-      [(varargs-app-expr op args)
-       (free-variables/list (cons op args) env acc)]
-      [(let-expr name expr body)
-       (free-variables body (set-add env name) (free-variables expr env acc))]
-      [(case-expr expr clauses)
-       (free-variables/clauses clauses env (free-variables expr env acc))]
-      [(lambda-expr args+tys _ body)
-       (free-variables body (add-arg-bindings (map extract-arg args+tys) env) acc)]
-      [(var-expr v)
-       (if (set-member? env v)
-           acc
-           (set-add acc v))]))
-
-  (define (free-variables/block
-            [defs : (List BlockDefinition)]
-            [final-expr : Expression]
-            [env : (Set Bytes)]
-            [acc : (Set Bytes)]) : (Set Bytes)
-    (case defs
-      [(empty) (free-variables final-expr env acc)]
-      [(cons (match-def pattern expr) defs)
-       (free-variables/block
-         defs final-expr
-         (add-pattern-bindings pattern env)
-         (free-variables expr env acc))]))
-
-  (define (free-variables/list
-            [exprs : (List Expression)]
-            [env : (Set Bytes)]
-            [acc : (Set Bytes)]) : (Set Bytes)
-    (case exprs
-      [(empty) acc]
-      [(cons expr exprs)
-       (free-variables/list exprs env (free-variables expr env acc))]))
-
-  (define (free-variables/clauses
-            [exprs : (List CaseClause)]
-            [env : (Set Bytes)]
-            [acc : (Set Bytes)]) : (Set Bytes)
-    (case exprs
-      [(empty) acc]
-      [(cons (case-clause pattern expr) clauses)
-       (free-variables/clauses clauses env (free-variables expr (add-pattern-bindings pattern env) acc))]))
-
-  (define (add-pattern-bindings [p : Pattern] [env : (Set Bytes)]) : (Set Bytes)
-    (case p
-      [(bytes-pattern _) env]
-      [(int-pattern _) env]
-      [(ignore-pattern) env]
-      [(variable-pattern v) (set-add env v)]
-      [(abstraction-pattern _ pats) (add-pattern-bindings/list pats env)]))
-
-  (define (add-pattern-bindings/list [ps : (List Pattern)] [env : (Set Bytes)]) : (Set Bytes)
-    (case ps
-      [(empty) env]
-      [(cons p ps) (add-pattern-bindings/list ps (add-pattern-bindings p env))]))
 
   (define (free-patterns [expr : Expression] [env : (Set Bytes)] [acc : (Set Bytes)])
     : (Set Bytes)
