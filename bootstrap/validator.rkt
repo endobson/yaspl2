@@ -22,6 +22,19 @@
 (define (check-module module)
   (ensure-no-free-variables module))
 
+(define (pattern-binding-variables p)
+  (define (recur p acc)
+    (match p
+      [(bytes-pattern& _) acc]
+      [(byte-pattern& _) acc]
+      [(ignore-pattern&) acc]
+      [(variable-pattern& v) (cons v acc)]
+      [(abstraction-pattern& name patterns)
+       (for/fold ([acc acc]) ([pattern (in-list patterns)])
+         (recur pattern acc))]))
+  (recur p empty))
+
+
 ;; TODO make this work over types and not conflate type bindings and value bindings
 ;; TODO also support patterns
 (define (ensure-no-free-variables module)
@@ -51,22 +64,21 @@
       [(case& expr clauses)
        (recur expr)
        (for ([clause (in-list clauses)])
-         (define (pattern-binding-variables p acc)
-           (match p
-             [(bytes-pattern& _) acc]
-             [(byte-pattern& _) acc]
-             [(ignore-pattern&) acc]
-             [(variable-pattern& v) (cons v acc)]
-             [(abstraction-pattern& name patterns)
-              (for/fold ([acc acc]) ([pattern (in-list patterns)])
-                (pattern-binding-variables pattern acc))]))
          (match clause
            [(case-clause& pattern expr)
-            (define binders (pattern-binding-variables pattern empty))
+            (define binders (pattern-binding-variables pattern))
             (when (check-duplicates binders)
               (raise-user-error 'ensure-no-free-variables "Duplicate binder in ~a" binders))
             ((recur/env (set-union env (list->set binders))) expr)]))]))
-
+  (define (recur/block env defs body)
+    (match defs
+      [(list) ((recur/env env) body)]
+      [(cons (match-def& pattern expr) defs)
+       ((recur/env env) expr)
+       (define binders (pattern-binding-variables pattern))
+       (when (check-duplicates binders)
+         (raise-user-error 'ensure-no-free-variables "Duplicate binder in ~a" binders))
+       (recur/block (set-union env (list->set binders)) defs body)]))
 
   (match module
     [(module& _ (imports& _ (list (import& _ _ import-names) ...) _) _
@@ -89,9 +101,9 @@
      (define env (set-union (set) mut-env))
      (for ([definition (in-hash-values definitions)])
        (match definition
-         [(definition& _ args body)
+         [(definition& _ args (block& defs body))
           (let ([env (set-union env (list->set args))])
-            ((recur/env env) body))]))])
+            (recur/block env defs body))]))])
   (unless (set-empty? unbound)
     (raise-user-error
       'ensure-no-free-variables "The following symbols are unbound in ~a:\n~a"
@@ -275,14 +287,15 @@
 
      (for ([(def-name def) (in-hash defs)])
        (match def
-         [(definition& _ args body)
+         [(definition& _ args (block& defs body))
           (match (hash-ref type-env def-name)
             [(fun-ty type-vars arg-types result-type)
              (let ([values (foldl (λ (k v h) (hash-set h k v)) type-env args arg-types)])
                (let ([type-name-env
                        (foldl (λ (k h) (hash-set h k (type-var-ty k))) type-name-env type-vars)])
-                 ((type-check/env (binding-env values inductive-signatures pattern-env type-name-env))
-                  body result-type)))])]))
+                 (type-check/block
+                  (binding-env values inductive-signatures pattern-env type-name-env)
+                  defs body result-type)))])]))
 
      (define exported-value-bindings
        (for/hash ([export (exports&-values exports)])
@@ -468,6 +481,23 @@
      (data-ty module-name name (map sub types))]))
 
 
+
+(define (type-check/block env defs body type)
+  (match defs
+    [(list) ((type-check/env env) body type)]
+    [(cons (match-def& pattern expr) defs)
+     (check-patterns-complete/not-useless env (list pattern))
+     (define expr-type ((type-check/env env) expr (unknown-ty)))
+     (match-define (template-data type-vars var-types constraints pattern-type)
+       ((pattern->template-data/env env) pattern))
+
+     (define substitution
+       (unify-types type-vars (cons (list pattern-type expr-type) constraints)))
+
+     (define new-env
+       (for/fold ([env env]) ([(field-var field-type) (in-hash var-types)])
+         (binding-env-value-set env field-var (substitute substitution field-type))))
+     (type-check/block new-env defs body type)]))
 
 
 (define ((type-check/env env) expr type)

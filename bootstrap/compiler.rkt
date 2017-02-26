@@ -121,14 +121,15 @@
       (define function-defs
         (for/list ([(name def) (in-hash (module&-definitions module))])
           (match def
-            [(definition& _ args body)
+            [(definition& _ args (block& defs body))
              (define temporaries (generate-temporaries args))
              `(,define-sym (,(hash-ref local-env name) ,@temporaries)
-                 ,(compile-expr
+                 ,(compile-block
                       immutable-local-pattern-env
                       (for/fold ([env immutable-local-env])
                                 ([a (in-list args)] [t (in-list temporaries)])
                         (hash-set env a t))
+                      defs
                       body))])))
 
       (for ([export (in-list (exports&-values (module&-exports module)))])
@@ -141,6 +142,17 @@
     (append* definitions)
     global-env))
 
+(define (compile-block pat-env env defs body)
+  (match defs
+    [(list)
+     (compile-expr pat-env env body)]
+    [(cons (match-def& pattern expr) defs)
+     #`(let ([val #,(compile-expr pat-env env expr)])
+         #,(let-values ([(triple-function vars env) (compile-pattern/simple-match pattern pat-env env)])
+             #`(#,app-sym #,triple-function
+                  val
+                  (#,lambda-sym (#,@vars) #,(compile-block pat-env env defs expr))
+                  (#,lambda-sym () (error 'match)))))]))
 
 ;; env is hash table to expressions which evaluate to the value
 (define (compile-expr pat-env env expr)

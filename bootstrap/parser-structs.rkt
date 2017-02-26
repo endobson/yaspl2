@@ -11,6 +11,9 @@
 (struct import& (module-name exported-name local-name))
 (struct definition& (type args body))
 
+(struct block& (definitions body) #:transparent)
+(struct match-def& (pattern expr) #:transparent)
+
 (struct expression& () #:transparent)
 (struct byte& expression& (v) #:transparent)
 (struct bytes& expression& (v) #:transparent)

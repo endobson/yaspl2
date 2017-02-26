@@ -84,10 +84,10 @@
     (match sexp
       [`(define (,name (,(? symbol? args) : ,arg-types) ...) : ,return-type ,body)
         (define type (fun-pre-type empty (map parse-pre-type arg-types) (parse-pre-type return-type)))
-        (values name (definition& type args (parse-expression body)))]
+        (values name (definition& type args (block& empty (parse-expression body))))]
       [`(define (,(? symbol? type-vars) ...) (,name (,(? symbol? args) : ,arg-types) ...) : ,return-type ,body)
         (define type (fun-pre-type type-vars (map parse-pre-type arg-types) (parse-pre-type return-type)))
-        (values name (definition& type args (parse-expression body)))]))
+        (values name (definition& type args (block& empty (parse-expression body))))]))
 
   (for/hash ([def (in-list defs)])
     (parse-definition def)))
