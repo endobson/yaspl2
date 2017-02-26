@@ -321,25 +321,26 @@
         (list->jl fragments))))
 
   (define (collect-symbols [fragments : (List AssemblyFragment)] [text-size : Int]) : (List Symbol)
-    (let ([defined-symbols (collect-defined-symbols fragments 0 text-size (empty))])
-      (let ([undefined-symbols
-              (map undefined-symbol
-                   (sort
-                     (set->list
-                       (set-remove-all
-                         (set-add-all
-                           (make-set bytes=?)
-                           (collect-instruction-symbols fragments))
-                         (map defined-symbol-name defined-symbols)))
-                     bytes<))])
-        (append
-          (map
-            defined-symbol
-            (sort
-              defined-symbols
-              (lambda ([x : DefinedSymbol] [y : DefinedSymbol])
-                (bytes< (defined-symbol-name x) (defined-symbol-name y)))))
-          undefined-symbols))))
+    (match-define defined-symbols
+      (collect-defined-symbols fragments 0 text-size (empty)))
+    (match-define undefined-symbols
+      (map undefined-symbol
+           (sort
+             (set->list
+               (set-remove-all
+                 (set-add-all
+                   (make-set bytes=?)
+                   (collect-instruction-symbols fragments))
+                 (map defined-symbol-name defined-symbols)))
+             bytes<)))
+    (append
+      (map
+        defined-symbol
+        (sort
+          defined-symbols
+          (lambda ([x : DefinedSymbol] [y : DefinedSymbol])
+            (bytes< (defined-symbol-name x) (defined-symbol-name y)))))
+      undefined-symbols))
 
 
   (define (a) (memf [f : (a -> Boolean)] [l : (List a)]) : Boolean
@@ -525,236 +526,239 @@
             [const-section : Bytes]
             [output-file-name : Bytes])
     : (Either Bytes Void)
-    (let ([page-zero-size #x0000000100000000])
-      (let ([text-segment-relocations (empty/text-segment-relocation)])
-        (let ([text-segment-num-relocations (length text-segment-relocations)])
-          (let ([const-segment-relocations (empty/const-segment-relocation)])
-            (let ([const-segment-num-relocations (length const-segment-relocations)])
-              (let ([text-segment-size (+ (bytes-length text-section)
-                                          (bytes-length const-section))])
-                (let ([text-segment-num-pages (+ (quotient (+ text-segment-size #x330) #x1000) 1)])
-                  (let ([const-section-start (- (+ page-zero-size (* text-segment-num-pages #x1000))
-                                                (bytes-length const-section))])
-                    (let ([text-section-start (- const-section-start (bytes-length text-section))])
-                      (let ([num-symbols (length symbol-table-entries)])
-                        (let ([symbols-length-unrounded
-                                  (+ (+ 2 (length symbol-table-entries))
-                                     (sum (map bytes-length (map symbol-table-entry-name
-                                                                 symbol-table-entries))))])
-                          (let ([symbols-length (round-up symbols-length-unrounded 8)])
-                            (let ([start-address
-                                    (symbol-table-entry-value
-                                      (find-symbol-entry #"start" symbol-table-entries))])
-                              (call-with-output-file output-file-name
-                                (lambda ([output : OutputPort])
-                                  (begin
-                                    (write-mach-o-header
-                                      (mach-o-header
-                                        (mach-o-executable-file)
-                                        (varargs list
-                                          (lc-load-segment64
-                                            (load-segment64 #"__PAGEZERO"
-                                              #x0000000000000000
-                                              page-zero-size
-                                              0
-                                              0
-                                              (u32 #x00)
-                                              (u32 #x00)
-                                              (u32 0)
-                                              (empty)))
-                                          (lc-load-segment64
-                                            (load-segment64 #"__TEXT"
-                                              page-zero-size
-                                              (* text-segment-num-pages #x1000)
-                                              #x0
-                                              (* text-segment-num-pages #x1000)
-                                              (u32 #x07)
-                                              (u32 #x05)
-                                              (u32 0)
-                                              (varargs list
-                                                (section64 #"__TEXT" #"__text"
-                                                           text-section-start
-                                                           (bytes-length text-section)
-                                                           (- text-section-start page-zero-size)
-                                                           0
-                                                           text-segment-num-relocations
-                                                           (u32 #x80000400))
-                                                (section64 #"__TEXT" #"__const"
-                                                           const-section-start
-                                                           (bytes-length const-section)
-                                                           (- const-section-start page-zero-size)
-                                                           0
-                                                           const-segment-num-relocations
-                                                           (u32 0)))))
-                                          (lc-load-segment64
-                                            (load-segment64 #"__DATA"
-                                              (+ page-zero-size
-                                                 (* text-segment-num-pages #x1000))
-                                              #x0000000000000000
-                                              (* text-segment-num-pages #x1000)
-                                              #x0
-                                              (u32 #x07)
-                                              (u32 #x03)
-                                              (u32 #x04)
-                                              (varargs list
-                                                (section64 #"__DATA" #"__data"
-                                                           (+ page-zero-size
-                                                              (* text-segment-num-pages #x1000))
-                                                           #x0000000000000000
-                                                           (* text-segment-num-pages #x1000)
-                                                           0
-                                                           text-segment-num-relocations
-                                                           (u32 0)))))
-                                          (lc-load-segment64
-                                            (load-segment64 #"__LINKEDIT"
-                                              (+ page-zero-size
-                                                 (* text-segment-num-pages #x1000))
-                                              (* (+ (quotient
-                                                      (- (+ (* num-symbols 16) symbols-length) 1)
-                                                      #x1000)
-                                                    1)
-                                                 #x1000)
-                                              (* text-segment-num-pages #x1000)
-                                              (+ (* num-symbols 16) symbols-length)
-                                              (u32 #x07)
-                                              (u32 #x01)
-                                              (u32 #x00)
-                                              (empty)))
-                                          (lc-symbol-table
-                                            (symbol-table
-                                              (* text-segment-num-pages #x1000)
-                                              num-symbols
-                                              (+ (* text-segment-num-pages #x1000) (* num-symbols 16))
-                                              symbols-length))
-                                          (lc-source-version)
-                                          (lc-unix-thread (unix-thread start-address))))
-                                      output)
-                                    (write-all-bytes (make-bytes 32) output)
-                                    (write-all-bytes
-                                      (make-bytes
-                                        (- (+ (* (quotient (+ text-segment-size #x330) #x1000) #x1000)
-                                              #xCD0)
-                                           text-segment-size))
-                                    output)
-                                    (write-all-bytes text-section output)
-                                    (write-all-bytes const-section output)
-                                    (write-symbol-entries symbol-table-entries 2 output)
-                                    ;(write-all-bytes (make-bytes (- (* num-symbols 16) 2)) output)
+    (match-define page-zero-size #x0000000100000000)
+    (match-define text-segment-relocations (empty/text-segment-relocation))
+    (match-define text-segment-num-relocations (length text-segment-relocations))
+    (match-define const-segment-relocations (empty/const-segment-relocation))
+    (match-define const-segment-num-relocations (length const-segment-relocations))
+    (match-define text-segment-size
+      (+ (bytes-length text-section) (bytes-length const-section)))
+    (match-define text-segment-num-pages
+      (+ (quotient (+ text-segment-size #x330) #x1000) 1))
+    (match-define const-section-start
+      (- (+ page-zero-size (* text-segment-num-pages #x1000)) (bytes-length const-section)))
+    (match-define text-section-start
+      (- const-section-start (bytes-length text-section)))
+    (match-define num-symbols (length symbol-table-entries))
+    (match-define symbols-length-unrounded
+      (+ (+ 2 (length symbol-table-entries))
+         (sum (map bytes-length (map symbol-table-entry-name
+                                     symbol-table-entries)))))
+    (match-define symbols-length (round-up symbols-length-unrounded 8))
+    (match-define start-address
+      (symbol-table-entry-value
+        (find-symbol-entry #"start" symbol-table-entries)))
+    (call-with-output-file output-file-name
+      (lambda ([output : OutputPort])
+        (begin
+          (write-mach-o-header
+            (mach-o-header
+              (mach-o-executable-file)
+              (varargs list
+                (lc-load-segment64
+                  (load-segment64 #"__PAGEZERO"
+                    #x0000000000000000
+                    page-zero-size
+                    0
+                    0
+                    (u32 #x00)
+                    (u32 #x00)
+                    (u32 0)
+                    (empty)))
+                (lc-load-segment64
+                  (load-segment64 #"__TEXT"
+                    page-zero-size
+                    (* text-segment-num-pages #x1000)
+                    #x0
+                    (* text-segment-num-pages #x1000)
+                    (u32 #x07)
+                    (u32 #x05)
+                    (u32 0)
+                    (varargs list
+                      (section64 #"__TEXT" #"__text"
+                                 text-section-start
+                                 (bytes-length text-section)
+                                 (- text-section-start page-zero-size)
+                                 0
+                                 text-segment-num-relocations
+                                 (u32 #x80000400))
+                      (section64 #"__TEXT" #"__const"
+                                 const-section-start
+                                 (bytes-length const-section)
+                                 (- const-section-start page-zero-size)
+                                 0
+                                 const-segment-num-relocations
+                                 (u32 0)))))
+                (lc-load-segment64
+                  (load-segment64 #"__DATA"
+                    (+ page-zero-size
+                       (* text-segment-num-pages #x1000))
+                    #x0000000000000000
+                    (* text-segment-num-pages #x1000)
+                    #x0
+                    (u32 #x07)
+                    (u32 #x03)
+                    (u32 #x04)
+                    (varargs list
+                      (section64 #"__DATA" #"__data"
+                                 (+ page-zero-size
+                                    (* text-segment-num-pages #x1000))
+                                 #x0000000000000000
+                                 (* text-segment-num-pages #x1000)
+                                 0
+                                 text-segment-num-relocations
+                                 (u32 0)))))
+                (lc-load-segment64
+                  (load-segment64 #"__LINKEDIT"
+                    (+ page-zero-size
+                       (* text-segment-num-pages #x1000))
+                    (* (+ (quotient
+                            (- (+ (* num-symbols 16) symbols-length) 1)
+                            #x1000)
+                          1)
+                       #x1000)
+                    (* text-segment-num-pages #x1000)
+                    (+ (* num-symbols 16) symbols-length)
+                    (u32 #x07)
+                    (u32 #x01)
+                    (u32 #x00)
+                    (empty)))
+                (lc-symbol-table
+                  (symbol-table
+                    (* text-segment-num-pages #x1000)
+                    num-symbols
+                    (+ (* text-segment-num-pages #x1000) (* num-symbols 16))
+                    symbols-length))
+                (lc-source-version)
+                (lc-unix-thread (unix-thread start-address))))
+            output)
+          (write-all-bytes (make-bytes 32) output)
+          (write-all-bytes
+            (make-bytes
+              (- (+ (* (quotient (+ text-segment-size #x330) #x1000) #x1000)
+                    #xCD0)
+                 text-segment-size))
+          output)
+          (write-all-bytes text-section output)
+          (write-all-bytes const-section output)
+          (write-symbol-entries symbol-table-entries 2 output)
+          ;(write-all-bytes (make-bytes (- (* num-symbols 16) 2)) output)
 
-                                    (write-all-bytes (varargs bytes 32 0) output)
-                                    (write-symbol-strings symbol-table-entries output)
-                                    (write-all-bytes
-                                      (make-bytes
-                                        (- symbols-length symbols-length-unrounded))
-                                      output)
+          (write-all-bytes (varargs bytes 32 0) output)
+          (write-symbol-strings symbol-table-entries output)
+          (write-all-bytes
+            (make-bytes
+              (- symbols-length symbols-length-unrounded))
+            output)
 
-                                    (right (void)))))))))))))))))))
+          (right (void))))))
 
 
   (define (write-mach-o-library/fragments [output-file-name : Bytes] [fragments : (List AssemblyFragment)])
     : (Either Bytes Void)
-    (let ([text-segment-bytes (assemble-text-segment fragments)])
-      (let ([symbols (collect-symbols fragments (bytes-length text-segment-bytes))])
-        (let ([exported-symbols (filter (lambda ([s : Symbol])
-                                          (case s
-                                           [(defined-symbol (local-text-symbol _ _)) #f]
-                                           [_ #t])) symbols)])
-        (case (compute-text-segment-relocations fragments 0 symbols)
-          [(tuple2 local-text-segment-relocations global-text-segment-relocations)
-           (let ([text-segment-num-relocations (length global-text-segment-relocations)])
-             (let ([const-segment-bytes (assemble-const-segment fragments)])
-               (let ([const-segment-relocations
-                       (compute-const-segment-relocations fragments)])
-                 (let ([const-segment-num-relocations (length const-segment-relocations)])
-                   (let ([segment-size (+ (bytes-length text-segment-bytes)
-                                          (bytes-length const-segment-bytes))])
-                     (let ([reloc-base (+ 352 (round-up segment-size 8))])
-                       (call-with-output-file output-file-name
-                         (lambda ([output : OutputPort])
-                           (begin
-                             (apply-local-text-relocations local-text-segment-relocations symbols
-                                                           text-segment-bytes)
-                             (write-mach-o-header
-                               (mach-o-header
-                                 (mach-o-library-file)
-                                 (varargs list
-                                   (lc-load-segment64
-                                     (load-segment64 #""
-                                       #x0000000000000000
-                                       segment-size
-                                       352
-                                       segment-size
-                                       (u32 #x07)
-                                       (u32 #x07)
-                                       (u32 0)
-                                       (varargs list
-                                         (section64 #"__TEXT" #"__text"
-                                                    #x00
-                                                    (bytes-length text-segment-bytes)
-                                                    352
-                                                    reloc-base
-                                                    text-segment-num-relocations
-                                                    (u32 #x80000400))
-                                         (section64 #"__TEXT" #"__const"
-                                                    (bytes-length text-segment-bytes)
-                                                    (bytes-length const-segment-bytes)
-                                                    (+ 352 (bytes-length text-segment-bytes))
-                                                    (+ reloc-base
-                                                       (* 8 text-segment-num-relocations))
-                                                    const-segment-num-relocations
-                                                    (u32 0)))))
-                                   (lc-symbol-table
-                                     (symbol-table
-                                       (+ reloc-base
-                                          (* 8 (+ text-segment-num-relocations
-                                                  const-segment-num-relocations)))
-                                       (length exported-symbols)
-                                       (+ (+ reloc-base
-                                             (* 8 (+ text-segment-num-relocations
-                                                     const-segment-num-relocations)))
-                                          (* (length exported-symbols) #x10))
-                                       (round-up
-                                         (+ (+ 2 (length exported-symbols))
-                                            (sum (map bytes-length
-                                                      (map symbol-name exported-symbols))))
-                                         8)))
-                                   (lc-version-min-macosx
-                                     (version-min (u8 10) (u8 11) (u8 0) (u8 10) (u8 11) (u8 0)))
-                                   (lc-data-in-code
-                                     (linkedit-data
-                                       (u32 (+ reloc-base
-                                               (* 8 (+ text-segment-num-relocations
-                                                       const-segment-num-relocations))))
-                                       (u32 0)))))
-                               output)
-                             (write-all-bytes (make-bytes 32) output)
-                             (write-all-bytes text-segment-bytes output)
-                             (write-all-bytes const-segment-bytes output)
-                             (write-all-bytes
-                               (make-bytes
-                                 (-
-                                   (round-up (+ (bytes-length text-segment-bytes)
-                                                (bytes-length const-segment-bytes))
-                                             8)
-                                   (+ (bytes-length text-segment-bytes)
-                                      (bytes-length const-segment-bytes)))) output)
-                             (write-text-segment-relocations
-                               global-text-segment-relocations (map symbol-name exported-symbols) output)
-                             (write-const-segment-relocations
-                               const-segment-relocations (map symbol-name exported-symbols) output)
-                             (write-symbol-table exported-symbols 2 output)
-                             (write-all-bytes (varargs bytes 32 0) output)
-                             (write-all-symbols (map symbol-name exported-symbols) output)
-                             (write-all-bytes
-                               (make-bytes
-                                 (-
-                                   (round-up
-                                     (+ (+ 2 (length exported-symbols))
-                                        (sum (map bytes-length
-                                                  (map symbol-name exported-symbols))))
-                                     8)
-                                   (+ (+ 2 (length exported-symbols))
-                                      (sum (map bytes-length
-                                                (map symbol-name exported-symbols))))))
-                               output)
-                             (right (void)))))))))))]))))))
+    (match-define text-segment-bytes (assemble-text-segment fragments))
+    (match-define symbols (collect-symbols fragments (bytes-length text-segment-bytes)))
+    (match-define exported-symbols
+      (filter (lambda ([s : Symbol])
+                (case s
+                 [(defined-symbol (local-text-symbol _ _)) #f]
+                 [_ #t])) symbols))
+    (match-define (tuple2 local-text-segment-relocations global-text-segment-relocations)
+      (compute-text-segment-relocations fragments 0 symbols))
+    (match-define text-segment-num-relocations (length global-text-segment-relocations))
+    (match-define const-segment-bytes (assemble-const-segment fragments))
+    (match-define const-segment-relocations
+      (compute-const-segment-relocations fragments))
+    (match-define const-segment-num-relocations (length const-segment-relocations))
+    (match-define segment-size
+      (+ (bytes-length text-segment-bytes) (bytes-length const-segment-bytes)))
+    (match-define reloc-base (+ 352 (round-up segment-size 8)))
+    (call-with-output-file output-file-name
+      (lambda ([output : OutputPort])
+        (begin
+          (apply-local-text-relocations local-text-segment-relocations symbols
+                                        text-segment-bytes)
+          (write-mach-o-header
+            (mach-o-header
+              (mach-o-library-file)
+              (varargs list
+                (lc-load-segment64
+                  (load-segment64 #""
+                    #x0000000000000000
+                    segment-size
+                    352
+                    segment-size
+                    (u32 #x07)
+                    (u32 #x07)
+                    (u32 0)
+                    (varargs list
+                      (section64 #"__TEXT" #"__text"
+                                 #x00
+                                 (bytes-length text-segment-bytes)
+                                 352
+                                 reloc-base
+                                 text-segment-num-relocations
+                                 (u32 #x80000400))
+                      (section64 #"__TEXT" #"__const"
+                                 (bytes-length text-segment-bytes)
+                                 (bytes-length const-segment-bytes)
+                                 (+ 352 (bytes-length text-segment-bytes))
+                                 (+ reloc-base
+                                    (* 8 text-segment-num-relocations))
+                                 const-segment-num-relocations
+                                 (u32 0)))))
+                (lc-symbol-table
+                  (symbol-table
+                    (+ reloc-base
+                       (* 8 (+ text-segment-num-relocations
+                               const-segment-num-relocations)))
+                    (length exported-symbols)
+                    (+ (+ reloc-base
+                          (* 8 (+ text-segment-num-relocations
+                                  const-segment-num-relocations)))
+                       (* (length exported-symbols) #x10))
+                    (round-up
+                      (+ (+ 2 (length exported-symbols))
+                         (sum (map bytes-length
+                                   (map symbol-name exported-symbols))))
+                      8)))
+                (lc-version-min-macosx
+                  (version-min (u8 10) (u8 11) (u8 0) (u8 10) (u8 11) (u8 0)))
+                (lc-data-in-code
+                  (linkedit-data
+                    (u32 (+ reloc-base
+                            (* 8 (+ text-segment-num-relocations
+                                    const-segment-num-relocations))))
+                    (u32 0)))))
+            output)
+          (write-all-bytes (make-bytes 32) output)
+          (write-all-bytes text-segment-bytes output)
+          (write-all-bytes const-segment-bytes output)
+          (write-all-bytes
+            (make-bytes
+              (-
+                (round-up (+ (bytes-length text-segment-bytes)
+                             (bytes-length const-segment-bytes))
+                          8)
+                (+ (bytes-length text-segment-bytes)
+                   (bytes-length const-segment-bytes)))) output)
+          (write-text-segment-relocations
+            global-text-segment-relocations (map symbol-name exported-symbols) output)
+          (write-const-segment-relocations
+            const-segment-relocations (map symbol-name exported-symbols) output)
+          (write-symbol-table exported-symbols 2 output)
+          (write-all-bytes (varargs bytes 32 0) output)
+          (write-all-symbols (map symbol-name exported-symbols) output)
+          (write-all-bytes
+            (make-bytes
+              (-
+                (round-up
+                  (+ (+ 2 (length exported-symbols))
+                     (sum (map bytes-length
+                               (map symbol-name exported-symbols))))
+                  8)
+                (+ (+ 2 (length exported-symbols))
+                   (sum (map bytes-length
+                             (map symbol-name exported-symbols))))))
+            output)
+          (right (void)))))))

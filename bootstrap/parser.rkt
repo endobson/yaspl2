@@ -99,7 +99,7 @@
     (match sexps
       [`(,expr)
        (block& (reverse rev-defs) (parse-expression expr))]
-      [`((match ,pattern ,expr) . ,sexps)
+      [`((match-define ,pattern ,expr) . ,sexps)
         (recur sexps (cons (match-def& (parse-pattern pattern) (parse-expression expr)) rev-defs))]))
   (recur sexps empty))
 
