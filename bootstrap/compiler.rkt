@@ -151,7 +151,7 @@
          #,(let-values ([(triple-function vars env) (compile-pattern/simple-match pattern pat-env env)])
              #`(#,app-sym #,triple-function
                   val
-                  (#,lambda-sym (#,@vars) #,(compile-block pat-env env defs expr))
+                  (#,lambda-sym (#,@vars) #,(compile-block pat-env env defs body))
                   (#,lambda-sym () (error 'match)))))]))
 
 ;; env is hash table to expressions which evaluate to the value
