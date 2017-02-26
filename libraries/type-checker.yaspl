@@ -8,14 +8,14 @@
     (bytes bytes=? bytes-append)
     (source-language
       #:types (Module FunctionDefinition TypeDefinition Imports Expression PreType Import
-               VariantDefinition VariantField Pattern CaseClause)
+               VariantDefinition VariantField Pattern CaseClause Block BlockDefinition)
       #:values (module-definitions type-definition-name function-definition-name module-name)
       #:patterns (module type-definition imports function-definition
                   variant-definition variant-field
                   var-pre-type fun-pre-type type-app-pre-type var-expr
                   int-literal bytes-literal boolean-literal if-expr begin-expr
                   let-expr lambda-expr case-expr varargs-app-expr app-expr
-                  case-clause
+                  case-clause block match-def
                   import abstraction-pattern ignore-pattern variable-pattern
                   bytes-pattern int-pattern))
     (module-signature
@@ -388,7 +388,7 @@
             [def : FunctionDefinition]
             [context : Context]) : (Maybe Bytes)
     (case def
-      [(function-definition name _ args body)
+      [(function-definition name _ args (block defs body))
        (case (context-ref-value context name)
          [(nothing) (just #"Internal Error: Function doesn't have a type")]
          [(just (fun-type type-vars arg-types result))
@@ -400,7 +400,7 @@
                                     context (map (lambda ([tv : Bytes]) (tuple2 tv (var-type tv)))
                                                  type-vars))
                                   (dict-add-all (make-dict bytes=?) merged-args))])
-               (case (type-check/expr body new-context (just result))
+               (case (type-check/block defs body new-context (just result))
                  [(left v)
                   (just (bytes-append (varargs list #"Function: " name #"\n" v)))]
                  [(right v) (nothing)]))])]
@@ -756,12 +756,32 @@
             [(right (cons type _))
              (right type)])])]))
 
-  (define (type-check/case-clause
-            [pattern : Pattern]
-            [expr : Expression]
+  (define (type-check/block
+            [defs : (List BlockDefinition)]
+            [body : Expression]
             [context : Context]
-            [argument-type : Type]
             [expected-type : (Maybe Type)]) : (Either Bytes Type)
+    (case defs
+      [(empty) (type-check/expr body context expected-type)]
+      [(cons (match-def pattern expr) defs)
+       (case (type-check/expr expr context expected-type)
+         [(left v) (left v)]
+         [(right type)
+          (case (unify-pattern pattern context type)
+            [(left v) (left v)]
+            [(right var-types)
+             (type-check/block
+               defs
+               body
+               (context-set-values
+                 context
+                 (dict-add-all (make-dict bytes=?) var-types))
+               expected-type)])])]))
+
+  (define (unify-pattern
+            [pattern : Pattern]
+            [context : Context]
+            [argument-type : Type]) : (Either Bytes (List (Tuple2 Bytes Type)))
     (case
       (pattern-constrainable->constraints
         pattern
@@ -795,12 +815,24 @@
             [(nothing)
              (left #"Unification didn't have a value for a variable")]
             [(just var-types)
-             (type-check/expr
-               expr
-               (context-set-values
-                 context
-                 (dict-add-all (make-dict bytes=?) var-types))
-               expected-type)])])]))
+             (right var-types)])])]))
+
+
+  (define (type-check/case-clause
+            [pattern : Pattern]
+            [expr : Expression]
+            [context : Context]
+            [argument-type : Type]
+            [expected-type : (Maybe Type)]) : (Either Bytes Type)
+    (case (unify-pattern pattern context argument-type)
+      [(left v) (left v)]
+      [(right var-types)
+       (type-check/expr
+         expr
+         (context-set-values
+           context
+           (dict-add-all (make-dict bytes=?) var-types))
+         expected-type)]))
 
   (define (a b) (find-map [f : (a -> (Maybe b))] [l : (List a)]) : (Maybe b)
     (case l
