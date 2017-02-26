@@ -65,11 +65,11 @@
        (recur expr)
        (for ([clause (in-list clauses)])
          (match clause
-           [(case-clause& pattern expr)
+           [(case-clause& pattern (block& defs expr))
             (define binders (pattern-binding-variables pattern))
             (when (check-duplicates binders)
               (raise-user-error 'ensure-no-free-variables "Duplicate binder in ~a" binders))
-            ((recur/env (set-union env (list->set binders))) expr)]))]))
+            (recur/block (set-union env (list->set binders)) defs expr)]))]))
   (define (recur/block env defs body)
     (match defs
       [(list) ((recur/env env) body)]
@@ -638,7 +638,7 @@
      (define types
        (for/set ([clause (in-list clauses)])
          (match clause
-           [(case-clause& pattern body)
+           [(case-clause& pattern (block& defs body))
             ;; The variables are already fresh
             (match-define (template-data type-vars var-types constraints pattern-type)
               ((pattern->template-data/env env) pattern))
@@ -651,7 +651,7 @@
               (for/fold ([env env]) ([(field-var field-type) (in-hash var-types)])
                 (binding-env-value-set env field-var (substitute substitution field-type))))
 
-            ((type-check/env new-env) body type)])))
+            (type-check/block new-env defs body type)])))
 
 
      (when (unknown-ty? type)

@@ -201,23 +201,14 @@
     [(case& expr clauses)
      (define form
        (for/fold ([form #'(error 'end-of-case)]) ([clause (in-list (reverse clauses))])
-         (match-define (case-clause& pattern expr) clause)
+         (match-define (case-clause& pattern (block& defs expr)) clause)
          (let-values ([(triple-function vars env) (compile-pattern/simple-match pattern pat-env env)])
-           (define body (compile-expr pat-env env expr))
+           (define body (compile-block pat-env env defs expr))
             #`(#,app-sym #,triple-function
                  val
                  (#,lambda-sym (#,@vars) #,body)
                  (#,lambda-sym () #,form)))))
-       #`(let ([val #,(compile-expr pat-env env expr)]) #,form)]
-    #;
-    [(case& expr clauses)
-     (define match-clauses
-       (for/list ([clause (in-list clauses)])
-         (match-define (case-clause& pattern expr) clause)
-         (let-values ([(match-pat env) (compile-pattern pattern pat-env env)])
-           (define body (compile-expr pat-env env expr))
-           `[,match-pat ,body])))
-     `(,#'match ,(compile-expr pat-env env expr) ,@match-clauses)]))
+       #`(let ([val #,(compile-expr pat-env env expr)]) #,form)]))
 
 ;; Pattern (Hash Symbol Symbol) (Hash Symbol Indentifier) -> (Values Syntax (Hash Symbol Identifier))
 (define (compile-pattern p pat-env env)

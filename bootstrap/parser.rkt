@@ -118,13 +118,13 @@
      (varargs-app& (parse first-expr) (map parse exprs))]
     [`(let ([,(? symbol? name) ,expr]) ,body)
      (let& name (parse expr) (parse body))]
-    [`(case ,expr . ,(list (list patterns bodies) ...))
+    [`(case ,expr . ,(list (cons patterns bodies) ...))
      (case& (parse expr)
             (for/list ([pattern (in-list patterns)]
                        [body (in-list bodies)])
               (case-clause&
                 (parse-pattern pattern)
-                (parse body))))]
+                (parse-block body))))]
     [`(lambda ([,(? symbol? args) : ,arg-types] ...) ,body)
      (lambda& (map list args (map parse-pre-type arg-types)) #f (parse body))]
     [`(lambda ([,(? symbol? args) : ,arg-types] ...) : ,return-type ,body)
