@@ -42,7 +42,7 @@
       #:types (Module Expression CaseClause Pattern FunctionDefinition TypeDefinition
                       VariantDefinition VariantField Imports Import PreType Block
                       BlockDefinition)
-      #:values (module-definitions module-name module-types variant-field-type case-clause-expr
+      #:values (module-definitions module-name module-types variant-field-type case-clause-body
                 module-imports module-exports exports-patterns exports-types exports-values
                 export-local-name export-exported-name import-exported-name)
       #:patterns (int-literal bytes-literal boolean-literal var-expr if-expr begin-expr app-expr
@@ -517,8 +517,10 @@
             [acc : (Set Bytes)]) : (Set Bytes)
     (case exprs
       [(empty) acc]
-      [(cons (case-clause pattern expr) clauses)
-       (free-patterns/clauses clauses env (free-patterns expr env (free-patterns/pattern pattern env acc)))]))
+      [(cons (case-clause pattern body) clauses)
+       (free-patterns/clauses clauses env
+         (free-patterns/block body env
+           (free-patterns/pattern pattern env acc)))]))
 
   (define (free-patterns/pattern [p : Pattern] [env : (Set Bytes)] [acc : (Set Bytes)])
     : (Set Bytes)
@@ -581,7 +583,8 @@
       [(let-expr name expr body)
        (free-types/exprs (cons body (cons expr (empty))) env acc)]
       [(case-expr expr clauses)
-       (free-types/exprs (cons expr (map case-clause-expr clauses)) env acc)]
+       (free-types/blocks (map case-clause-body clauses) env
+         (free-types/expr expr env acc))]
       [(lambda-expr args+tys return body)
        (free-types/types
          (case return
@@ -596,6 +599,14 @@
       [(empty) acc]
       [(cons expr exprs)
        (free-types/exprs exprs env (free-types/expr expr env acc))]))
+
+  (define (free-types/blocks [blocks : (List Block)] [env : (Set Bytes)] [acc : (Set Bytes)])
+    : (Set Bytes)
+    (case blocks
+      [(empty) acc]
+      [(cons block blocks)
+       (free-types/blocks blocks env
+         (free-types/block block env acc))]))
 
   (define (free-types/block [b : Block] [env : (Set Bytes)] [acc : (Set Bytes)])
     : (Set Bytes)
@@ -727,11 +738,11 @@
     (find/maybe
       (lambda ([clause : CaseClause])
         (case clause
-          [(case-clause pattern expr)
+          [(case-clause pattern body)
            (case (check-unique-bindings/args (pattern-bindings pattern))
              [(just v) (just v)]
              [(nothing)
-              (check-unique-bindings/expr expr)])]))
+              (check-unique-bindings/block body)])]))
       clauses))
 
   (define (pattern-bindings [p : Pattern]) : (List Bytes)
