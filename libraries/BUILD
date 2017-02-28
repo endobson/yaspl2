@@ -200,6 +200,7 @@ yaspl_bootstrap_library(
   srcs = ["free-variables.yaspl"],
   deps = [
     ":source-language",
+    "//libraries/data:bytes",
     "//libraries/data:list",
     "//libraries/data:tuples",
     "//libraries/data:set",
