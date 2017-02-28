@@ -201,6 +201,7 @@ yaspl_bootstrap_library(
   deps = [
     ":source-language",
     "//libraries/data:bytes",
+    "//libraries/data:maybe",
     "//libraries/data:list",
     "//libraries/data:tuples",
     "//libraries/data:set",

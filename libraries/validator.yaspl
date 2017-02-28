@@ -33,7 +33,7 @@
       #:types (Set)
       #:values (make-set set->list set-add set-add-all set-member? set-remove-all)
       #:patterns ())
-    (free-variables free-variables/module)
+    (free-variables free-variables/module free-types/module)
     (list
       #:types (List)
       #:values (cons empty list map append findf interleave foldl find/maybe)
@@ -42,23 +42,21 @@
       #:types (Module Expression CaseClause Pattern FunctionDefinition TypeDefinition
                       VariantDefinition VariantField Imports Import PreType Block
                       BlockDefinition)
-      #:values (module-definitions module-name module-types variant-field-type case-clause-body
+      #:values (module-definitions module-name
                 module-imports module-exports exports-patterns exports-types exports-values
                 export-local-name export-exported-name import-exported-name)
       #:patterns (int-literal bytes-literal boolean-literal var-expr if-expr begin-expr app-expr
                   varargs-app-expr let-expr case-expr case-clause bytes-pattern int-pattern
                   lambda-expr block match-def
                   variable-pattern ignore-pattern abstraction-pattern function-definition
-                  module imports import variant-definition variant-field type-definition
-                  var-pre-type fun-pre-type type-app-pre-type))
+                  module imports import variant-definition variant-field type-definition))
     (module-signature
       #:types (ModuleSignature)
       #:values (module-signature-name)
       #:patterns (module-signature)))
   (export
     #:types ()
-    #:values (validate-module
-              free-types/module free-patterns/definitions
+    #:values (validate-module free-patterns/definitions
               module-imported-environment module-imported-pattern-environment
               module-imported-type-environment
               module-defined-functions module-errors->bytes)
@@ -221,7 +219,7 @@
 
 
   (define (validate-module/free-types [mod : Module] [env : (Set Bytes)]) : (Maybe Bytes)
-    (let ([free-types (free-types/module mod env (make-set bytes=?))])
+    (let ([free-types (free-types/module mod env)])
       (case (set->list free-types)
         [(empty) (nothing)]
         [keys
@@ -230,10 +228,6 @@
                      (varargs list #"Unbound types in module " (module-name mod) #":"))])
             (just (bytes-append (map add-newline (cons first-line (map indent keys))))))])))
 
-  (define (free-types/module [mod : Module] [env : (Set Bytes)] [acc : (Set Bytes)])
-    : (Set Bytes)
-    (free-types/type-definitions (module-types mod) env
-      (free-types/definitions (module-definitions mod) env acc)))
 
   (define (validate-module/free-variables [mod : Module] [env : (Set Bytes)]) : (Maybe Bytes)
     (case (set->list (free-variables/module mod env))
@@ -402,7 +396,6 @@
       [(cons (import _ name) imports)
        (add-imports-bindings imports (multi-set-add env name))]))
 
-
   (define (free-patterns/definitions
             [defs : (List FunctionDefinition)]
             [env : (Set Bytes)]
@@ -411,54 +404,6 @@
       [(empty) acc]
       [(cons (function-definition _ _ _ body) defs)
        (free-patterns/definitions defs env (free-patterns/block body env acc))]))
-
-  (define (type-type-vars [type : PreType]) : (List Bytes)
-    (case type
-      [(fun-pre-type type-vars _ _) type-vars]
-      [_ (empty)]))
-
-
-  (define (free-types/definitions
-            [defs : (List FunctionDefinition)]
-            [env : (Set Bytes)]
-            [acc : (Set Bytes)]) : (Set Bytes)
-    (case defs
-      [(empty) acc]
-      [(cons (function-definition _ type _ body) defs)
-       (free-types/definitions defs env
-         (free-types/block body (set-add-all env (type-type-vars type))
-           (free-types/type type env acc)))]))
-
-
-  (define (free-types/type-definitions
-            [defs : (List TypeDefinition)]
-            [env : (Set Bytes)]
-            [acc : (Set Bytes)]) : (Set Bytes)
-    (case defs
-      [(empty) acc]
-      [(cons (type-definition name vars variants) defs)
-       (free-types/type-definitions defs env
-          (free-types/variants variants
-                               (set-add-all
-                                 env
-                                 (case vars
-                                   [(nothing) (empty)]
-                                   [(just v) v]))
-                               acc))]))
-
-  (define (free-types/variants
-            [variants : (List VariantDefinition)]
-            [env : (Set Bytes)]
-            [acc : (Set Bytes)]) : (Set Bytes)
-    (case variants
-      [(empty) acc]
-      [(cons (variant-definition name fields) variants)
-       (free-types/variants variants env (free-types/types (map variant-field-type fields) env acc))]))
-
-  (define (extract-ty [arg+ty : (Tuple2 Bytes PreType)]) : PreType
-    (case arg+ty
-      [(tuple2 _ ty)
-       ty]))
 
   (define (free-patterns [expr : Expression] [env : (Set Bytes)] [acc : (Set Bytes)])
     : (Set Bytes)
@@ -540,87 +485,6 @@
       [(empty) acc]
       [(cons p ps) (free-patterns/patterns ps env (free-patterns/pattern p env acc))]))
 
-  (define (free-types/types [types : (List PreType)] [env : (Set Bytes)] [acc : (Set Bytes)])
-    : (Set Bytes)
-    (case types
-      [(empty) acc]
-      [(cons type types)
-       (free-types/types types env (free-types/type type env acc))]))
-
-  (define (free-types/type [type : PreType] [env : (Set Bytes)] [acc : (Set Bytes)])
-    : (Set Bytes)
-    (case type
-      [(var-pre-type v)
-       (if (set-member? env v)
-             acc
-             (set-add acc v))]
-      [(fun-pre-type type-vars args result)
-       (let ([env (set-add-all env type-vars)])
-         (free-types/types args env
-            (free-types/type result env acc)))]
-      [(type-app-pre-type constructor args)
-       (let ([acc (free-types/types args env acc)])
-         (if (set-member? env constructor)
-             acc
-             (set-add acc constructor)))]))
-
-  (define (free-types/expr [expr : Expression] [env : (Set Bytes)] [acc : (Set Bytes)])
-    : (Set Bytes)
-    (case expr
-      [(int-literal _) acc]
-      [(bytes-literal _) acc]
-      [(boolean-literal _) acc]
-      [(var-expr _) acc]
-      [(if-expr c t f)
-       (free-types/exprs (cons c (cons t (cons f (empty)))) env acc)]
-      [(begin-expr e es)
-       (free-types/exprs (cons e es) env acc)]
-      [(app-expr op args)
-       (free-types/exprs (cons op args) env acc)]
-      [(varargs-app-expr op args)
-       (free-types/exprs (cons op args) env acc)]
-      [(let-expr name expr body)
-       (free-types/exprs (cons body (cons expr (empty))) env acc)]
-      [(case-expr expr clauses)
-       (free-types/blocks (map case-clause-body clauses) env
-         (free-types/expr expr env acc))]
-      [(lambda-expr args+tys return body)
-       (free-types/types
-         (case return
-           [(nothing) (map extract-ty args+tys)]
-           [(just return-ty) (cons return-ty (map extract-ty args+tys))])
-         env
-         (free-types/expr body env acc))]))
-
-  (define (free-types/exprs [exprs : (List Expression)] [env : (Set Bytes)] [acc : (Set Bytes)])
-    : (Set Bytes)
-    (case exprs
-      [(empty) acc]
-      [(cons expr exprs)
-       (free-types/exprs exprs env (free-types/expr expr env acc))]))
-
-  (define (free-types/blocks [blocks : (List Block)] [env : (Set Bytes)] [acc : (Set Bytes)])
-    : (Set Bytes)
-    (case blocks
-      [(empty) acc]
-      [(cons block blocks)
-       (free-types/blocks blocks env
-         (free-types/block block env acc))]))
-
-  (define (free-types/block [b : Block] [env : (Set Bytes)] [acc : (Set Bytes)])
-    : (Set Bytes)
-    (case b
-      [(block defs expr)
-       (free-types/expr expr env
-         (free-types/block-definitions defs env acc))]))
-
-  (define (free-types/block-definitions [defs : (List BlockDefinition)] [env : (Set Bytes)] [acc : (Set Bytes)])
-    : (Set Bytes)
-    (case defs
-      [(empty) acc]
-      [(cons (match-def pattern expr) defs)
-       (free-types/block-definitions defs env
-         (free-types/expr expr env acc))]))
 
   (define (A) (first-just [ms : (List (Maybe A))]) : (Maybe A)
     (case ms

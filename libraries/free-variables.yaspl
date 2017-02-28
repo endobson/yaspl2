@@ -4,6 +4,10 @@
       #:types (Bytes)
       #:values ()
       #:patterns ())
+    (maybe
+      #:types ()
+      #:values ()
+      #:patterns (just nothing))
     (tuples
       #:types (Tuple2)
       #:values ()
@@ -19,15 +23,17 @@
       #:patterns ())
     (source-language
       #:types (Expression CaseClause Pattern PreType BlockDefinition Block FunctionDefinition
-               Module)
-      #:values (module-definitions)
+               Module VariantDefinition TypeDefinition)
+      #:values (module-definitions case-clause-body variant-field-type
+                module-types)
       #:patterns (int-literal bytes-literal boolean-literal var-expr if-expr begin-expr app-expr
                   varargs-app-expr let-expr case-expr case-clause bytes-pattern int-pattern
                   lambda-expr variable-pattern ignore-pattern abstraction-pattern match-def block
-                  function-definition)))
+                  function-definition type-app-pre-type fun-pre-type var-pre-type variant-definition
+                  type-definition)))
   (export
     #:types ()
-    #:values (free-variables/expr free-variables/module)
+    #:values (free-variables/expr free-variables/module free-types/module)
     #:patterns ())
   (types)
 
@@ -121,4 +127,139 @@
   (define (extract-arg [arg+ty : (Tuple2 Bytes PreType)]) : Bytes
     (case arg+ty
       [(tuple2 arg _)
-       arg])))
+       arg]))
+
+  (define (free-types/module [mod : Module] [env : (Set Bytes)])
+    : (Set Bytes)
+    (free-types/type-definitions (module-types mod) env
+      (free-types/definitions (module-definitions mod) env (make-set bytes=?))))
+
+  (define (free-types/definitions
+            [defs : (List FunctionDefinition)]
+            [env : (Set Bytes)]
+            [acc : (Set Bytes)]) : (Set Bytes)
+    (case defs
+      [(empty) acc]
+      [(cons (function-definition _ type _ body) defs)
+       (free-types/definitions defs env
+         (free-types/block body (set-add-all env (type-type-vars type))
+           (free-types/type type env acc)))]))
+
+  (define (free-types/type-definitions
+            [defs : (List TypeDefinition)]
+            [env : (Set Bytes)]
+            [acc : (Set Bytes)]) : (Set Bytes)
+    (case defs
+      [(empty) acc]
+      [(cons (type-definition name vars variants) defs)
+       (free-types/type-definitions defs env
+          (free-types/variants variants
+                               (set-add-all
+                                 env
+                                 (case vars
+                                   [(nothing) (empty)]
+                                   [(just v) v]))
+                               acc))]))
+
+  (define (free-types/variants
+            [variants : (List VariantDefinition)]
+            [env : (Set Bytes)]
+            [acc : (Set Bytes)]) : (Set Bytes)
+    (case variants
+      [(empty) acc]
+      [(cons (variant-definition name fields) variants)
+       (free-types/variants variants env
+         (free-types/types
+           (map variant-field-type fields) env acc))]))
+
+  (define (free-types/expr [expr : Expression] [env : (Set Bytes)] [acc : (Set Bytes)])
+    : (Set Bytes)
+    (case expr
+      [(int-literal _) acc]
+      [(bytes-literal _) acc]
+      [(boolean-literal _) acc]
+      [(var-expr _) acc]
+      [(if-expr c t f)
+       (free-types/exprs (cons c (cons t (cons f (empty)))) env acc)]
+      [(begin-expr e es)
+       (free-types/exprs (cons e es) env acc)]
+      [(app-expr op args)
+       (free-types/exprs (cons op args) env acc)]
+      [(varargs-app-expr op args)
+       (free-types/exprs (cons op args) env acc)]
+      [(let-expr name expr body)
+       (free-types/exprs (cons body (cons expr (empty))) env acc)]
+      [(case-expr expr clauses)
+       (free-types/blocks (map case-clause-body clauses) env
+         (free-types/expr expr env acc))]
+      [(lambda-expr args+tys return body)
+       (free-types/types
+         (case return
+           [(nothing) (map extract-ty args+tys)]
+           [(just return-ty) (cons return-ty (map extract-ty args+tys))])
+         env
+         (free-types/expr body env acc))]))
+
+  (define (free-types/exprs [exprs : (List Expression)] [env : (Set Bytes)] [acc : (Set Bytes)])
+    : (Set Bytes)
+    (case exprs
+      [(empty) acc]
+      [(cons expr exprs)
+       (free-types/exprs exprs env (free-types/expr expr env acc))]))
+
+  (define (free-types/blocks [blocks : (List Block)] [env : (Set Bytes)] [acc : (Set Bytes)])
+    : (Set Bytes)
+    (case blocks
+      [(empty) acc]
+      [(cons block blocks)
+       (free-types/blocks blocks env
+         (free-types/block block env acc))]))
+
+  (define (free-types/block [b : Block] [env : (Set Bytes)] [acc : (Set Bytes)])
+    : (Set Bytes)
+    (case b
+      [(block defs expr)
+       (free-types/expr expr env
+         (free-types/block-definitions defs env acc))]))
+
+  (define (free-types/block-definitions [defs : (List BlockDefinition)] [env : (Set Bytes)] [acc : (Set Bytes)])
+    : (Set Bytes)
+    (case defs
+      [(empty) acc]
+      [(cons (match-def pattern expr) defs)
+       (free-types/block-definitions defs env
+         (free-types/expr expr env acc))]))
+
+  (define (free-types/types [types : (List PreType)] [env : (Set Bytes)] [acc : (Set Bytes)])
+    : (Set Bytes)
+    (case types
+      [(empty) acc]
+      [(cons type types)
+       (free-types/types types env (free-types/type type env acc))]))
+
+  (define (free-types/type [type : PreType] [env : (Set Bytes)] [acc : (Set Bytes)])
+    : (Set Bytes)
+    (case type
+      [(var-pre-type v)
+       (if (set-member? env v)
+             acc
+             (set-add acc v))]
+      [(fun-pre-type type-vars args result)
+       (let ([env (set-add-all env type-vars)])
+         (free-types/types args env
+            (free-types/type result env acc)))]
+      [(type-app-pre-type constructor args)
+       (let ([acc (free-types/types args env acc)])
+         (if (set-member? env constructor)
+             acc
+             (set-add acc constructor)))]))
+
+  (define (type-type-vars [type : PreType]) : (List Bytes)
+    (case type
+      [(fun-pre-type type-vars _ _) type-vars]
+      [_ (empty)]))
+
+  (define (extract-ty [arg+ty : (Tuple2 Bytes PreType)]) : PreType
+    (case arg+ty
+      [(tuple2 _ ty)
+       ty])))
