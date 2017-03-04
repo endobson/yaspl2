@@ -25,7 +25,7 @@
       #:types (Expression CaseClause Pattern PreType BlockDefinition Block FunctionDefinition
                Module VariantDefinition TypeDefinition)
       #:values (module-definitions case-clause-body variant-field-type
-                module-types)
+                module-types function-definition-body)
       #:patterns (int-literal bytes-literal boolean-literal var-expr if-expr begin-expr app-expr
                   varargs-app-expr let-expr case-expr case-clause bytes-pattern int-pattern
                   lambda-expr variable-pattern ignore-pattern abstraction-pattern match-def block
@@ -33,23 +33,32 @@
                   type-definition)))
   (export
     #:types ()
-    #:values (free-variables/expr free-variables/module free-types/module
-              free-patterns/module)
+    #:values (free-variables/expr
+              free-variables/module free-types/module free-patterns/module
+              free-variables/function-definition free-types/function-definition
+              free-patterns/function-definition)
     #:patterns ())
   (types)
 
   (define (free-variables/module [mod : Module] [env : (Set Bytes)]) : (Set Bytes)
-    (free-variables/definitions (module-definitions mod) env (make-set bytes=?)))
+    (free-variables/function-definitions (module-definitions mod) env (make-set bytes=?)))
 
-  (define (free-variables/definitions
+  (define (free-variables/function-definition
+            [def : FunctionDefinition]
+            [env : (Set Bytes)]
+            [acc : (Set Bytes)]) : (Set Bytes)
+    (match-define (function-definition _ _ args body) def)
+    (free-variables/block body (set-add-all env args) acc))
+
+  (define (free-variables/function-definitions
             [defs : (List FunctionDefinition)]
             [env : (Set Bytes)]
             [acc : (Set Bytes)]) : (Set Bytes)
     (case defs
       [(empty) acc]
-      [(cons (function-definition _ _ args body) defs)
-       (let ([fun-env (set-add-all env args)])
-         (free-variables/definitions defs env (free-variables/block body fun-env acc)))]))
+      [(cons def defs)
+       (free-variables/function-definitions
+         defs env (free-variables/function-definition def env acc))]))
 
   (define (free-variables/block [block : Block] [env : (Set Bytes)] [acc : (Set Bytes)])
     : (Set Bytes)
@@ -133,18 +142,25 @@
   (define (free-types/module [mod : Module] [env : (Set Bytes)])
     : (Set Bytes)
     (free-types/type-definitions (module-types mod) env
-      (free-types/definitions (module-definitions mod) env (make-set bytes=?))))
+      (free-types/function-definitions (module-definitions mod) env (make-set bytes=?))))
 
-  (define (free-types/definitions
+  (define (free-types/function-definitions
             [defs : (List FunctionDefinition)]
             [env : (Set Bytes)]
             [acc : (Set Bytes)]) : (Set Bytes)
     (case defs
       [(empty) acc]
-      [(cons (function-definition _ type _ body) defs)
-       (free-types/definitions defs env
-         (free-types/block body (set-add-all env (type-type-vars type))
-           (free-types/type type env acc)))]))
+      [(cons def defs)
+       (free-types/function-definitions defs env
+         (free-types/function-definition def env acc))]))
+
+  (define (free-types/function-definition
+            [def : FunctionDefinition]
+            [env : (Set Bytes)]
+            [acc : (Set Bytes)]) : (Set Bytes)
+    (match-define (function-definition _ type _ body) def)
+    (free-types/block body (set-add-all env (type-type-vars type))
+      (free-types/type type env acc)))
 
   (define (free-types/type-definitions
             [defs : (List TypeDefinition)]
@@ -266,16 +282,23 @@
        ty]))
 
   (define (free-patterns/module [mod : Module] [env : (Set Bytes)]) : (Set Bytes)
-    (free-patterns/definitions (module-definitions mod) env (make-set bytes=?)))
+    (free-patterns/function-definitions (module-definitions mod) env (make-set bytes=?)))
 
-  (define (free-patterns/definitions
+  (define (free-patterns/function-definitions
             [defs : (List FunctionDefinition)]
             [env : (Set Bytes)]
             [acc : (Set Bytes)]) : (Set Bytes)
     (case defs
       [(empty) acc]
-      [(cons (function-definition _ _ _ body) defs)
-       (free-patterns/definitions defs env (free-patterns/block body env acc))]))
+      [(cons def defs)
+       (free-patterns/function-definitions defs env
+         (free-patterns/function-definition def env acc))]))
+
+  (define (free-patterns/function-definition
+            [def : FunctionDefinition]
+            [env : (Set Bytes)]
+            [acc : (Set Bytes)]) : (Set Bytes)
+     (free-patterns/block (function-definition-body def) env acc))
 
   (define (free-patterns [expr : Expression] [env : (Set Bytes)] [acc : (Set Bytes)])
     : (Set Bytes)
