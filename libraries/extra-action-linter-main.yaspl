@@ -1,40 +1,45 @@
 (module extra-action-linter-main
   (import
-    (prim
-      #:types (Array Bytes InputPort OutputPort Int Void)
-      #:values (array-length array-ref = void bytes-length)
-      #:patterns ())
-    (bytes ends-with? bytes-append bytes=?)
     (boolean not)
-    (unused-bindings
-      #:types (UnusedBindings)
-      #:values (module-unused-bindings)
-      #:patterns (unused-bindings))
-    (source-language parse-module module-imports imports-module-name)
-    (sexp-parser parse-sexp)
-    (list
-      #:types (List)
-      #:values (reverse filter for-each map list extract-rights)
-      #:patterns (cons empty))
-    (module-signature module-signature-name)
-    (module-signature-serialization deserialize-module-signature)
-    (set set-add-all set-remove-all set->list make-set)
+    (bytes ends-with? bytes-append bytes=?)
     (either
       #:types (Either)
       #:values (right left)
       #:patterns (right left))
-    (io write-line read-all-bytes call-with-input-file call-with-output-file)
     (extra-action-parser
       #:types ()
       #:values (proto-parser parse-extra-action-info)
-      #:patterns (extra-action-info spawn-info)))
+      #:patterns (extra-action-info spawn-info))
+    (io write-line read-all-bytes call-with-input-file call-with-output-file)
+    (list
+      #:types (List)
+      #:values (reverse filter for-each map list extract-rights)
+      #:patterns (cons empty))
+    (module-header-lint
+      #:types (ModuleHeaderLintViolations)
+      #:values (find-header-violations)
+      #:patterns (module-header-lint-violations))
+    (module-signature module-signature-name)
+    (module-signature-serialization deserialize-module-signature)
+    (prim
+      #:types (Array Bytes InputPort OutputPort Int Void)
+      #:values (array-length array-ref = void bytes-length)
+      #:patterns ())
+    (set set-add-all set-remove-all set->list make-set)
+    (sexp-parser parse-sexp)
+    (source-language parse-module module-imports imports-module-name)
+    (unused-bindings
+      #:types (UnusedBindings)
+      #:values (module-unused-bindings)
+      #:patterns (unused-bindings)))
   (export)
   (types
     (define-type LintResults
       (lint-results
         [filename : Bytes]
         [unused-bindings : UnusedBindings]
-        [unused-dependencies : (List Bytes)])))
+        [unused-dependencies : (List Bytes)]
+        [header-violations : ModuleHeaderLintViolations])))
 
   (define (indent2 [bytes : Bytes]) : Bytes
     (bytes-append (varargs list #"    " bytes)))
@@ -47,6 +52,7 @@
       (write-line msg stderr)
       1))
 
+  ;; TODO Change names
   (define (write-results-section [title : Bytes] [unused : (List Bytes)] [output : OutputPort]) : Void
     (let ([write-out-line (lambda ([x : Bytes]) (write-line x output))])
       (case unused
@@ -63,12 +69,19 @@
     (case result
       [(left v)
        (handle-failure-result v stderr)]
-      [(right (lint-results _ (unused-bindings (empty) (empty) (empty) (empty)) (empty)))
+      [(right (lint-results
+                _
+                (unused-bindings (empty) (empty) (empty) (empty))
+                (empty)
+                (module-header-lint-violations
+                  (empty))))
        0]
       [(right (lint-results
                 src-file-path
                 (unused-bindings unused-types unused-vars unused-patterns unused-var-defs)
-                unused-dependencies))
+                unused-dependencies
+                (module-header-lint-violations
+                  unsorted-modules)))
        (begin
         (write-line src-file-path output)
         (write-results-section #"Unused types:" unused-types output)
@@ -76,6 +89,7 @@
         (write-results-section #"Unused patterns:" unused-patterns output)
         (write-results-section #"Unused defined-functions" unused-var-defs output)
         (write-results-section #"Unused dependencies:" unused-dependencies output)
+        (write-results-section #"Unsorted modules:" unsorted-modules output)
         0)]))
 
   (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Int
@@ -131,5 +145,6 @@
                                                       (make-set bytes=?)
                                                       (map module-signature-name signatures))
                                                     (map imports-module-name
-                                                         (module-imports module))))))])])])])]
+                                                         (module-imports module))))
+                                                (find-header-violations module)))])])])])]
                             [x (left x)])])]))))))))))

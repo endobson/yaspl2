@@ -110,19 +110,6 @@ yaspl_test(
   size = "small",
 )
 
-yaspl_test(
-  name = "bytes-test",
-  main_module = "bytes_test",
-  srcs = ["bytes-test.yaspl"],
-  deps = [
-    "//libraries/data:boolean",
-    "//libraries/data:bytes",
-    "//libraries/data:list",
-    ":yunit",
-  ],
-  size = "small",
-)
-
 yaspl_bootstrap_library(
   name = "compiler-main",
   srcs = ["compiler-main.yaspl"],
@@ -176,6 +163,7 @@ yaspl_library(
     ":unused-bindings",
     ":module-signature",
     ":module-signature-serialization",
+    ":module-header-lint",
     "//libraries/data:boolean",
     "//libraries/data:bytes",
     "//libraries/data:either",
@@ -183,6 +171,17 @@ yaspl_library(
     "//libraries/data:set",
   ]
 )
+
+yaspl_library(
+  name = "module-header-lint",
+  srcs = ["module-header-lint.yaspl"],
+  deps = [
+    ":source-language",
+    "//libraries/data:bytes",
+    "//libraries/data:list"
+  ]
+)
+
 
 yaspl_library(
   name = "extra-action-parser",
