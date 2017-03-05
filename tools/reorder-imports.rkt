@@ -57,6 +57,75 @@
     (get-output-string s)))
 
 
+(define (fix-imports stx)
+  (define (sort-syntax stx)
+    (sort (syntax->list stx) symbol<?
+          #:key
+          (lambda (stx)
+            (if (identifier? stx)
+                (syntax-e stx)
+                (syntax-e (first (syntax->list stx)))))))
+  (datum->syntax #f
+    (let ([column (syntax-column stx)]
+          [line (syntax-line stx)])
+      (for/list ([stx (sort-syntax stx)])
+        (match (syntax->datum stx)
+         [(list sym1 sym2)
+          (define loc (list #f line column #f #f))
+          (begin0
+            (datum->syntax
+              #f
+              (begin
+                (set! column (+ 1 column))
+                (list
+                  (begin0
+                    (datum->syntax #f sym1 (list #f line column #f #f))
+                    (set! column (+ 1 column (string-length (symbol->string sym1)))))
+                  (begin0
+                    (datum->syntax #f sym2 (list #f line column #f #f))
+                    (set! column (+ column (string-length (symbol->string sym2)))))))
+              loc)
+            (set! column (+ 2 column)))]
+         [sym
+          (begin0
+            (datum->syntax #f sym (list #f line column #f #f))
+            (set! column (+ 1 column (string-length (symbol->string sym)))))])))
+    stx))
+
+(define (fix-imports2 stx)
+  (define (sort-syntax stx)
+    (sort (syntax->list stx) symbol<?
+          #:key
+          (lambda (stx)
+            (if (identifier? stx)
+                (syntax-e stx)
+                (syntax-e (first (syntax->list stx)))))))
+  (let ([column (syntax-column (first (syntax->list stx)))]
+        [line (syntax-line (first (syntax->list stx)))])
+    (for/list ([stx (sort-syntax stx)])
+      (match (syntax->datum stx)
+       [(list sym1 sym2)
+        (define loc (list #f line column #f #f))
+        (begin0
+          (datum->syntax
+            #f
+            (begin
+              (set! column (+ 1 column))
+              (list
+                (begin0
+                  (datum->syntax #f sym1 (list #f line column #f #f))
+                  (set! column (+ 1 column (string-length (symbol->string sym1)))))
+                (begin0
+                  (datum->syntax #f sym2 (list #f line column #f #f))
+                  (set! column (+ column (string-length (symbol->string sym2)))))))
+            loc)
+          (set! column (+ 2 column)))]
+       [sym
+        (begin0
+          (datum->syntax #f sym (list #f line column #f #f))
+          (set! column (+ 1 column (string-length (symbol->string sym)))))]))))
+
+
 (define (modified-form module-form)
   (syntax-case module-form ()
     [(module name
@@ -75,47 +144,14 @@
                    (~and #:types types-kw) (~and types-form (types ...))
                    (~and #:values values-kw) (~and values-form (values ...))
                    (~and #:patterns patterns-kw) (~and patterns-form (patterns ...)))
-                 (define (fix-imports stx)
-                   (define (sort-syntax stx)
-                     (sort (syntax->list stx) symbol<?
-                           #:key
-                           (lambda (stx)
-                             (if (identifier? stx)
-                                 (syntax-e stx)
-                                 (syntax-e (first (syntax->list stx)))))))
-                   (datum->syntax #f
-                     (let ([column (syntax-column stx)]
-                           [line (syntax-line stx)])
-                       (for/list ([stx (sort-syntax stx)])
-                         (match (syntax->datum stx)
-                          [(list sym1 sym2)
-                           (define loc (list #f line column #f #f))
-                           (begin0
-                             (datum->syntax
-                               #f
-                               (begin
-                                 (set! column (+ 1 column))
-                                 (list
-                                   (begin0
-                                     (datum->syntax #f sym1 (list #f line column #f #f))
-                                     (set! column (+ 1 column (string-length (symbol->string sym1)))))
-                                   (begin0
-                                     (datum->syntax #f sym2 (list #f line column #f #f))
-                                     (set! column (+ column (string-length (symbol->string sym2)))))))
-                               loc)
-                             (set! column (+ 2 column)))]
-                          [sym
-                           (begin0
-                             (datum->syntax #f sym (list #f line column #f #f))
-                             (set! column (+ 1 column (string-length (symbol->string sym)))))])))
-                     stx))
                  (quasisyntax/loc clause
                    (module-name
                      types-kw #,(fix-imports #'types-form)
                      values-kw #,(fix-imports #'values-form)
                      patterns-kw #,(fix-imports #'patterns-form)))]
-                [(module-name values ...)
-                 clause])))
+                [(module-name . values)
+                 (quasisyntax/loc clause
+                   (module-name . #,(fix-imports2 #'values)))])))
           (quasisyntax/loc module-form
             (module name #,(syntax/loc #'imports-form (imports modified-clauses ...))
                     exports types . definitions)))])]))
