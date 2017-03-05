@@ -132,6 +132,9 @@ yaspl_bootstrap_library(
 yaspl_bootstrap_library(
   name = "numbers",
   srcs = ["numbers.yaspl"],
+  deps = [
+    ":maybe",
+  ]
 )
 
 yaspl_library(
