@@ -42,7 +42,7 @@
     (define-type Result
       (lex-result [v : Lexeme] [next : Lexer])
       (end-of-input)
-      (bad-input)))
+      (bad-input [v : Bytes])))
 
   (define (decimal-start-byte? [v : U8]) : Boolean
     (digit? v))
@@ -134,7 +134,7 @@
 
   (define (lex-after-hash [bytes : Bytes] [pos : Int]) : Result
     (if (= (bytes-length bytes) pos)
-        (bad-input)
+        (bad-input #"Input ended with hash")
         (let ([byte (bytes-ref bytes pos)])
           (let ([next-pos (+ 1 pos)])
             (if (colon? (u8 byte))
@@ -147,7 +147,7 @@
                             (lex-result (boolean-lexeme #f) (lexer bytes next-pos))
                             (if (= byte 120)
                                 (lex-hexadecimal bytes next-pos next-pos)
-                                (bad-input))))))))))
+                                (bad-input #"Unsupported character after hash"))))))))))
 
 
   (define (lex-keyword [bytes : Bytes] [start : Int] [cur : Int]) : Result
@@ -161,27 +161,27 @@
 
   (define (lex-bytes [bytes : Bytes] [start : Int] [cur : Int]) : Result
     (if (= (bytes-length bytes) cur)
-        (bad-input)
+        (bad-input #"Input ended in the middle of bytes literal")
         (let ([byte (bytes-ref/u8 bytes cur)])
           (if (back-slash? byte)
               (let ([cur (+ 1 cur)])
                 (let ([byte (bytes-ref bytes cur)])
                   (if (= (bytes-length bytes) cur)
-                      (bad-input)
+                      (bad-input #"Input ended with backslash")
                       (if (or (or (double-quote? (u8 byte))
                                   (back-slash? (u8 byte)))
                               (or (= byte 110) ;; n
                                   (= byte 114))) ;; r
                           (lex-bytes bytes start (+ 1 cur))
-                          (bad-input)))))
+                          (bad-input #"Unknown character after backslash.")))))
               (if (bytes-continue-byte? byte)
                   (lex-bytes bytes start (+ 1 cur))
                   (if (double-quote? byte)
                       (case (unescape-bytes (subbytes bytes start cur))
-                        [(left _) (bad-input)]
+                        [(left _) (bad-input #"Bytes literal couldn't be unescaped")]
                         [(right v)
                          (lex-result (bytes-lexeme v) (lexer bytes (+ 1 cur)))])
-                      (bad-input)))))))
+                      (bad-input #"Unsupported character in bytes literal")))))))
 
   (define (lex-decimal [bytes : Bytes] [start : Int] [cur : Int]) : Result
     (if (= (bytes-length bytes) cur)
@@ -240,13 +240,15 @@
                                           (lex-after-hash bytes (+ pos 1))
                                           (if (semi-colon? (u8 byte))
                                               (lex-line-comment bytes (+ pos 1))
-                                              (bad-input)))))))))))))
+                                              (if (double-quote? (u8 byte))
+                                                  (bad-input #"String literals not supported")
+                                                  (bad-input #"Unsupported character"))))))))))))))
 
   (define (loop [lexer : Lexer]) : Int
     (case (run-lexer lexer)
       [(lex-result v lexer) (loop lexer)]
       [(end-of-input) 0]
-      [(bad-input) 1]))
+      [(bad-input _) 1]))
 
   (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Int
     (loop (make-lexer (read-all-bytes stdin)))))
