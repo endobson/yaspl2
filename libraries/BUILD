@@ -697,6 +697,17 @@ yaspl_library(
   ]
 )
 
+yaspl_library(
+  name = "totality-checker",
+  srcs = ["totality-checker.yaspl"],
+  deps = [
+    ":source-language",
+    "//libraries/data:list",
+    "//libraries/data:maybe",
+    "//libraries/data:tuples",
+  ]
+)
+
 yaspl_bootstrap_library(
   name = "types",
   srcs = ["types.yaspl"],

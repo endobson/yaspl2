@@ -1,0 +1,117 @@
+(module totality-checker
+  (import
+    (list
+      #:types (List)
+      #:values (append empty foldl list map zip)
+      #:patterns (cons empty))
+    (maybe
+      #:types (Maybe)
+      #:values (just nothing)
+      #:patterns (just nothing))
+    (prim
+      #:types (Boolean Bytes Void)
+      #:values (and or panic)
+      #:patterns ())
+    (source-language
+      #:types (Pattern)
+      #:values ()
+      #:patterns (abstraction-pattern bytes-pattern ignore-pattern int-pattern variable-pattern))
+    (tuples
+      #:types (Tuple2)
+      #:values (tuple2)
+      #:patterns (tuple2)))
+  (export
+    #:types ()
+    #:values (check-patterns)
+    #:patterns ())
+  (types
+    (define-type AbstractValue
+      (any-value)
+      (variant [module-name : Bytes] [name : Bytes] [fields : (List AbstractValue)])))
+
+  (define (check-patterns [env : Void] [patterns : (List Pattern)]) : (Maybe Bytes)
+    (case (check-patterns* env patterns (varargs list (any-value)))
+      [(empty) (nothing)]
+      [values (just #"Patterns are not exhaustive.")]))
+
+  (define (check-patterns* [env : Void] [patterns : (List Pattern)] [vals : (List AbstractValue)]) :
+    (List AbstractValue)
+    (case patterns
+      [(empty) vals]
+      [(cons pat patterns)
+       (match-define (tuple2 vals matched) (abstract-match/values env pat vals))
+       ;; TODO record error for patterns that don't match
+       (check-patterns* env patterns vals)]))
+
+  (define (abstract-match/values [env : Void] [pat : Pattern] [vals : (List AbstractValue)])
+    : (Tuple2 (List AbstractValue) Boolean)
+    (case vals
+      [(empty) (tuple2 (empty) #f)]
+      [(cons val vals)
+       (match-define (tuple2 other-values other-matched) (abstract-match/values env pat vals))
+       (match-define (tuple2 values matched) (abstract-match env pat val))
+       (tuple2 (append values other-values) (or other-matched matched))]))
+
+  ;; TODO Actually implement this
+  (define (lookup-variants [env : Void] [name : Bytes]) :
+    (Tuple2 (List AbstractValue) AbstractValue)
+    (tuple2
+      (empty)
+      (variant #"mod" #"name" (empty))))
+
+  ;; TODO Actually implement this
+  (define (matches-variant [env : Void] [name : Bytes] [mod-name : Bytes] [var-name : Bytes])
+    : Boolean
+    #f)
+
+  (define (abstract-match/vec [env : Void] [patterns : (List Pattern)] [vals : (List AbstractValue)])
+    : (Tuple2 (List (List AbstractValue)) Boolean)
+    (case (zip patterns vals)
+      [(nothing) (panic #"Some pattern doesn't match its spec")]
+      [(just pat/vals)
+       (let ([match-results
+              (map
+                (lambda ([t : (Tuple2 Pattern AbstractValue)])
+                  (case t
+                    [(tuple2 pat val)
+                     (abstract-match env pat val)]))
+                pat/vals)])
+         (tuple2
+           (map (lambda ([r : (Tuple2 (List AbstractValue) Boolean)])
+                  (case r [(tuple2 v _) v]))
+                match-results)
+           (foldl (lambda ([r : (Tuple2 (List AbstractValue) Boolean)] [acc : Boolean])
+                    (case r
+                      [(tuple2 _ v)
+                       (and v acc)]))
+                  match-results
+                  #t)))]))
+
+  (define (abstract-match [env : Void] [pattern : Pattern] [val : AbstractValue])
+    : (Tuple2 (List AbstractValue) Boolean)
+    (case pattern
+      [(bytes-pattern _)
+       (tuple2 (varargs list val) #t)]
+      [(int-pattern _)
+       (tuple2 (varargs list val) #t)]
+      [(variable-pattern _)
+       (tuple2 (empty) #t)]
+      [(ignore-pattern)
+       (tuple2 (empty) #t)]
+      [(abstraction-pattern name patterns)
+       (case val
+         [(any-value)
+          (match-define (tuple2 other-variants current-variant)
+            (lookup-variants env name))
+          (match-define (tuple2 unmatched matched)
+            (abstract-match env pattern current-variant))
+          (tuple2 (append unmatched other-variants)
+                  matched)]
+         [(variant mod-name var-name fields)
+          (if (matches-variant env name mod-name var-name)
+              (case (abstract-match/vec env patterns fields)
+                [(tuple2 vecs matched)
+                 (tuple2
+                   (map (lambda ([vs : (List AbstractValue)]) (variant mod-name var-name vs)) vecs)
+                   matched)])
+              (tuple2 (varargs list val) #f))])])))
