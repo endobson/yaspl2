@@ -15,7 +15,8 @@
       #:patterns ())
     (list
       #:types (List)
-      #:values (cons empty extract-justs extract-rights findf length list map zip)
+      #:values (append cons empty extract-justs extract-rights filter-map findf interleave length list
+                map zip)
       #:patterns (cons empty))
     (maybe
       #:types (Maybe)
@@ -61,7 +62,8 @@
               context
               context-types context-values
               type-check/expr
-              attempt-result-based-unification)
+              attempt-result-based-unification
+              type-check-error->bytes)
     #:patterns ())
   (types
     (define-type Context
@@ -73,7 +75,15 @@
       (pattern-descriptor
         [type-vars : (List Bytes)]
         [input-type : Type]
-        [field-types : (List Type)])))
+        [field-types : (List Type)]))
+    (define-type TypeCheckError
+      (type-check-error
+        [module-name : Bytes]
+        [errors : (List Bytes)])))
+
+  (define (type-check-error->bytes [err : TypeCheckError]) : Bytes
+    (match-define (type-check-error mod-name errors) err)
+    (bytes-append (append (varargs list #"Module: " mod-name #"\n") (interleave errors #"\n\n"))))
 
   (define (context-add-types [context : Context] [vs : (List (Tuple2 Bytes Type))]) : Context
     (case vs
@@ -829,14 +839,6 @@
               (dict-add-all (make-dict bytes=?) var-types))
             expected-type)])]))
 
-  (define (a b) (find-map [f : (a -> (Maybe b))] [l : (List a)]) : (Maybe b)
-    (case l
-      [(empty) (nothing)]
-      [(cons e l)
-       (case (f e)
-         [(just v) (just v)]
-         [(nothing) (find-map f l)])]))
-
   (define (a b s) (map-state [f : (a s -> (Tuple2 b s))] [l : (List a)] [s : s]) : (Tuple2 (List b) s)
     (case l
       [(empty) (tuple2 (empty) s)]
@@ -989,13 +991,13 @@
                                 (concat-jl constraintss)))
                             s))])])]))])])]))
 
-  (define (type-check [mod : Module] [sigs : (List ModuleSignature)]) : (Either Bytes Context)
+  (define (type-check [mod : Module] [sigs : (List ModuleSignature)]) : (Either TypeCheckError Context)
     (case (create-context mod sigs)
-      [(left v) (left v)]
+      [(left v) (left (type-check-error (module-name mod) (varargs list v)))]
       [(right context)
-       (case (find-map
+       (case (filter-map
                (lambda ([def : FunctionDefinition]) (type-check/definition def context))
                (module-definitions mod))
-         [(just v)
-          (left (bytes-append (varargs list #"Module: " (module-name mod) #"\n" v)))]
-         [(nothing) (right context)])])))
+         [(empty) (right context)]
+         [vs
+          (left (type-check-error (module-name mod) vs))])])))
