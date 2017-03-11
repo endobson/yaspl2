@@ -26,7 +26,7 @@
       #:types (ModuleSignature PatternSignature)
       #:values (module-signature-name module-signature-pattern-exports module-signature-type-bindings
                 module-signature-value-types)
-      #:patterns (pattern-signature))
+      #:patterns (pattern-signature type-signature))
     (numbers integer->decimal-bytes)
     (prim
       #:types (Boolean Bytes)
@@ -37,7 +37,8 @@
     (source-language
       #:types (Block BlockDefinition CaseClause Expression FunctionDefinition Import Imports Module
                Pattern PreType TypeDefinition VariantDefinition VariantField)
-      #:values (function-definition-name module-definitions module-name type-definition-name)
+      #:values (function-definition-name module-definitions module-name type-definition-name
+                variant-definition-name)
       #:patterns (abstraction-pattern app-expr begin-expr block boolean-literal bytes-literal
                   bytes-pattern case-clause case-expr fun-pre-type function-definition if-expr
                   ignore-pattern import imports int-literal int-pattern lambda-expr let-expr match-def
@@ -75,7 +76,9 @@
       (pattern-descriptor
         [type-vars : (List Bytes)]
         [input-type : Type]
-        [field-types : (List Type)]))
+        [field-types : (List Type)]
+        [variant-name : Bytes]
+        [all-variant-names : (List Bytes)]))
     (define-type TypeCheckError
       (type-check-error
         [module-name : Bytes]
@@ -180,11 +183,12 @@
          exports
          (case (dict-ref exports exported-name)
            [(nothing) (panic (bytes-append (varargs list #"Couldn't find pattern export: " exported-name)))]
-           [(just (pattern-signature var-name tag type-vars self-type field-types type-sig))
+           [(just (pattern-signature var-name tag type-vars self-type field-types
+                                     (type-signature all-variant-names)))
             (dict-add
               acc
               local-name
-              (pattern-descriptor type-vars self-type field-types))]))]))
+              (pattern-descriptor type-vars self-type field-types var-name all-variant-names))]))]))
 
   (define (imports->context [imports : Imports] [sigs : (List ModuleSignature)]) : Context
     (case imports
@@ -220,12 +224,12 @@
        (type-constructor mod-name name (map (lambda ([v : Bytes]) (star-kind)) vars))]))
 
 
-
   (define (variant-definition->context
             [def : VariantDefinition]
             [type-vars : (List Bytes)]
             [gen-accessors : Boolean]
             [self-type : Type]
+            [all-variants : (List Bytes)]
             [ctx : Context]) : Context
     (case def
       [(variant-definition name fields)
@@ -246,7 +250,10 @@
                                   (map (lambda ([v : Bytes]) (tuple2 v (var-type v))) type-vars)))
                          [(left v) (panic v)]
                          [(right t) t])]))
-                  fields)))
+                  fields)
+             name
+             (empty) ;; DO NOT SUBMIT
+             ))
          (dict-add-all
            (make-dict bytes=?)
            (cons
@@ -294,10 +301,12 @@
            (let ([gen-accessors (case variants
                                   [(cons _ (empty)) #t]
                                   [_ #f])])
-             (merge-contexts*
-               (map (lambda ([v : VariantDefinition])
-                      (variant-definition->context v simple-type-vars gen-accessors self-type ctx))
-                    variants)))))]))
+             (let ([all-variants (map variant-definition-name variants)])
+               (merge-contexts*
+                 (map (lambda ([v : VariantDefinition])
+                        (variant-definition->context v simple-type-vars gen-accessors self-type
+                                                     all-variants ctx))
+                      variants))))))]))
 
   (define (find-signature [name : Bytes] [sigs : (List ModuleSignature)]) : (Maybe ModuleSignature)
     (findf (lambda ([sig : ModuleSignature]) (bytes=? name (module-signature-name sig))) sigs))
@@ -944,7 +953,7 @@
        (case (context-ref-pattern ctx name)
          ;; TODO add name here
          [(nothing) (left #"Couldn't find pattern in context")]
-         [(just (pattern-descriptor type-vars input-type field-types))
+         [(just (pattern-descriptor type-vars input-type field-types _ _))
           (case (map-state (lambda ([tv : Bytes] [s : UnificationVarSource])
                              (case (uvar-source-next s)
                                [(tuple2 u s)
