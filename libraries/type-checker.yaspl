@@ -3,7 +3,7 @@
     (bytes bytes-append bytes=?)
     (dict
       #:types (Dict)
-      #:values (dict-add dict-add-all dict-map dict-ref dict-set make-dict merge-dicts merge-dicts*)
+      #:values (dict-add dict-add-all dict-map dict-ref make-dict merge-dicts*)
       #:patterns ())
     (either
       #:types (Either)
@@ -37,17 +37,24 @@
     (source-language
       #:types (Block BlockDefinition CaseClause Expression FunctionDefinition Import Imports Module
                Pattern PreType TypeDefinition VariantDefinition VariantField)
-      #:values (function-definition-name module-definitions module-name type-definition-name
-                variant-definition-name)
+      #:values (case-clause-pattern function-definition-name module-definitions module-name
+                type-definition-name variant-definition-name )
       #:patterns (abstraction-pattern app-expr begin-expr block boolean-literal bytes-literal
                   bytes-pattern case-clause case-expr fun-pre-type function-definition if-expr
                   ignore-pattern import imports int-literal int-pattern lambda-expr let-expr match-def
                   module type-app-pre-type type-definition var-expr var-pre-type varargs-app-expr
                   variable-pattern variant-definition variant-field))
+    (totality-checker totality-check-patterns)
     (tuples
       #:types (Tuple2)
       #:values (tuple2)
       #:patterns (tuple2))
+    (type-checker-context
+      #:types (Context PatternDescriptor)
+      #:values (context context-add-types context-ref-pattern context-ref-type context-ref-value
+                context-set-value context-set-values merge-contexts merge-contexts*
+                pattern-descriptor)
+      #:patterns (pattern-descriptor))
     (type-unification
       #:types (Constrainable Constraint UnificationVar UnificationVarSource)
       #:values (constrain-abstract-type constrain-fun-type constrain-uvar constraint->bytes
@@ -58,27 +65,13 @@
       #:values (abstract-type fun-type star-kind type->sexp type-constructor type=? var-type)
       #:patterns (abstract-type fun-type type-constructor var-type)))
   (export
-    #:types (Context)
+    #:types ()
     #:values (type-check
-              context
-              context-types context-values
               type-check/expr
               attempt-result-based-unification
               type-check-error->bytes)
     #:patterns ())
   (types
-    (define-type Context
-      (context
-        [types : (Dict Bytes Type)]
-        [patterns : (Dict Bytes PatternDescriptor)]
-        [values : (Dict Bytes Type)]))
-    (define-type PatternDescriptor
-      (pattern-descriptor
-        [type-vars : (List Bytes)]
-        [input-type : Type]
-        [field-types : (List Type)]
-        [variant-name : Bytes]
-        [all-variant-names : (List Bytes)]))
     (define-type TypeCheckError
       (type-check-error
         [module-name : Bytes]
@@ -88,71 +81,6 @@
     (match-define (type-check-error mod-name errors) err)
     (bytes-append (append (varargs list #"Module: " mod-name #"\n") (interleave errors #"\n\n"))))
 
-  (define (context-add-types [context : Context] [vs : (List (Tuple2 Bytes Type))]) : Context
-    (case vs
-      [(empty) context]
-      [(cons (tuple2 name type) vs)
-       (context-add-types
-         (context-add-type context name type)
-         vs)]))
-
-  (define (context-add-type [ctx : Context] [name : Bytes] [type : Type]) : Context
-    (case ctx
-      [(context types patterns values)
-       (context (dict-add types name type) patterns values)]))
-
-  (define (context-set-values* [context : Context] [vs : (List (Tuple2 Bytes Type))]) : Context
-    (case vs
-      [(empty) context]
-      [(cons (tuple2 name type) vs)
-       (context-set-values*
-         (context-set-value context name type)
-         vs)]))
-
-  (define (context-set-values [context : Context] [values : (Dict Bytes Type)]) : Context
-    (context-set-values* context
-      (dict-map values (lambda ([key : Bytes] [value : Type]) (tuple2 key value)))))
-
-  (define (context-set-value [ctx : Context] [name : Bytes] [type : Type]) : Context
-    (case ctx
-      [(context types patterns values)
-       (context types patterns (dict-set values name type))]))
-
-  (define (context-ref-value [ctx : Context] [name : Bytes]) : (Maybe Type)
-    (case ctx
-      [(context _ _ values)
-       (dict-ref values name)]))
-
-  (define (context-ref-type [ctx : Context] [name : Bytes]) : (Maybe Type)
-    (case ctx
-      [(context types _ _)
-       (dict-ref types name)]))
-
-  (define (context-ref-pattern [ctx : Context] [name : Bytes]) : (Maybe PatternDescriptor)
-    (case ctx
-      [(context _ patterns _)
-       (dict-ref patterns name)]))
-
-  (define (merge-contexts* [cs : (List Context)]) : Context
-    (case cs
-      [(empty)
-       (context
-         (make-dict bytes=?)
-         (make-dict bytes=?)
-         (make-dict bytes=?))]
-      [(cons c (empty)) c]
-      [(cons c1 (cons c2 cs))
-       (merge-contexts* (cons (merge-contexts c1 c2) cs))]))
-
-  (define (merge-contexts [c1 : Context] [c2 : Context]) : Context
-    (case c1
-      [(context t1 p1 v1)
-       (case c2
-         [(context t2 p2 v2)
-          (context
-            (merge-dicts t1 t2)
-            (merge-dicts p1 p2)
-            (merge-dicts v1 v2))])]))
 
   (define (extract-imports
             [imports : (List Import)]
@@ -252,8 +180,7 @@
                          [(right t) t])]))
                   fields)
              name
-             (empty) ;; DO NOT SUBMIT
-             ))
+             all-variants))
          (dict-add-all
            (make-dict bytes=?)
            (cons
@@ -751,21 +678,24 @@
             (bytes-append
               (varargs list #"Cannot apply non function: " (print-sexp (type->sexp t)))))])]
       [(case-expr op clauses)
-       (case (type-check/expr op context (nothing))
-         [(left v) (left v)]
-         [(right type)
-          (case (extract-rights
-                  (map
-                    (lambda ([clause : CaseClause])
-                      (case clause
-                        [(case-clause p body)
-                         (type-check/case-clause p body context type expected-type)]))
-                    clauses))
+       (case (totality-check-patterns context (map case-clause-pattern clauses))
+         [(just v) (left v)]
+         [(nothing)
+          (case (type-check/expr op context (nothing))
             [(left v) (left v)]
-            [(right (empty))
-             (left #"Cannot have empty case clause")]
-            [(right (cons type _))
-             (right type)])])]))
+            [(right type)
+             (case (extract-rights
+                     (map
+                       (lambda ([clause : CaseClause])
+                         (case clause
+                           [(case-clause p body)
+                            (type-check/case-clause p body context type expected-type)]))
+                       clauses))
+               [(left v) (left v)]
+               [(right (empty))
+                (left #"Cannot have empty case clause")]
+               [(right (cons type _))
+                (right type)])])])]))
 
   (define (type-check/block
             [defs : (List BlockDefinition)]
@@ -775,19 +705,22 @@
     (case defs
       [(empty) (type-check/expr body context expected-type)]
       [(cons (match-def pattern expr) defs)
-       (case (type-check/expr expr context (nothing))
-         [(left v) (left v)]
-         [(right type)
-          (case (unify-pattern pattern context type)
+       (case (totality-check-patterns context (varargs list pattern))
+         [(just v) (left v)]
+         [(nothing)
+          (case (type-check/expr expr context (nothing))
             [(left v) (left v)]
-            [(right var-types)
-             (type-check/block
-               defs
-               body
-               (context-set-values
-                 context
-                 (dict-add-all (make-dict bytes=?) var-types))
-               expected-type)])])]))
+            [(right type)
+             (case (unify-pattern pattern context type)
+               [(left v) (left v)]
+               [(right var-types)
+                (type-check/block
+                  defs
+                  body
+                  (context-set-values
+                    context
+                    (dict-add-all (make-dict bytes=?) var-types))
+                  expected-type)])])])]))
 
   (define (unify-pattern
             [pattern : Pattern]

@@ -606,6 +606,7 @@ yaspl_bootstrap_library(
     ":source-language",
     ":types",
     ":type-checker",
+    ":type-checker-context",
     "//libraries/data:bytes",
     "//libraries/data:dict",
     "//libraries/data:either",
@@ -697,13 +698,13 @@ yaspl_library(
   ]
 )
 
-yaspl_library(
+yaspl_bootstrap_library(
   name = "totality-checker",
   srcs = ["totality-checker.yaspl"],
   deps = [
     ":source-language",
+    ":type-checker-context",
     "//libraries/data:bytes",
-    "//libraries/data:dict",
     "//libraries/data:list",
     "//libraries/data:maybe",
     "//libraries/data:tuples",
@@ -745,7 +746,9 @@ yaspl_bootstrap_library(
     ":sexp-printer",
     ":source-language",
     ":types",
+    ":type-checker-context",
     ":type-unification",
+    ":totality-checker",
     ":prim-implementation",
     "//libraries/data:bytes",
     "//libraries/data:dict",
@@ -758,6 +761,20 @@ yaspl_bootstrap_library(
   ]
 )
 
+yaspl_bootstrap_library(
+  name = "type-checker-context",
+  srcs = ["type-checker-context.yaspl"],
+  deps = [
+    ":types",
+    "//libraries/data:bytes",
+    "//libraries/data:dict",
+    "//libraries/data:list",
+    "//libraries/data:maybe",
+    "//libraries/data:tuples",
+  ]
+)
+
+
 yaspl_test(
   name = "type-checker-test",
   main_module = "type_checker_test",
@@ -766,6 +783,7 @@ yaspl_test(
     ":source-language",
     ":types",
     ":type-checker",
+    ":type-checker-context",
     ":yunit",
     "//libraries/data:bytes",
     "//libraries/data:dict",

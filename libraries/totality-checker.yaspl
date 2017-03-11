@@ -1,20 +1,16 @@
 (module totality-checker
   (import
-    (bytes bytes=?)
-    (dict
-      #:types (Dict)
-      #:values (dict-ref)
-      #:patterns ())
+    (bytes bytes-append bytes=?)
     (list
       #:types (List)
-      #:values (append build-list empty foldl list map zip)
+      #:values (append append* cons empty foldl interleave list map zip)
       #:patterns (cons empty))
     (maybe
       #:types (Maybe)
       #:values (just nothing)
       #:patterns (just nothing))
     (prim
-      #:types (Boolean Bytes Int)
+      #:types (Boolean Bytes)
       #:values (and or panic)
       #:patterns ())
     (source-language
@@ -24,65 +20,83 @@
     (tuples
       #:types (Tuple2)
       #:values (tuple2)
-      #:patterns (tuple2)))
+      #:patterns (tuple2))
+    (type-checker-context
+      #:types (Context)
+      #:values (context-ref-pattern)
+      #:patterns (pattern-descriptor)))
   (export
     #:types ()
-    #:values (check-patterns)
+    #:values (totality-check-patterns check-patterns*
+              abstract-match any-value abstract-match/values)
     #:patterns ())
   (types
     (define-type AbstractValue
       (any-value)
-      (variant [name : Bytes] [fields : (List AbstractValue)]))
-    (define-type PatternSpec
-      (pattern-spec [matched-variants : VariantSpec]
-                    [other-variants : (List VariantSpec)]))
-    (define-type VariantSpec
-      (variant-spec [name : Bytes] [num-fields : Int])))
+      (full-variant [name : Bytes])
+      (variant [name : Bytes] [fields : (List AbstractValue)])))
 
-  (define (check-patterns [env : (Dict Bytes PatternSpec)] [patterns : (List Pattern)]) : (Maybe Bytes)
-    (case (check-patterns* env patterns (varargs list (any-value)))
+  (define (totality-check-patterns [context : Context] [patterns : (List Pattern)]) : (Maybe Bytes)
+    (case (check-patterns* context patterns (varargs list (any-value)))
       [(empty) (nothing)]
-      [values (just #"Patterns are not exhaustive.")]))
+      [values
+        (just (bytes-append
+                      (cons #"Patterns are not exhaustive.\n"
+                            (interleave (map abstract-value->bytes values) #"\n"))))]))
 
-  (define (check-patterns* [env : (Dict Bytes PatternSpec)] [patterns : (List Pattern)] [vals : (List AbstractValue)]) :
+  (define (abstract-value->bytes [v : AbstractValue]) : Bytes
+    (case v
+      [(any-value) #"*"]
+      [(full-variant variant-name)
+       (bytes-append (varargs list #"(" variant-name #" ...)"))]
+      [(variant variant-name fields)
+       (bytes-append
+         (append
+           (varargs list #"(" variant-name)
+           (append
+             (map (lambda ([v : AbstractValue])
+                    (bytes-append (varargs list #" " (abstract-value->bytes v))))
+                  fields)
+             (varargs list #")"))))]))
+
+  (define (check-patterns* [context : Context] [patterns : (List Pattern)] [vals : (List AbstractValue)]) :
     (List AbstractValue)
     (case patterns
       [(empty) vals]
       [(cons pat patterns)
-       (match-define (tuple2 vals matched) (abstract-match/values env pat vals))
+       (match-define (tuple2 vals matched) (abstract-match/values context pat vals))
        ;; TODO record error for patterns that don't match
-       (check-patterns* env patterns vals)]))
+       (check-patterns* context patterns vals)]))
 
-  (define (abstract-match/values [env : (Dict Bytes PatternSpec)] [pat : Pattern] [vals : (List AbstractValue)])
+  (define (abstract-match/values [context : Context] [pat : Pattern] [vals : (List AbstractValue)])
+    : (Tuple2 (List AbstractValue) Boolean)
+    (abstract-match/values* context pat vals (empty) #f))
+
+  (define (abstract-match/values*
+            [context : Context] [pat : Pattern] [vals : (List AbstractValue)]
+            [acc-values : (List AbstractValue)] [acc-matched : Boolean])
     : (Tuple2 (List AbstractValue) Boolean)
     (case vals
       [(empty) (tuple2 (empty) #f)]
       [(cons val vals)
-       (match-define (tuple2 other-values other-matched) (abstract-match/values env pat vals))
-       (match-define (tuple2 values matched) (abstract-match env pat val))
-       (tuple2 (append values other-values) (or other-matched matched))]))
+       (match-define (tuple2 values matched) (abstract-match context pat val))
+       (abstract-match/values* context pat vals (append values acc-values)
+                               (or matched acc-matched))]))
 
-  (define (variant-spec->abstract-value [vs : VariantSpec]) : AbstractValue
-    (match-define (variant-spec name num-fields) vs)
-    (variant name (build-list num-fields (lambda ([i : Int]) (any-value)))))
-
-  (define (lookup-variants [env : (Dict Bytes PatternSpec)] [name : Bytes]) :
-    (Tuple2 (List AbstractValue) AbstractValue)
-    (case (dict-ref env name)
+  (define (lookup-variants [context : Context] [name : Bytes]) : (List AbstractValue)
+    (case (context-ref-pattern context name)
       [(nothing) (panic #"Bad pattern")]
-      [(just (pattern-spec matched others))
-       (tuple2
-         (map variant-spec->abstract-value others)
-         (variant-spec->abstract-value matched))]))
+      [(just (pattern-descriptor _ _ _ _ all-variants))
+       (map full-variant all-variants)]))
 
-  (define (matches-variant [env : (Dict Bytes PatternSpec)] [pat-name : Bytes] [var-name : Bytes])
+  (define (matches-variant [context : Context] [pat-name : Bytes] [var-name : Bytes])
     : Boolean
-    (case (dict-ref env pat-name)
+    (case (context-ref-pattern context pat-name)
       [(nothing) (panic #"Bad pattern")]
-      [(just (pattern-spec (variant-spec matched-name _) _))
+      [(just (pattern-descriptor _ _ _ matched-name _))
        (bytes=? matched-name var-name)]))
 
-  (define (abstract-match/vec [env : (Dict Bytes PatternSpec)] [patterns : (List Pattern)] [vals : (List AbstractValue)])
+  (define (abstract-match/vec [context : Context] [patterns : (List Pattern)] [vals : (List AbstractValue)])
     : (Tuple2 (List (List AbstractValue)) Boolean)
     (case (zip patterns vals)
       [(nothing) (panic #"Some pattern doesn't match its spec")]
@@ -92,7 +106,7 @@
                 (lambda ([t : (Tuple2 Pattern AbstractValue)])
                   (case t
                     [(tuple2 pat val)
-                     (abstract-match env pat val)]))
+                     (abstract-match context pat val)]))
                 pat/vals)])
          (tuple2
            (map (lambda ([r : (Tuple2 (List AbstractValue) Boolean)])
@@ -105,7 +119,21 @@
                   match-results
                   #t)))]))
 
-  (define (abstract-match [env : (Dict Bytes PatternSpec)] [pattern : Pattern] [val : AbstractValue])
+  (define (A) (cartesian-product [vss : (List (List A))]) : (List (List A))
+    (case vss
+      [(empty) (varargs list (empty))]
+      [(cons vs vss)
+       (let ([sub-products (cartesian-product vss)])
+         (append*
+           (map
+             (lambda ([new-elem : A])
+               (map
+                 (lambda ([sub-product : (List A)])
+                   (cons new-elem sub-product))
+                 sub-products))
+             vs)))]))
+
+  (define (abstract-match [context : Context] [pattern : Pattern] [val : AbstractValue])
     : (Tuple2 (List AbstractValue) Boolean)
     (case pattern
       [(bytes-pattern _)
@@ -119,17 +147,27 @@
       [(abstraction-pattern name patterns)
        (case val
          [(any-value)
-          (match-define (tuple2 other-variants current-variant)
-            (lookup-variants env name))
-          (match-define (tuple2 unmatched matched)
-            (abstract-match env pattern current-variant))
-          (tuple2 (append unmatched other-variants)
-                  matched)]
+          (abstract-match/values context pattern (lookup-variants context name))]
+         [(full-variant var-name)
+          (if (matches-variant context name var-name)
+              (case patterns
+                [(empty)
+                 (tuple2 (empty) #t)]
+                [_
+                 (case (abstract-match/vec context patterns
+                                           (map (lambda ([p : Pattern]) (any-value)) patterns))
+                   [(tuple2 vecs matched)
+                    (tuple2
+                      (map (lambda ([vs : (List AbstractValue)]) (variant var-name vs))
+                           (cartesian-product vecs))
+                      matched)])])
+              (tuple2 (varargs list val) #f))]
          [(variant var-name fields)
-          (if (matches-variant env name var-name)
-              (case (abstract-match/vec env patterns fields)
+          (if (matches-variant context name var-name)
+              (case (abstract-match/vec context patterns fields)
                 [(tuple2 vecs matched)
                  (tuple2
-                   (map (lambda ([vs : (List AbstractValue)]) (variant var-name vs)) vecs)
+                   (map (lambda ([vs : (List AbstractValue)]) (variant var-name vs))
+                        (cartesian-product vecs))
                    matched)])
               (tuple2 (varargs list val) #f))])])))
