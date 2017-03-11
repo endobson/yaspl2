@@ -702,6 +702,8 @@ yaspl_library(
   srcs = ["totality-checker.yaspl"],
   deps = [
     ":source-language",
+    "//libraries/data:bytes",
+    "//libraries/data:dict",
     "//libraries/data:list",
     "//libraries/data:maybe",
     "//libraries/data:tuples",
