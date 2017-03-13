@@ -1,6 +1,10 @@
 (module totality-checker
   (import
     (bytes bytes-append bytes=?)
+    (either
+      #:types (Either)
+      #:values (left right)
+      #:patterns (left right))
     (list
       #:types (List)
       #:values (append append* cons empty interleave list map reverse reverse-map zip)
@@ -38,8 +42,9 @@
 
   (define (totality-check-patterns [context : Context] [patterns : (List Pattern)]) : (Maybe Bytes)
     (case (check-patterns* context patterns (varargs list (any-value)))
-      [(empty) (nothing)]
-      [values
+      [(left v) (just v)]
+      [(right (empty)) (nothing)]
+      [(right values)
        (just (bytes-append
                      (cons #"Patterns are not exhaustive.\n"
                            (interleave (map abstract-value->bytes values) #"\n"))))]))
@@ -65,13 +70,18 @@
              (varargs list #")"))))]))
 
   (define (check-patterns* [context : Context] [patterns : (List Pattern)] [vals : (List AbstractValue)]) :
-    (List AbstractValue)
+    (Either Bytes (List AbstractValue))
     (case patterns
-      [(empty) vals]
+      [(empty) (right vals)]
       [(cons pat patterns)
-       (match-define (tuple3 unmatched-vals _ matched) (abstract-match/values context pat vals))
-       ;; TODO record error for patterns that don't match
-       (check-patterns* context patterns unmatched-vals)]))
+       (case vals
+         [(empty)
+          (left #"No values left for patterns to match")]
+         [_
+          (match-define (tuple3 unmatched-vals _ matched) (abstract-match/values context pat vals))
+          (if matched
+              (check-patterns* context patterns unmatched-vals)
+              (left #"Pattern didn't match any values"))])]))
 
   (define (abstract-match/values [context : Context] [pat : Pattern] [vals : (List AbstractValue)])
     : (Tuple3 (List AbstractValue) (List AbstractValue) Boolean)

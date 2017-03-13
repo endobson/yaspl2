@@ -705,6 +705,7 @@ yaspl_bootstrap_library(
     ":source-language",
     ":type-checker-context",
     "//libraries/data:bytes",
+    "//libraries/data:either",
     "//libraries/data:list",
     "//libraries/data:maybe",
     "//libraries/data:tuples",
