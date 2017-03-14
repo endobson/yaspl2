@@ -64,6 +64,7 @@ yaspl_library(
   deps = [
     ":prim-language",
     ":register-language",
+    "//libraries/data:boolean",
     "//libraries/data:bytes",
     "//libraries/data:dict",
     "//libraries/data:list",
@@ -79,6 +80,7 @@ yaspl_library(
   srcs = ["register-language.yaspl"],
   deps = [
     ":prim-language",
+    "//libraries/data:bytes",
     "//libraries/data:list",
     "//libraries/data:dict",
   ]
