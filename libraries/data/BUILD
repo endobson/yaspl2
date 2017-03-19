@@ -53,20 +53,19 @@ yaspl_test(
   ]
 )
 
-
-yaspl_bootstrap_library(
-  name = "either",
-  srcs = ["either.yaspl"],
-)
-
 yaspl_library(
-  name = "graph",
-  srcs = ["graph.yaspl"],
+  name = "directed-graph",
+  srcs = ["directed-graph.yaspl"],
   deps = [
     ":dict",
     ":maybe",
     ":tuples",
   ]
+)
+
+yaspl_bootstrap_library(
+  name = "either",
+  srcs = ["either.yaspl"],
 )
 
 yaspl_bootstrap_library(
