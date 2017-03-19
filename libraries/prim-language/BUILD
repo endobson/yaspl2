@@ -10,6 +10,22 @@ yaspl_binary(
 )
 
 yaspl_library(
+  name = "live-variables",
+  srcs = ["live-variables.yaspl"],
+  deps = [
+    ":register-language",
+    "//libraries/data:list",
+    "//libraries/data:set",
+    "//libraries/data:dict",
+    "//libraries/data:maybe",
+    "//libraries/data:tuples",
+    "//libraries/data:bytes",
+    "//libraries/data:numbers",
+    "//libraries/data:join-list",
+  ]
+)
+
+yaspl_library(
   name = "prim-language",
   srcs = ["prim-language.yaspl"],
   deps = [
@@ -21,6 +37,7 @@ yaspl_library(
   name = "prim-language-demo",
   srcs = ["prim-language-demo.yaspl"],
   deps = [
+    ":live-variables",
     ":prim-language",
     ":register-language",
     ":prim-language-parser",
