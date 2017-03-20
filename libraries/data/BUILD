@@ -199,3 +199,15 @@ yaspl_test(
     "//libraries:yunit",
   ]
 )
+
+yaspl_library(
+  name = "undirected-graph",
+  srcs = ["undirected-graph.yaspl"],
+  deps = [
+    ":dict",
+    ":list",
+    ":maybe",
+    ":set",
+    ":tuples",
+  ]
+)
