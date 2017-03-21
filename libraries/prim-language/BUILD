@@ -14,6 +14,7 @@ yaspl_library(
   srcs = ["live-variables.yaspl"],
   deps = [
     ":register-language",
+    "//libraries:graphviz",
     "//libraries/data:list",
     "//libraries/data:set",
     "//libraries/data:dict",
@@ -21,6 +22,7 @@ yaspl_library(
     "//libraries/data:tuples",
     "//libraries/data:bytes",
     "//libraries/data:numbers",
+    "//libraries/data:undirected-graph",
     "//libraries/data:join-list",
   ]
 )

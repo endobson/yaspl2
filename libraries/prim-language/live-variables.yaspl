@@ -3,7 +3,11 @@
     (bytes bytes-append)
     (dict
       #:types (Dict)
-      #:values (dict-map dict-ref dict-value-map dict=? )
+      #:values (dict-fold dict-map dict-ref dict-value-map dict=?)
+      #:patterns ())
+    (graphviz
+      #:types (EdgeData VertexData)
+      #:values (edge-data graph->graphviz vertex-data)
       #:patterns ())
     (join-list
       #:types (JoinList)
@@ -11,7 +15,7 @@
       #:patterns ())
     (list
       #:types (List)
-      #:values (append cons empty interleave list list=? map reverse zip)
+      #:values (append cons empty foldl interleave list list=? map reverse zip)
       #:patterns (cons empty))
     (maybe
       #:types ()
@@ -28,16 +32,20 @@
       #:patterns (basic-block bin-op-inst cond-jump function-definition int-literal jump return var))
     (set
       #:types (Set)
-      #:values (make-set set->list set-add set-add-all set-count set-difference set-union set-union*
-                set=? )
+      #:values (make-set set->list set-add set-add-all set-count set-difference set-split set-union
+                set-union* set=? )
       #:patterns ())
     (tuples
       #:types (Tuple2)
       #:values (tuple2 tuple2=?)
-      #:patterns (tuple2)))
+      #:patterns (tuple2))
+    (undirected-graph
+      #:types (Graph)
+      #:values (empty-graph graph-add-edge-if-absent graph-add-vertex-if-absent)
+      #:patterns ()))
   (export
     #:types ()
-    #:values (live-variables print-blocks)
+    #:values (live-variables print-blocks print-graph)
     #:patterns ())
   (types
     (define-type BlockState
@@ -78,6 +86,13 @@
     (case v
       [(var name counter)
        (varargs join-list name #"_" (integer->decimal-bytes counter))]))
+
+  (define (var->bytes [v : Var]) : Bytes
+    (case v
+      [(var name counter)
+       (bytes-append
+         (varargs list name #"_" (integer->decimal-bytes counter)))]))
+
 
   (define (print-blocks [blocks : (Dict Int BlockState)]) : Bytes
     (bytes-append (dict-map blocks print-block-state)))
@@ -256,4 +271,79 @@
       (make-set var=?)
       (case i
         [(int-literal v _) v]
-        [(bin-op-inst v _ _ _) v]))))
+        [(bin-op-inst v _ _ _) v])))
+
+  (define (add-live-variables-to-graph/point-state
+            [p : PointState]
+            [g : (Graph Var VertexData EdgeData)]) : (Graph Var VertexData EdgeData)
+    (match-define (point-state _ live moves) p)
+    (foldl
+      (lambda ([v : Var] [g : (Graph Var VertexData EdgeData)])
+        (graph-add-vertex-if-absent g v (vertex-data (var->bytes v))))
+      (set->list live)
+      g))
+
+  (define (add-live-edges-to-graph/point-state
+            [p : PointState]
+            [g : (Graph Var VertexData EdgeData)]) : (Graph Var VertexData EdgeData)
+    (match-define (point-state _ live moves) p)
+    (foldl
+      (lambda ([vs : (Tuple2 Var Var)] [g : (Graph Var VertexData EdgeData)])
+        (case vs
+          [(tuple2 v1 v2)
+           (graph-add-edge-if-absent g v1 v2 (edge-data #"dashed"))]))
+      (set->list moves)
+      (foldl
+        (lambda ([vs : (Tuple2 Var Var)] [g : (Graph Var VertexData EdgeData)])
+          (case vs
+            [(tuple2 v1 v2)
+             (graph-add-edge-if-absent g v1 v2 (edge-data #"solid"))]))
+        (all-choose-two-options live)
+        g)))
+
+  (define (all-choose-two-options [s : (Set Var)]) : (List (Tuple2 Var Var))
+    (case (set-split s)
+      [(nothing) (empty)]
+      [(just (tuple2 v s))
+       (append
+         (map
+           (lambda ([v2 : Var]) (tuple2 v v2))
+           (set->list s))
+         (all-choose-two-options s))]))
+
+  (define (add-live-variables-to-graph/blocks
+            [blocks : (Dict Int BlockState)]
+            [g : (Graph Var VertexData EdgeData)]) : (Graph Var VertexData EdgeData)
+    (dict-fold
+      blocks
+      (lambda ([block-num : Int] [state : BlockState] [acc : (Graph Var VertexData EdgeData)])
+        : (Graph Var VertexData EdgeData)
+        (case state
+          [(block-state _ _ instructions terminal _)
+           (add-live-variables-to-graph/point-state
+             terminal
+             (foldl add-live-variables-to-graph/point-state instructions acc))]))
+      g))
+
+  (define (add-live-edges-to-graph/blocks
+            [blocks : (Dict Int BlockState)]
+            [g : (Graph Var VertexData EdgeData)]) : (Graph Var VertexData EdgeData)
+    (dict-fold
+      blocks
+      (lambda ([block-num : Int] [state : BlockState] [acc : (Graph Var VertexData EdgeData)])
+        : (Graph Var VertexData EdgeData)
+        (case state
+          [(block-state _ _ instructions terminal _)
+           (add-live-edges-to-graph/point-state
+             terminal
+             (foldl add-live-edges-to-graph/point-state instructions acc))]))
+      g))
+
+
+  (define (print-graph [blocks : (Dict Int BlockState)]) : Bytes
+    (graph->graphviz
+      (add-live-edges-to-graph/blocks
+        blocks
+        (add-live-variables-to-graph/blocks
+          blocks
+          (empty-graph var=?))))))

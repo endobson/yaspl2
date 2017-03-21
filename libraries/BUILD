@@ -282,6 +282,19 @@ yaspl_library(
   ],
 )
 
+yaspl_library(
+  name = "graphviz",
+  srcs = ["graphviz.yaspl"],
+  deps = [
+    "//libraries/data:undirected-graph",
+    "//libraries/data:bytes",
+    "//libraries/data:dict",
+    "//libraries/data:join-list",
+    "//libraries/data:maybe",
+    "//libraries/data:tuples",
+  ]
+)
+
 yaspl_test(
   name = "large-function-test",
   main_module = "large_function_test",
