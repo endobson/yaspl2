@@ -10,8 +10,9 @@
       #:types (Lexer)
       #:values (make-lexer run-lexer)
       #:patterns (bad-input boolean-lexeme bytes-lexeme comment-lexeme decimal-number-lexeme
-                  end-of-input hexadecimal-number-lexeme keyword-lexeme left-bracket-lexeme
-                  left-paren-lexeme lex-result right-bracket-lexeme right-paren-lexeme symbol-lexeme))
+                  end-of-input hexadecimal-number-lexeme keyword-lexeme left-brace-lexeme
+                  left-bracket-lexeme left-paren-lexeme lex-result right-brace-lexeme
+                  right-bracket-lexeme right-paren-lexeme symbol-lexeme))
     (list
       #:types (List)
       #:values (cons empty list reverse)
@@ -28,11 +29,13 @@
   (export
     #:types (Sexp)
     #:values (parse-sexp parse-sexps main node bytes-sexp number-sexp boolean-sexp symbol-sexp)
-    #:patterns (node symbol-sexp bytes-sexp keyword-sexp boolean-sexp number-sexp
-                bracket paren))
+    #:patterns (node brace-node bracket-node symbol-sexp bytes-sexp keyword-sexp boolean-sexp
+                number-sexp bracket paren))
   (types
     (define-type Sexp
       (node [list : (List Sexp)])
+      (bracket-node [list : (List Sexp)])
+      (brace-node [list : (List Sexp)])
       (symbol-sexp [bytes : Bytes])
       (bytes-sexp [bytes : Bytes])
       (keyword-sexp [bytes : Bytes])
@@ -40,6 +43,7 @@
       (number-sexp [byte : Int]))
     (define-type ParenStyle
       (bracket)
+      (brace)
       (paren))
 
     (define-type SexpResult
@@ -95,8 +99,10 @@
            [(boolean-lexeme bool) (just (sexp-result (boolean-sexp bool) lexer))]
            [(left-paren-lexeme) (just (node-loop (empty) (paren) lexer))]
            [(left-bracket-lexeme) (just (node-loop (empty) (bracket) lexer))]
+           [(left-brace-lexeme) (just (node-loop (empty) (brace) lexer))]
            [(comment-lexeme) (loop lexer)]
            [(right-bracket-lexeme) (just (sexp-result-error #"Unexpected ]."))]
+           [(right-brace-lexeme) (just (sexp-result-error #"Unexpected }."))]
            [(right-paren-lexeme) (just (sexp-result-error #"Unexpected )."))])])))
 
   (define (node-loop [vals : (List Sexp)] [paren-style : ParenStyle] [lexer : Lexer]) : SexpResult
@@ -136,14 +142,23 @@
                 [(sexp-result v lexer)
                  (node-loop (cons v vals) paren-style lexer)]
                 [(sexp-result-error v) (sexp-result-error v)])]
+            [(left-brace-lexeme)
+              (case (node-loop (empty) (brace) lexer)
+                [(sexp-result v lexer)
+                 (node-loop (cons v vals) paren-style lexer)]
+                [(sexp-result-error v) (sexp-result-error v)])]
             [(right-bracket-lexeme)
              (case paren-style
-               [(bracket) (sexp-result (node (reverse vals)) lexer)]
-               [(paren) (sexp-result-error #"Unexpected ].")])]
+               [(bracket) (sexp-result (bracket-node (reverse vals)) lexer)]
+               [_ (sexp-result-error #"Unexpected ].")])]
+            [(right-brace-lexeme)
+             (case paren-style
+               [(brace) (sexp-result (brace-node (reverse vals)) lexer)]
+               [_ (sexp-result-error #"Unexpected }.")])]
             [(right-paren-lexeme)
              (case paren-style
                [(paren) (sexp-result (node (reverse vals)) lexer)]
-               [(bracket) (sexp-result-error #"Unexpected ).")])])])))
+               [_ (sexp-result-error #"Unexpected ).")])])])))
 
   (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Int
     (let ([result (parse-sexp (read-all-bytes stdin))])
