@@ -166,6 +166,8 @@ yaspl_bootstrap_library(
   srcs = ["set.yaspl"],
   deps = [
     ":list",
+    ":maybe",
+    ":tuples",
   ]
 )
 
