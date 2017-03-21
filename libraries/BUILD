@@ -600,11 +600,10 @@ yaspl_bootstrap_library(
   name = "source-language",
   srcs = ["source-language.yaspl"],
   deps = [
+   ":sexp-parser",
    "//libraries/data:either",
-   ":io",
    "//libraries/data:list",
    "//libraries/data:maybe",
-   ":sexp-parser",
    "//libraries/data:tuples",
   ]
 )
