@@ -39,9 +39,10 @@
            (import& module-name function-name function-name))
          empty)]
       [`(,(? symbol? module-name)
-          #:types ,types
-          #:values ,functions
-          #:patterns ,patterns)
+         ,@`(
+            ,@(list #:types ... (? list? types) ...)
+            ,@(list #:values ... (? list? functions) ...)
+            ,@(list #:patterns ... (? list? patterns) ...)))
        (define (parse-import-name import-name)
          (match import-name
            [(? symbol? name)
@@ -49,9 +50,9 @@
            [(list (? symbol? exported-name) (? symbol? local-name))
             (import& module-name exported-name local-name)]))
        (values
-         (map parse-import-name types)
-         (map parse-import-name functions)
-         (map parse-import-name patterns))]))
+         (map parse-import-name (append* types))
+         (map parse-import-name (append* functions))
+         (map parse-import-name (append* patterns)))]))
 
   (let-values ([(types vals patterns) (parse-imports imports)])
     (imports& (append* types) (append* vals) (append* patterns))))
