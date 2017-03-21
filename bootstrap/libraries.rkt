@@ -18,14 +18,11 @@
 
   (define (read-module port)
     (port-count-lines! port)
-    (begin0
-      (read port)
-      (let ([remaining (read port)])
-        (unless (eof-object? remaining)
-          (error 'read-module "Extra stuff after module: ~a" remaining)))))
-
-  (define (add-module! mod-src)
-    (add-module!/internal (parse-module mod-src)))
+    (let loop ([sexps null])
+      (define sexp (read port))
+      (if (eof-object? sexp)
+          (reverse sexps)
+          (loop (cons sexp sexps)))))
 
   (define (add-module!/internal mod)
     (define mod-name (module&-name mod))

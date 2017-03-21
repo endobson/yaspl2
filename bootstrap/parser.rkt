@@ -10,9 +10,15 @@
   parse-module)
 
 
-(define (parse-module sexp)
-  (match sexp
-    [`(module ,(? symbol? name)
+(define (parse-module sexps)
+  (match sexps
+    [`((module ,(? symbol? name)
+         (import . ,(app parse-imports imports))
+         (export . ,(app parse-exports exports))
+         (types . ,(app parse-type-definitions types))
+         . ,(app parse-definitions definitions)))
+     (module& name imports exports types definitions)]
+    [`(#:module ,(? symbol? name)
         (import . ,(app parse-imports imports))
         (export . ,(app parse-exports exports))
         (types . ,(app parse-type-definitions types))
