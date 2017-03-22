@@ -1,153 +1,153 @@
-(module extra-action-linter-main
-  (import
-    (boolean not)
-    (bytes bytes-append bytes=? ends-with?)
-    (either
-      #:types (Either)
-      #:values (left right)
-      #:patterns (left right))
-    (extra-action-parser
-      #:types ()
-      #:values (parse-extra-action-info proto-parser)
-      #:patterns (extra-action-info spawn-info))
-    (io call-with-input-file call-with-output-file read-all-bytes write-line)
-    (list
-      #:types (List)
-      #:values (extract-rights filter for-each list map reverse)
-      #:patterns (cons empty))
-    (module-header-lint
-      #:types (ModuleHeaderLintViolations)
-      #:values (find-header-violations)
-      #:patterns (module-header-lint-violations))
-    (module-signature module-signature-name)
-    (module-signature-serialization deserialize-module-signature)
-    (prim
-      #:types (Array Bytes InputPort Int OutputPort Void)
-      #:values (= array-length array-ref bytes-length void)
-      #:patterns ())
-    (set make-set set->list set-add-all set-remove-all)
-    (sexp-parser parse-sexps)
-    (source-language imports-module-name module-imports parse-module)
-    (unused-bindings
-      #:types (UnusedBindings)
-      #:values (module-unused-bindings)
-      #:patterns (unused-bindings)))
-  (export)
-  (types
-    (define-type LintResults
-      (lint-results
-        [filename : Bytes]
-        [unused-bindings : UnusedBindings]
-        [unused-dependencies : (List Bytes)]
-        [header-violations : ModuleHeaderLintViolations])))
+#:module extra-action-linter-main
+(import
+  (boolean not)
+  (bytes bytes-append bytes=? ends-with?)
+  (either
+    #:types (Either)
+    #:values (left right)
+    #:patterns (left right))
+  (extra-action-parser
+    #:types ()
+    #:values (parse-extra-action-info proto-parser)
+    #:patterns (extra-action-info spawn-info))
+  (io call-with-input-file call-with-output-file read-all-bytes write-line)
+  (list
+    #:types (List)
+    #:values (extract-rights filter for-each list map reverse)
+    #:patterns (cons empty))
+  (module-header-lint
+    #:types (ModuleHeaderLintViolations)
+    #:values (find-header-violations)
+    #:patterns (module-header-lint-violations))
+  (module-signature module-signature-name)
+  (module-signature-serialization deserialize-module-signature)
+  (prim
+    #:types (Array Bytes InputPort Int OutputPort Void)
+    #:values (= array-length array-ref bytes-length void)
+    #:patterns ())
+  (set make-set set->list set-add-all set-remove-all)
+  (sexp-parser parse-sexps)
+  (source-language imports-module-name module-imports parse-module)
+  (unused-bindings
+    #:types (UnusedBindings)
+    #:values (module-unused-bindings)
+    #:patterns (unused-bindings)))
+(export)
+(types
+  (define-type LintResults
+    (lint-results
+      [filename : Bytes]
+      [unused-bindings : UnusedBindings]
+      [unused-dependencies : (List Bytes)]
+      [header-violations : ModuleHeaderLintViolations])))
 
-  (define (indent2 [bytes : Bytes]) : Bytes
-    (bytes-append (varargs list #"    " bytes)))
+(define (indent2 [bytes : Bytes]) : Bytes
+  (bytes-append (varargs list #"    " bytes)))
 
-  (define (indent [bytes : Bytes]) : Bytes
-    (bytes-append (varargs list #"  " bytes)))
+(define (indent [bytes : Bytes]) : Bytes
+  (bytes-append (varargs list #"  " bytes)))
 
-  (define (handle-failure-result [msg : Bytes] [stderr : OutputPort]) : Int
-    (begin
-      (write-line msg stderr)
-      1))
+(define (handle-failure-result [msg : Bytes] [stderr : OutputPort]) : Int
+  (begin
+    (write-line msg stderr)
+    1))
 
-  ;; TODO Change names
-  (define (write-results-section [title : Bytes] [unused : (List Bytes)] [output : OutputPort]) : Void
-    (let ([write-out-line (lambda ([x : Bytes]) (write-line x output))])
-      (case unused
-        [(empty) (void)]
-        [unused
-         (begin
-           (write-out-line (indent title))
-           (for-each write-out-line (map indent2 unused)))])))
-
-  (define (handle-result
-            [output : OutputPort]
-            [stderr : OutputPort]
-            [result : (Either Bytes LintResults)]) : Int
-    (case result
-      [(left v)
-       (handle-failure-result v stderr)]
-      [(right (lint-results
-                _
-                (unused-bindings (empty) (empty) (empty) (empty))
-                (empty)
-                (module-header-lint-violations
-                  (empty)
-                  (empty))))
-       0]
-      [(right (lint-results
-                src-file-path
-                (unused-bindings unused-types unused-vars unused-patterns unused-var-defs)
-                unused-dependencies
-                (module-header-lint-violations
-                  unsorted-modules
-                  unsorted-bindings)))
+;; TODO Change names
+(define (write-results-section [title : Bytes] [unused : (List Bytes)] [output : OutputPort]) : Void
+  (let ([write-out-line (lambda ([x : Bytes]) (write-line x output))])
+    (case unused
+      [(empty) (void)]
+      [unused
        (begin
-        (write-line src-file-path output)
-        (write-results-section #"Unused types:" unused-types output)
-        (write-results-section #"Unused variables:" unused-vars output)
-        (write-results-section #"Unused patterns:" unused-patterns output)
-        (write-results-section #"Unused defined-functions" unused-var-defs output)
-        (write-results-section #"Unused dependencies:" unused-dependencies output)
-        (write-results-section #"Unsorted modules:" unsorted-modules output)
-        (write-results-section #"Unsorted bindings:" unsorted-bindings output)
-        0)]))
+         (write-out-line (indent title))
+         (for-each write-out-line (map indent2 unused)))])))
 
-  (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Int
-    (if (not (= (array-length args) 3))
-        (handle-failure-result #"Too few arguments" stderr)
-        (let ([bytes (call-with-input-file (array-ref args 1) read-all-bytes)])
-          (let ([output-file-name (array-ref args 2)])
-            (call-with-output-file output-file-name
-              (lambda ([output-port : OutputPort])
-                (handle-result output-port stderr
-                  (let ([limit (bytes-length bytes)])
-                    (case (parse-extra-action-info (proto-parser bytes 0 limit))
-                      [(left msg)
-                       (left msg)]
-                      [(right info)
-                       (case info
-                         [(extra-action-info owner id mnemonic (spawn-info arguments input-files output-files))
-                          (case mnemonic
-                            [#"YasplCompile"
-                             (case (reverse
-                                     (filter
-                                       (lambda ([input-path : Bytes])
-                                         (ends-with? input-path #".yaspl"))
-                                       input-files))
-                               [(empty) (left #"No source file.")]
-                               [(cons _ (cons _ _)) (left #"More than one source file.")]
-                               [(cons src-file-path (empty))
-                                (case (extract-rights
-                                        (map
+(define (handle-result
+          [output : OutputPort]
+          [stderr : OutputPort]
+          [result : (Either Bytes LintResults)]) : Int
+  (case result
+    [(left v)
+     (handle-failure-result v stderr)]
+    [(right (lint-results
+              _
+              (unused-bindings (empty) (empty) (empty) (empty))
+              (empty)
+              (module-header-lint-violations
+                (empty)
+                (empty))))
+     0]
+    [(right (lint-results
+              src-file-path
+              (unused-bindings unused-types unused-vars unused-patterns unused-var-defs)
+              unused-dependencies
+              (module-header-lint-violations
+                unsorted-modules
+                unsorted-bindings)))
+     (begin
+      (write-line src-file-path output)
+      (write-results-section #"Unused types:" unused-types output)
+      (write-results-section #"Unused variables:" unused-vars output)
+      (write-results-section #"Unused patterns:" unused-patterns output)
+      (write-results-section #"Unused defined-functions" unused-var-defs output)
+      (write-results-section #"Unused dependencies:" unused-dependencies output)
+      (write-results-section #"Unsorted modules:" unsorted-modules output)
+      (write-results-section #"Unsorted bindings:" unsorted-bindings output)
+      0)]))
+
+(define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Int
+  (if (not (= (array-length args) 3))
+      (handle-failure-result #"Too few arguments" stderr)
+      (let ([bytes (call-with-input-file (array-ref args 1) read-all-bytes)])
+        (let ([output-file-name (array-ref args 2)])
+          (call-with-output-file output-file-name
+            (lambda ([output-port : OutputPort])
+              (handle-result output-port stderr
+                (let ([limit (bytes-length bytes)])
+                  (case (parse-extra-action-info (proto-parser bytes 0 limit))
+                    [(left msg)
+                     (left msg)]
+                    [(right info)
+                     (case info
+                       [(extra-action-info owner id mnemonic (spawn-info arguments input-files output-files))
+                        (case mnemonic
+                          [#"YasplCompile"
+                           (case (reverse
+                                   (filter
+                                     (lambda ([input-path : Bytes])
+                                       (ends-with? input-path #".yaspl"))
+                                     input-files))
+                             [(empty) (left #"No source file.")]
+                             [(cons _ (cons _ _)) (left #"More than one source file.")]
+                             [(cons src-file-path (empty))
+                              (case (extract-rights
+                                      (map
+                                        (lambda ([input-path : Bytes])
+                                          (deserialize-module-signature
+                                            (call-with-input-file input-path read-all-bytes)))
+                                        (filter
                                           (lambda ([input-path : Bytes])
-                                            (deserialize-module-signature
-                                              (call-with-input-file input-path read-all-bytes)))
-                                          (filter
-                                            (lambda ([input-path : Bytes])
-                                              (ends-with? input-path #".sig"))
-                                            input-files)))
-                                  [(left v) (left v)]
-                                  [(right signatures)
-                                   (case (parse-sexps (call-with-input-file src-file-path read-all-bytes))
+                                            (ends-with? input-path #".sig"))
+                                          input-files)))
+                                [(left v) (left v)]
+                                [(right signatures)
+                                 (case (parse-sexps (call-with-input-file src-file-path read-all-bytes))
+                                  [(left v)
+                                   (left v)]
+                                  [(right sexps)
+                                   (case (parse-module sexps)
                                     [(left v)
                                      (left v)]
-                                    [(right sexps)
-                                     (case (parse-module sexps)
-                                      [(left v)
-                                       (left v)]
-                                      [(right module)
-                                       (right (lint-results
-                                                src-file-path
-                                                (module-unused-bindings module)
-                                                (set->list
-                                                  (set-remove-all
-                                                    (set-add-all
-                                                      (make-set bytes=?)
-                                                      (map module-signature-name signatures))
-                                                    (map imports-module-name
-                                                         (module-imports module))))
-                                                (find-header-violations module)))])])])])]
-                            [x (left x)])])]))))))))))
+                                    [(right module)
+                                     (right (lint-results
+                                              src-file-path
+                                              (module-unused-bindings module)
+                                              (set->list
+                                                (set-remove-all
+                                                  (set-add-all
+                                                    (make-set bytes=?)
+                                                    (map module-signature-name signatures))
+                                                  (map imports-module-name
+                                                       (module-imports module))))
+                                              (find-header-violations module)))])])])])]
+                          [x (left x)])])])))))))))

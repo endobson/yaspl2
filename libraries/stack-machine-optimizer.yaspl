@@ -1,390 +1,390 @@
-(module stack-machine-optimizer
-  (import
-    (dict
-      #:types (Dict)
-      #:values (dict-add dict-ref dict-replace make-dict)
-      #:patterns ())
-    (list
-      #:types (List)
-      #:values (append cons empty length list-ref map reverse)
-      #:patterns (cons empty))
-    (maybe
-      #:types ()
-      #:values ()
-      #:patterns (just nothing))
-    (prim
-      #:types (Boolean Bytes Int)
-      #:values (+ <= = panic)
-      #:patterns ())
-    (set
-      #:types (Set)
-      #:values (make-set set-add set-member?)
-      #:patterns ())
-    (stack-machine
-      #:types (StackBasicBlock StackCmd StackFunction StackTerminal TopLevelObject VariantCases)
-      #:values (boolean-jmp catch-all-case function-tlo known-fun-call-cmd known-tail-call
-                no-catch-all-case pop-cmd return stack-basic-block stack-function tail-call uncond-jmp
-                variant-case variant-switch)
-      #:patterns (boolean-jmp boolean-lit-cmd catch-all-case dup-cmd fun-call-cmd function-tlo
-                  known-fun-call-cmd known-tail-call load-global-cmd no-catch-all-case pop-cmd return
-                  stack-basic-block stack-function swap-cmd tail-call uncond-jmp variant-case
-                  variant-ref-cmd variant-switch))
-    (tuples
-      #:types ()
-      #:values (tuple2)
-      #:patterns (tuple2)))
-  (export
-    #:types ()
-    #:values (optimize-tlos)
+#:module stack-machine-optimizer
+(import
+  (dict
+    #:types (Dict)
+    #:values (dict-add dict-ref dict-replace make-dict)
     #:patterns ())
-  (types)
+  (list
+    #:types (List)
+    #:values (append cons empty length list-ref map reverse)
+    #:patterns (cons empty))
+  (maybe
+    #:types ()
+    #:values ()
+    #:patterns (just nothing))
+  (prim
+    #:types (Boolean Bytes Int)
+    #:values (+ <= = panic)
+    #:patterns ())
+  (set
+    #:types (Set)
+    #:values (make-set set-add set-member?)
+    #:patterns ())
+  (stack-machine
+    #:types (StackBasicBlock StackCmd StackFunction StackTerminal TopLevelObject VariantCases)
+    #:values (boolean-jmp catch-all-case function-tlo known-fun-call-cmd known-tail-call
+              no-catch-all-case pop-cmd return stack-basic-block stack-function tail-call uncond-jmp
+              variant-case variant-switch)
+    #:patterns (boolean-jmp boolean-lit-cmd catch-all-case dup-cmd fun-call-cmd function-tlo
+                known-fun-call-cmd known-tail-call load-global-cmd no-catch-all-case pop-cmd return
+                stack-basic-block stack-function swap-cmd tail-call uncond-jmp variant-case
+                variant-ref-cmd variant-switch))
+  (tuples
+    #:types ()
+    #:values (tuple2)
+    #:patterns (tuple2)))
+(export
+  #:types ()
+  #:values (optimize-tlos)
+  #:patterns ())
+(types)
 
 
-  (define (optimize-tlos [tlos : (List TopLevelObject)] [known-funcs : (Dict Bytes Bytes)]) : (List TopLevelObject)
-      (map (lambda ([tlo : TopLevelObject]) (optimize-tlo known-funcs tlo)) tlos))
+(define (optimize-tlos [tlos : (List TopLevelObject)] [known-funcs : (Dict Bytes Bytes)]) : (List TopLevelObject)
+    (map (lambda ([tlo : TopLevelObject]) (optimize-tlo known-funcs tlo)) tlos))
 
 
-  (define (optimize-tlo [known-funcs : (Dict Bytes Bytes)] [tlo : TopLevelObject]) : TopLevelObject
-    (case tlo
-      [(function-tlo func)
-       (function-tlo (optimize-stack-function known-funcs func))]
-      [_
-       tlo]))
+(define (optimize-tlo [known-funcs : (Dict Bytes Bytes)] [tlo : TopLevelObject]) : TopLevelObject
+  (case tlo
+    [(function-tlo func)
+     (function-tlo (optimize-stack-function known-funcs func))]
+    [_
+     tlo]))
 
 
-  (define (optimize-stack-function [known-funcs : (Dict Bytes Bytes)] [fun : StackFunction]) : StackFunction
-    (case fun
-      [(stack-function name num-args blocks)
-       (stack-function name num-args
-         (remove-unreachable-blocks
-           (optimize-dead-blocks
-             (optimize-trivial-blocks
-               (peephole-optimize-blocks known-funcs
-                 (inline-singlely-used-blocks
-                   (optimize-trivial-blocks
-                     (optimize-known-boolean-jumps
-                       (optimize-trivial-blocks blocks)))))))))]))
+(define (optimize-stack-function [known-funcs : (Dict Bytes Bytes)] [fun : StackFunction]) : StackFunction
+  (case fun
+    [(stack-function name num-args blocks)
+     (stack-function name num-args
+       (remove-unreachable-blocks
+         (optimize-dead-blocks
+           (optimize-trivial-blocks
+             (peephole-optimize-blocks known-funcs
+               (inline-singlely-used-blocks
+                 (optimize-trivial-blocks
+                   (optimize-known-boolean-jumps
+                     (optimize-trivial-blocks blocks)))))))))]))
 
-  (define (optimize-trivial-blocks [blocks : (List StackBasicBlock)]) : (List StackBasicBlock)
-    (let ([trivial-block-dict (compute-trivial-blocks blocks 0 (make-dict =))])
-      (replace-trivial-blocks blocks trivial-block-dict)))
+(define (optimize-trivial-blocks [blocks : (List StackBasicBlock)]) : (List StackBasicBlock)
+  (let ([trivial-block-dict (compute-trivial-blocks blocks 0 (make-dict =))])
+    (replace-trivial-blocks blocks trivial-block-dict)))
 
-  (define (compute-trivial-blocks
-            [blocks : (List StackBasicBlock)]
-            [index : Int]
-            [dict : (Dict Int StackTerminal)]) : (Dict Int StackTerminal)
-    (case blocks
-      [(empty) dict]
-      [(cons (stack-basic-block (empty) term) blocks)
-       (compute-trivial-blocks
-         blocks
-         (+ 1 index)
-         (dict-add dict index term))]
-      [(cons _ blocks)
-       (compute-trivial-blocks blocks (+ 1 index) dict)]))
+(define (compute-trivial-blocks
+          [blocks : (List StackBasicBlock)]
+          [index : Int]
+          [dict : (Dict Int StackTerminal)]) : (Dict Int StackTerminal)
+  (case blocks
+    [(empty) dict]
+    [(cons (stack-basic-block (empty) term) blocks)
+     (compute-trivial-blocks
+       blocks
+       (+ 1 index)
+       (dict-add dict index term))]
+    [(cons _ blocks)
+     (compute-trivial-blocks blocks (+ 1 index) dict)]))
 
-  (define (replace-trivial-blocks
-            [blocks : (List StackBasicBlock)]
-            [dict : (Dict Int StackTerminal)]) : (List StackBasicBlock)
-    (case blocks
-      [(empty) (empty)]
-      [(cons (stack-basic-block cmds (uncond-jmp target)) blocks)
-       (case (dict-ref dict target)
-         [(just term)
-          (replace-trivial-blocks (cons (stack-basic-block cmds term) blocks) dict)]
-         [(nothing)
-          (cons (stack-basic-block cmds (uncond-jmp target)) (replace-trivial-blocks blocks dict))])]
-      [(cons block blocks)
-       (cons block (replace-trivial-blocks blocks dict))]))
-
-
-  (define (optimize-dead-blocks [blocks : (List StackBasicBlock)]) : (List StackBasicBlock)
-    (let ([dead-blocks (compute-dead-blocks blocks 0 (make-set =))])
-      (replace-dead-blocks blocks dead-blocks)))
-
-  (define (compute-dead-blocks
-            [blocks : (List StackBasicBlock)]
-            [index : Int]
-            [set : (Set Int)]) : (Set Int)
-    (case blocks
-      [(empty) set]
-      [(cons (stack-basic-block cmds (variant-switch (no-catch-all-case))) blocks)
-       (if (all-pop-cmds? cmds)
-           (compute-dead-blocks
-             blocks
-             (+ 1 index)
-             (set-add set index))
-           (compute-dead-blocks blocks (+ 1 index) set))]
-      [(cons _ blocks)
-       (compute-dead-blocks blocks (+ 1 index) set)]))
-
-  (define (all-pop-cmds? [cmds : (List StackCmd)]) : Boolean
-    (case cmds
-      [(empty) #t]
-      [(cons (pop-cmd) cmds)
-       (all-pop-cmds? cmds)]
-      [(cons _ cmds) #f]))
-
-  (define (replace-dead-blocks
-            [blocks : (List StackBasicBlock)]
-            [set : (Set Int)]) : (List StackBasicBlock)
-    (case blocks
-      [(empty) (empty)]
-      [(cons (stack-basic-block cmds (variant-switch cases)) blocks)
-       (cons
-         (stack-basic-block cmds (variant-switch (replace-dead-block/cases cases set)))
-         (replace-dead-blocks blocks set))]
-      [(cons block blocks)
-       (cons block (replace-dead-blocks blocks set))]))
-
-  (define (replace-dead-block/cases [cases : VariantCases] [set : (Set Int)]) : VariantCases
-    (case cases
-      [(variant-case tag index cases)
-       (variant-case tag index (replace-dead-block/cases cases set))]
-      [(catch-all-case index)
-       (if (set-member? set index)
-           (no-catch-all-case)
-           cases)]
-      [(no-catch-all-case) cases]))
+(define (replace-trivial-blocks
+          [blocks : (List StackBasicBlock)]
+          [dict : (Dict Int StackTerminal)]) : (List StackBasicBlock)
+  (case blocks
+    [(empty) (empty)]
+    [(cons (stack-basic-block cmds (uncond-jmp target)) blocks)
+     (case (dict-ref dict target)
+       [(just term)
+        (replace-trivial-blocks (cons (stack-basic-block cmds term) blocks) dict)]
+       [(nothing)
+        (cons (stack-basic-block cmds (uncond-jmp target)) (replace-trivial-blocks blocks dict))])]
+    [(cons block blocks)
+     (cons block (replace-trivial-blocks blocks dict))]))
 
 
-  (define (optimize-known-boolean-jumps [blocks : (List StackBasicBlock)]) : (List StackBasicBlock)
-    (map optimize-known-boolean-jumps/block blocks))
+(define (optimize-dead-blocks [blocks : (List StackBasicBlock)]) : (List StackBasicBlock)
+  (let ([dead-blocks (compute-dead-blocks blocks 0 (make-set =))])
+    (replace-dead-blocks blocks dead-blocks)))
+
+(define (compute-dead-blocks
+          [blocks : (List StackBasicBlock)]
+          [index : Int]
+          [set : (Set Int)]) : (Set Int)
+  (case blocks
+    [(empty) set]
+    [(cons (stack-basic-block cmds (variant-switch (no-catch-all-case))) blocks)
+     (if (all-pop-cmds? cmds)
+         (compute-dead-blocks
+           blocks
+           (+ 1 index)
+           (set-add set index))
+         (compute-dead-blocks blocks (+ 1 index) set))]
+    [(cons _ blocks)
+     (compute-dead-blocks blocks (+ 1 index) set)]))
+
+(define (all-pop-cmds? [cmds : (List StackCmd)]) : Boolean
+  (case cmds
+    [(empty) #t]
+    [(cons (pop-cmd) cmds)
+     (all-pop-cmds? cmds)]
+    [(cons _ cmds) #f]))
+
+(define (replace-dead-blocks
+          [blocks : (List StackBasicBlock)]
+          [set : (Set Int)]) : (List StackBasicBlock)
+  (case blocks
+    [(empty) (empty)]
+    [(cons (stack-basic-block cmds (variant-switch cases)) blocks)
+     (cons
+       (stack-basic-block cmds (variant-switch (replace-dead-block/cases cases set)))
+       (replace-dead-blocks blocks set))]
+    [(cons block blocks)
+     (cons block (replace-dead-blocks blocks set))]))
+
+(define (replace-dead-block/cases [cases : VariantCases] [set : (Set Int)]) : VariantCases
+  (case cases
+    [(variant-case tag index cases)
+     (variant-case tag index (replace-dead-block/cases cases set))]
+    [(catch-all-case index)
+     (if (set-member? set index)
+         (no-catch-all-case)
+         cases)]
+    [(no-catch-all-case) cases]))
 
 
-  (define (optimize-known-boolean-jumps/block [block : StackBasicBlock]) : StackBasicBlock
-    (case block
-      [(stack-basic-block cmds (boolean-jmp t-index f-index))
-       (let ([reversed-cmds (reverse cmds)])
-         (case reversed-cmds
-           [(cons (boolean-lit-cmd v) cmds)
-            (stack-basic-block (reverse cmds) (uncond-jmp (if v t-index f-index)))]
-           [_ block]))]
-      [_ block]))
+(define (optimize-known-boolean-jumps [blocks : (List StackBasicBlock)]) : (List StackBasicBlock)
+  (map optimize-known-boolean-jumps/block blocks))
 
 
-  (define (inline-singlely-used-blocks [blocks : (List StackBasicBlock)]) : (List StackBasicBlock)
-    (let ([dict (compute-reachable-block-dict blocks 0 (make-dict =))])
-      (let ([reachable-dict (follow-reachable-block-dict (cons 0 (empty)) (make-dict =) dict)])
-        (inline-singlely-used-blocks/blocks blocks 0 reachable-dict blocks))))
+(define (optimize-known-boolean-jumps/block [block : StackBasicBlock]) : StackBasicBlock
+  (case block
+    [(stack-basic-block cmds (boolean-jmp t-index f-index))
+     (let ([reversed-cmds (reverse cmds)])
+       (case reversed-cmds
+         [(cons (boolean-lit-cmd v) cmds)
+          (stack-basic-block (reverse cmds) (uncond-jmp (if v t-index f-index)))]
+         [_ block]))]
+    [_ block]))
 
-  (define (inline-singlely-used-blocks/blocks
-            [loop-blocks : (List StackBasicBlock)]
-            [index : Int]
-            [dict : (Dict Int Int)]
-            [blocks : (List StackBasicBlock)]) : (List StackBasicBlock)
-    (case loop-blocks
-      [(empty) (empty)]
-      [(cons block loop-blocks)
-       (cons
-         (case (dict-ref dict index)
-           [(just _) (inline-singlely-used-blocks/block block dict blocks)]
-           [(nothing) block])
-         (inline-singlely-used-blocks/blocks loop-blocks (+ 1 index) dict blocks))]))
 
-  (define (inline-singlely-used-blocks/block
-            [block : StackBasicBlock]
-            [dict : (Dict Int Int)]
-            [blocks : (List StackBasicBlock)]) : StackBasicBlock
-    (case block
-      [(stack-basic-block cmds (uncond-jmp index))
+(define (inline-singlely-used-blocks [blocks : (List StackBasicBlock)]) : (List StackBasicBlock)
+  (let ([dict (compute-reachable-block-dict blocks 0 (make-dict =))])
+    (let ([reachable-dict (follow-reachable-block-dict (cons 0 (empty)) (make-dict =) dict)])
+      (inline-singlely-used-blocks/blocks blocks 0 reachable-dict blocks))))
+
+(define (inline-singlely-used-blocks/blocks
+          [loop-blocks : (List StackBasicBlock)]
+          [index : Int]
+          [dict : (Dict Int Int)]
+          [blocks : (List StackBasicBlock)]) : (List StackBasicBlock)
+  (case loop-blocks
+    [(empty) (empty)]
+    [(cons block loop-blocks)
+     (cons
        (case (dict-ref dict index)
-         [(just n)
-          (if (= n 1)
-              (case (list-ref blocks index)
-                [(nothing) (panic #"Bad index")]
-                [(just (stack-basic-block new-cmds new-term))
-                 (inline-singlely-used-blocks/block
-                   (stack-basic-block (append cmds new-cmds) new-term)
-                   dict
-                   blocks)])
-              block)]
-         [(nothing) (panic #"Bad index")])]
-      [_ block]))
+         [(just _) (inline-singlely-used-blocks/block block dict blocks)]
+         [(nothing) block])
+       (inline-singlely-used-blocks/blocks loop-blocks (+ 1 index) dict blocks))]))
 
-  (define (remove-unreachable-blocks [blocks : (List StackBasicBlock)]) : (List StackBasicBlock)
-    (let ([dict (compute-reachable-block-dict blocks 0 (make-dict =))])
-      (let ([reachable-dict (follow-reachable-block-dict (cons 0 (empty)) (make-dict =) dict)])
-        (let ([new-number-dict (compute-new-number-dict 0 (length blocks) 0 reachable-dict (make-dict =))])
-          (restructure-blocks blocks 0 new-number-dict)))))
+(define (inline-singlely-used-blocks/block
+          [block : StackBasicBlock]
+          [dict : (Dict Int Int)]
+          [blocks : (List StackBasicBlock)]) : StackBasicBlock
+  (case block
+    [(stack-basic-block cmds (uncond-jmp index))
+     (case (dict-ref dict index)
+       [(just n)
+        (if (= n 1)
+            (case (list-ref blocks index)
+              [(nothing) (panic #"Bad index")]
+              [(just (stack-basic-block new-cmds new-term))
+               (inline-singlely-used-blocks/block
+                 (stack-basic-block (append cmds new-cmds) new-term)
+                 dict
+                 blocks)])
+            block)]
+       [(nothing) (panic #"Bad index")])]
+    [_ block]))
 
-  (define (follow-reachable-block-dict
-            [to-visit : (List Int)]
-            [reachable : (Dict Int Int)]
-            [dict : (Dict Int (List Int))]) : (Dict Int Int)
-    (case to-visit
-      [(empty) reachable]
-      [(cons index to-visit)
-       (case (dict-ref reachable index)
-         [(just n)
-          (follow-reachable-block-dict
-            to-visit
-            (dict-replace reachable index (+ 1 n))
-            dict)]
-         [(nothing)
-          (case (dict-ref dict index)
-            [(nothing) (panic #"Bad block index")]
-            [(just nodes)
-             (follow-reachable-block-dict
-               (append nodes to-visit)
-               (dict-add reachable index 1)
-               dict)])])]))
+(define (remove-unreachable-blocks [blocks : (List StackBasicBlock)]) : (List StackBasicBlock)
+  (let ([dict (compute-reachable-block-dict blocks 0 (make-dict =))])
+    (let ([reachable-dict (follow-reachable-block-dict (cons 0 (empty)) (make-dict =) dict)])
+      (let ([new-number-dict (compute-new-number-dict 0 (length blocks) 0 reachable-dict (make-dict =))])
+        (restructure-blocks blocks 0 new-number-dict)))))
 
-
-  (define (compute-reachable-block-dict
-            [blocks : (List StackBasicBlock)]
-            [index : Int]
-            [dict : (Dict Int (List Int))]) : (Dict Int (List Int))
-    (case blocks
-      [(empty) dict]
-      [(cons (stack-basic-block _ term) blocks)
-       (compute-reachable-block-dict
-         blocks
-         (+ 1 index)
-         (dict-add
-           dict
-           index
-           (case term
-             [(boolean-jmp true false) (cons true (cons false (empty)))]
-             [(uncond-jmp index) (cons index (empty))]
-             [(return _) (empty)]
-             [(tail-call num-args num-cleanup)
-              (empty)]
-             [(known-tail-call name num-args num-cleanup)
-              (empty)]
-             [(variant-switch cases) (cases->indices cases)])))]))
+(define (follow-reachable-block-dict
+          [to-visit : (List Int)]
+          [reachable : (Dict Int Int)]
+          [dict : (Dict Int (List Int))]) : (Dict Int Int)
+  (case to-visit
+    [(empty) reachable]
+    [(cons index to-visit)
+     (case (dict-ref reachable index)
+       [(just n)
+        (follow-reachable-block-dict
+          to-visit
+          (dict-replace reachable index (+ 1 n))
+          dict)]
+       [(nothing)
+        (case (dict-ref dict index)
+          [(nothing) (panic #"Bad block index")]
+          [(just nodes)
+           (follow-reachable-block-dict
+             (append nodes to-visit)
+             (dict-add reachable index 1)
+             dict)])])]))
 
 
-  (define (compute-new-number-dict
-            [old-index : Int]
-            [limit : Int]
-            [new-index : Int]
-            [reachable-dict : (Dict Int Int)]
-            [dict : (Dict Int Int)]) : (Dict Int Int)
-    (if (= old-index limit)
-        dict
-        (case (dict-ref reachable-dict old-index)
-          [(nothing)
-           (compute-new-number-dict
-             (+ 1 old-index)
-             limit
-             new-index
-             reachable-dict
-             dict)]
-          [(just _)
-           (compute-new-number-dict
-             (+ 1 old-index)
-             limit
-             (+ 1 new-index)
-             reachable-dict
-             (dict-add dict old-index new-index))])))
+(define (compute-reachable-block-dict
+          [blocks : (List StackBasicBlock)]
+          [index : Int]
+          [dict : (Dict Int (List Int))]) : (Dict Int (List Int))
+  (case blocks
+    [(empty) dict]
+    [(cons (stack-basic-block _ term) blocks)
+     (compute-reachable-block-dict
+       blocks
+       (+ 1 index)
+       (dict-add
+         dict
+         index
+         (case term
+           [(boolean-jmp true false) (cons true (cons false (empty)))]
+           [(uncond-jmp index) (cons index (empty))]
+           [(return _) (empty)]
+           [(tail-call num-args num-cleanup)
+            (empty)]
+           [(known-tail-call name num-args num-cleanup)
+            (empty)]
+           [(variant-switch cases) (cases->indices cases)])))]))
 
 
-  (define (restructure-blocks
-            [blocks : (List StackBasicBlock)] [index : Int] [dict : (Dict Int Int)])
-    : (List StackBasicBlock)
-    (case blocks
-      [(empty) (empty)]
-      [(cons (stack-basic-block code term) blocks)
-       (case (dict-ref dict index)
-         [(nothing) (restructure-blocks blocks (+ 1 index) dict)]
-         [(just _)
-          (cons (stack-basic-block code (restructure-term term dict))
-                (restructure-blocks blocks (+ 1 index) dict))])]))
+(define (compute-new-number-dict
+          [old-index : Int]
+          [limit : Int]
+          [new-index : Int]
+          [reachable-dict : (Dict Int Int)]
+          [dict : (Dict Int Int)]) : (Dict Int Int)
+  (if (= old-index limit)
+      dict
+      (case (dict-ref reachable-dict old-index)
+        [(nothing)
+         (compute-new-number-dict
+           (+ 1 old-index)
+           limit
+           new-index
+           reachable-dict
+           dict)]
+        [(just _)
+         (compute-new-number-dict
+           (+ 1 old-index)
+           limit
+           (+ 1 new-index)
+           reachable-dict
+           (dict-add dict old-index new-index))])))
 
-  (define (restructure-term [term : StackTerminal] [dict : (Dict Int Int)]) : StackTerminal
-    (case term
-      [(boolean-jmp true false)
-       (boolean-jmp (restructure-index true dict) (restructure-index false dict))]
-      [(uncond-jmp index) (uncond-jmp (restructure-index index dict))]
-      [(return _) term]
-      [(tail-call _ _) term]
-      [(known-tail-call _ _ _) term]
-      [(variant-switch cases) (variant-switch (restructure-cases cases dict))]))
 
-  (define (restructure-cases [cases : VariantCases] [dict : (Dict Int Int)]) : VariantCases
-    (case cases
-      [(no-catch-all-case) cases]
-      [(catch-all-case index) (catch-all-case (restructure-index index dict))]
-      [(variant-case tag index cases)
-       (variant-case
-         tag
-         (restructure-index index dict)
-         (restructure-cases cases dict))]))
+(define (restructure-blocks
+          [blocks : (List StackBasicBlock)] [index : Int] [dict : (Dict Int Int)])
+  : (List StackBasicBlock)
+  (case blocks
+    [(empty) (empty)]
+    [(cons (stack-basic-block code term) blocks)
+     (case (dict-ref dict index)
+       [(nothing) (restructure-blocks blocks (+ 1 index) dict)]
+       [(just _)
+        (cons (stack-basic-block code (restructure-term term dict))
+              (restructure-blocks blocks (+ 1 index) dict))])]))
 
-  (define (restructure-index [index : Int] [dict : (Dict Int Int)]) : Int
-    (case (dict-ref dict index)
-      [(nothing) (panic #"bad index")]
-      [(just new-index) new-index]))
+(define (restructure-term [term : StackTerminal] [dict : (Dict Int Int)]) : StackTerminal
+  (case term
+    [(boolean-jmp true false)
+     (boolean-jmp (restructure-index true dict) (restructure-index false dict))]
+    [(uncond-jmp index) (uncond-jmp (restructure-index index dict))]
+    [(return _) term]
+    [(tail-call _ _) term]
+    [(known-tail-call _ _ _) term]
+    [(variant-switch cases) (variant-switch (restructure-cases cases dict))]))
 
-  (define (cases->indices [cases : VariantCases]) : (List Int)
-    (case cases
-      [(no-catch-all-case) (empty)]
-      [(catch-all-case index) (cons index (empty))]
-      [(variant-case _ index cases) (cons index (cases->indices cases))]))
+(define (restructure-cases [cases : VariantCases] [dict : (Dict Int Int)]) : VariantCases
+  (case cases
+    [(no-catch-all-case) cases]
+    [(catch-all-case index) (catch-all-case (restructure-index index dict))]
+    [(variant-case tag index cases)
+     (variant-case
+       tag
+       (restructure-index index dict)
+       (restructure-cases cases dict))]))
 
-  (define (peephole-optimize-blocks [known-funcs : (Dict Bytes Bytes)] [blocks : (List StackBasicBlock)]) : (List StackBasicBlock)
-    (map (lambda ([block : StackBasicBlock])
-           (peephole-optimize-block known-funcs block))
-         blocks))
+(define (restructure-index [index : Int] [dict : (Dict Int Int)]) : Int
+  (case (dict-ref dict index)
+    [(nothing) (panic #"bad index")]
+    [(just new-index) new-index]))
 
-  (define (peephole-optimize-block
-            [known-funcs : (Dict Bytes Bytes)]
-            [block : StackBasicBlock]) : StackBasicBlock
-    (case block
-      [(stack-basic-block cmds term)
-       (peephole-optimize-commands known-funcs (empty) cmds term)]))
+(define (cases->indices [cases : VariantCases]) : (List Int)
+  (case cases
+    [(no-catch-all-case) (empty)]
+    [(catch-all-case index) (cons index (empty))]
+    [(variant-case _ index cases) (cons index (cases->indices cases))]))
 
-  (define (peephole-optimize-commands
-            [known-funcs : (Dict Bytes Bytes)]
-            [rev-cmds : (List StackCmd)] [cmds : (List StackCmd)]
-            [term : StackTerminal])
-    : StackBasicBlock
-    (case (tuple2 rev-cmds cmds)
-      [(tuple2 (cons (pop-cmd) (cons (variant-ref-cmd _ _) rev-cmds)) cmds)
-       (peephole-optimize-commands known-funcs rev-cmds (cons (pop-cmd) cmds) term)]
-      [(tuple2 (cons (pop-cmd) (cons (dup-cmd 0) rev-cmds)) cmds)
-       (peephole-optimize-commands known-funcs rev-cmds cmds term)]
-      [(tuple2 (cons (fun-call-cmd n) (cons (load-global-cmd name) rev-cmds*)) cmds*)
-       (case (dict-ref known-funcs name)
-         [(just fun-name)
-          (peephole-optimize-commands known-funcs rev-cmds*
-                                      (cons (known-fun-call-cmd fun-name n) cmds*) term)]
-         [(nothing)
-          (peephole-optimize-commands/next known-funcs rev-cmds cmds term)])]
-      [(tuple2 (cons (fun-call-cmd n) rev-cmds*) (empty))
-       (case term
-         [(return cleanup)
-          (if (<= n 6)
-              (peephole-optimize-commands known-funcs rev-cmds* cmds (tail-call n cleanup))
-              (peephole-optimize-commands/next known-funcs rev-cmds cmds term))]
-         [_
-          (peephole-optimize-commands/next known-funcs rev-cmds cmds term)])]
-      [(tuple2 (cons (known-fun-call-cmd name n) rev-cmds*) (empty))
-       (case term
-         [(return cleanup)
-          (if (<= n 6)
-              (peephole-optimize-commands known-funcs rev-cmds* cmds (known-tail-call name n cleanup))
-              (peephole-optimize-commands/next known-funcs rev-cmds cmds term))]
-         [_
-          (peephole-optimize-commands/next known-funcs rev-cmds cmds term)])]
-      [(tuple2 (cons (pop-cmd) (cons (swap-cmd) rev-cmds*)) (empty))
-       (case term
-         [(return cleanup)
-          (peephole-optimize-commands known-funcs rev-cmds* (empty) (return (+ 1 cleanup)))]
-         [_
-          (peephole-optimize-commands/next known-funcs rev-cmds cmds term)])]
-      [_
-       (peephole-optimize-commands/next known-funcs rev-cmds cmds term)]))
+(define (peephole-optimize-blocks [known-funcs : (Dict Bytes Bytes)] [blocks : (List StackBasicBlock)]) : (List StackBasicBlock)
+  (map (lambda ([block : StackBasicBlock])
+         (peephole-optimize-block known-funcs block))
+       blocks))
 
-  (define (peephole-optimize-commands/next
-            [known-funcs : (Dict Bytes Bytes)]
-            [rev-cmds : (List StackCmd)]
-            [cmds : (List StackCmd)]
-            [term : StackTerminal])
-    : StackBasicBlock
-    (case cmds
-      [(cons cmd cmds)
-       (peephole-optimize-commands known-funcs (cons cmd rev-cmds) cmds term)]
-      [(empty)
-       (stack-basic-block (reverse rev-cmds) term)])))
+(define (peephole-optimize-block
+          [known-funcs : (Dict Bytes Bytes)]
+          [block : StackBasicBlock]) : StackBasicBlock
+  (case block
+    [(stack-basic-block cmds term)
+     (peephole-optimize-commands known-funcs (empty) cmds term)]))
+
+(define (peephole-optimize-commands
+          [known-funcs : (Dict Bytes Bytes)]
+          [rev-cmds : (List StackCmd)] [cmds : (List StackCmd)]
+          [term : StackTerminal])
+  : StackBasicBlock
+  (case (tuple2 rev-cmds cmds)
+    [(tuple2 (cons (pop-cmd) (cons (variant-ref-cmd _ _) rev-cmds)) cmds)
+     (peephole-optimize-commands known-funcs rev-cmds (cons (pop-cmd) cmds) term)]
+    [(tuple2 (cons (pop-cmd) (cons (dup-cmd 0) rev-cmds)) cmds)
+     (peephole-optimize-commands known-funcs rev-cmds cmds term)]
+    [(tuple2 (cons (fun-call-cmd n) (cons (load-global-cmd name) rev-cmds*)) cmds*)
+     (case (dict-ref known-funcs name)
+       [(just fun-name)
+        (peephole-optimize-commands known-funcs rev-cmds*
+                                    (cons (known-fun-call-cmd fun-name n) cmds*) term)]
+       [(nothing)
+        (peephole-optimize-commands/next known-funcs rev-cmds cmds term)])]
+    [(tuple2 (cons (fun-call-cmd n) rev-cmds*) (empty))
+     (case term
+       [(return cleanup)
+        (if (<= n 6)
+            (peephole-optimize-commands known-funcs rev-cmds* cmds (tail-call n cleanup))
+            (peephole-optimize-commands/next known-funcs rev-cmds cmds term))]
+       [_
+        (peephole-optimize-commands/next known-funcs rev-cmds cmds term)])]
+    [(tuple2 (cons (known-fun-call-cmd name n) rev-cmds*) (empty))
+     (case term
+       [(return cleanup)
+        (if (<= n 6)
+            (peephole-optimize-commands known-funcs rev-cmds* cmds (known-tail-call name n cleanup))
+            (peephole-optimize-commands/next known-funcs rev-cmds cmds term))]
+       [_
+        (peephole-optimize-commands/next known-funcs rev-cmds cmds term)])]
+    [(tuple2 (cons (pop-cmd) (cons (swap-cmd) rev-cmds*)) (empty))
+     (case term
+       [(return cleanup)
+        (peephole-optimize-commands known-funcs rev-cmds* (empty) (return (+ 1 cleanup)))]
+       [_
+        (peephole-optimize-commands/next known-funcs rev-cmds cmds term)])]
+    [_
+     (peephole-optimize-commands/next known-funcs rev-cmds cmds term)]))
+
+(define (peephole-optimize-commands/next
+          [known-funcs : (Dict Bytes Bytes)]
+          [rev-cmds : (List StackCmd)]
+          [cmds : (List StackCmd)]
+          [term : StackTerminal])
+  : StackBasicBlock
+  (case cmds
+    [(cons cmd cmds)
+     (peephole-optimize-commands known-funcs (cons cmd rev-cmds) cmds term)]
+    [(empty)
+     (stack-basic-block (reverse rev-cmds) term)]))

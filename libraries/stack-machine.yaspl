@@ -1,351 +1,351 @@
-(module stack-machine
-  (import
-    (bytes bytes-append bytes=?)
-    (join-list
-      #:types (JoinList)
-      #:values (append-jl cons-jl empty-jl jl->list snoc-jl)
-      #:patterns ())
-    (list
-      #:types (List)
-      #:values (cons empty)
-      #:patterns (cons empty))
-    (prim
-      #:types (Boolean Bytes Int Void)
-      #:values (+ - = panic void)
-      #:patterns ())
-    (tuples
-      #:types ()
-      #:values (tuple2)
-      #:patterns (tuple2)))
-  (export
-    #:types (StackFunction StackBasicBlock StackCmd StackTerminal BinMathOp BinLogicMathOp TopLevelObject
-             VariantCases GenState AbstractStack)
-    #:values (stack-function-blocks stack-basic-block-cmds
-              stack-function stack-basic-block gen-state-cmds gen-state
-              stack-basic-block-terminal
-              initial-variables return add-int-literal add-boolean-literal
+#:module stack-machine
+(import
+  (bytes bytes-append bytes=?)
+  (join-list
+    #:types (JoinList)
+    #:values (append-jl cons-jl empty-jl jl->list snoc-jl)
+    #:patterns ())
+  (list
+    #:types (List)
+    #:values (cons empty)
+    #:patterns (cons empty))
+  (prim
+    #:types (Boolean Bytes Int Void)
+    #:values (+ - = panic void)
+    #:patterns ())
+  (tuples
+    #:types ()
+    #:values (tuple2)
+    #:patterns (tuple2)))
+(export
+  #:types (StackFunction StackBasicBlock StackCmd StackTerminal BinMathOp BinLogicMathOp TopLevelObject
+           VariantCases GenState AbstractStack)
+  #:values (stack-function-blocks stack-basic-block-cmds
+            stack-function stack-basic-block gen-state-cmds gen-state
+            stack-basic-block-terminal
+            initial-variables return add-int-literal add-boolean-literal
+            tail-call known-tail-call
+            name-temporary unscope-variable variable-ref load-free-var
+            call-function create-closure load-global remove-temporaries boolean-jmp uncond-jmp
+            tmp-slot ignore-value alloc-variant-cmd dup-cmd
+            variant-ref-cmd variant-switch no-catch-all-case
+            dup-temporary pop-cmd boolean-lit-cmd catch-all-case variant-case
+            variant-ref var-slot swap-cmd assert-stack-equal? add-bytes-cmp add-int-cmp
+            bin-math-cmd bin-add-op bin-sub-op bin-mult-op bin-quotient-op bin-remainder-op
+            bin-bitwise-and-op bin-bitwise-ior-op
+            bin-logical-shift-left-op bin-logical-shift-right-op
+            bin-logic-math-cmd less-than-op less-than-or-equal-op equal-op greater-than-or-equal-op
+            greater-than-op make-array-cmd array-length-cmd array-ref-cmd array-set!-cmd
+            make-array-from-stack-cmd make-varargs-array known-fun-call-cmd
+            function-tlo trivial-closure-tlo bytes-tlo)
+  #:patterns (num-lit-cmd boolean-lit-cmd bytes-cmp-cmd
+              create-closure-cmd load-global-cmd dup-cmd dup-free-var-cmd alloc-variant-cmd
+              variant-ref-cmd bin-math-cmd bin-logic-math-cmd make-array-from-stack-cmd
+              make-array-cmd array-length-cmd array-ref-cmd array-set!-cmd pop-cmd swap-cmd
+              fun-call-cmd known-fun-call-cmd bin-add-op bin-sub-op bin-mult-op bin-quotient-op
+              bin-remainder-op bin-bitwise-and-op bin-bitwise-ior-op bin-logical-shift-left-op
+              bin-logical-shift-right-op
+              less-than-op less-than-or-equal-op equal-op greater-than-or-equal-op
+              greater-than-op tmp-slot return-address-slot closure-slot var-slot
+              empty-abstract-stack boolean-jmp uncond-jmp variant-switch return
               tail-call known-tail-call
-              name-temporary unscope-variable variable-ref load-free-var
-              call-function create-closure load-global remove-temporaries boolean-jmp uncond-jmp
-              tmp-slot ignore-value alloc-variant-cmd dup-cmd
-              variant-ref-cmd variant-switch no-catch-all-case
-              dup-temporary pop-cmd boolean-lit-cmd catch-all-case variant-case
-              variant-ref var-slot swap-cmd assert-stack-equal? add-bytes-cmp add-int-cmp
-              bin-math-cmd bin-add-op bin-sub-op bin-mult-op bin-quotient-op bin-remainder-op
-              bin-bitwise-and-op bin-bitwise-ior-op
-              bin-logical-shift-left-op bin-logical-shift-right-op
-              bin-logic-math-cmd less-than-op less-than-or-equal-op equal-op greater-than-or-equal-op
-              greater-than-op make-array-cmd array-length-cmd array-ref-cmd array-set!-cmd
-              make-array-from-stack-cmd make-varargs-array known-fun-call-cmd
-              function-tlo trivial-closure-tlo bytes-tlo)
-    #:patterns (num-lit-cmd boolean-lit-cmd bytes-cmp-cmd
-                create-closure-cmd load-global-cmd dup-cmd dup-free-var-cmd alloc-variant-cmd
-                variant-ref-cmd bin-math-cmd bin-logic-math-cmd make-array-from-stack-cmd
-                make-array-cmd array-length-cmd array-ref-cmd array-set!-cmd pop-cmd swap-cmd
-                fun-call-cmd known-fun-call-cmd bin-add-op bin-sub-op bin-mult-op bin-quotient-op
-                bin-remainder-op bin-bitwise-and-op bin-bitwise-ior-op bin-logical-shift-left-op
-                bin-logical-shift-right-op
-                less-than-op less-than-or-equal-op equal-op greater-than-or-equal-op
-                greater-than-op tmp-slot return-address-slot closure-slot var-slot
-                empty-abstract-stack boolean-jmp uncond-jmp variant-switch return
-                tail-call known-tail-call
-                no-catch-all-case
-                catch-all-case variant-case stack-basic-block stack-function function-tlo bytes-tlo
-                trivial-closure-tlo gen-state))
-  (types
-    (define-type StackCmd
-      (num-lit-cmd [v : Int])
-      (boolean-lit-cmd [v : Boolean])
-      (bytes-cmp-cmd)
-      (create-closure-cmd [num-free-vars : Int])
-      (load-global-cmd [name : Bytes])
-      (dup-cmd [offset : Int])
-      (dup-free-var-cmd [offset : Int] [index : Int])
-      (alloc-variant-cmd [tag : Int] [fields : Int])
-      (variant-ref-cmd [tag : Int] [field : Int])
-      (bin-math-cmd [op : BinMathOp])
-      (bin-logic-math-cmd [op : BinLogicMathOp])
-      (make-array-from-stack-cmd [num-args : Int])
-      (make-array-cmd)
-      (array-length-cmd)
-      (array-ref-cmd)
-      (array-set!-cmd)
-      (pop-cmd)
-      (swap-cmd)
-      (fun-call-cmd [num-args : Int])
-      (known-fun-call-cmd [name : Bytes] [num-args : Int]))
-    (define-type BinMathOp
-      (bin-add-op)
-      (bin-sub-op)
-      (bin-mult-op)
-      (bin-quotient-op)
-      (bin-remainder-op)
-      (bin-bitwise-and-op)
-      (bin-bitwise-ior-op)
-      (bin-logical-shift-left-op)
-      (bin-logical-shift-right-op))
-    (define-type BinLogicMathOp
-      (less-than-op)
-      (less-than-or-equal-op)
-      (equal-op)
-      (greater-than-or-equal-op)
-      (greater-than-op))
+              no-catch-all-case
+              catch-all-case variant-case stack-basic-block stack-function function-tlo bytes-tlo
+              trivial-closure-tlo gen-state))
+(types
+  (define-type StackCmd
+    (num-lit-cmd [v : Int])
+    (boolean-lit-cmd [v : Boolean])
+    (bytes-cmp-cmd)
+    (create-closure-cmd [num-free-vars : Int])
+    (load-global-cmd [name : Bytes])
+    (dup-cmd [offset : Int])
+    (dup-free-var-cmd [offset : Int] [index : Int])
+    (alloc-variant-cmd [tag : Int] [fields : Int])
+    (variant-ref-cmd [tag : Int] [field : Int])
+    (bin-math-cmd [op : BinMathOp])
+    (bin-logic-math-cmd [op : BinLogicMathOp])
+    (make-array-from-stack-cmd [num-args : Int])
+    (make-array-cmd)
+    (array-length-cmd)
+    (array-ref-cmd)
+    (array-set!-cmd)
+    (pop-cmd)
+    (swap-cmd)
+    (fun-call-cmd [num-args : Int])
+    (known-fun-call-cmd [name : Bytes] [num-args : Int]))
+  (define-type BinMathOp
+    (bin-add-op)
+    (bin-sub-op)
+    (bin-mult-op)
+    (bin-quotient-op)
+    (bin-remainder-op)
+    (bin-bitwise-and-op)
+    (bin-bitwise-ior-op)
+    (bin-logical-shift-left-op)
+    (bin-logical-shift-right-op))
+  (define-type BinLogicMathOp
+    (less-than-op)
+    (less-than-or-equal-op)
+    (equal-op)
+    (greater-than-or-equal-op)
+    (greater-than-op))
 
-    (define-type AbstractStack
-      (tmp-slot [stack : AbstractStack])
-      (return-address-slot [stack : AbstractStack])
-      (closure-slot [stack : AbstractStack])
-      (var-slot [var-name : Bytes] [stack : AbstractStack])
-      (empty-abstract-stack))
-    (define-type StackTerminal
-      (boolean-jmp [true-index : Int] [false-index : Int])
-      (uncond-jmp [index : Int])
-      (variant-switch [cases : VariantCases])
-      (return [num-args : Int])
-      (tail-call [num-args : Int] [num-cleanup : Int])
-      (known-tail-call [name : Bytes] [num-args : Int] [num-cleanup : Int]))
-    (define-type VariantCases
-      (no-catch-all-case)
-      (catch-all-case [index : Int])
-      (variant-case [tag : Int] [index : Int] [cases : VariantCases]))
-    (define-type StackBasicBlock
-      (stack-basic-block [cmds : (List StackCmd)] [terminal : StackTerminal]))
-    (define-type StackFunction
-      (stack-function [name : Bytes] [num-args : Int] [blocks : (List StackBasicBlock)]))
-    (define-type TopLevelObject
-      (function-tlo [v : StackFunction])
-      (bytes-tlo [name : Bytes] [value : Bytes])
-      (trivial-closure-tlo [name : Bytes] [fun-name : Bytes]))
+  (define-type AbstractStack
+    (tmp-slot [stack : AbstractStack])
+    (return-address-slot [stack : AbstractStack])
+    (closure-slot [stack : AbstractStack])
+    (var-slot [var-name : Bytes] [stack : AbstractStack])
+    (empty-abstract-stack))
+  (define-type StackTerminal
+    (boolean-jmp [true-index : Int] [false-index : Int])
+    (uncond-jmp [index : Int])
+    (variant-switch [cases : VariantCases])
+    (return [num-args : Int])
+    (tail-call [num-args : Int] [num-cleanup : Int])
+    (known-tail-call [name : Bytes] [num-args : Int] [num-cleanup : Int]))
+  (define-type VariantCases
+    (no-catch-all-case)
+    (catch-all-case [index : Int])
+    (variant-case [tag : Int] [index : Int] [cases : VariantCases]))
+  (define-type StackBasicBlock
+    (stack-basic-block [cmds : (List StackCmd)] [terminal : StackTerminal]))
+  (define-type StackFunction
+    (stack-function [name : Bytes] [num-args : Int] [blocks : (List StackBasicBlock)]))
+  (define-type TopLevelObject
+    (function-tlo [v : StackFunction])
+    (bytes-tlo [name : Bytes] [value : Bytes])
+    (trivial-closure-tlo [name : Bytes] [fun-name : Bytes]))
 
-    (define-type GenState
-      (gen-state [stack : AbstractStack]
-                 [cmds : (JoinList StackCmd)]
-                 [label-counter : Int]
-                 [blocks : (JoinList StackBasicBlock)])))
+  (define-type GenState
+    (gen-state [stack : AbstractStack]
+               [cmds : (JoinList StackCmd)]
+               [label-counter : Int]
+               [blocks : (JoinList StackBasicBlock)])))
 
 
-  (define (unscope-variable [var : Bytes] [state : GenState]) : GenState
-    (case state
-      [(gen-state stack cmds label blocks)
-       (gen-state
-         (tmp-slot (remove-variable var (remove-temporaries 1 stack)))
-         (snoc-jl (snoc-jl cmds (swap-cmd)) (pop-cmd))
-         label
-         blocks)]))
-  (define (name-temporary [var : Bytes] [state : GenState]) : GenState
-    (case state
-      [(gen-state stack cmds label blocks)
-       (gen-state
-         (var-slot var (remove-temporaries 1 stack))
-         cmds
-         label
-         blocks)]))
-  (define (variable-ref [var : Bytes] [state : GenState]) : GenState
-    (case state
-      [(gen-state stack cmds label blocks)
-       (gen-state
-         (tmp-slot stack)
-         (snoc-jl cmds (dup-cmd (stack-index var stack)))
-         label
-         blocks)]))
+(define (unscope-variable [var : Bytes] [state : GenState]) : GenState
+  (case state
+    [(gen-state stack cmds label blocks)
+     (gen-state
+       (tmp-slot (remove-variable var (remove-temporaries 1 stack)))
+       (snoc-jl (snoc-jl cmds (swap-cmd)) (pop-cmd))
+       label
+       blocks)]))
+(define (name-temporary [var : Bytes] [state : GenState]) : GenState
+  (case state
+    [(gen-state stack cmds label blocks)
+     (gen-state
+       (var-slot var (remove-temporaries 1 stack))
+       cmds
+       label
+       blocks)]))
+(define (variable-ref [var : Bytes] [state : GenState]) : GenState
+  (case state
+    [(gen-state stack cmds label blocks)
+     (gen-state
+       (tmp-slot stack)
+       (snoc-jl cmds (dup-cmd (stack-index var stack)))
+       label
+       blocks)]))
 
-  (define (dup-temporary [state : GenState]) : GenState
-    (case state
-      [(gen-state stack cmds label blocks)
-       (gen-state
-         (tmp-slot stack)
-         (snoc-jl cmds (dup-cmd 0))
-         label
-         blocks)]))
+(define (dup-temporary [state : GenState]) : GenState
+  (case state
+    [(gen-state stack cmds label blocks)
+     (gen-state
+       (tmp-slot stack)
+       (snoc-jl cmds (dup-cmd 0))
+       label
+       blocks)]))
 
-  (define (variant-ref [tag : Int] [field : Int] [state : GenState]) : GenState
-    (case state
-      [(gen-state stack cmds label blocks)
-       (gen-state
-         (tmp-slot (remove-temporaries 1 stack))
-         (snoc-jl cmds (variant-ref-cmd tag field))
-         label
-         blocks)]))
+(define (variant-ref [tag : Int] [field : Int] [state : GenState]) : GenState
+  (case state
+    [(gen-state stack cmds label blocks)
+     (gen-state
+       (tmp-slot (remove-temporaries 1 stack))
+       (snoc-jl cmds (variant-ref-cmd tag field))
+       label
+       blocks)]))
 
-  (define (add-bytes-cmp [state : GenState]) : GenState
-    (case state
-      [(gen-state stack cmds label blocks)
-       (gen-state
-         (tmp-slot (remove-temporaries 2 stack))
-         (snoc-jl cmds (bytes-cmp-cmd))
-         label
-         blocks)]))
+(define (add-bytes-cmp [state : GenState]) : GenState
+  (case state
+    [(gen-state stack cmds label blocks)
+     (gen-state
+       (tmp-slot (remove-temporaries 2 stack))
+       (snoc-jl cmds (bytes-cmp-cmd))
+       label
+       blocks)]))
 
-  (define (add-int-cmp [state : GenState]) : GenState
-    (case state
-      [(gen-state stack cmds label blocks)
-       (gen-state
-         (tmp-slot (remove-temporaries 2 stack))
-         (snoc-jl cmds (bin-logic-math-cmd (equal-op)))
-         label
-         blocks)]))
+(define (add-int-cmp [state : GenState]) : GenState
+  (case state
+    [(gen-state stack cmds label blocks)
+     (gen-state
+       (tmp-slot (remove-temporaries 2 stack))
+       (snoc-jl cmds (bin-logic-math-cmd (equal-op)))
+       label
+       blocks)]))
 
-  (define (create-closure [num-free-vars : Int] [state : GenState]) : GenState
-    (case state
-      [(gen-state stack cmds label blocks)
-       (gen-state
-         (tmp-slot (remove-temporaries (+ 1 num-free-vars) stack))
-         (snoc-jl cmds (create-closure-cmd num-free-vars))
-         label
-         blocks)]))
-
-
-  (define (load-global [name : Bytes] [state : GenState]) : GenState
-    (case state
-      [(gen-state stack cmds label blocks)
-       (gen-state
-         (tmp-slot stack)
-         (snoc-jl cmds (load-global-cmd name))
-         label
-         blocks)]))
-
-  (define (load-free-var [index : Int] [state : GenState]) : GenState
-    (case state
-      [(gen-state stack cmds label blocks)
-       (gen-state
-         (tmp-slot stack)
-         (snoc-jl cmds (dup-free-var-cmd (stack-index/closure stack) index))
-         label
-         blocks)]))
-
-  (define (call-function [num-args : Int] [state : GenState]) : GenState
-    (case state
-      [(gen-state stack cmds label blocks)
-       (gen-state
-         (tmp-slot (remove-temporaries (+ 1 num-args) stack))
-         (snoc-jl cmds (fun-call-cmd num-args))
-         label
-         blocks)]))
-
-  (define (ignore-value [state : GenState]) : GenState
-    (case state
-      [(gen-state stack cmds label blocks)
-       (gen-state
-         (remove-temporaries 1 stack)
-         (snoc-jl cmds (pop-cmd))
-         label
-         blocks)]))
-
-  (define (add-int-literal [v : Int] [state : GenState]) : GenState
-    (case state
-      [(gen-state stack cmds label blocks)
-       (gen-state
-         (tmp-slot stack)
-         (snoc-jl cmds (num-lit-cmd v))
-         label
-         blocks)]))
-
-  (define (add-boolean-literal [v : Boolean] [state : GenState]) : GenState
-    (case state
-      [(gen-state stack cmds label blocks)
-       (gen-state
-         (tmp-slot stack)
-         (snoc-jl cmds (boolean-lit-cmd v))
-         label
-         blocks)]))
-
-  (define (remove-variable [var : Bytes] [stack : AbstractStack]) : AbstractStack
-    (case stack
-      [(var-slot v stack)
-       (if (bytes=? v var)
-           stack
-           (panic (bytes-append (cons #"Unexpected variable on stack when removing: "
-                                      (cons var (empty))))))]
-      [(tmp-slot stack)
-       (panic (bytes-append (cons #"Unexpected temporary on stack when removing: "
-                                      (cons var (empty)))))]
-      [(return-address-slot stack) (panic #"Unexpected return address on stack")]
-      [(closure-slot stack) (panic #"Unexpected closure on stack")]
-      [(empty-abstract-stack) (panic #"Unexpected end of stack")]))
-
-  (define (remove-temporaries [n : Int] [stack : AbstractStack]) : AbstractStack
-    (if (= 0 n)
-        stack
-        (case stack
-          [(var-slot v stack) (panic #"Unexpected variable on stack")]
-          [(tmp-slot stack) (remove-temporaries (- n 1) stack)]
-          [(return-address-slot stack) (panic #"Unexpected return address on stack")]
-          [(closure-slot stack) (panic #"Unexpected closure on stack")]
-          [(empty-abstract-stack) (panic #"Unexpected end of stack")])))
-
-  (define (initial-variables [vars : (List Bytes)]) : AbstractStack
-    (initial-variables-helper vars (return-address-slot (closure-slot (empty-abstract-stack)))))
-
-  (define (initial-variables-helper [vars : (List Bytes)] [stack : AbstractStack]) : AbstractStack
-    (case vars
-      [(empty) stack]
-      [(cons var vars) (initial-variables-helper vars (var-slot var stack))]))
+(define (create-closure [num-free-vars : Int] [state : GenState]) : GenState
+  (case state
+    [(gen-state stack cmds label blocks)
+     (gen-state
+       (tmp-slot (remove-temporaries (+ 1 num-free-vars) stack))
+       (snoc-jl cmds (create-closure-cmd num-free-vars))
+       label
+       blocks)]))
 
 
-  (define (stack-index/closure [stack : AbstractStack]) : Int
-    (stack-index/closure-helper stack 0))
+(define (load-global [name : Bytes] [state : GenState]) : GenState
+  (case state
+    [(gen-state stack cmds label blocks)
+     (gen-state
+       (tmp-slot stack)
+       (snoc-jl cmds (load-global-cmd name))
+       label
+       blocks)]))
 
-  (define (stack-index/closure-helper [stack : AbstractStack] [offset : Int]) : Int
-    (case stack
-      [(empty-abstract-stack) (panic #"Missing closure slot")]
-      [(return-address-slot stack) (stack-index/closure-helper stack (+ 1 offset))]
-      [(closure-slot stack) offset]
-      [(tmp-slot stack) (stack-index/closure-helper stack (+ 1 offset))]
-      [(var-slot slot-var stack) (stack-index/closure-helper stack (+ 1 offset))]))
+(define (load-free-var [index : Int] [state : GenState]) : GenState
+  (case state
+    [(gen-state stack cmds label blocks)
+     (gen-state
+       (tmp-slot stack)
+       (snoc-jl cmds (dup-free-var-cmd (stack-index/closure stack) index))
+       label
+       blocks)]))
+
+(define (call-function [num-args : Int] [state : GenState]) : GenState
+  (case state
+    [(gen-state stack cmds label blocks)
+     (gen-state
+       (tmp-slot (remove-temporaries (+ 1 num-args) stack))
+       (snoc-jl cmds (fun-call-cmd num-args))
+       label
+       blocks)]))
+
+(define (ignore-value [state : GenState]) : GenState
+  (case state
+    [(gen-state stack cmds label blocks)
+     (gen-state
+       (remove-temporaries 1 stack)
+       (snoc-jl cmds (pop-cmd))
+       label
+       blocks)]))
+
+(define (add-int-literal [v : Int] [state : GenState]) : GenState
+  (case state
+    [(gen-state stack cmds label blocks)
+     (gen-state
+       (tmp-slot stack)
+       (snoc-jl cmds (num-lit-cmd v))
+       label
+       blocks)]))
+
+(define (add-boolean-literal [v : Boolean] [state : GenState]) : GenState
+  (case state
+    [(gen-state stack cmds label blocks)
+     (gen-state
+       (tmp-slot stack)
+       (snoc-jl cmds (boolean-lit-cmd v))
+       label
+       blocks)]))
+
+(define (remove-variable [var : Bytes] [stack : AbstractStack]) : AbstractStack
+  (case stack
+    [(var-slot v stack)
+     (if (bytes=? v var)
+         stack
+         (panic (bytes-append (cons #"Unexpected variable on stack when removing: "
+                                    (cons var (empty))))))]
+    [(tmp-slot stack)
+     (panic (bytes-append (cons #"Unexpected temporary on stack when removing: "
+                                    (cons var (empty)))))]
+    [(return-address-slot stack) (panic #"Unexpected return address on stack")]
+    [(closure-slot stack) (panic #"Unexpected closure on stack")]
+    [(empty-abstract-stack) (panic #"Unexpected end of stack")]))
+
+(define (remove-temporaries [n : Int] [stack : AbstractStack]) : AbstractStack
+  (if (= 0 n)
+      stack
+      (case stack
+        [(var-slot v stack) (panic #"Unexpected variable on stack")]
+        [(tmp-slot stack) (remove-temporaries (- n 1) stack)]
+        [(return-address-slot stack) (panic #"Unexpected return address on stack")]
+        [(closure-slot stack) (panic #"Unexpected closure on stack")]
+        [(empty-abstract-stack) (panic #"Unexpected end of stack")])))
+
+(define (initial-variables [vars : (List Bytes)]) : AbstractStack
+  (initial-variables-helper vars (return-address-slot (closure-slot (empty-abstract-stack)))))
+
+(define (initial-variables-helper [vars : (List Bytes)] [stack : AbstractStack]) : AbstractStack
+  (case vars
+    [(empty) stack]
+    [(cons var vars) (initial-variables-helper vars (var-slot var stack))]))
 
 
-  (define (stack-index [var : Bytes] [stack : AbstractStack]) : Int
-    (stack-index-helper var stack 0))
+(define (stack-index/closure [stack : AbstractStack]) : Int
+  (stack-index/closure-helper stack 0))
 
-  (define (stack-index-helper [var : Bytes] [stack : AbstractStack] [offset : Int]) : Int
-    (case stack
-      [(empty-abstract-stack) (panic #"Unbound variable")]
-      [(return-address-slot stack) (stack-index-helper var stack (+ 1 offset))]
-      [(closure-slot stack) (stack-index-helper var stack (+ 1 offset))]
-      [(tmp-slot stack) (stack-index-helper var stack (+ 1 offset))]
-      [(var-slot slot-var stack)
-       (if (bytes=? var slot-var)
-           offset
-           (stack-index-helper var stack (+ 1 offset)))]))
-
-  (define (assert-stack-equal? [stack1 : AbstractStack] [stack2 : AbstractStack]) : Void
-    (if (stack-equal? stack1 stack2)
-        (void)
-        (panic
-          (bytes-append
-            (jl->list
-              (append-jl
-                (cons-jl #"Unmatched stacks: \n" (stack->bytes-jl stack1))
-                (cons-jl #"\n" (stack->bytes-jl stack2))))))))
-
-  (define (stack-equal? [stack1 : AbstractStack] [stack2 : AbstractStack]) : Boolean
-    (case (tuple2 stack1 stack2)
-      [(tuple2 (tmp-slot stack1) (tmp-slot stack2)) (stack-equal? stack1 stack2)]
-      [(tuple2 (return-address-slot stack1) (return-address-slot stack2)) (stack-equal? stack1 stack2)]
-      [(tuple2 (closure-slot stack1) (closure-slot stack2)) (stack-equal? stack1 stack2)]
-      [(tuple2 (var-slot v1 stack1) (var-slot v2 stack2))
-       (if (bytes=? v1 v2)
-           (stack-equal? stack1 stack2)
-           #f)]
-      [(tuple2 (empty-abstract-stack) (empty-abstract-stack)) #t]
-      [(tuple2 stack1 stack2) #f]))
+(define (stack-index/closure-helper [stack : AbstractStack] [offset : Int]) : Int
+  (case stack
+    [(empty-abstract-stack) (panic #"Missing closure slot")]
+    [(return-address-slot stack) (stack-index/closure-helper stack (+ 1 offset))]
+    [(closure-slot stack) offset]
+    [(tmp-slot stack) (stack-index/closure-helper stack (+ 1 offset))]
+    [(var-slot slot-var stack) (stack-index/closure-helper stack (+ 1 offset))]))
 
 
-  (define (stack->bytes-jl [stack : AbstractStack]) : (JoinList Bytes)
-    (case stack
-      [(tmp-slot stack)
-       (cons-jl #"_ " (stack->bytes-jl stack))]
-      [(return-address-slot stack) (cons-jl #"<ret> " (stack->bytes-jl stack))]
-      [(closure-slot stack) (cons-jl #"<closure> " (stack->bytes-jl stack))]
-      [(var-slot v stack)
-       (cons-jl v (cons-jl #" " (stack->bytes-jl stack)))]
-      [(empty-abstract-stack) (empty-jl)]))
+(define (stack-index [var : Bytes] [stack : AbstractStack]) : Int
+  (stack-index-helper var stack 0))
 
-  (define (make-varargs-array [num-args : Int] [state : GenState]) : GenState
-    (case state
-      [(gen-state stack cmds label blocks)
-       (gen-state
-         (tmp-slot (remove-temporaries num-args stack))
-         (snoc-jl cmds (make-array-from-stack-cmd num-args))
-         label
-         blocks)])))
+(define (stack-index-helper [var : Bytes] [stack : AbstractStack] [offset : Int]) : Int
+  (case stack
+    [(empty-abstract-stack) (panic #"Unbound variable")]
+    [(return-address-slot stack) (stack-index-helper var stack (+ 1 offset))]
+    [(closure-slot stack) (stack-index-helper var stack (+ 1 offset))]
+    [(tmp-slot stack) (stack-index-helper var stack (+ 1 offset))]
+    [(var-slot slot-var stack)
+     (if (bytes=? var slot-var)
+         offset
+         (stack-index-helper var stack (+ 1 offset)))]))
+
+(define (assert-stack-equal? [stack1 : AbstractStack] [stack2 : AbstractStack]) : Void
+  (if (stack-equal? stack1 stack2)
+      (void)
+      (panic
+        (bytes-append
+          (jl->list
+            (append-jl
+              (cons-jl #"Unmatched stacks: \n" (stack->bytes-jl stack1))
+              (cons-jl #"\n" (stack->bytes-jl stack2))))))))
+
+(define (stack-equal? [stack1 : AbstractStack] [stack2 : AbstractStack]) : Boolean
+  (case (tuple2 stack1 stack2)
+    [(tuple2 (tmp-slot stack1) (tmp-slot stack2)) (stack-equal? stack1 stack2)]
+    [(tuple2 (return-address-slot stack1) (return-address-slot stack2)) (stack-equal? stack1 stack2)]
+    [(tuple2 (closure-slot stack1) (closure-slot stack2)) (stack-equal? stack1 stack2)]
+    [(tuple2 (var-slot v1 stack1) (var-slot v2 stack2))
+     (if (bytes=? v1 v2)
+         (stack-equal? stack1 stack2)
+         #f)]
+    [(tuple2 (empty-abstract-stack) (empty-abstract-stack)) #t]
+    [(tuple2 stack1 stack2) #f]))
+
+
+(define (stack->bytes-jl [stack : AbstractStack]) : (JoinList Bytes)
+  (case stack
+    [(tmp-slot stack)
+     (cons-jl #"_ " (stack->bytes-jl stack))]
+    [(return-address-slot stack) (cons-jl #"<ret> " (stack->bytes-jl stack))]
+    [(closure-slot stack) (cons-jl #"<closure> " (stack->bytes-jl stack))]
+    [(var-slot v stack)
+     (cons-jl v (cons-jl #" " (stack->bytes-jl stack)))]
+    [(empty-abstract-stack) (empty-jl)]))
+
+(define (make-varargs-array [num-args : Int] [state : GenState]) : GenState
+  (case state
+    [(gen-state stack cmds label blocks)
+     (gen-state
+       (tmp-slot (remove-temporaries num-args stack))
+       (snoc-jl cmds (make-array-from-stack-cmd num-args))
+       label
+       blocks)]))

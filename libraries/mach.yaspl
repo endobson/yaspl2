@@ -1,208 +1,207 @@
-(module mach
-  (import
-    (bytes
-      #:types (EightBytesLe)
-      #:values (bytes-ref/quad-le bytes-set!/eight-bytes-le bytes-set!/quad-le int->eight-bytes-le)
-      #:patterns ())
-    (list
-      #:types (List)
-      #:values (cons empty)
-      #:patterns (cons empty))
-    (prim
-      #:types (Bytes Int MachPort S32 U32 U8 Void)
-      #:values (+ - = bytes-length bytes-ref mach-msg mach-port->u32 mach-port-mod-refs
-                mach-reply-port mach-start-thread mach-task-self mach-thread-self make-bytes panic
-                s32 s32->s64 u32 u32->mach-port u8)
-      #:patterns ()))
-  (export
-    #:types ()
-    #:values (spawn)
+#:module mach
+(import
+  (bytes
+    #:types (EightBytesLe)
+    #:values (bytes-ref/quad-le bytes-set!/eight-bytes-le bytes-set!/quad-le int->eight-bytes-le)
     #:patterns ())
-  (types
-    (define-type MachMessageHeader
-      (mach-message-header
-        [options : U32]
-        [size : U32]
-        [remote-port : MachPort]
-        [reply-port : MachPort]
-        [voucher-port : MachPort]
-        [message-id : S32]))
-    (define-type MachMessageDescriptor
-      (mach-port-descriptor
-        [name : MachPort]
-        [disposition : U8]))
-    (define-type X86ThreadState64
-      (x86-thread-state-64
-        [rax : EightBytesLe]
-        [rbx : EightBytesLe]
-        [rcx : EightBytesLe]
-        [rdx : EightBytesLe]
-        [rdi : EightBytesLe]
-        [rsi : EightBytesLe]
-        [rbp : EightBytesLe]
-        [rsp : EightBytesLe]
-        [r8 : EightBytesLe]
-        [r9 : EightBytesLe]
-        [r10 : EightBytesLe]
-        [r11 : EightBytesLe]
-        [r12 : EightBytesLe]
-        [r13 : EightBytesLe]
-        [r14 : EightBytesLe]
-        [r15 : EightBytesLe]
-        [rip : EightBytesLe])))
+  (list
+    #:types (List)
+    #:values (cons empty)
+    #:patterns (cons empty))
+  (prim
+    #:types (Bytes Int MachPort S32 U32 U8 Void)
+    #:values (+ - = bytes-length bytes-ref mach-msg mach-port->u32 mach-port-mod-refs
+              mach-reply-port mach-start-thread mach-task-self mach-thread-self make-bytes panic
+              s32 s32->s64 u32 u32->mach-port u8)
+    #:patterns ()))
+(export
+  #:types ()
+  #:values (spawn)
+  #:patterns ())
+(types
+  (define-type MachMessageHeader
+    (mach-message-header
+      [options : U32]
+      [size : U32]
+      [remote-port : MachPort]
+      [reply-port : MachPort]
+      [voucher-port : MachPort]
+      [message-id : S32]))
+  (define-type MachMessageDescriptor
+    (mach-port-descriptor
+      [name : MachPort]
+      [disposition : U8]))
+  (define-type X86ThreadState64
+    (x86-thread-state-64
+      [rax : EightBytesLe]
+      [rbx : EightBytesLe]
+      [rcx : EightBytesLe]
+      [rdx : EightBytesLe]
+      [rdi : EightBytesLe]
+      [rsi : EightBytesLe]
+      [rbp : EightBytesLe]
+      [rsp : EightBytesLe]
+      [r8 : EightBytesLe]
+      [r9 : EightBytesLe]
+      [r10 : EightBytesLe]
+      [r11 : EightBytesLe]
+      [r12 : EightBytesLe]
+      [r13 : EightBytesLe]
+      [r14 : EightBytesLe]
+      [r15 : EightBytesLe]
+      [rip : EightBytesLe])))
 
 
-  (define (write-mach-message-header [hdr : MachMessageHeader] [bytes : Bytes]) : Void
-    (case hdr
-      [(mach-message-header options size remote-port local-port voucher-port message-id)
-       (begin
-         (bytes-set!/quad-le bytes 0 options)
-         (bytes-set!/quad-le bytes 4 size)
-         (bytes-set!/quad-le bytes 8 (mach-port->u32 remote-port))
-         (bytes-set!/quad-le bytes 12 (mach-port->u32 local-port))
-         (bytes-set!/quad-le bytes 16 (mach-port->u32 voucher-port))
-         ;; TODO make this work for s32 as well
-         (bytes-set!/quad-le bytes 20 (u32 (s32->s64 message-id))))]))
+(define (write-mach-message-header [hdr : MachMessageHeader] [bytes : Bytes]) : Void
+  (case hdr
+    [(mach-message-header options size remote-port local-port voucher-port message-id)
+     (begin
+       (bytes-set!/quad-le bytes 0 options)
+       (bytes-set!/quad-le bytes 4 size)
+       (bytes-set!/quad-le bytes 8 (mach-port->u32 remote-port))
+       (bytes-set!/quad-le bytes 12 (mach-port->u32 local-port))
+       (bytes-set!/quad-le bytes 16 (mach-port->u32 voucher-port))
+       ;; TODO make this work for s32 as well
+       (bytes-set!/quad-le bytes 20 (u32 (s32->s64 message-id))))]))
 
-  (define (parse-mach-message-body [bytes : Bytes]) : (List MachMessageDescriptor)
-    (parse-mach-message-body/loop bytes 28 (bytes-ref/quad-le bytes 24)))
+(define (parse-mach-message-body [bytes : Bytes]) : (List MachMessageDescriptor)
+  (parse-mach-message-body/loop bytes 28 (bytes-ref/quad-le bytes 24)))
 
-  (define (parse-mach-message-body/loop [bytes : Bytes] [offset : Int] [num-descriptors : Int])
-    : (List MachMessageDescriptor)
-    (if (= 0 num-descriptors)
-        (empty)
-        (cons
-          (let ([descriptor-type (bytes-ref bytes (+ offset 11))])
-            (if (= descriptor-type 0)
-                (mach-port-descriptor
-                  (u32->mach-port (u32 (bytes-ref/quad-le bytes offset)))
-                  (u8 (bytes-ref bytes (+ offset 10))))
-                (panic #"Bad MachMessageDescriptor")))
-          (parse-mach-message-body/loop bytes (+ offset 12) (- num-descriptors 1)))))
+(define (parse-mach-message-body/loop [bytes : Bytes] [offset : Int] [num-descriptors : Int])
+  : (List MachMessageDescriptor)
+  (if (= 0 num-descriptors)
+      (empty)
+      (cons
+        (let ([descriptor-type (bytes-ref bytes (+ offset 11))])
+          (if (= descriptor-type 0)
+              (mach-port-descriptor
+                (u32->mach-port (u32 (bytes-ref/quad-le bytes offset)))
+                (u8 (bytes-ref bytes (+ offset 10))))
+              (panic #"Bad MachMessageDescriptor")))
+        (parse-mach-message-body/loop bytes (+ offset 12) (- num-descriptors 1)))))
 
-  (define (write-default-x86-thread-state-64 [bytes : Bytes]) : Void
+(define (write-default-x86-thread-state-64 [bytes : Bytes]) : Void
+  (begin
+    ;; Set NDR record
+    (bytes-set!/eight-bytes-le bytes 24 (ndr-record))
+    ;; Set the state type (x86_THREAD_STATE64 = 4)
+    (bytes-set!/quad-le bytes 32 (u32 4))
+    ;; Set the size of the state (x86_THREAD_STATE64_COUNT = 42, 21 64bit registers)
+    (bytes-set!/quad-le bytes 36 (u32 42))
+    ;; Set the all registers to 0
+    (bytes-set!/eight-bytes-le bytes 40 (int->eight-bytes-le 0))
+    (bytes-set!/eight-bytes-le bytes 48 (int->eight-bytes-le 0))
+    (bytes-set!/eight-bytes-le bytes 56 (int->eight-bytes-le 0))
+    (bytes-set!/eight-bytes-le bytes 64 (int->eight-bytes-le 0))
+    (bytes-set!/eight-bytes-le bytes 72 (int->eight-bytes-le 0))
+    (bytes-set!/eight-bytes-le bytes 80 (int->eight-bytes-le 0))
+    (bytes-set!/eight-bytes-le bytes 88 (int->eight-bytes-le 0))
+    (bytes-set!/eight-bytes-le bytes 96 (int->eight-bytes-le 0))
+    (bytes-set!/eight-bytes-le bytes 104 (int->eight-bytes-le 0))
+    (bytes-set!/eight-bytes-le bytes 112 (int->eight-bytes-le 0))
+    (bytes-set!/eight-bytes-le bytes 120 (int->eight-bytes-le 0))
+    (bytes-set!/eight-bytes-le bytes 128 (int->eight-bytes-le 0))
+    (bytes-set!/eight-bytes-le bytes 136 (int->eight-bytes-le 0))
+    (bytes-set!/eight-bytes-le bytes 144 (int->eight-bytes-le 0))
+    (bytes-set!/eight-bytes-le bytes 152 (int->eight-bytes-le 0))
+    (bytes-set!/eight-bytes-le bytes 160 (int->eight-bytes-le 0))
+    (bytes-set!/eight-bytes-le bytes 168 (int->eight-bytes-le 0))))
+
+
+(define (ndr-record) : EightBytesLe
+  (int->eight-bytes-le #x100000000))
+
+
+(define (mach-msg/send-recv [bytes : Bytes] [send-size : Int] [reply-port : MachPort]) : Void
+  (mach-msg bytes 3 send-size (bytes-length bytes) reply-port 0 0))
+
+(define (mach-unref-reply-port [reply-port : MachPort]) : Void
+  (let ([task-port (mach-task-self)])
+    (mach-port-mod-refs task-port reply-port 1 (- 0 1))))
+
+(define (terminate-thread [thread : MachPort]) : Void
+  (let ([buffer (make-bytes 44)])
+    (let ([reply-port (mach-reply-port)])
+      (begin
+        (write-mach-message-header
+          (mach-message-header
+            (u32 #x1511)
+            (u32 0)
+            thread
+            reply-port
+            (u32->mach-port (u32 0))
+            (s32 #xE10))
+          buffer)
+        (mach-msg/send-recv buffer 24 reply-port)
+        (mach-unref-reply-port reply-port)))))
+
+(define (resume-thread [thread : MachPort]) : Void
+  (let ([buffer (make-bytes 44)])
+    (let ([reply-port (mach-reply-port)])
+      (begin
+        (write-mach-message-header
+          (mach-message-header
+            (u32 #x1513)
+            (u32 0)
+            thread
+            reply-port
+            (u32->mach-port (u32 0))
+            (s32 #xE16))
+          buffer)
+        (mach-msg/send-recv buffer 24 reply-port)
+        (mach-unref-reply-port reply-port)))))
+
+(define (thread-start [func : (-> Void)]) : (-> Void)
+  (lambda ()
     (begin
-      ;; Set NDR record
-      (bytes-set!/eight-bytes-le bytes 24 (ndr-record))
-      ;; Set the state type (x86_THREAD_STATE64 = 4)
-      (bytes-set!/quad-le bytes 32 (u32 4))
-      ;; Set the size of the state (x86_THREAD_STATE64_COUNT = 42, 21 64bit registers)
-      (bytes-set!/quad-le bytes 36 (u32 42))
-      ;; Set the all registers to 0
-      (bytes-set!/eight-bytes-le bytes 40 (int->eight-bytes-le 0))
-      (bytes-set!/eight-bytes-le bytes 48 (int->eight-bytes-le 0))
-      (bytes-set!/eight-bytes-le bytes 56 (int->eight-bytes-le 0))
-      (bytes-set!/eight-bytes-le bytes 64 (int->eight-bytes-le 0))
-      (bytes-set!/eight-bytes-le bytes 72 (int->eight-bytes-le 0))
-      (bytes-set!/eight-bytes-le bytes 80 (int->eight-bytes-le 0))
-      (bytes-set!/eight-bytes-le bytes 88 (int->eight-bytes-le 0))
-      (bytes-set!/eight-bytes-le bytes 96 (int->eight-bytes-le 0))
-      (bytes-set!/eight-bytes-le bytes 104 (int->eight-bytes-le 0))
-      (bytes-set!/eight-bytes-le bytes 112 (int->eight-bytes-le 0))
-      (bytes-set!/eight-bytes-le bytes 120 (int->eight-bytes-le 0))
-      (bytes-set!/eight-bytes-le bytes 128 (int->eight-bytes-le 0))
-      (bytes-set!/eight-bytes-le bytes 136 (int->eight-bytes-le 0))
-      (bytes-set!/eight-bytes-le bytes 144 (int->eight-bytes-le 0))
-      (bytes-set!/eight-bytes-le bytes 152 (int->eight-bytes-le 0))
-      (bytes-set!/eight-bytes-le bytes 160 (int->eight-bytes-le 0))
-      (bytes-set!/eight-bytes-le bytes 168 (int->eight-bytes-le 0))))
+      (func)
+      (terminate-thread (mach-thread-self)))))
 
+(define (create-thread) : MachPort
+  (let ([buffer (make-bytes 48)])
+    (begin
+      (let ([task-port (mach-task-self)])
+        (let ([reply-port (mach-reply-port)])
+          (begin
+            (write-mach-message-header
+              (mach-message-header
+                (u32 #x1513)
+                (u32 0)
+                task-port
+                reply-port
+                (u32->mach-port (u32 0))
+                (s32 #xD53))
+              buffer)
+            (mach-msg/send-recv buffer 24 reply-port)
+            (mach-unref-reply-port reply-port))))
+      (case (parse-mach-message-body buffer)
+        [(cons (mach-port-descriptor port-name _) (empty))
+         port-name]
+        [_ (panic #"Bad MachMessageBody")]))))
 
-  (define (ndr-record) : EightBytesLe
-    (int->eight-bytes-le #x100000000))
-
-
-  (define (mach-msg/send-recv [bytes : Bytes] [send-size : Int] [reply-port : MachPort]) : Void
-    (mach-msg bytes 3 send-size (bytes-length bytes) reply-port 0 0))
-
-  (define (mach-unref-reply-port [reply-port : MachPort]) : Void
-    (let ([task-port (mach-task-self)])
-      (mach-port-mod-refs task-port reply-port 1 (- 0 1))))
-
-  (define (terminate-thread [thread : MachPort]) : Void
-    (let ([buffer (make-bytes 44)])
-      (let ([reply-port (mach-reply-port)])
-        (begin
-          (write-mach-message-header
-            (mach-message-header
-              (u32 #x1511)
-              (u32 0)
-              thread
-              reply-port
-              (u32->mach-port (u32 0))
-              (s32 #xE10))
-            buffer)
-          (mach-msg/send-recv buffer 24 reply-port)
-          (mach-unref-reply-port reply-port)))))
-
-  (define (resume-thread [thread : MachPort]) : Void
-    (let ([buffer (make-bytes 44)])
-      (let ([reply-port (mach-reply-port)])
-        (begin
-          (write-mach-message-header
-            (mach-message-header
-              (u32 #x1513)
-              (u32 0)
-              thread
-              reply-port
-              (u32->mach-port (u32 0))
-              (s32 #xE16))
-            buffer)
-          (mach-msg/send-recv buffer 24 reply-port)
-          (mach-unref-reply-port reply-port)))))
-
-  (define (thread-start [func : (-> Void)]) : (-> Void)
-    (lambda ()
+(define (thread-set-function! [thread : MachPort] [fun : (-> Void)]) : Void
+  (let ([buffer (make-bytes 208)])
+    (let ([reply-port (mach-reply-port)])
       (begin
-        (func)
-        (terminate-thread (mach-thread-self)))))
+        (write-mach-message-header
+          (mach-message-header
+            (u32 #x1513)
+            (u32 0)
+            thread
+            reply-port
+            (u32->mach-port (u32 0))
+            (s32 #xE14))
+          buffer)
 
-  (define (create-thread) : MachPort
-    (let ([buffer (make-bytes 48)])
-      (begin
-        (let ([task-port (mach-task-self)])
-          (let ([reply-port (mach-reply-port)])
-            (begin
-              (write-mach-message-header
-                (mach-message-header
-                  (u32 #x1513)
-                  (u32 0)
-                  task-port
-                  reply-port
-                  (u32->mach-port (u32 0))
-                  (s32 #xD53))
-                buffer)
-              (mach-msg/send-recv buffer 24 reply-port)
-              (mach-unref-reply-port reply-port))))
-        (case (parse-mach-message-body buffer)
-          [(cons (mach-port-descriptor port-name _) (empty))
-           port-name]
-          [_ (panic #"Bad MachMessageBody")]))))
+        ;; UNSAFE
+        ;; These function turn GC pointers into ints
+        ;; TODO move within the core.
+        (write-default-x86-thread-state-64 buffer)
+        (mach-start-thread buffer (thread-start fun) reply-port)
+        (mach-unref-reply-port reply-port)))))
 
-  (define (thread-set-function! [thread : MachPort] [fun : (-> Void)]) : Void
-    (let ([buffer (make-bytes 208)])
-      (let ([reply-port (mach-reply-port)])
-        (begin
-          (write-mach-message-header
-            (mach-message-header
-              (u32 #x1513)
-              (u32 0)
-              thread
-              reply-port
-              (u32->mach-port (u32 0))
-              (s32 #xE14))
-            buffer)
-
-          ;; UNSAFE
-          ;; These function turn GC pointers into ints
-          ;; TODO move within the core.
-          (write-default-x86-thread-state-64 buffer)
-          (mach-start-thread buffer (thread-start fun) reply-port)
-          (mach-unref-reply-port reply-port)))))
-
-  (define (spawn [fun : (-> Void)]) : Void
-    (let ([thread (create-thread)])
-      (begin
-        (thread-set-function! thread fun)
-        (resume-thread thread)))))
-
+(define (spawn [fun : (-> Void)]) : Void
+  (let ([thread (create-thread)])
+    (begin
+      (thread-set-function! thread fun)
+      (resume-thread thread))))

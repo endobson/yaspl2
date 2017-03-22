@@ -1,302 +1,94 @@
-(module mach-o-writer2
-  (import
-    (bytes
-      #:types (EightBytesLe)
-      #:values (bytes bytes-append bytes-set!/eight-bytes-le bytes-set!/quad-le bytes< bytes=?
-                int->eight-bytes-le sum)
-      #:patterns ())
-    (either
-      #:types (Either)
-      #:values (left right)
-      #:patterns (left right))
-    (io call-with-input-file call-with-output-file read-all-bytes write-all-bytes)
-    (join-list
-      #:types (JoinList)
-      #:values (concat-map-jl empty-jl jl->list join-list list->jl map-jl single-jl)
-      #:patterns ())
-    (list
-      #:types (List)
-      #:values (append cons empty filter find-index find/maybe length list map reverse sort)
-      #:patterns (cons empty))
-    (mach-o
-      #:types (SymbolTableEntry)
-      #:values (symbol-table-entry-name symbol-table-entry-value)
-      #:patterns (symbol-table-entry))
-    (mach-o-writer
-      lc-data-in-code lc-load-segment64 lc-source-version lc-symbol-table lc-unix-thread
-      lc-version-min-macosx linkedit-data load-segment64 mach-o-executable-file
-      mach-o-header mach-o-library-file section64 symbol-table unix-thread version-min
-      write-mach-o-header)
-    (maybe
-      #:types (Maybe)
-      #:values (just nothing)
-      #:patterns (just nothing))
-    (prim
-      #:types (Array Boolean Bytes Int OutputPort U32 Void)
-      #:values (* + - = array-length array-ref bitwise-ior bytes-length bytes-ref make-bytes panic
-                quotient remainder u32 u8 u8->s64 void)
-      #:patterns ())
-    (set make-set set->list set-add-all set-remove-all)
-    (tuples
-      #:types (Tuple2)
-      #:values (tuple2)
-      #:patterns (tuple2))
-    (x86-64-stack-machine
-      #:types (AssemblyFragment BasicBlock Instruction)
-      #:values (instruction->mc-command)
-      #:patterns (address-fragment basic-block bytes-fragment function-fragment mc-bytes mc-jump
-                  mc-leaq/rel mcj-call mcj-jb mcj-je mcj-jmp mcj-jne mcj-jnz)))
-  (export
-    #:types ()
-    #:values (write-mach-o-library/fragments write-mach-o-executable)
+#:module mach-o-writer2
+(import
+  (bytes
+    #:types (EightBytesLe)
+    #:values (bytes bytes-append bytes-set!/eight-bytes-le bytes-set!/quad-le bytes< bytes=?
+              int->eight-bytes-le sum)
     #:patterns ())
-  (types
-    (define-type TextSegmentRelocation
-      (text-segment-relocation [offset : Int] [symbol : Bytes])
-      (text-segment-relocation/2 [offset : Int] [symbol : Bytes]))
-    (define-type ConstSegmentRelocation
-      (const-segment-relocation [offset : Int] [symbol : Bytes] [value : Bytes]))
-    (define-type Symbol
-      (defined-symbol [sym : DefinedSymbol])
-      (undefined-symbol [name : Bytes]))
-    (define-type DefinedSymbol
-      (global-text-symbol [name : Bytes] [offset : Int])
-      (local-text-symbol [name : Bytes] [offset : Int])
-      (const-symbol [name : Bytes] [offset : Int])))
+  (either
+    #:types (Either)
+    #:values (left right)
+    #:patterns (left right))
+  (io call-with-input-file call-with-output-file read-all-bytes write-all-bytes)
+  (join-list
+    #:types (JoinList)
+    #:values (concat-map-jl empty-jl jl->list join-list list->jl map-jl single-jl)
+    #:patterns ())
+  (list
+    #:types (List)
+    #:values (append cons empty filter find-index find/maybe length list map reverse sort)
+    #:patterns (cons empty))
+  (mach-o
+    #:types (SymbolTableEntry)
+    #:values (symbol-table-entry-name symbol-table-entry-value)
+    #:patterns (symbol-table-entry))
+  (mach-o-writer
+    lc-data-in-code lc-load-segment64 lc-source-version lc-symbol-table lc-unix-thread
+    lc-version-min-macosx linkedit-data load-segment64 mach-o-executable-file
+    mach-o-header mach-o-library-file section64 symbol-table unix-thread version-min
+    write-mach-o-header)
+  (maybe
+    #:types (Maybe)
+    #:values (just nothing)
+    #:patterns (just nothing))
+  (prim
+    #:types (Array Boolean Bytes Int OutputPort U32 Void)
+    #:values (* + - = array-length array-ref bitwise-ior bytes-length bytes-ref make-bytes panic
+              quotient remainder u32 u8 u8->s64 void)
+    #:patterns ())
+  (set make-set set->list set-add-all set-remove-all)
+  (tuples
+    #:types (Tuple2)
+    #:values (tuple2)
+    #:patterns (tuple2))
+  (x86-64-stack-machine
+    #:types (AssemblyFragment BasicBlock Instruction)
+    #:values (instruction->mc-command)
+    #:patterns (address-fragment basic-block bytes-fragment function-fragment mc-bytes mc-jump
+                mc-leaq/rel mcj-call mcj-jb mcj-je mcj-jmp mcj-jne mcj-jnz)))
+(export
+  #:types ()
+  #:values (write-mach-o-library/fragments write-mach-o-executable)
+  #:patterns ())
+(types
+  (define-type TextSegmentRelocation
+    (text-segment-relocation [offset : Int] [symbol : Bytes])
+    (text-segment-relocation/2 [offset : Int] [symbol : Bytes]))
+  (define-type ConstSegmentRelocation
+    (const-segment-relocation [offset : Int] [symbol : Bytes] [value : Bytes]))
+  (define-type Symbol
+    (defined-symbol [sym : DefinedSymbol])
+    (undefined-symbol [name : Bytes]))
+  (define-type DefinedSymbol
+    (global-text-symbol [name : Bytes] [offset : Int])
+    (local-text-symbol [name : Bytes] [offset : Int])
+    (const-symbol [name : Bytes] [offset : Int])))
 
-  (define (symbol-name [v : Symbol]) : Bytes
-    (case v
-      [(defined-symbol sym) (defined-symbol-name sym)]
-      [(undefined-symbol name) name]))
+(define (symbol-name [v : Symbol]) : Bytes
+  (case v
+    [(defined-symbol sym) (defined-symbol-name sym)]
+    [(undefined-symbol name) name]))
 
-  (define (defined-symbol-name [v : DefinedSymbol]) : Bytes
-    (case v
-      [(global-text-symbol name offset) name]
-      [(local-text-symbol name offset) name]
-      [(const-symbol name offset) name]))
+(define (defined-symbol-name [v : DefinedSymbol]) : Bytes
+  (case v
+    [(global-text-symbol name offset) name]
+    [(local-text-symbol name offset) name]
+    [(const-symbol name offset) name]))
 
-  (define (a) (array->list [offset : Int] [arr : (Array a)]) : (List a)
-    (if (= offset (array-length arr))
-        (empty)
-        (cons (array-ref arr offset) (array->list (+ 1 offset) arr))))
+(define (a) (array->list [offset : Int] [arr : (Array a)]) : (List a)
+  (if (= offset (array-length arr))
+      (empty)
+      (cons (array-ref arr offset) (array->list (+ 1 offset) arr))))
 
-  (define (read-module-files [modules : (List Bytes)]) : (List Bytes)
-    (case modules
-      [(empty) (empty)]
-      [(cons mod modules)
-       (cons (call-with-input-file mod read-all-bytes)
-             (read-module-files modules))]))
+(define (read-module-files [modules : (List Bytes)]) : (List Bytes)
+  (case modules
+    [(empty) (empty)]
+    [(cons mod modules)
+     (cons (call-with-input-file mod read-all-bytes)
+           (read-module-files modules))]))
 
-  (define (assemble-text-segment [fragments : (List AssemblyFragment)]) : Bytes
-    (bytes-append
-      (jl->list
-        (concat-map-jl
-          (lambda ([fragment : AssemblyFragment]) : (JoinList Bytes)
-            (case fragment
-              [(function-fragment name blocks)
-               (concat-map-jl
-                 (lambda ([bb : BasicBlock])
-                   (case bb
-                     [(basic-block block-name instructions)
-                      (map-jl
-                        (lambda ([inst : Instruction])
-                          (case (instruction->mc-command inst)
-                            [(mc-bytes bytes) bytes]
-                            [(mc-jump (mcj-jb) _) (varargs bytes #x0F #x82 0 0 0 0)]
-                            [(mc-jump (mcj-je) _) (varargs bytes #x0F #x84 0 0 0 0)]
-                            [(mc-jump (mcj-jne) _) (varargs bytes #x0F #x85 0 0 0 0)]
-                            [(mc-jump (mcj-jnz) _) (varargs bytes #x0F #x85 0 0 0 0)]
-                            [(mc-jump (mcj-jmp) _) (varargs bytes #xE9 0 0 0 0)]
-                            [(mc-jump (mcj-call) _) (varargs bytes #xE8 0 0 0 0)]
-                            [(mc-leaq/rel _ _ _) (varargs bytes #x48 #x8D #x05 0 0 0 0)]))
-                        instructions)]))
-                 (list->jl blocks))]
-              [_ (empty-jl)]))
-          (list->jl fragments)))))
-
-  (define (compute-text-segment-relocations [fragments : (List AssemblyFragment)] [offset : Int]
-                                            [symbols : (List Symbol)])
-    : (Tuple2 (List TextSegmentRelocation) (List TextSegmentRelocation))
-    (case fragments
-      [(empty) (tuple2 (empty) (empty))]
-      [(cons (function-fragment _ blocks) fragments)
-       (compute-text-segment-relocations/blocks blocks fragments offset symbols)]
-      [(cons _ fragments)
-       (compute-text-segment-relocations fragments offset symbols)]))
-
-  (define (compute-text-segment-relocations/blocks
-            [blocks : (List BasicBlock)]
-            [fragments : (List AssemblyFragment)] [offset : Int]
-            [symbols : (List Symbol)])
-    : (Tuple2 (List TextSegmentRelocation) (List TextSegmentRelocation))
-    (case blocks
-      [(empty) (compute-text-segment-relocations fragments offset symbols)]
-      [(cons (basic-block _ instructions) blocks)
-       (compute-text-segment-relocations/instructions
-         (jl->list instructions) blocks (empty) (empty) fragments offset symbols)]))
-
-  (define (compute-text-segment-relocations/instructions
-            [instructions : (List Instruction)]
-            [blocks : (List BasicBlock)]
-            [local-acc : (List TextSegmentRelocation)]
-            [global-acc : (List TextSegmentRelocation)]
-            [fragments : (List AssemblyFragment)] [offset : Int] [symbols : (List Symbol)])
-    : (Tuple2 (List TextSegmentRelocation) (List TextSegmentRelocation))
-    (case instructions
-      [(empty)
-       (case (compute-text-segment-relocations/blocks blocks fragments offset symbols)
-         [(tuple2 local global)
-          (tuple2 (append local-acc local) (append global-acc global))])]
-      [(cons inst instructions)
-       (case (instruction->mc-command inst)
-         [(mc-bytes bytes)
-          (compute-text-segment-relocations/instructions
-            instructions blocks local-acc global-acc fragments (+ (bytes-length bytes) offset) symbols)]
-         [(mc-jump (mcj-jmp) name)
-          (let ([local (memf (lambda ([x : Symbol])
-                               (case x
-                                 [(defined-symbol (local-text-symbol n _))
-                                  (bytes=? n name)]
-                                 [_ #f]))
-                             symbols)])
-            (let ([reloc (text-segment-relocation (+ 1 offset) name)])
-              (compute-text-segment-relocations/instructions
-                instructions blocks
-                (if local (cons reloc local-acc) local-acc)
-                (if local global-acc (cons reloc global-acc))
-                fragments (+ 5 offset) symbols)))]
-         [(mc-jump (mcj-call) name)
-          (compute-text-segment-relocations/instructions
-            instructions blocks local-acc
-            (cons (text-segment-relocation (+ 1 offset) name) global-acc)
-            fragments (+ 5 offset) symbols)]
-         [(mc-jump _ name)
-          (let ([local (memf (lambda ([x : Symbol])
-                               (case x
-                                 [(defined-symbol (local-text-symbol n _))
-                                  (bytes=? n name)]
-                                 [_ #f]))
-                             symbols)])
-            (let ([reloc (text-segment-relocation (+ 2 offset) name)])
-              (compute-text-segment-relocations/instructions
-                instructions blocks
-                (if local (cons reloc local-acc) local-acc)
-                (if local global-acc (cons reloc global-acc))
-                fragments (+ 6 offset) symbols)))]
-         ;; TODO actually implement this
-         [(mc-leaq/rel name _ _)
-          (compute-text-segment-relocations/instructions
-            instructions blocks local-acc
-            (cons (text-segment-relocation/2 (+ 3 offset) name) global-acc)
-            fragments (+ 7 offset) symbols)])]))
-
-
-  (define (instruction-length [inst : Instruction]) : Int
-    (case (instruction->mc-command inst)
-      [(mc-bytes bytes) (bytes-length bytes)]
-      [(mc-jump (mcj-jmp) name) 5]
-      [(mc-jump (mcj-call) name) 5]
-      [(mc-jump _ name) 6]
-      [(mc-leaq/rel name _ _) 7]))
-
-
-  (define (compute-const-segment-relocations [fragments : (List AssemblyFragment)])
-    : (List ConstSegmentRelocation)
-    (compute-const-segment-relocations-helper
-      0
-      (jl->list
-        (concat-map-jl
-          (lambda ([fragment : AssemblyFragment]) : (JoinList (Either Int (Tuple2 Bytes Bytes)))
-            (case fragment
-              [(address-fragment name value)
-               (varargs join-list (right (tuple2 name value)) (left 8))]
-              [_ (empty-jl)]))
-          (list->jl fragments)))))
-
-  (define (compute-const-segment-relocations-helper [offset : Int]
-                                                    [pieces : (List (Either Int (Tuple2 Bytes Bytes)))])
-    : (List ConstSegmentRelocation)
-    (case pieces
-      [(empty) (empty)]
-      [(cons (left v) pieces)
-       (compute-const-segment-relocations-helper (+ v offset) pieces)]
-      [(cons (right (tuple2 name value)) pieces)
-       (cons (const-segment-relocation offset name value)
-             (compute-const-segment-relocations-helper offset pieces))]))
-
-  (define (assemble-const-segment [fragments : (List AssemblyFragment)]) : Bytes
-    (bytes-append
-      (jl->list
-        (concat-map-jl
-          (lambda ([fragment : AssemblyFragment]) : (JoinList Bytes)
-            (case fragment
-              [(address-fragment name value)
-               (single-jl (varargs bytes 0 0 0 0 0 0 0 0))]
-              [(bytes-fragment name value)
-               (let ([length-buf (make-bytes 8)])
-                 (begin
-                   (bytes-set!/eight-bytes-le length-buf 0 (int->eight-bytes-le (bytes-length value)))
-                   (varargs join-list length-buf value)))]
-              [_ (empty-jl)]))
-          (list->jl fragments)))))
-
-  (define (collect-defined-symbols
-            [fragments : (List AssemblyFragment)]
-            [text-offset : Int]
-            [const-offset : Int]
-            [acc : (List DefinedSymbol)])
-    : (List DefinedSymbol)
-    (case fragments
-      [(empty) (reverse acc)]
-      [(cons fragment fragments)
-       (case fragment
-         [(function-fragment name blocks)
-          (collect-defined-symbols/blocks* blocks fragments text-offset const-offset acc)]
-         [(address-fragment name value)
-          (collect-defined-symbols fragments text-offset (+ const-offset 8)
-                                   (cons (const-symbol name const-offset) acc))]
-         [(bytes-fragment name value)
-          (collect-defined-symbols fragments text-offset (+ const-offset (+ 8 (bytes-length value)))
-                                   (cons (const-symbol name const-offset) acc))])]))
-
-  ;; The first block in a function is global as that is the function entry point.
-  (define (collect-defined-symbols/blocks*
-            [blocks : (List BasicBlock)]
-            [fragments : (List AssemblyFragment)]
-            [text-offset : Int]
-            [const-offset : Int]
-            [acc : (List DefinedSymbol)])
-    : (List DefinedSymbol)
-    (case blocks
-      [(empty)
-       (panic #"Empty function")]
-      [(cons (basic-block block-name instructions) blocks)
-       (collect-defined-symbols/blocks
-         blocks fragments
-         (+ text-offset (sum (map instruction-length (jl->list instructions))))
-         const-offset
-         (cons (global-text-symbol block-name text-offset) acc))]))
-
-
-  (define (collect-defined-symbols/blocks
-            [blocks : (List BasicBlock)]
-            [fragments : (List AssemblyFragment)]
-            [text-offset : Int]
-            [const-offset : Int]
-            [acc : (List DefinedSymbol)])
-    : (List DefinedSymbol)
-    (case blocks
-      [(empty)
-       (collect-defined-symbols fragments text-offset const-offset acc)]
-      [(cons (basic-block block-name instructions) blocks)
-       (collect-defined-symbols/blocks
-         blocks fragments
-         (+ text-offset (sum (map instruction-length (jl->list instructions))))
-         const-offset
-         (cons (local-text-symbol block-name text-offset) acc))]))
-
-
-  (define (collect-instruction-symbols [fragments : (List AssemblyFragment)]) : (List Bytes)
+(define (assemble-text-segment [fragments : (List AssemblyFragment)]) : Bytes
+  (bytes-append
     (jl->list
       (concat-map-jl
         (lambda ([fragment : AssemblyFragment]) : (JoinList Bytes)
@@ -306,459 +98,667 @@
                (lambda ([bb : BasicBlock])
                  (case bb
                    [(basic-block block-name instructions)
-                    (concat-map-jl
-                      (lambda ([inst : Instruction]) : (JoinList Bytes)
+                    (map-jl
+                      (lambda ([inst : Instruction])
                         (case (instruction->mc-command inst)
-                          [(mc-bytes bytes) (empty-jl)]
-                          [(mc-jump _ label) (single-jl label)]
-                          [(mc-leaq/rel label _ _) (single-jl label)]))
+                          [(mc-bytes bytes) bytes]
+                          [(mc-jump (mcj-jb) _) (varargs bytes #x0F #x82 0 0 0 0)]
+                          [(mc-jump (mcj-je) _) (varargs bytes #x0F #x84 0 0 0 0)]
+                          [(mc-jump (mcj-jne) _) (varargs bytes #x0F #x85 0 0 0 0)]
+                          [(mc-jump (mcj-jnz) _) (varargs bytes #x0F #x85 0 0 0 0)]
+                          [(mc-jump (mcj-jmp) _) (varargs bytes #xE9 0 0 0 0)]
+                          [(mc-jump (mcj-call) _) (varargs bytes #xE8 0 0 0 0)]
+                          [(mc-leaq/rel _ _ _) (varargs bytes #x48 #x8D #x05 0 0 0 0)]))
                       instructions)]))
                (list->jl blocks))]
-            [(address-fragment name value)
-             (empty-jl)]
-            [(bytes-fragment name value)
-             (empty-jl)]))
-        (list->jl fragments))))
+            [_ (empty-jl)]))
+        (list->jl fragments)))))
 
-  (define (collect-symbols [fragments : (List AssemblyFragment)] [text-size : Int]) : (List Symbol)
-    (match-define defined-symbols
-      (collect-defined-symbols fragments 0 text-size (empty)))
-    (match-define undefined-symbols
-      (map undefined-symbol
-           (sort
-             (set->list
-               (set-remove-all
-                 (set-add-all
-                   (make-set bytes=?)
-                   (collect-instruction-symbols fragments))
-                 (map defined-symbol-name defined-symbols)))
-             bytes<)))
-    (append
-      (map
-        defined-symbol
-        (sort
-          defined-symbols
-          (lambda ([x : DefinedSymbol] [y : DefinedSymbol])
-            (bytes< (defined-symbol-name x) (defined-symbol-name y)))))
-      undefined-symbols))
+(define (compute-text-segment-relocations [fragments : (List AssemblyFragment)] [offset : Int]
+                                          [symbols : (List Symbol)])
+  : (Tuple2 (List TextSegmentRelocation) (List TextSegmentRelocation))
+  (case fragments
+    [(empty) (tuple2 (empty) (empty))]
+    [(cons (function-fragment _ blocks) fragments)
+     (compute-text-segment-relocations/blocks blocks fragments offset symbols)]
+    [(cons _ fragments)
+     (compute-text-segment-relocations fragments offset symbols)]))
 
+(define (compute-text-segment-relocations/blocks
+          [blocks : (List BasicBlock)]
+          [fragments : (List AssemblyFragment)] [offset : Int]
+          [symbols : (List Symbol)])
+  : (Tuple2 (List TextSegmentRelocation) (List TextSegmentRelocation))
+  (case blocks
+    [(empty) (compute-text-segment-relocations fragments offset symbols)]
+    [(cons (basic-block _ instructions) blocks)
+     (compute-text-segment-relocations/instructions
+       (jl->list instructions) blocks (empty) (empty) fragments offset symbols)]))
 
-  (define (a) (memf [f : (a -> Boolean)] [l : (List a)]) : Boolean
-    (case l
-      [(empty) #f]
-      [(cons a l)
-       (if (f a) #t (memf f l))]))
-
-
-  (define (apply-local-text-relocations [relocs : (List TextSegmentRelocation)] [symbols : (List Symbol)]
-                                        [text : Bytes]) : Void
-    (case relocs
-      [(empty) (void)]
-      [(cons (text-segment-relocation offset symbol) relocs)
-       (begin
-         (case (find/maybe (lambda ([x : Symbol]) : (Maybe Int)
+(define (compute-text-segment-relocations/instructions
+          [instructions : (List Instruction)]
+          [blocks : (List BasicBlock)]
+          [local-acc : (List TextSegmentRelocation)]
+          [global-acc : (List TextSegmentRelocation)]
+          [fragments : (List AssemblyFragment)] [offset : Int] [symbols : (List Symbol)])
+  : (Tuple2 (List TextSegmentRelocation) (List TextSegmentRelocation))
+  (case instructions
+    [(empty)
+     (case (compute-text-segment-relocations/blocks blocks fragments offset symbols)
+       [(tuple2 local global)
+        (tuple2 (append local-acc local) (append global-acc global))])]
+    [(cons inst instructions)
+     (case (instruction->mc-command inst)
+       [(mc-bytes bytes)
+        (compute-text-segment-relocations/instructions
+          instructions blocks local-acc global-acc fragments (+ (bytes-length bytes) offset) symbols)]
+       [(mc-jump (mcj-jmp) name)
+        (let ([local (memf (lambda ([x : Symbol])
                              (case x
-                               [(defined-symbol (local-text-symbol name offset))
-                                (if (bytes=? symbol name)
-                                    (just offset)
-                                    (nothing))]
-                               [_ (nothing)])) symbols)
-           [(nothing)
-            (panic #"Bad local relocation")]
-           [(just symbol-offset)
-            (bytes-set!/quad-le
-              text
-              offset
-              (u32 (- (- symbol-offset offset) 4)))])
-         (apply-local-text-relocations relocs symbols text))]
-      [(cons (text-segment-relocation/2 offset symbol) _)
-       (panic #"Text-segment-relocation/2 not yet implemented")]))
+                               [(defined-symbol (local-text-symbol n _))
+                                (bytes=? n name)]
+                               [_ #f]))
+                           symbols)])
+          (let ([reloc (text-segment-relocation (+ 1 offset) name)])
+            (compute-text-segment-relocations/instructions
+              instructions blocks
+              (if local (cons reloc local-acc) local-acc)
+              (if local global-acc (cons reloc global-acc))
+              fragments (+ 5 offset) symbols)))]
+       [(mc-jump (mcj-call) name)
+        (compute-text-segment-relocations/instructions
+          instructions blocks local-acc
+          (cons (text-segment-relocation (+ 1 offset) name) global-acc)
+          fragments (+ 5 offset) symbols)]
+       [(mc-jump _ name)
+        (let ([local (memf (lambda ([x : Symbol])
+                             (case x
+                               [(defined-symbol (local-text-symbol n _))
+                                (bytes=? n name)]
+                               [_ #f]))
+                           symbols)])
+          (let ([reloc (text-segment-relocation (+ 2 offset) name)])
+            (compute-text-segment-relocations/instructions
+              instructions blocks
+              (if local (cons reloc local-acc) local-acc)
+              (if local global-acc (cons reloc global-acc))
+              fragments (+ 6 offset) symbols)))]
+       ;; TODO actually implement this
+       [(mc-leaq/rel name _ _)
+        (compute-text-segment-relocations/instructions
+          instructions blocks local-acc
+          (cons (text-segment-relocation/2 (+ 3 offset) name) global-acc)
+          fragments (+ 7 offset) symbols)])]))
 
 
-  (define (round-up [v : Int] [mod : Int]) : Int
-    (let ([rem (remainder v mod)])
-      (if (= 0 rem)
-          v
-          (+ (- v rem) mod))))
+(define (instruction-length [inst : Instruction]) : Int
+  (case (instruction->mc-command inst)
+    [(mc-bytes bytes) (bytes-length bytes)]
+    [(mc-jump (mcj-jmp) name) 5]
+    [(mc-jump (mcj-call) name) 5]
+    [(mc-jump _ name) 6]
+    [(mc-leaq/rel name _ _) 7]))
 
-  (define (write-quad-le [v : U32] [output : OutputPort]) : Void
-    (let ([bytes (make-bytes 4)])
+
+(define (compute-const-segment-relocations [fragments : (List AssemblyFragment)])
+  : (List ConstSegmentRelocation)
+  (compute-const-segment-relocations-helper
+    0
+    (jl->list
+      (concat-map-jl
+        (lambda ([fragment : AssemblyFragment]) : (JoinList (Either Int (Tuple2 Bytes Bytes)))
+          (case fragment
+            [(address-fragment name value)
+             (varargs join-list (right (tuple2 name value)) (left 8))]
+            [_ (empty-jl)]))
+        (list->jl fragments)))))
+
+(define (compute-const-segment-relocations-helper [offset : Int]
+                                                  [pieces : (List (Either Int (Tuple2 Bytes Bytes)))])
+  : (List ConstSegmentRelocation)
+  (case pieces
+    [(empty) (empty)]
+    [(cons (left v) pieces)
+     (compute-const-segment-relocations-helper (+ v offset) pieces)]
+    [(cons (right (tuple2 name value)) pieces)
+     (cons (const-segment-relocation offset name value)
+           (compute-const-segment-relocations-helper offset pieces))]))
+
+(define (assemble-const-segment [fragments : (List AssemblyFragment)]) : Bytes
+  (bytes-append
+    (jl->list
+      (concat-map-jl
+        (lambda ([fragment : AssemblyFragment]) : (JoinList Bytes)
+          (case fragment
+            [(address-fragment name value)
+             (single-jl (varargs bytes 0 0 0 0 0 0 0 0))]
+            [(bytes-fragment name value)
+             (let ([length-buf (make-bytes 8)])
+               (begin
+                 (bytes-set!/eight-bytes-le length-buf 0 (int->eight-bytes-le (bytes-length value)))
+                 (varargs join-list length-buf value)))]
+            [_ (empty-jl)]))
+        (list->jl fragments)))))
+
+(define (collect-defined-symbols
+          [fragments : (List AssemblyFragment)]
+          [text-offset : Int]
+          [const-offset : Int]
+          [acc : (List DefinedSymbol)])
+  : (List DefinedSymbol)
+  (case fragments
+    [(empty) (reverse acc)]
+    [(cons fragment fragments)
+     (case fragment
+       [(function-fragment name blocks)
+        (collect-defined-symbols/blocks* blocks fragments text-offset const-offset acc)]
+       [(address-fragment name value)
+        (collect-defined-symbols fragments text-offset (+ const-offset 8)
+                                 (cons (const-symbol name const-offset) acc))]
+       [(bytes-fragment name value)
+        (collect-defined-symbols fragments text-offset (+ const-offset (+ 8 (bytes-length value)))
+                                 (cons (const-symbol name const-offset) acc))])]))
+
+;; The first block in a function is global as that is the function entry point.
+(define (collect-defined-symbols/blocks*
+          [blocks : (List BasicBlock)]
+          [fragments : (List AssemblyFragment)]
+          [text-offset : Int]
+          [const-offset : Int]
+          [acc : (List DefinedSymbol)])
+  : (List DefinedSymbol)
+  (case blocks
+    [(empty)
+     (panic #"Empty function")]
+    [(cons (basic-block block-name instructions) blocks)
+     (collect-defined-symbols/blocks
+       blocks fragments
+       (+ text-offset (sum (map instruction-length (jl->list instructions))))
+       const-offset
+       (cons (global-text-symbol block-name text-offset) acc))]))
+
+
+(define (collect-defined-symbols/blocks
+          [blocks : (List BasicBlock)]
+          [fragments : (List AssemblyFragment)]
+          [text-offset : Int]
+          [const-offset : Int]
+          [acc : (List DefinedSymbol)])
+  : (List DefinedSymbol)
+  (case blocks
+    [(empty)
+     (collect-defined-symbols fragments text-offset const-offset acc)]
+    [(cons (basic-block block-name instructions) blocks)
+     (collect-defined-symbols/blocks
+       blocks fragments
+       (+ text-offset (sum (map instruction-length (jl->list instructions))))
+       const-offset
+       (cons (local-text-symbol block-name text-offset) acc))]))
+
+
+(define (collect-instruction-symbols [fragments : (List AssemblyFragment)]) : (List Bytes)
+  (jl->list
+    (concat-map-jl
+      (lambda ([fragment : AssemblyFragment]) : (JoinList Bytes)
+        (case fragment
+          [(function-fragment name blocks)
+           (concat-map-jl
+             (lambda ([bb : BasicBlock])
+               (case bb
+                 [(basic-block block-name instructions)
+                  (concat-map-jl
+                    (lambda ([inst : Instruction]) : (JoinList Bytes)
+                      (case (instruction->mc-command inst)
+                        [(mc-bytes bytes) (empty-jl)]
+                        [(mc-jump _ label) (single-jl label)]
+                        [(mc-leaq/rel label _ _) (single-jl label)]))
+                    instructions)]))
+             (list->jl blocks))]
+          [(address-fragment name value)
+           (empty-jl)]
+          [(bytes-fragment name value)
+           (empty-jl)]))
+      (list->jl fragments))))
+
+(define (collect-symbols [fragments : (List AssemblyFragment)] [text-size : Int]) : (List Symbol)
+  (match-define defined-symbols
+    (collect-defined-symbols fragments 0 text-size (empty)))
+  (match-define undefined-symbols
+    (map undefined-symbol
+         (sort
+           (set->list
+             (set-remove-all
+               (set-add-all
+                 (make-set bytes=?)
+                 (collect-instruction-symbols fragments))
+               (map defined-symbol-name defined-symbols)))
+           bytes<)))
+  (append
+    (map
+      defined-symbol
+      (sort
+        defined-symbols
+        (lambda ([x : DefinedSymbol] [y : DefinedSymbol])
+          (bytes< (defined-symbol-name x) (defined-symbol-name y)))))
+    undefined-symbols))
+
+
+(define (a) (memf [f : (a -> Boolean)] [l : (List a)]) : Boolean
+  (case l
+    [(empty) #f]
+    [(cons a l)
+     (if (f a) #t (memf f l))]))
+
+
+(define (apply-local-text-relocations [relocs : (List TextSegmentRelocation)] [symbols : (List Symbol)]
+                                      [text : Bytes]) : Void
+  (case relocs
+    [(empty) (void)]
+    [(cons (text-segment-relocation offset symbol) relocs)
+     (begin
+       (case (find/maybe (lambda ([x : Symbol]) : (Maybe Int)
+                           (case x
+                             [(defined-symbol (local-text-symbol name offset))
+                              (if (bytes=? symbol name)
+                                  (just offset)
+                                  (nothing))]
+                             [_ (nothing)])) symbols)
+         [(nothing)
+          (panic #"Bad local relocation")]
+         [(just symbol-offset)
+          (bytes-set!/quad-le
+            text
+            offset
+            (u32 (- (- symbol-offset offset) 4)))])
+       (apply-local-text-relocations relocs symbols text))]
+    [(cons (text-segment-relocation/2 offset symbol) _)
+     (panic #"Text-segment-relocation/2 not yet implemented")]))
+
+
+(define (round-up [v : Int] [mod : Int]) : Int
+  (let ([rem (remainder v mod)])
+    (if (= 0 rem)
+        v
+        (+ (- v rem) mod))))
+
+(define (write-quad-le [v : U32] [output : OutputPort]) : Void
+  (let ([bytes (make-bytes 4)])
+    (begin
+      (bytes-set!/quad-le bytes 0 v)
+      (write-all-bytes bytes output))))
+
+(define (write-eight-bytes-le [v : EightBytesLe] [output : OutputPort]) : Void
+  (let ([bytes (make-bytes 8)])
+    (begin
+      (bytes-set!/eight-bytes-le bytes 0 v)
+      (write-all-bytes bytes output))))
+
+(define (write-all-symbols [symbols : (List Bytes)] [output : OutputPort]) : Void
+  (case symbols
+    [(empty) (void)]
+    [(cons symbol symbols)
+     (begin
+       (write-all-bytes symbol output)
+       (write-all-bytes (make-bytes 1) output)
+       (write-all-symbols symbols output))]))
+
+(define (write-symbol-strings [symbols : (List SymbolTableEntry)] [output : OutputPort]) : Void
+  (case symbols
+    [(empty) (void)]
+    [(cons (symbol-table-entry name _ _ _ _) symbols)
+     (begin
+       (write-all-bytes name output)
+       (write-all-bytes (make-bytes 1) output)
+       (write-symbol-strings symbols output))]))
+
+(define (write-symbol-entries
+          [symbols : (List SymbolTableEntry)]
+          [string-offset : Int] [output : OutputPort]) : Void
+  (case symbols
+    [(empty) (void)]
+    [(cons (symbol-table-entry name type sect desc value) symbols)
+     ;; TODO actually use high bits of description
+     (begin
+       (write-quad-le (u32 string-offset) output)
+       (write-all-bytes (varargs bytes (u8->s64 type) (u8->s64 sect) (u8->s64 desc) 0) output)
+       (write-eight-bytes-le (int->eight-bytes-le value) output)
+       (write-symbol-entries symbols (+ string-offset (+ 1 (bytes-length name))) output))]))
+
+(define (write-text-segment-relocations
+          [relocations : (List TextSegmentRelocation)]
+          [symbols : (List Bytes)]
+          [output : OutputPort]) : Void
+  (case relocations
+    [(empty) (void)]
+    [(cons (text-segment-relocation offset symbol) relocations)
+     (begin
+       (write-quad-le (u32 offset) output)
+       (case (find-index (lambda ([x : Bytes]) (bytes=? symbol x))
+                         symbols)
+         [(nothing)
+          (panic #"Bad symbol")]
+         [(just index)
+          (write-quad-le (u32 (bitwise-ior index #x2D000000)) output)])
+       (write-text-segment-relocations relocations symbols output))]
+    [(cons (text-segment-relocation/2 offset symbol) relocations)
+     (begin
+       (write-quad-le (u32 offset) output)
+       (case (find-index (lambda ([x : Bytes]) (bytes=? symbol x))
+                         symbols)
+         [(nothing)
+          (panic #"Bad symbol")]
+         [(just index)
+          (write-quad-le (u32 (bitwise-ior index #x1D000000)) output)])
+       (write-text-segment-relocations relocations symbols output))]))
+
+(define (write-const-segment-relocations
+          [relocations : (List ConstSegmentRelocation)]
+          [symbols : (List Bytes)]
+          [output : OutputPort]) : Void
+  (case relocations
+    [(empty) (void)]
+    [(cons (const-segment-relocation offset symbol value) relocations)
+     (begin
+       (write-quad-le (u32 offset) output)
+       (case (find-index (lambda ([x : Bytes]) (bytes=? value x))
+                         symbols)
+         [(nothing)
+          (panic #"Bad symbol")]
+         [(just index)
+          (write-quad-le (u32 (bitwise-ior index #x0e000000)) output)])
+       (write-const-segment-relocations relocations symbols output))]))
+
+(define (write-symbol-table
+          [symbols : (List Symbol)]
+          [sym-offset : Int]
+          [output : OutputPort]) : Void
+  (case symbols
+    [(empty) (void)]
+    [(cons symbol symbols)
+     (begin
+       (write-quad-le (u32 sym-offset) output)
+       (case symbol
+         [(undefined-symbol _)
+          (begin
+            (write-quad-le (u32 #x00000001) output)
+            (write-eight-bytes-le (int->eight-bytes-le #x0000000000000000) output))]
+         [(defined-symbol (global-text-symbol name offset))
+          (begin
+            ;; TODO fix lowercase l => private
+            (if (= (bytes-ref name 0) 108)
+                (write-quad-le (u32 #x0020011f) output)
+                (write-quad-le (u32 #x0020010f) output))
+            (write-eight-bytes-le (int->eight-bytes-le offset) output))]
+         [(defined-symbol (local-text-symbol name offset))
+          (begin
+            ;; TODO fix lowercase l => private
+            (if (= (bytes-ref name 0) 108)
+                (write-quad-le (u32 #x0020011f) output)
+                (write-quad-le (u32 #x0020010f) output))
+            (write-eight-bytes-le (int->eight-bytes-le offset) output))]
+         [(defined-symbol (const-symbol name offset))
+          (begin
+            ;; TODO fix lowercase l => private
+            (if (= (bytes-ref name 0) 108)
+                (write-quad-le (u32 #x0020021f) output)
+                (write-quad-le (u32 #x0020020f) output))
+            (write-eight-bytes-le (int->eight-bytes-le offset) output))])
+       (write-symbol-table symbols (+ (+ (bytes-length (symbol-name symbol)) 1) sym-offset) output))]))
+
+(define (find-symbol-entry [symbol : Bytes] [symbols : (List SymbolTableEntry)]) : SymbolTableEntry
+  (case symbols
+    [(empty) (panic #"Couldn't find symbol")]
+    [(cons entry symbols)
+     (case entry
+       [(symbol-table-entry name _ _ _ _)
+        (if (bytes=? symbol name)
+            entry
+            (find-symbol-entry symbol symbols))])]))
+
+(define (empty/text-segment-relocation) : (List TextSegmentRelocation)
+  (empty))
+(define (empty/const-segment-relocation) : (List ConstSegmentRelocation)
+  (empty))
+
+(define (write-mach-o-executable
+          [symbol-table-entries : (List SymbolTableEntry)]
+          [text-section : Bytes]
+          [const-section : Bytes]
+          [output-file-name : Bytes])
+  : (Either Bytes Void)
+  (match-define page-zero-size #x0000000100000000)
+  (match-define text-segment-relocations (empty/text-segment-relocation))
+  (match-define text-segment-num-relocations (length text-segment-relocations))
+  (match-define const-segment-relocations (empty/const-segment-relocation))
+  (match-define const-segment-num-relocations (length const-segment-relocations))
+  (match-define text-segment-size
+    (+ (bytes-length text-section) (bytes-length const-section)))
+  (match-define text-segment-num-pages
+    (+ (quotient (+ text-segment-size #x330) #x1000) 1))
+  (match-define const-section-start
+    (- (+ page-zero-size (* text-segment-num-pages #x1000)) (bytes-length const-section)))
+  (match-define text-section-start
+    (- const-section-start (bytes-length text-section)))
+  (match-define num-symbols (length symbol-table-entries))
+  (match-define symbols-length-unrounded
+    (+ (+ 2 (length symbol-table-entries))
+       (sum (map bytes-length (map symbol-table-entry-name
+                                   symbol-table-entries)))))
+  (match-define symbols-length (round-up symbols-length-unrounded 8))
+  (match-define start-address
+    (symbol-table-entry-value
+      (find-symbol-entry #"start" symbol-table-entries)))
+  (call-with-output-file output-file-name
+    (lambda ([output : OutputPort])
       (begin
-        (bytes-set!/quad-le bytes 0 v)
-        (write-all-bytes bytes output))))
-
-  (define (write-eight-bytes-le [v : EightBytesLe] [output : OutputPort]) : Void
-    (let ([bytes (make-bytes 8)])
-      (begin
-        (bytes-set!/eight-bytes-le bytes 0 v)
-        (write-all-bytes bytes output))))
-
-  (define (write-all-symbols [symbols : (List Bytes)] [output : OutputPort]) : Void
-    (case symbols
-      [(empty) (void)]
-      [(cons symbol symbols)
-       (begin
-         (write-all-bytes symbol output)
-         (write-all-bytes (make-bytes 1) output)
-         (write-all-symbols symbols output))]))
-
-  (define (write-symbol-strings [symbols : (List SymbolTableEntry)] [output : OutputPort]) : Void
-    (case symbols
-      [(empty) (void)]
-      [(cons (symbol-table-entry name _ _ _ _) symbols)
-       (begin
-         (write-all-bytes name output)
-         (write-all-bytes (make-bytes 1) output)
-         (write-symbol-strings symbols output))]))
-
-  (define (write-symbol-entries
-            [symbols : (List SymbolTableEntry)]
-            [string-offset : Int] [output : OutputPort]) : Void
-    (case symbols
-      [(empty) (void)]
-      [(cons (symbol-table-entry name type sect desc value) symbols)
-       ;; TODO actually use high bits of description
-       (begin
-         (write-quad-le (u32 string-offset) output)
-         (write-all-bytes (varargs bytes (u8->s64 type) (u8->s64 sect) (u8->s64 desc) 0) output)
-         (write-eight-bytes-le (int->eight-bytes-le value) output)
-         (write-symbol-entries symbols (+ string-offset (+ 1 (bytes-length name))) output))]))
-
-  (define (write-text-segment-relocations
-            [relocations : (List TextSegmentRelocation)]
-            [symbols : (List Bytes)]
-            [output : OutputPort]) : Void
-    (case relocations
-      [(empty) (void)]
-      [(cons (text-segment-relocation offset symbol) relocations)
-       (begin
-         (write-quad-le (u32 offset) output)
-         (case (find-index (lambda ([x : Bytes]) (bytes=? symbol x))
-                           symbols)
-           [(nothing)
-            (panic #"Bad symbol")]
-           [(just index)
-            (write-quad-le (u32 (bitwise-ior index #x2D000000)) output)])
-         (write-text-segment-relocations relocations symbols output))]
-      [(cons (text-segment-relocation/2 offset symbol) relocations)
-       (begin
-         (write-quad-le (u32 offset) output)
-         (case (find-index (lambda ([x : Bytes]) (bytes=? symbol x))
-                           symbols)
-           [(nothing)
-            (panic #"Bad symbol")]
-           [(just index)
-            (write-quad-le (u32 (bitwise-ior index #x1D000000)) output)])
-         (write-text-segment-relocations relocations symbols output))]))
-
-  (define (write-const-segment-relocations
-            [relocations : (List ConstSegmentRelocation)]
-            [symbols : (List Bytes)]
-            [output : OutputPort]) : Void
-    (case relocations
-      [(empty) (void)]
-      [(cons (const-segment-relocation offset symbol value) relocations)
-       (begin
-         (write-quad-le (u32 offset) output)
-         (case (find-index (lambda ([x : Bytes]) (bytes=? value x))
-                           symbols)
-           [(nothing)
-            (panic #"Bad symbol")]
-           [(just index)
-            (write-quad-le (u32 (bitwise-ior index #x0e000000)) output)])
-         (write-const-segment-relocations relocations symbols output))]))
-
-  (define (write-symbol-table
-            [symbols : (List Symbol)]
-            [sym-offset : Int]
-            [output : OutputPort]) : Void
-    (case symbols
-      [(empty) (void)]
-      [(cons symbol symbols)
-       (begin
-         (write-quad-le (u32 sym-offset) output)
-         (case symbol
-           [(undefined-symbol _)
-            (begin
-              (write-quad-le (u32 #x00000001) output)
-              (write-eight-bytes-le (int->eight-bytes-le #x0000000000000000) output))]
-           [(defined-symbol (global-text-symbol name offset))
-            (begin
-              ;; TODO fix lowercase l => private
-              (if (= (bytes-ref name 0) 108)
-                  (write-quad-le (u32 #x0020011f) output)
-                  (write-quad-le (u32 #x0020010f) output))
-              (write-eight-bytes-le (int->eight-bytes-le offset) output))]
-           [(defined-symbol (local-text-symbol name offset))
-            (begin
-              ;; TODO fix lowercase l => private
-              (if (= (bytes-ref name 0) 108)
-                  (write-quad-le (u32 #x0020011f) output)
-                  (write-quad-le (u32 #x0020010f) output))
-              (write-eight-bytes-le (int->eight-bytes-le offset) output))]
-           [(defined-symbol (const-symbol name offset))
-            (begin
-              ;; TODO fix lowercase l => private
-              (if (= (bytes-ref name 0) 108)
-                  (write-quad-le (u32 #x0020021f) output)
-                  (write-quad-le (u32 #x0020020f) output))
-              (write-eight-bytes-le (int->eight-bytes-le offset) output))])
-         (write-symbol-table symbols (+ (+ (bytes-length (symbol-name symbol)) 1) sym-offset) output))]))
-
-  (define (find-symbol-entry [symbol : Bytes] [symbols : (List SymbolTableEntry)]) : SymbolTableEntry
-    (case symbols
-      [(empty) (panic #"Couldn't find symbol")]
-      [(cons entry symbols)
-       (case entry
-         [(symbol-table-entry name _ _ _ _)
-          (if (bytes=? symbol name)
-              entry
-              (find-symbol-entry symbol symbols))])]))
-
-  (define (empty/text-segment-relocation) : (List TextSegmentRelocation)
-    (empty))
-  (define (empty/const-segment-relocation) : (List ConstSegmentRelocation)
-    (empty))
-
-  (define (write-mach-o-executable
-            [symbol-table-entries : (List SymbolTableEntry)]
-            [text-section : Bytes]
-            [const-section : Bytes]
-            [output-file-name : Bytes])
-    : (Either Bytes Void)
-    (match-define page-zero-size #x0000000100000000)
-    (match-define text-segment-relocations (empty/text-segment-relocation))
-    (match-define text-segment-num-relocations (length text-segment-relocations))
-    (match-define const-segment-relocations (empty/const-segment-relocation))
-    (match-define const-segment-num-relocations (length const-segment-relocations))
-    (match-define text-segment-size
-      (+ (bytes-length text-section) (bytes-length const-section)))
-    (match-define text-segment-num-pages
-      (+ (quotient (+ text-segment-size #x330) #x1000) 1))
-    (match-define const-section-start
-      (- (+ page-zero-size (* text-segment-num-pages #x1000)) (bytes-length const-section)))
-    (match-define text-section-start
-      (- const-section-start (bytes-length text-section)))
-    (match-define num-symbols (length symbol-table-entries))
-    (match-define symbols-length-unrounded
-      (+ (+ 2 (length symbol-table-entries))
-         (sum (map bytes-length (map symbol-table-entry-name
-                                     symbol-table-entries)))))
-    (match-define symbols-length (round-up symbols-length-unrounded 8))
-    (match-define start-address
-      (symbol-table-entry-value
-        (find-symbol-entry #"start" symbol-table-entries)))
-    (call-with-output-file output-file-name
-      (lambda ([output : OutputPort])
-        (begin
-          (write-mach-o-header
-            (mach-o-header
-              (mach-o-executable-file)
-              (varargs list
-                (lc-load-segment64
-                  (load-segment64 #"__PAGEZERO"
-                    #x0000000000000000
-                    page-zero-size
-                    0
-                    0
-                    (u32 #x00)
-                    (u32 #x00)
-                    (u32 0)
-                    (empty)))
-                (lc-load-segment64
-                  (load-segment64 #"__TEXT"
-                    page-zero-size
-                    (* text-segment-num-pages #x1000)
-                    #x0
-                    (* text-segment-num-pages #x1000)
-                    (u32 #x07)
-                    (u32 #x05)
-                    (u32 0)
-                    (varargs list
-                      (section64 #"__TEXT" #"__text"
-                                 text-section-start
-                                 (bytes-length text-section)
-                                 (- text-section-start page-zero-size)
-                                 0
-                                 text-segment-num-relocations
-                                 (u32 #x80000400))
-                      (section64 #"__TEXT" #"__const"
-                                 const-section-start
-                                 (bytes-length const-section)
-                                 (- const-section-start page-zero-size)
-                                 0
-                                 const-segment-num-relocations
-                                 (u32 0)))))
-                (lc-load-segment64
-                  (load-segment64 #"__DATA"
-                    (+ page-zero-size
-                       (* text-segment-num-pages #x1000))
-                    #x0000000000000000
-                    (* text-segment-num-pages #x1000)
-                    #x0
-                    (u32 #x07)
-                    (u32 #x03)
-                    (u32 #x04)
-                    (varargs list
-                      (section64 #"__DATA" #"__data"
-                                 (+ page-zero-size
-                                    (* text-segment-num-pages #x1000))
-                                 #x0000000000000000
-                                 (* text-segment-num-pages #x1000)
-                                 0
-                                 text-segment-num-relocations
-                                 (u32 0)))))
-                (lc-load-segment64
-                  (load-segment64 #"__LINKEDIT"
-                    (+ page-zero-size
-                       (* text-segment-num-pages #x1000))
-                    (* (+ (quotient
-                            (- (+ (* num-symbols 16) symbols-length) 1)
-                            #x1000)
-                          1)
-                       #x1000)
-                    (* text-segment-num-pages #x1000)
-                    (+ (* num-symbols 16) symbols-length)
-                    (u32 #x07)
-                    (u32 #x01)
-                    (u32 #x00)
-                    (empty)))
-                (lc-symbol-table
-                  (symbol-table
-                    (* text-segment-num-pages #x1000)
-                    num-symbols
-                    (+ (* text-segment-num-pages #x1000) (* num-symbols 16))
-                    symbols-length))
-                (lc-source-version)
-                (lc-unix-thread (unix-thread start-address))))
-            output)
-          (write-all-bytes (make-bytes 32) output)
-          (write-all-bytes
-            (make-bytes
-              (- (+ (* (quotient (+ text-segment-size #x330) #x1000) #x1000)
-                    #xCD0)
-                 text-segment-size))
+        (write-mach-o-header
+          (mach-o-header
+            (mach-o-executable-file)
+            (varargs list
+              (lc-load-segment64
+                (load-segment64 #"__PAGEZERO"
+                  #x0000000000000000
+                  page-zero-size
+                  0
+                  0
+                  (u32 #x00)
+                  (u32 #x00)
+                  (u32 0)
+                  (empty)))
+              (lc-load-segment64
+                (load-segment64 #"__TEXT"
+                  page-zero-size
+                  (* text-segment-num-pages #x1000)
+                  #x0
+                  (* text-segment-num-pages #x1000)
+                  (u32 #x07)
+                  (u32 #x05)
+                  (u32 0)
+                  (varargs list
+                    (section64 #"__TEXT" #"__text"
+                               text-section-start
+                               (bytes-length text-section)
+                               (- text-section-start page-zero-size)
+                               0
+                               text-segment-num-relocations
+                               (u32 #x80000400))
+                    (section64 #"__TEXT" #"__const"
+                               const-section-start
+                               (bytes-length const-section)
+                               (- const-section-start page-zero-size)
+                               0
+                               const-segment-num-relocations
+                               (u32 0)))))
+              (lc-load-segment64
+                (load-segment64 #"__DATA"
+                  (+ page-zero-size
+                     (* text-segment-num-pages #x1000))
+                  #x0000000000000000
+                  (* text-segment-num-pages #x1000)
+                  #x0
+                  (u32 #x07)
+                  (u32 #x03)
+                  (u32 #x04)
+                  (varargs list
+                    (section64 #"__DATA" #"__data"
+                               (+ page-zero-size
+                                  (* text-segment-num-pages #x1000))
+                               #x0000000000000000
+                               (* text-segment-num-pages #x1000)
+                               0
+                               text-segment-num-relocations
+                               (u32 0)))))
+              (lc-load-segment64
+                (load-segment64 #"__LINKEDIT"
+                  (+ page-zero-size
+                     (* text-segment-num-pages #x1000))
+                  (* (+ (quotient
+                          (- (+ (* num-symbols 16) symbols-length) 1)
+                          #x1000)
+                        1)
+                     #x1000)
+                  (* text-segment-num-pages #x1000)
+                  (+ (* num-symbols 16) symbols-length)
+                  (u32 #x07)
+                  (u32 #x01)
+                  (u32 #x00)
+                  (empty)))
+              (lc-symbol-table
+                (symbol-table
+                  (* text-segment-num-pages #x1000)
+                  num-symbols
+                  (+ (* text-segment-num-pages #x1000) (* num-symbols 16))
+                  symbols-length))
+              (lc-source-version)
+              (lc-unix-thread (unix-thread start-address))))
           output)
-          (write-all-bytes text-section output)
-          (write-all-bytes const-section output)
-          (write-symbol-entries symbol-table-entries 2 output)
-          ;(write-all-bytes (make-bytes (- (* num-symbols 16) 2)) output)
+        (write-all-bytes (make-bytes 32) output)
+        (write-all-bytes
+          (make-bytes
+            (- (+ (* (quotient (+ text-segment-size #x330) #x1000) #x1000)
+                  #xCD0)
+               text-segment-size))
+        output)
+        (write-all-bytes text-section output)
+        (write-all-bytes const-section output)
+        (write-symbol-entries symbol-table-entries 2 output)
+        ;(write-all-bytes (make-bytes (- (* num-symbols 16) 2)) output)
 
-          (write-all-bytes (varargs bytes 32 0) output)
-          (write-symbol-strings symbol-table-entries output)
-          (write-all-bytes
-            (make-bytes
-              (- symbols-length symbols-length-unrounded))
-            output)
+        (write-all-bytes (varargs bytes 32 0) output)
+        (write-symbol-strings symbol-table-entries output)
+        (write-all-bytes
+          (make-bytes
+            (- symbols-length symbols-length-unrounded))
+          output)
 
-          (right (void))))))
+        (right (void))))))
 
 
-  (define (write-mach-o-library/fragments [output-file-name : Bytes] [fragments : (List AssemblyFragment)])
-    : (Either Bytes Void)
-    (match-define text-segment-bytes (assemble-text-segment fragments))
-    (match-define symbols (collect-symbols fragments (bytes-length text-segment-bytes)))
-    (match-define exported-symbols
-      (filter (lambda ([s : Symbol])
-                (case s
-                 [(defined-symbol (local-text-symbol _ _)) #f]
-                 [_ #t])) symbols))
-    (match-define (tuple2 local-text-segment-relocations global-text-segment-relocations)
-      (compute-text-segment-relocations fragments 0 symbols))
-    (match-define text-segment-num-relocations (length global-text-segment-relocations))
-    (match-define const-segment-bytes (assemble-const-segment fragments))
-    (match-define const-segment-relocations
-      (compute-const-segment-relocations fragments))
-    (match-define const-segment-num-relocations (length const-segment-relocations))
-    (match-define segment-size
-      (+ (bytes-length text-segment-bytes) (bytes-length const-segment-bytes)))
-    (match-define reloc-base (+ 352 (round-up segment-size 8)))
-    (call-with-output-file output-file-name
-      (lambda ([output : OutputPort])
-        (begin
-          (apply-local-text-relocations local-text-segment-relocations symbols
-                                        text-segment-bytes)
-          (write-mach-o-header
-            (mach-o-header
-              (mach-o-library-file)
-              (varargs list
-                (lc-load-segment64
-                  (load-segment64 #""
-                    #x0000000000000000
-                    segment-size
-                    352
-                    segment-size
-                    (u32 #x07)
-                    (u32 #x07)
-                    (u32 0)
-                    (varargs list
-                      (section64 #"__TEXT" #"__text"
-                                 #x00
-                                 (bytes-length text-segment-bytes)
-                                 352
-                                 reloc-base
-                                 text-segment-num-relocations
-                                 (u32 #x80000400))
-                      (section64 #"__TEXT" #"__const"
-                                 (bytes-length text-segment-bytes)
-                                 (bytes-length const-segment-bytes)
-                                 (+ 352 (bytes-length text-segment-bytes))
-                                 (+ reloc-base
-                                    (* 8 text-segment-num-relocations))
-                                 const-segment-num-relocations
-                                 (u32 0)))))
-                (lc-symbol-table
-                  (symbol-table
-                    (+ reloc-base
-                       (* 8 (+ text-segment-num-relocations
-                               const-segment-num-relocations)))
-                    (length exported-symbols)
-                    (+ (+ reloc-base
+(define (write-mach-o-library/fragments [output-file-name : Bytes] [fragments : (List AssemblyFragment)])
+  : (Either Bytes Void)
+  (match-define text-segment-bytes (assemble-text-segment fragments))
+  (match-define symbols (collect-symbols fragments (bytes-length text-segment-bytes)))
+  (match-define exported-symbols
+    (filter (lambda ([s : Symbol])
+              (case s
+               [(defined-symbol (local-text-symbol _ _)) #f]
+               [_ #t])) symbols))
+  (match-define (tuple2 local-text-segment-relocations global-text-segment-relocations)
+    (compute-text-segment-relocations fragments 0 symbols))
+  (match-define text-segment-num-relocations (length global-text-segment-relocations))
+  (match-define const-segment-bytes (assemble-const-segment fragments))
+  (match-define const-segment-relocations
+    (compute-const-segment-relocations fragments))
+  (match-define const-segment-num-relocations (length const-segment-relocations))
+  (match-define segment-size
+    (+ (bytes-length text-segment-bytes) (bytes-length const-segment-bytes)))
+  (match-define reloc-base (+ 352 (round-up segment-size 8)))
+  (call-with-output-file output-file-name
+    (lambda ([output : OutputPort])
+      (begin
+        (apply-local-text-relocations local-text-segment-relocations symbols
+                                      text-segment-bytes)
+        (write-mach-o-header
+          (mach-o-header
+            (mach-o-library-file)
+            (varargs list
+              (lc-load-segment64
+                (load-segment64 #""
+                  #x0000000000000000
+                  segment-size
+                  352
+                  segment-size
+                  (u32 #x07)
+                  (u32 #x07)
+                  (u32 0)
+                  (varargs list
+                    (section64 #"__TEXT" #"__text"
+                               #x00
+                               (bytes-length text-segment-bytes)
+                               352
+                               reloc-base
+                               text-segment-num-relocations
+                               (u32 #x80000400))
+                    (section64 #"__TEXT" #"__const"
+                               (bytes-length text-segment-bytes)
+                               (bytes-length const-segment-bytes)
+                               (+ 352 (bytes-length text-segment-bytes))
+                               (+ reloc-base
+                                  (* 8 text-segment-num-relocations))
+                               const-segment-num-relocations
+                               (u32 0)))))
+              (lc-symbol-table
+                (symbol-table
+                  (+ reloc-base
+                     (* 8 (+ text-segment-num-relocations
+                             const-segment-num-relocations)))
+                  (length exported-symbols)
+                  (+ (+ reloc-base
+                        (* 8 (+ text-segment-num-relocations
+                                const-segment-num-relocations)))
+                     (* (length exported-symbols) #x10))
+                  (round-up
+                    (+ (+ 2 (length exported-symbols))
+                       (sum (map bytes-length
+                                 (map symbol-name exported-symbols))))
+                    8)))
+              (lc-version-min-macosx
+                (version-min (u8 10) (u8 11) (u8 0) (u8 10) (u8 11) (u8 0)))
+              (lc-data-in-code
+                (linkedit-data
+                  (u32 (+ reloc-base
                           (* 8 (+ text-segment-num-relocations
-                                  const-segment-num-relocations)))
-                       (* (length exported-symbols) #x10))
-                    (round-up
-                      (+ (+ 2 (length exported-symbols))
-                         (sum (map bytes-length
-                                   (map symbol-name exported-symbols))))
-                      8)))
-                (lc-version-min-macosx
-                  (version-min (u8 10) (u8 11) (u8 0) (u8 10) (u8 11) (u8 0)))
-                (lc-data-in-code
-                  (linkedit-data
-                    (u32 (+ reloc-base
-                            (* 8 (+ text-segment-num-relocations
-                                    const-segment-num-relocations))))
-                    (u32 0)))))
-            output)
-          (write-all-bytes (make-bytes 32) output)
-          (write-all-bytes text-segment-bytes output)
-          (write-all-bytes const-segment-bytes output)
-          (write-all-bytes
-            (make-bytes
-              (-
-                (round-up (+ (bytes-length text-segment-bytes)
-                             (bytes-length const-segment-bytes))
-                          8)
-                (+ (bytes-length text-segment-bytes)
-                   (bytes-length const-segment-bytes)))) output)
-          (write-text-segment-relocations
-            global-text-segment-relocations (map symbol-name exported-symbols) output)
-          (write-const-segment-relocations
-            const-segment-relocations (map symbol-name exported-symbols) output)
-          (write-symbol-table exported-symbols 2 output)
-          (write-all-bytes (varargs bytes 32 0) output)
-          (write-all-symbols (map symbol-name exported-symbols) output)
-          (write-all-bytes
-            (make-bytes
-              (-
-                (round-up
-                  (+ (+ 2 (length exported-symbols))
-                     (sum (map bytes-length
-                               (map symbol-name exported-symbols))))
-                  8)
+                                  const-segment-num-relocations))))
+                  (u32 0)))))
+          output)
+        (write-all-bytes (make-bytes 32) output)
+        (write-all-bytes text-segment-bytes output)
+        (write-all-bytes const-segment-bytes output)
+        (write-all-bytes
+          (make-bytes
+            (-
+              (round-up (+ (bytes-length text-segment-bytes)
+                           (bytes-length const-segment-bytes))
+                        8)
+              (+ (bytes-length text-segment-bytes)
+                 (bytes-length const-segment-bytes)))) output)
+        (write-text-segment-relocations
+          global-text-segment-relocations (map symbol-name exported-symbols) output)
+        (write-const-segment-relocations
+          const-segment-relocations (map symbol-name exported-symbols) output)
+        (write-symbol-table exported-symbols 2 output)
+        (write-all-bytes (varargs bytes 32 0) output)
+        (write-all-symbols (map symbol-name exported-symbols) output)
+        (write-all-bytes
+          (make-bytes
+            (-
+              (round-up
                 (+ (+ 2 (length exported-symbols))
                    (sum (map bytes-length
-                             (map symbol-name exported-symbols))))))
-            output)
-          (right (void)))))))
+                             (map symbol-name exported-symbols))))
+                8)
+              (+ (+ 2 (length exported-symbols))
+                 (sum (map bytes-length
+                           (map symbol-name exported-symbols))))))
+          output)
+        (right (void))))))

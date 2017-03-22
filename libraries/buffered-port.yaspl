@@ -1,79 +1,79 @@
-(module buffered-port
-  (import
-    (bytes bytes-copy! subbytes)
-    (maybe
-      #:types (Maybe)
-      #:values (just nothing)
-      #:patterns (just nothing))
-    (prim
-      #:types (Boolean Bytes InputPort Int)
-      #:values (+ - = >= and bytes-length bytes-ref make-bytes panic read-bytes void)
-      #:patterns ())
-    (tuples
-      #:types (Tuple2)
-      #:values (tuple2)
-      #:patterns (tuple2)))
-  (export
-    #:types (BufferedPort)
-    #:values (make-buffered-port read-crlf-line)
+#:module buffered-port
+(import
+  (bytes bytes-copy! subbytes)
+  (maybe
+    #:types (Maybe)
+    #:values (just nothing)
+    #:patterns (just nothing))
+  (prim
+    #:types (Boolean Bytes InputPort Int)
+    #:values (+ - = >= and bytes-length bytes-ref make-bytes panic read-bytes void)
     #:patterns ())
-  (types
-    (define-type BufferedPort
-      (buffered-port [buffer : Bytes] [pos : Int] [limit : Int] [port : InputPort]))
-    ;; line does not have associated line terminator
-    (define-type LineResult
-      (line-result [line : Bytes] [eof : Boolean] [port : BufferedPort])))
+  (tuples
+    #:types (Tuple2)
+    #:values (tuple2)
+    #:patterns (tuple2)))
+(export
+  #:types (BufferedPort)
+  #:values (make-buffered-port read-crlf-line)
+  #:patterns ())
+(types
+  (define-type BufferedPort
+    (buffered-port [buffer : Bytes] [pos : Int] [limit : Int] [port : InputPort]))
+  ;; line does not have associated line terminator
+  (define-type LineResult
+    (line-result [line : Bytes] [eof : Boolean] [port : BufferedPort])))
 
 
-  (define (make-buffered-port [port : InputPort]) : BufferedPort
-    (buffered-port (make-bytes 4096) 0 0 port))
+(define (make-buffered-port [port : InputPort]) : BufferedPort
+  (buffered-port (make-bytes 4096) 0 0 port))
 
-  (define (read-crlf-line [bport : BufferedPort]) : LineResult
-    (read-crlf-line/loop bport (make-bytes 256) 0 #f))
+(define (read-crlf-line [bport : BufferedPort]) : LineResult
+  (read-crlf-line/loop bport (make-bytes 256) 0 #f))
 
-  ;; Assumptions:
-  ;; prev-cr => acc-pos > 0
-  (define (read-crlf-line/loop [bport : BufferedPort] [acc : Bytes] [acc-pos : Int] [prev-cr : Boolean]) : LineResult
-    (case bport
-      [(buffered-port buffer pos limit port)
-       (if (= pos limit)
-           (case (refill-buffer buffer port)
-             [(nothing)
-              (let ([actual-pos (if prev-cr (- acc-pos 1) acc-pos)])
-                (line-result
-                  (subbytes acc 0 actual-pos)
-                  #t
-                  (buffered-port buffer 0 0 port)))]
-             [(just bport)
-              (read-crlf-line/loop bport acc acc-pos prev-cr)])
-           (if (and prev-cr (= (bytes-ref buffer pos) 10)) ;; 10 is newline
-               (line-result
-                 (subbytes acc 0 (- acc-pos 1))
-                 #f
-                 (buffered-port buffer (+ 1 pos) limit port))
-               (case (find-cr buffer pos limit)
-                 [(tuple2 new-pos found-cr)
-                  (let ([new-acc-pos (+ acc-pos (- new-pos pos))])
-                    (begin
-                      (if (>= new-acc-pos (bytes-length acc))
-                          (panic #"read-crlf-line: Need to implement growing buffer.")
-                          (void))
-                      (bytes-copy! buffer pos new-pos acc acc-pos)
-                      (read-crlf-line/loop
-                        (buffered-port buffer new-pos limit port)
-                        acc
-                        new-acc-pos
-                        found-cr)))])))]))
+;; Assumptions:
+;; prev-cr => acc-pos > 0
+(define (read-crlf-line/loop [bport : BufferedPort] [acc : Bytes] [acc-pos : Int] [prev-cr : Boolean]) : LineResult
+  (case bport
+    [(buffered-port buffer pos limit port)
+     (if (= pos limit)
+         (case (refill-buffer buffer port)
+           [(nothing)
+            (let ([actual-pos (if prev-cr (- acc-pos 1) acc-pos)])
+              (line-result
+                (subbytes acc 0 actual-pos)
+                #t
+                (buffered-port buffer 0 0 port)))]
+           [(just bport)
+            (read-crlf-line/loop bport acc acc-pos prev-cr)])
+         (if (and prev-cr (= (bytes-ref buffer pos) 10)) ;; 10 is newline
+             (line-result
+               (subbytes acc 0 (- acc-pos 1))
+               #f
+               (buffered-port buffer (+ 1 pos) limit port))
+             (case (find-cr buffer pos limit)
+               [(tuple2 new-pos found-cr)
+                (let ([new-acc-pos (+ acc-pos (- new-pos pos))])
+                  (begin
+                    (if (>= new-acc-pos (bytes-length acc))
+                        (panic #"read-crlf-line: Need to implement growing buffer.")
+                        (void))
+                    (bytes-copy! buffer pos new-pos acc acc-pos)
+                    (read-crlf-line/loop
+                      (buffered-port buffer new-pos limit port)
+                      acc
+                      new-acc-pos
+                      found-cr)))])))]))
 
-  (define (refill-buffer [buffer : Bytes] [port : InputPort]) : (Maybe BufferedPort)
-    (let ([num-bytes (read-bytes buffer port 0 (bytes-length buffer))])
-      (if (= num-bytes 0)
-          (nothing)
-          (just (buffered-port buffer 0 num-bytes port)))))
+(define (refill-buffer [buffer : Bytes] [port : InputPort]) : (Maybe BufferedPort)
+  (let ([num-bytes (read-bytes buffer port 0 (bytes-length buffer))])
+    (if (= num-bytes 0)
+        (nothing)
+        (just (buffered-port buffer 0 num-bytes port)))))
 
-  (define (find-cr [buffer : Bytes] [pos : Int] [limit : Int]) : (Tuple2 Int Boolean)
-    (if (= pos limit)
-        (tuple2 limit #f)
-        (if (= (bytes-ref buffer pos) 13) ;; 13 is carriage-return
-            (tuple2 (+ 1 pos) #t)
-            (find-cr buffer (+ 1 pos) limit)))))
+(define (find-cr [buffer : Bytes] [pos : Int] [limit : Int]) : (Tuple2 Int Boolean)
+  (if (= pos limit)
+      (tuple2 limit #f)
+      (if (= (bytes-ref buffer pos) 13) ;; 13 is carriage-return
+          (tuple2 (+ 1 pos) #t)
+          (find-cr buffer (+ 1 pos) limit))))

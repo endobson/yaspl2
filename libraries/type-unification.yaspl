@@ -1,263 +1,263 @@
-(module type-unification
-  (import
-    (bytes bytes-append bytes=?)
-    (dict
-      #:types (Dict)
-      #:values (dict-add dict-add-all dict-map dict-ref dict-value-map make-dict)
-      #:patterns ())
-    (list
-      #:types (List)
-      #:values (append cons empty extract-justs list map ormap zip)
-      #:patterns (cons empty))
-    (maybe
-      #:types (Maybe)
-      #:values (just nothing)
-      #:patterns (just nothing))
-    (numbers integer->decimal-bytes)
-    (prim
-      #:types (Boolean Bytes Int)
-      #:values (+ = and panic)
-      #:patterns ())
-    (sexp-parser
-      #:types (Sexp)
-      #:values (bytes-sexp node number-sexp symbol-sexp)
-      #:patterns ())
-    (sexp-printer print-sexp)
-    (tuples
-      #:types (Tuple2)
-      #:values (tuple2)
-      #:patterns (tuple2))
-    (types
-      #:types (Type)
-      #:values (abstract-type fun-type var-type)
-      #:patterns (abstract-type fun-type type-constructor var-type)))
-  (export
-    #:types (UnificationVar UnificationVarSource Constraint Constrainable)
-    #:values (unify uvar constrain-uvar constrain-var-type constrain-abstract-type
-              constrain-fun-type eq-constraint uvar->bytes uvar-source-next
-              type->constrainable new-uvar-source constraint->bytes)
+#:module type-unification
+(import
+  (bytes bytes-append bytes=?)
+  (dict
+    #:types (Dict)
+    #:values (dict-add dict-add-all dict-map dict-ref dict-value-map make-dict)
     #:patterns ())
+  (list
+    #:types (List)
+    #:values (append cons empty extract-justs list map ormap zip)
+    #:patterns (cons empty))
+  (maybe
+    #:types (Maybe)
+    #:values (just nothing)
+    #:patterns (just nothing))
+  (numbers integer->decimal-bytes)
+  (prim
+    #:types (Boolean Bytes Int)
+    #:values (+ = and panic)
+    #:patterns ())
+  (sexp-parser
+    #:types (Sexp)
+    #:values (bytes-sexp node number-sexp symbol-sexp)
+    #:patterns ())
+  (sexp-printer print-sexp)
+  (tuples
+    #:types (Tuple2)
+    #:values (tuple2)
+    #:patterns (tuple2))
   (types
-    (define-type UnificationVar
-      (uvar [id : Int]))
-    (define-type Constrainable
-      (constrain-uvar [v : UnificationVar])
-      (constrain-var-type [v : Bytes])
-      (constrain-abstract-type [mod-name : Bytes] [name : Bytes] [args : (List Constrainable)])
-      (constrain-fun-type [args : (List Constrainable)] [result : Constrainable]))
-    (define-type Constraint
-      (eq-constraint [lhs : Constrainable] [rhs : Constrainable]))
-    (define-type UnificationVarSource
-      (uvar-source [counter : Int])))
+    #:types (Type)
+    #:values (abstract-type fun-type var-type)
+    #:patterns (abstract-type fun-type type-constructor var-type)))
+(export
+  #:types (UnificationVar UnificationVarSource Constraint Constrainable)
+  #:values (unify uvar constrain-uvar constrain-var-type constrain-abstract-type
+            constrain-fun-type eq-constraint uvar->bytes uvar-source-next
+            type->constrainable new-uvar-source constraint->bytes)
+  #:patterns ())
+(types
+  (define-type UnificationVar
+    (uvar [id : Int]))
+  (define-type Constrainable
+    (constrain-uvar [v : UnificationVar])
+    (constrain-var-type [v : Bytes])
+    (constrain-abstract-type [mod-name : Bytes] [name : Bytes] [args : (List Constrainable)])
+    (constrain-fun-type [args : (List Constrainable)] [result : Constrainable]))
+  (define-type Constraint
+    (eq-constraint [lhs : Constrainable] [rhs : Constrainable]))
+  (define-type UnificationVarSource
+    (uvar-source [counter : Int])))
 
-  (define (unify [constraints : (List Constraint)]) : (Maybe (Dict UnificationVar Type))
-    (case (unify* constraints (make-dict uvar=?))
-      [(nothing) (nothing)]
-      [(just solution)
-       (case (extract-justs
-               (dict-map
-                 solution
-                 (lambda ([uvar : UnificationVar] [c : Constrainable])
-                   : (Maybe (Tuple2 UnificationVar Type))
-                   (case (constrainable->type c)
-                     [(nothing) (nothing)]
-                     [(just t) (just (tuple2 uvar t))]))))
-         [(nothing) (nothing)]
-         [(just uvar-types)
-          (just (dict-add-all (make-dict uvar=?) uvar-types))])]))
+(define (unify [constraints : (List Constraint)]) : (Maybe (Dict UnificationVar Type))
+  (case (unify* constraints (make-dict uvar=?))
+    [(nothing) (nothing)]
+    [(just solution)
+     (case (extract-justs
+             (dict-map
+               solution
+               (lambda ([uvar : UnificationVar] [c : Constrainable])
+                 : (Maybe (Tuple2 UnificationVar Type))
+                 (case (constrainable->type c)
+                   [(nothing) (nothing)]
+                   [(just t) (just (tuple2 uvar t))]))))
+       [(nothing) (nothing)]
+       [(just uvar-types)
+        (just (dict-add-all (make-dict uvar=?) uvar-types))])]))
 
-  (define (unify*/var
-            [uvar : UnificationVar]
-            [c : Constrainable]
-            [constraints : (List Constraint)]
-            [solution : (Dict UnificationVar Constrainable)])
-    : (Maybe (Dict UnificationVar Constrainable))
-    (unify*
-      (map (subst/constraint uvar c) constraints)
-      (dict-add
-        (dict-value-map solution (subst uvar c))
-        uvar c)))
+(define (unify*/var
+          [uvar : UnificationVar]
+          [c : Constrainable]
+          [constraints : (List Constraint)]
+          [solution : (Dict UnificationVar Constrainable)])
+  : (Maybe (Dict UnificationVar Constrainable))
+  (unify*
+    (map (subst/constraint uvar c) constraints)
+    (dict-add
+      (dict-value-map solution (subst uvar c))
+      uvar c)))
 
-  (define (unify*
-            [constraints : (List Constraint)]
-            [solution : (Dict UnificationVar Constrainable)])
-    : (Maybe (Dict UnificationVar Constrainable))
-    (case constraints
-      [(empty) (just solution)]
-      [(cons constraint constraints)
-       (case constraint
-         [(eq-constraint (constrain-uvar v1) (constrain-uvar v2))
-          (if (uvar=? v1 v2)
-              (unify* constraints solution)
-              (unify*/var v1 (constrain-uvar v2) constraints solution))]
-         [(eq-constraint (constrain-uvar v1) c2)
-          (if (occurs-check? v1 c2)
-              (nothing)
-              (unify*/var v1 c2 constraints solution))]
-         [(eq-constraint c1 (constrain-uvar v2))
-          (if (occurs-check? v2 c1)
-              (nothing)
-              (unify*/var v2 c1 constraints solution))]
-         [(eq-constraint (constrain-var-type v1) (constrain-var-type v2))
-          (if (bytes=? v1 v2)
-              (unify* constraints solution)
-              (nothing))]
-         [(eq-constraint
-            (constrain-abstract-type mod1 name1 types1)
-            (constrain-abstract-type mod2 name2 types2))
-          (if (and (bytes=? mod1 mod2) (bytes=? name1 name2))
-              (case (zip types1 types2)
-                [(nothing) (nothing)]
-                [(just zipped-types)
-                 (unify*
-                   (append
-                     (map (lambda ([t : (Tuple2 Constrainable Constrainable)])
-                            (case t
-                              [(tuple2 lhs rhs) (eq-constraint lhs rhs)]))
-                          zipped-types)
-                     constraints)
-                   solution)])
-              (nothing))]
-         [(eq-constraint (constrain-fun-type args1 res1) (constrain-fun-type args2 res2))
-          (case (zip args1 args2)
-            [(nothing) (nothing)]
-            [(just zipped-args)
-             (unify*
-               (append
-                 (map
-                   (lambda ([t : (Tuple2 Constrainable Constrainable)])
-                     (case t
-                       [(tuple2 lhs rhs) (eq-constraint lhs rhs)]))
-                   (cons (tuple2 res1 res2) zipped-args))
-                 constraints)
-               solution)])]
-         [(eq-constraint (constrain-abstract-type _ _ _) (constrain-fun-type _ _))
-          (nothing)]
-         [(eq-constraint (constrain-fun-type _ _) (constrain-abstract-type _ _ _))
-          (nothing)]
-         [(eq-constraint (constrain-var-type _) (constrain-fun-type _ _))
-          (nothing)]
-         [(eq-constraint (constrain-fun-type _ _) (constrain-var-type _))
-          (nothing)]
-         [(eq-constraint (constrain-var-type _) (constrain-abstract-type _ _ _))
-          (nothing)]
-         [(eq-constraint (constrain-abstract-type _ _ _) (constrain-var-type _))
-          (nothing)])]))
+(define (unify*
+          [constraints : (List Constraint)]
+          [solution : (Dict UnificationVar Constrainable)])
+  : (Maybe (Dict UnificationVar Constrainable))
+  (case constraints
+    [(empty) (just solution)]
+    [(cons constraint constraints)
+     (case constraint
+       [(eq-constraint (constrain-uvar v1) (constrain-uvar v2))
+        (if (uvar=? v1 v2)
+            (unify* constraints solution)
+            (unify*/var v1 (constrain-uvar v2) constraints solution))]
+       [(eq-constraint (constrain-uvar v1) c2)
+        (if (occurs-check? v1 c2)
+            (nothing)
+            (unify*/var v1 c2 constraints solution))]
+       [(eq-constraint c1 (constrain-uvar v2))
+        (if (occurs-check? v2 c1)
+            (nothing)
+            (unify*/var v2 c1 constraints solution))]
+       [(eq-constraint (constrain-var-type v1) (constrain-var-type v2))
+        (if (bytes=? v1 v2)
+            (unify* constraints solution)
+            (nothing))]
+       [(eq-constraint
+          (constrain-abstract-type mod1 name1 types1)
+          (constrain-abstract-type mod2 name2 types2))
+        (if (and (bytes=? mod1 mod2) (bytes=? name1 name2))
+            (case (zip types1 types2)
+              [(nothing) (nothing)]
+              [(just zipped-types)
+               (unify*
+                 (append
+                   (map (lambda ([t : (Tuple2 Constrainable Constrainable)])
+                          (case t
+                            [(tuple2 lhs rhs) (eq-constraint lhs rhs)]))
+                        zipped-types)
+                   constraints)
+                 solution)])
+            (nothing))]
+       [(eq-constraint (constrain-fun-type args1 res1) (constrain-fun-type args2 res2))
+        (case (zip args1 args2)
+          [(nothing) (nothing)]
+          [(just zipped-args)
+           (unify*
+             (append
+               (map
+                 (lambda ([t : (Tuple2 Constrainable Constrainable)])
+                   (case t
+                     [(tuple2 lhs rhs) (eq-constraint lhs rhs)]))
+                 (cons (tuple2 res1 res2) zipped-args))
+               constraints)
+             solution)])]
+       [(eq-constraint (constrain-abstract-type _ _ _) (constrain-fun-type _ _))
+        (nothing)]
+       [(eq-constraint (constrain-fun-type _ _) (constrain-abstract-type _ _ _))
+        (nothing)]
+       [(eq-constraint (constrain-var-type _) (constrain-fun-type _ _))
+        (nothing)]
+       [(eq-constraint (constrain-fun-type _ _) (constrain-var-type _))
+        (nothing)]
+       [(eq-constraint (constrain-var-type _) (constrain-abstract-type _ _ _))
+        (nothing)]
+       [(eq-constraint (constrain-abstract-type _ _ _) (constrain-var-type _))
+        (nothing)])]))
 
 
-  (define (subst [uvar : UnificationVar] [c : Constrainable])
-    : (Constrainable -> Constrainable)
-    (lambda ([c2 : Constrainable])  (subst* uvar c c2)))
+(define (subst [uvar : UnificationVar] [c : Constrainable])
+  : (Constrainable -> Constrainable)
+  (lambda ([c2 : Constrainable])  (subst* uvar c c2)))
 
-  (define (subst/constraint [uvar : UnificationVar] [c : Constrainable])
-    : (Constraint -> Constraint)
-    (lambda ([c2 : Constraint])
-      (case c2
-        [(eq-constraint lhs rhs)
-         (eq-constraint
-           (subst* uvar c lhs)
-           (subst* uvar c rhs))])))
-
-  (define (subst* [uvar : UnificationVar] [v : Constrainable] [c : Constrainable])
-    : Constrainable
-    (case c
-      [(constrain-uvar u)
-       (if (uvar=? u uvar) v c)]
-      [(constrain-var-type _) c]
-      [(constrain-abstract-type mod name types)
-       (constrain-abstract-type mod name (map (subst uvar v) types))]
-      [(constrain-fun-type args result)
-       (constrain-fun-type (map (subst uvar v) args) (subst* uvar v result))]))
-
-  (define (occurs-check? [uvar : UnificationVar] [c : Constrainable]) : Boolean
-    (case c
-      [(constrain-uvar u)
-       (uvar=? u uvar)]
-      [(constrain-var-type _) #f]
-      [(constrain-abstract-type _ _ types)
-       (ormap (lambda ([c : Constrainable]) (occurs-check? uvar c)) types)]
-      [(constrain-fun-type args result)
-       (ormap (lambda ([c : Constrainable]) (occurs-check? uvar c)) (cons result args))]))
-
-  (define (uvar=? [uvar1 : UnificationVar] [uvar2 : UnificationVar]) : Boolean
-    (case uvar1
-      [(uvar v1)
-       (case uvar2
-         [(uvar v2)
-          (= v1 v2)])]))
-
-  (define (uvar->bytes [uvar : UnificationVar]) : Bytes
-    (bytes-append
-      (varargs list #"(uvar " (integer->decimal-bytes (uvar-id uvar)) #")")))
-
-  (define (constrainable->type [c : Constrainable]) : (Maybe Type)
-    (case c
-      [(constrain-uvar _) (nothing)]
-      [(constrain-var-type v) (just (var-type v))]
-      [(constrain-abstract-type mod-name name cs)
-       (case (extract-justs (map constrainable->type cs))
-         [(nothing) (nothing)]
-         [(just types)
-          (just (abstract-type mod-name name types))])]
-      [(constrain-fun-type args result)
-       (case (extract-justs (map constrainable->type args))
-         [(nothing) (nothing)]
-         [(just arg-types)
-          (case (constrainable->type result)
-            [(nothing) (nothing)]
-            [(just result-type)
-             (just (fun-type (empty) arg-types result-type))])])]))
-
-  (define (new-uvar-source) : UnificationVarSource
-    (uvar-source 0))
-
-  (define (uvar-source-next [us : UnificationVarSource]) : (Tuple2 UnificationVar UnificationVarSource)
-    (let ([counter (uvar-source-counter us)])
-      (tuple2 (uvar counter) (uvar-source (+ counter 1)))))
-
-  (define (type->constrainable [t : Type] [uvars : (Dict Bytes UnificationVar)]) : Constrainable
-    (case t
-      [(fun-type (empty) args result-type)
-       (constrain-fun-type
-         (map (lambda ([t : Type]) (type->constrainable t uvars)) args)
-         (type->constrainable result-type uvars))]
-      [(fun-type tvars args result-type)
-       (panic #"polymorphic functions constraints not yet implemented")]
-      [(var-type v)
-       (case (dict-ref uvars v)
-         [(nothing) (constrain-var-type v)]
-         [(just u) (constrain-uvar u)])]
-      [(abstract-type mod name args)
-       (constrain-abstract-type mod name
-         (map (lambda ([t : Type]) (type->constrainable t uvars)) args))]
-      [(type-constructor mod name args)
-       (panic
-         (bytes-append
-           (varargs list #"Type constructor constraint not yet implemented: "
-                         mod #" " name)))]))
-
-  (define (constraint->bytes [c : Constraint]) : Bytes
-    (print-sexp (constraint->sexp c)))
-
-  (define (constraint->sexp [c : Constraint]) : Sexp
-    (case c
+(define (subst/constraint [uvar : UnificationVar] [c : Constrainable])
+  : (Constraint -> Constraint)
+  (lambda ([c2 : Constraint])
+    (case c2
       [(eq-constraint lhs rhs)
-       (node (varargs list
-               (constrainable->sexp lhs)
-               (symbol-sexp #"=")
-               (constrainable->sexp rhs)))]))
+       (eq-constraint
+         (subst* uvar c lhs)
+         (subst* uvar c rhs))])))
 
-  (define (constrainable->sexp [c : Constrainable]) : Sexp
-    (case c
-      [(constrain-uvar (uvar id))
-       (node (varargs list (symbol-sexp #"uvar") (number-sexp id)))]
-      [(constrain-var-type v)
-       (symbol-sexp v)]
-      [(constrain-abstract-type mod-name name cs)
-       (node (cons (bytes-sexp mod-name)
-                   (cons (bytes-sexp name)
-                         (map constrainable->sexp cs))))]
-      [(constrain-fun-type args result)
-       (node (append
-               (map constrainable->sexp args)
-               (varargs list (symbol-sexp #"->") (constrainable->sexp result))))])))
+(define (subst* [uvar : UnificationVar] [v : Constrainable] [c : Constrainable])
+  : Constrainable
+  (case c
+    [(constrain-uvar u)
+     (if (uvar=? u uvar) v c)]
+    [(constrain-var-type _) c]
+    [(constrain-abstract-type mod name types)
+     (constrain-abstract-type mod name (map (subst uvar v) types))]
+    [(constrain-fun-type args result)
+     (constrain-fun-type (map (subst uvar v) args) (subst* uvar v result))]))
+
+(define (occurs-check? [uvar : UnificationVar] [c : Constrainable]) : Boolean
+  (case c
+    [(constrain-uvar u)
+     (uvar=? u uvar)]
+    [(constrain-var-type _) #f]
+    [(constrain-abstract-type _ _ types)
+     (ormap (lambda ([c : Constrainable]) (occurs-check? uvar c)) types)]
+    [(constrain-fun-type args result)
+     (ormap (lambda ([c : Constrainable]) (occurs-check? uvar c)) (cons result args))]))
+
+(define (uvar=? [uvar1 : UnificationVar] [uvar2 : UnificationVar]) : Boolean
+  (case uvar1
+    [(uvar v1)
+     (case uvar2
+       [(uvar v2)
+        (= v1 v2)])]))
+
+(define (uvar->bytes [uvar : UnificationVar]) : Bytes
+  (bytes-append
+    (varargs list #"(uvar " (integer->decimal-bytes (uvar-id uvar)) #")")))
+
+(define (constrainable->type [c : Constrainable]) : (Maybe Type)
+  (case c
+    [(constrain-uvar _) (nothing)]
+    [(constrain-var-type v) (just (var-type v))]
+    [(constrain-abstract-type mod-name name cs)
+     (case (extract-justs (map constrainable->type cs))
+       [(nothing) (nothing)]
+       [(just types)
+        (just (abstract-type mod-name name types))])]
+    [(constrain-fun-type args result)
+     (case (extract-justs (map constrainable->type args))
+       [(nothing) (nothing)]
+       [(just arg-types)
+        (case (constrainable->type result)
+          [(nothing) (nothing)]
+          [(just result-type)
+           (just (fun-type (empty) arg-types result-type))])])]))
+
+(define (new-uvar-source) : UnificationVarSource
+  (uvar-source 0))
+
+(define (uvar-source-next [us : UnificationVarSource]) : (Tuple2 UnificationVar UnificationVarSource)
+  (let ([counter (uvar-source-counter us)])
+    (tuple2 (uvar counter) (uvar-source (+ counter 1)))))
+
+(define (type->constrainable [t : Type] [uvars : (Dict Bytes UnificationVar)]) : Constrainable
+  (case t
+    [(fun-type (empty) args result-type)
+     (constrain-fun-type
+       (map (lambda ([t : Type]) (type->constrainable t uvars)) args)
+       (type->constrainable result-type uvars))]
+    [(fun-type tvars args result-type)
+     (panic #"polymorphic functions constraints not yet implemented")]
+    [(var-type v)
+     (case (dict-ref uvars v)
+       [(nothing) (constrain-var-type v)]
+       [(just u) (constrain-uvar u)])]
+    [(abstract-type mod name args)
+     (constrain-abstract-type mod name
+       (map (lambda ([t : Type]) (type->constrainable t uvars)) args))]
+    [(type-constructor mod name args)
+     (panic
+       (bytes-append
+         (varargs list #"Type constructor constraint not yet implemented: "
+                       mod #" " name)))]))
+
+(define (constraint->bytes [c : Constraint]) : Bytes
+  (print-sexp (constraint->sexp c)))
+
+(define (constraint->sexp [c : Constraint]) : Sexp
+  (case c
+    [(eq-constraint lhs rhs)
+     (node (varargs list
+             (constrainable->sexp lhs)
+             (symbol-sexp #"=")
+             (constrainable->sexp rhs)))]))
+
+(define (constrainable->sexp [c : Constrainable]) : Sexp
+  (case c
+    [(constrain-uvar (uvar id))
+     (node (varargs list (symbol-sexp #"uvar") (number-sexp id)))]
+    [(constrain-var-type v)
+     (symbol-sexp v)]
+    [(constrain-abstract-type mod-name name cs)
+     (node (cons (bytes-sexp mod-name)
+                 (cons (bytes-sexp name)
+                       (map constrainable->sexp cs))))]
+    [(constrain-fun-type args result)
+     (node (append
+             (map constrainable->sexp args)
+             (varargs list (symbol-sexp #"->") (constrainable->sexp result))))]))

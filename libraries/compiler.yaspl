@@ -1,136 +1,136 @@
-(module compiler
-  (import
-    (bytes bytes=?)
-    (dict
-      #:types ()
-      #:values (make-dict merge-dicts*)
-      #:patterns ())
-    (either
-      #:types (Either)
-      #:values (left right)
-      #:patterns (left right))
-    (intermediate-to-stack
-      #:types (CompiledModule)
-      #:values (compile-module)
-      #:patterns (compiled-module))
-    (io call-with-input-file read-all-bytes)
-    (list
-      #:types (List)
-      #:values (append cons empty extract-rights map)
-      #:patterns (cons empty))
-    (maybe
-      #:types ()
-      #:values ()
-      #:patterns (just nothing))
-    (module-signature
-      #:types (ModuleSignature)
-      #:values (module-signature-known-functions)
-      #:patterns ())
-    (prim
-      #:types (Bytes)
-      #:values ()
-      #:patterns ())
-    (prim-implementation prim-implementation prim-signature)
-    (sexp-parser
-      #:types ()
-      #:values (parse-sexps)
-      #:patterns ())
-    (source-language
-      #:types (Module)
-      #:values (parse-module)
-      #:patterns ())
-    (source-to-intermediate-language source->intermediate)
-    (stack-machine
-      #:types (TopLevelObject)
-      #:values ()
-      #:patterns ())
-    (stack-machine-optimizer optimize-tlos)
-    (tuples
-      #:types (Tuple2)
-      #:values (tuple2)
-      #:patterns (tuple2))
-    (validator module-errors->bytes validate-module))
-  (export
+#:module compiler
+(import
+  (bytes bytes=?)
+  (dict
     #:types ()
-    #:values (compile-main-module compile-modules parse-module-files parse-module-file)
+    #:values (make-dict merge-dicts*)
     #:patterns ())
-  (types)
+  (either
+    #:types (Either)
+    #:values (left right)
+    #:patterns (left right))
+  (intermediate-to-stack
+    #:types (CompiledModule)
+    #:values (compile-module)
+    #:patterns (compiled-module))
+  (io call-with-input-file read-all-bytes)
+  (list
+    #:types (List)
+    #:values (append cons empty extract-rights map)
+    #:patterns (cons empty))
+  (maybe
+    #:types ()
+    #:values ()
+    #:patterns (just nothing))
+  (module-signature
+    #:types (ModuleSignature)
+    #:values (module-signature-known-functions)
+    #:patterns ())
+  (prim
+    #:types (Bytes)
+    #:values ()
+    #:patterns ())
+  (prim-implementation prim-implementation prim-signature)
+  (sexp-parser
+    #:types ()
+    #:values (parse-sexps)
+    #:patterns ())
+  (source-language
+    #:types (Module)
+    #:values (parse-module)
+    #:patterns ())
+  (source-to-intermediate-language source->intermediate)
+  (stack-machine
+    #:types (TopLevelObject)
+    #:values ()
+    #:patterns ())
+  (stack-machine-optimizer optimize-tlos)
+  (tuples
+    #:types (Tuple2)
+    #:values (tuple2)
+    #:patterns (tuple2))
+  (validator module-errors->bytes validate-module))
+(export
+  #:types ()
+  #:values (compile-main-module compile-modules parse-module-files parse-module-file)
+  #:patterns ())
+(types)
 
-  (define (compile-main-module
-            [main-module : Module]
-            [sigs : (List ModuleSignature)])
-    : (Either Bytes (Tuple2 (List TopLevelObject) ModuleSignature))
-    (let ([sigs (cons (prim-signature) sigs)])
-      (case (compile-module* main-module sigs)
-        [(left v)
-         (left v)]
-        [(right (compiled-module tlos sig))
-         (right
-           (tuple2
-             (optimize-tlos tlos
-               (merge-dicts* (make-dict bytes=?) (map module-signature-known-functions
-                                                      (cons sig sigs))))
-             sig))])))
-
-  (define (compile-modules [mods : (List Module)])
-    : (Either Bytes (List TopLevelObject))
-   (compile-modules*
-     mods
-     (cons (prim-signature) (empty))
-     (empty)))
-
-  (define (compile-modules*
-            [mods : (List Module)]
-            [sigs : (List ModuleSignature)]
-            [tlos : (List TopLevelObject)])
-    : (Either Bytes (List TopLevelObject))
-    (case (compile-module-list* mods sigs tlos)
+(define (compile-main-module
+          [main-module : Module]
+          [sigs : (List ModuleSignature)])
+  : (Either Bytes (Tuple2 (List TopLevelObject) ModuleSignature))
+  (let ([sigs (cons (prim-signature) sigs)])
+    (case (compile-module* main-module sigs)
       [(left v)
        (left v)]
-      [(right (tuple2 sigs tlos))
-       (right (optimize-tlos
-                (append (prim-implementation) tlos)
-                (merge-dicts* (make-dict bytes=?) (map module-signature-known-functions sigs))))]))
+      [(right (compiled-module tlos sig))
+       (right
+         (tuple2
+           (optimize-tlos tlos
+             (merge-dicts* (make-dict bytes=?) (map module-signature-known-functions
+                                                    (cons sig sigs))))
+           sig))])))
 
-  (define (compile-module-list*
-            [mods : (List Module)]
-            [sigs : (List ModuleSignature)]
-            [tlos : (List TopLevelObject)])
-    : (Either Bytes (Tuple2 (List ModuleSignature)
-                            (List TopLevelObject)))
-    (case mods
-      [(empty)
-       (right (tuple2 sigs tlos))]
-      [(cons mod mods)
-       (case (compile-module* mod sigs)
-         [(left v)
-          (left v)]
-         [(right (compiled-module new-tlos sig))
-          (compile-module-list* mods
-                                (cons sig sigs)
-                                (append new-tlos tlos))])]))
+(define (compile-modules [mods : (List Module)])
+  : (Either Bytes (List TopLevelObject))
+ (compile-modules*
+   mods
+   (cons (prim-signature) (empty))
+   (empty)))
 
-  (define (compile-module*
-            [mod : Module]
-            [sigs : (List ModuleSignature)])
-    : (Either Bytes CompiledModule)
-    (case (validate-module mod sigs)
-      [(just v)
-       (left (module-errors->bytes v))]
-      [(nothing)
-       (case (source->intermediate mod sigs)
-         [(left v) (left v)]
-         [(right intermediate)
-          (compile-module intermediate sigs)])]))
+(define (compile-modules*
+          [mods : (List Module)]
+          [sigs : (List ModuleSignature)]
+          [tlos : (List TopLevelObject)])
+  : (Either Bytes (List TopLevelObject))
+  (case (compile-module-list* mods sigs tlos)
+    [(left v)
+     (left v)]
+    [(right (tuple2 sigs tlos))
+     (right (optimize-tlos
+              (append (prim-implementation) tlos)
+              (merge-dicts* (make-dict bytes=?) (map module-signature-known-functions sigs))))]))
 
-  (define (parse-module-files [module-files : (List Bytes)])
-    : (Either Bytes (List Module))
-    (extract-rights (map parse-module-file module-files)))
+(define (compile-module-list*
+          [mods : (List Module)]
+          [sigs : (List ModuleSignature)]
+          [tlos : (List TopLevelObject)])
+  : (Either Bytes (Tuple2 (List ModuleSignature)
+                          (List TopLevelObject)))
+  (case mods
+    [(empty)
+     (right (tuple2 sigs tlos))]
+    [(cons mod mods)
+     (case (compile-module* mod sigs)
+       [(left v)
+        (left v)]
+       [(right (compiled-module new-tlos sig))
+        (compile-module-list* mods
+                              (cons sig sigs)
+                              (append new-tlos tlos))])]))
 
-  (define (parse-module-file [module : Bytes])
-    : (Either Bytes Module)
-    (case (parse-sexps (call-with-input-file module read-all-bytes))
-      [(left v)
-       (left v)]
-      [(right mod-sexps)
-       (parse-module mod-sexps)])))
+(define (compile-module*
+          [mod : Module]
+          [sigs : (List ModuleSignature)])
+  : (Either Bytes CompiledModule)
+  (case (validate-module mod sigs)
+    [(just v)
+     (left (module-errors->bytes v))]
+    [(nothing)
+     (case (source->intermediate mod sigs)
+       [(left v) (left v)]
+       [(right intermediate)
+        (compile-module intermediate sigs)])]))
+
+(define (parse-module-files [module-files : (List Bytes)])
+  : (Either Bytes (List Module))
+  (extract-rights (map parse-module-file module-files)))
+
+(define (parse-module-file [module : Bytes])
+  : (Either Bytes Module)
+  (case (parse-sexps (call-with-input-file module read-all-bytes))
+    [(left v)
+     (left v)]
+    [(right mod-sexps)
+     (parse-module mod-sexps)]))

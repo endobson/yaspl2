@@ -1,261 +1,261 @@
-(module lexer
-  (import
-    (boolean not)
-    (byte-escapes unescape-bytes)
-    (bytes bytes-ref/u8 subbytes)
-    (either
-      #:types ()
-      #:values ()
-      #:patterns (left right))
-    (io read-all-bytes)
-    (numbers digit?)
-    (prim
-      #:types (Array Boolean Bytes InputPort Int OutputPort U8)
-      #:values (+ < <= = and bytes-length bytes-ref or u8 u8->s64)
-      #:patterns ()))
-  (export
-    #:types (Lexer Result Lexeme)
-    #:values (main make-lexer run-lexer)
-    #:patterns (end-of-input bad-input lex-result
-                  symbol-lexeme decimal-number-lexeme hexadecimal-number-lexeme
-                  left-paren-lexeme right-paren-lexeme
-                  left-brace-lexeme right-brace-lexeme
-                  left-bracket-lexeme right-bracket-lexeme comment-lexeme
-                  bytes-lexeme boolean-lexeme
-                  keyword-lexeme))
-  (types
-    (define-type Lexer
-      (lexer [input : Bytes] [pos : Int]))
+#:module lexer
+(import
+  (boolean not)
+  (byte-escapes unescape-bytes)
+  (bytes bytes-ref/u8 subbytes)
+  (either
+    #:types ()
+    #:values ()
+    #:patterns (left right))
+  (io read-all-bytes)
+  (numbers digit?)
+  (prim
+    #:types (Array Boolean Bytes InputPort Int OutputPort U8)
+    #:values (+ < <= = and bytes-length bytes-ref or u8 u8->s64)
+    #:patterns ()))
+(export
+  #:types (Lexer Result Lexeme)
+  #:values (main make-lexer run-lexer)
+  #:patterns (end-of-input bad-input lex-result
+                symbol-lexeme decimal-number-lexeme hexadecimal-number-lexeme
+                left-paren-lexeme right-paren-lexeme
+                left-brace-lexeme right-brace-lexeme
+                left-bracket-lexeme right-bracket-lexeme comment-lexeme
+                bytes-lexeme boolean-lexeme
+                keyword-lexeme))
+(types
+  (define-type Lexer
+    (lexer [input : Bytes] [pos : Int]))
 
-    (define-type Lexeme
-      (left-paren-lexeme)
-      (right-paren-lexeme)
-      (left-bracket-lexeme)
-      (right-bracket-lexeme)
-      (left-brace-lexeme)
-      (right-brace-lexeme)
-      (comment-lexeme)
-      (symbol-lexeme [v : Bytes])
-      (boolean-lexeme [v : Boolean])
-      (bytes-lexeme [v : Bytes])
-      (keyword-lexeme [v : Bytes])
-      (decimal-number-lexeme [v : Bytes])
-      (hexadecimal-number-lexeme [v : Bytes]))
+  (define-type Lexeme
+    (left-paren-lexeme)
+    (right-paren-lexeme)
+    (left-bracket-lexeme)
+    (right-bracket-lexeme)
+    (left-brace-lexeme)
+    (right-brace-lexeme)
+    (comment-lexeme)
+    (symbol-lexeme [v : Bytes])
+    (boolean-lexeme [v : Boolean])
+    (bytes-lexeme [v : Bytes])
+    (keyword-lexeme [v : Bytes])
+    (decimal-number-lexeme [v : Bytes])
+    (hexadecimal-number-lexeme [v : Bytes]))
 
-    (define-type Result
-      (lex-result [v : Lexeme] [next : Lexer])
+  (define-type Result
+    (lex-result [v : Lexeme] [next : Lexer])
+    (end-of-input)
+    (bad-input [v : Bytes])))
+
+(define (decimal-start-byte? [v : U8]) : Boolean
+  (digit? v))
+(define (decimal-continue-byte? [v : U8]) : Boolean
+  (digit? v))
+
+(define (hexadecimal-byte? [v : U8]) : Boolean
+  (or (digit? v)
+      (let ([v (u8->s64 v)])
+        (or (and (<= 65 v) (<= v 70))
+            (and (<= 97 v) (<= v 102))))))
+
+(define (math-symbol? [v : U8]) : Boolean
+  (let ([v (u8->s64 v)])
+    (or (= v 42)
+        (or (= v 43)
+            (or (= v 45)
+                (= v 47))))))
+
+(define (letter? [v : U8]) : Boolean
+  (let ([v (u8->s64 v)])
+    (or (and (<= 97 v) (< v 123))
+        (and (<= 65 v) (< v 91)))))
+
+
+;; Symbol ok values
+;; (set-ok! 33)
+;; (set-ok! 36 38)
+;; (set-ok! 42 43)
+;; (set-ok! 45)
+;; (set-ok! 47)
+;; ;(set-ok! 48 57) ;; Only for continue bytes
+;; (set-ok! 58)
+;; (set-ok! 60 90)
+;; (set-ok! 94 95)
+;; (set-ok! 97 122)
+;; (set-ok! 126)
+
+;; Make this saner
+(define (symbol-start-byte? [v : U8]) : Boolean
+  (let ([valid #"                                 X  XXX   XX X X          X XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX   XX XXXXXXXXXXXXXXXXXXXXXXXXXX   X "])
+    (= (bytes-ref valid (u8->s64 v)) 88)))
+
+;; Make this saner
+(define (symbol-continue-byte? [v : U8]) : Boolean
+  (let ([valid #"                                 X  XXX   XX X XXXXXXXXXXXX XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX   XX XXXXXXXXXXXXXXXXXXXXXXXXXX   X "])
+    (= (bytes-ref valid (u8->s64 v)) 88)))
+
+
+(define (keyword-continue-byte? [v : U8]) : Boolean
+  (or (math-symbol? v)
+      (letter? v)))
+
+(define (bytes-continue-byte? [v : U8]) : Boolean
+  (let ([int (u8->s64 v)])
+    (and (and (<= 32 int) (< int 127))
+         (not (double-quote? v)))))
+
+(define (newline? [v : U8]) : Boolean
+  (= (u8->s64 v) 10))
+
+(define (space? [v : U8]) : Boolean
+  (= (u8->s64 v) 32))
+
+(define (double-quote? [v : U8]) : Boolean
+  (= (u8->s64 v) 34))
+
+(define (hash? [v : U8]) : Boolean
+  (= (u8->s64 v) 35))
+
+(define (colon? [v : U8]) : Boolean
+  (= (u8->s64 v) 58))
+
+(define (semi-colon? [v : U8]) : Boolean
+  (= (u8->s64 v) 59))
+
+(define (back-slash? [v : U8]) : Boolean
+  (= (u8->s64 v) 92))
+
+(define (lex-symbol [bytes : Bytes] [start : Int] [cur : Int]) : Result
+  (if (= (bytes-length bytes) cur)
+      (lex-result (symbol-lexeme (subbytes bytes start cur))
+                  (lexer bytes cur))
+      (if (symbol-continue-byte? (bytes-ref/u8 bytes cur))
+          (lex-symbol bytes start (+ 1 cur))
+          (lex-result (symbol-lexeme (subbytes bytes start cur))
+                      (lexer bytes cur)))))
+
+
+(define (lex-after-hash [bytes : Bytes] [pos : Int]) : Result
+  (if (= (bytes-length bytes) pos)
+      (bad-input #"Input ended with hash")
+      (let ([byte (bytes-ref bytes pos)])
+        (let ([next-pos (+ 1 pos)])
+          (if (colon? (u8 byte))
+              (lex-keyword bytes next-pos next-pos)
+              (if (double-quote? (u8 byte))
+                  (lex-bytes bytes next-pos next-pos)
+                  (if (= byte 116)
+                      (lex-result (boolean-lexeme #t) (lexer bytes next-pos))
+                      (if (= byte 102)
+                          (lex-result (boolean-lexeme #f) (lexer bytes next-pos))
+                          (if (= byte 120)
+                              (lex-hexadecimal bytes next-pos next-pos)
+                              (bad-input #"Unsupported character after hash"))))))))))
+
+
+(define (lex-keyword [bytes : Bytes] [start : Int] [cur : Int]) : Result
+  (if (= (bytes-length bytes) cur)
+      (lex-result (keyword-lexeme (subbytes bytes start cur))
+                  (lexer bytes cur))
+      (if (keyword-continue-byte? (bytes-ref/u8 bytes cur))
+          (lex-keyword bytes start (+ 1 cur))
+          (lex-result (keyword-lexeme (subbytes bytes start cur))
+                      (lexer bytes cur)))))
+
+(define (lex-bytes [bytes : Bytes] [start : Int] [cur : Int]) : Result
+  (if (= (bytes-length bytes) cur)
+      (bad-input #"Input ended in the middle of bytes literal")
+      (let ([byte (bytes-ref/u8 bytes cur)])
+        (if (back-slash? byte)
+            (let ([cur (+ 1 cur)])
+              (let ([byte (bytes-ref bytes cur)])
+                (if (= (bytes-length bytes) cur)
+                    (bad-input #"Input ended with backslash")
+                    (if (or (or (double-quote? (u8 byte))
+                                (back-slash? (u8 byte)))
+                            (or (= byte 110) ;; n
+                                (= byte 114))) ;; r
+                        (lex-bytes bytes start (+ 1 cur))
+                        (bad-input #"Unknown character after backslash.")))))
+            (if (bytes-continue-byte? byte)
+                (lex-bytes bytes start (+ 1 cur))
+                (if (double-quote? byte)
+                    (case (unescape-bytes (subbytes bytes start cur))
+                      [(left _) (bad-input #"Bytes literal couldn't be unescaped")]
+                      [(right v)
+                       (lex-result (bytes-lexeme v) (lexer bytes (+ 1 cur)))])
+                    (bad-input #"Unsupported character in bytes literal")))))))
+
+(define (lex-decimal [bytes : Bytes] [start : Int] [cur : Int]) : Result
+  (if (= (bytes-length bytes) cur)
+      (lex-result (decimal-number-lexeme (subbytes bytes start cur))
+                  (lexer bytes cur))
+      (if (decimal-continue-byte? (bytes-ref/u8 bytes cur))
+          (lex-decimal bytes start (+ 1 cur))
+          (lex-result (decimal-number-lexeme (subbytes bytes start cur))
+                      (lexer bytes cur)))))
+
+(define (lex-hexadecimal [bytes : Bytes] [start : Int] [cur : Int]) : Result
+  (if (= (bytes-length bytes) cur)
+      (lex-result (hexadecimal-number-lexeme (subbytes bytes start cur))
+                  (lexer bytes cur))
+      (if (hexadecimal-byte? (bytes-ref/u8 bytes cur))
+          (lex-hexadecimal bytes start (+ 1 cur))
+          (lex-result (hexadecimal-number-lexeme (subbytes bytes start cur))
+                      (lexer bytes cur)))))
+
+
+(define (lex-line-comment [bytes : Bytes] [pos : Int]) : Result
+  (if (= (bytes-length bytes) pos)
+      (lex-result (comment-lexeme) (lexer bytes pos))
+      (if (newline? (bytes-ref/u8 bytes pos))
+          (lex-result (comment-lexeme) (lexer bytes pos))
+          (lex-line-comment bytes (+ 1 pos)))))
+
+
+
+(define (make-lexer [bytes : Bytes]) : Lexer
+  (lexer bytes 0))
+
+(define (run-lexer [lexer : Lexer]) : Result
+  (run (lexer-input lexer) (lexer-pos lexer)))
+
+
+(define (run [bytes : Bytes] [pos : Int]) : Result
+  (if (= pos (bytes-length bytes))
       (end-of-input)
-      (bad-input [v : Bytes])))
+      (let ([byte (bytes-ref bytes pos)])
+        (if (= byte 40)
+            (lex-result (left-paren-lexeme) (lexer bytes (+ pos 1)))
+            (if (= byte 41)
+                (lex-result (right-paren-lexeme) (lexer bytes (+ pos 1)))
+                (if (= byte 91)
+                    (lex-result (left-bracket-lexeme) (lexer bytes (+ pos 1)))
+                    (if (= byte 93)
+                        (lex-result (right-bracket-lexeme) (lexer bytes (+ pos 1)))
+                        (if (= byte 123)
+                            (lex-result (left-brace-lexeme) (lexer bytes (+ pos 1)))
+                            (if (= byte 125)
+                                (lex-result (right-brace-lexeme) (lexer bytes (+ pos 1)))
+                                (if (or (newline? (u8 byte)) (space? (u8 byte)))
+                                    (run bytes (+ 1 pos))
+                                    (if (symbol-start-byte? (u8 byte))
+                                        (lex-symbol bytes pos (+ pos 1))
+                                        (if (decimal-start-byte? (u8 byte))
+                                            (lex-decimal bytes pos (+ pos 1))
+                                            (if (hash? (u8 byte))
+                                                (lex-after-hash bytes (+ pos 1))
+                                                (if (semi-colon? (u8 byte))
+                                                    (lex-line-comment bytes (+ pos 1))
+                                                    (if (double-quote? (u8 byte))
+                                                        (bad-input #"String literals not supported")
+                                                        (bad-input #"Unsupported character"))))))))))))))))
 
-  (define (decimal-start-byte? [v : U8]) : Boolean
-    (digit? v))
-  (define (decimal-continue-byte? [v : U8]) : Boolean
-    (digit? v))
+(define (loop [lexer : Lexer]) : Int
+  (case (run-lexer lexer)
+    [(lex-result v lexer) (loop lexer)]
+    [(end-of-input) 0]
+    [(bad-input _) 1]))
 
-  (define (hexadecimal-byte? [v : U8]) : Boolean
-    (or (digit? v)
-        (let ([v (u8->s64 v)])
-          (or (and (<= 65 v) (<= v 70))
-              (and (<= 97 v) (<= v 102))))))
-
-  (define (math-symbol? [v : U8]) : Boolean
-    (let ([v (u8->s64 v)])
-      (or (= v 42)
-          (or (= v 43)
-              (or (= v 45)
-                  (= v 47))))))
-
-  (define (letter? [v : U8]) : Boolean
-    (let ([v (u8->s64 v)])
-      (or (and (<= 97 v) (< v 123))
-          (and (<= 65 v) (< v 91)))))
-
-
-  ;; Symbol ok values
-  ;; (set-ok! 33)
-  ;; (set-ok! 36 38)
-  ;; (set-ok! 42 43)
-  ;; (set-ok! 45)
-  ;; (set-ok! 47)
-  ;; ;(set-ok! 48 57) ;; Only for continue bytes
-  ;; (set-ok! 58)
-  ;; (set-ok! 60 90)
-  ;; (set-ok! 94 95)
-  ;; (set-ok! 97 122)
-  ;; (set-ok! 126)
-
-  ;; Make this saner
-  (define (symbol-start-byte? [v : U8]) : Boolean
-    (let ([valid #"                                 X  XXX   XX X X          X XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX   XX XXXXXXXXXXXXXXXXXXXXXXXXXX   X "])
-      (= (bytes-ref valid (u8->s64 v)) 88)))
-
-  ;; Make this saner
-  (define (symbol-continue-byte? [v : U8]) : Boolean
-    (let ([valid #"                                 X  XXX   XX X XXXXXXXXXXXX XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX   XX XXXXXXXXXXXXXXXXXXXXXXXXXX   X "])
-      (= (bytes-ref valid (u8->s64 v)) 88)))
-
-
-  (define (keyword-continue-byte? [v : U8]) : Boolean
-    (or (math-symbol? v)
-        (letter? v)))
-
-  (define (bytes-continue-byte? [v : U8]) : Boolean
-    (let ([int (u8->s64 v)])
-      (and (and (<= 32 int) (< int 127))
-           (not (double-quote? v)))))
-
-  (define (newline? [v : U8]) : Boolean
-    (= (u8->s64 v) 10))
-
-  (define (space? [v : U8]) : Boolean
-    (= (u8->s64 v) 32))
-
-  (define (double-quote? [v : U8]) : Boolean
-    (= (u8->s64 v) 34))
-
-  (define (hash? [v : U8]) : Boolean
-    (= (u8->s64 v) 35))
-
-  (define (colon? [v : U8]) : Boolean
-    (= (u8->s64 v) 58))
-
-  (define (semi-colon? [v : U8]) : Boolean
-    (= (u8->s64 v) 59))
-
-  (define (back-slash? [v : U8]) : Boolean
-    (= (u8->s64 v) 92))
-
-  (define (lex-symbol [bytes : Bytes] [start : Int] [cur : Int]) : Result
-    (if (= (bytes-length bytes) cur)
-        (lex-result (symbol-lexeme (subbytes bytes start cur))
-                    (lexer bytes cur))
-        (if (symbol-continue-byte? (bytes-ref/u8 bytes cur))
-            (lex-symbol bytes start (+ 1 cur))
-            (lex-result (symbol-lexeme (subbytes bytes start cur))
-                        (lexer bytes cur)))))
-
-
-  (define (lex-after-hash [bytes : Bytes] [pos : Int]) : Result
-    (if (= (bytes-length bytes) pos)
-        (bad-input #"Input ended with hash")
-        (let ([byte (bytes-ref bytes pos)])
-          (let ([next-pos (+ 1 pos)])
-            (if (colon? (u8 byte))
-                (lex-keyword bytes next-pos next-pos)
-                (if (double-quote? (u8 byte))
-                    (lex-bytes bytes next-pos next-pos)
-                    (if (= byte 116)
-                        (lex-result (boolean-lexeme #t) (lexer bytes next-pos))
-                        (if (= byte 102)
-                            (lex-result (boolean-lexeme #f) (lexer bytes next-pos))
-                            (if (= byte 120)
-                                (lex-hexadecimal bytes next-pos next-pos)
-                                (bad-input #"Unsupported character after hash"))))))))))
-
-
-  (define (lex-keyword [bytes : Bytes] [start : Int] [cur : Int]) : Result
-    (if (= (bytes-length bytes) cur)
-        (lex-result (keyword-lexeme (subbytes bytes start cur))
-                    (lexer bytes cur))
-        (if (keyword-continue-byte? (bytes-ref/u8 bytes cur))
-            (lex-keyword bytes start (+ 1 cur))
-            (lex-result (keyword-lexeme (subbytes bytes start cur))
-                        (lexer bytes cur)))))
-
-  (define (lex-bytes [bytes : Bytes] [start : Int] [cur : Int]) : Result
-    (if (= (bytes-length bytes) cur)
-        (bad-input #"Input ended in the middle of bytes literal")
-        (let ([byte (bytes-ref/u8 bytes cur)])
-          (if (back-slash? byte)
-              (let ([cur (+ 1 cur)])
-                (let ([byte (bytes-ref bytes cur)])
-                  (if (= (bytes-length bytes) cur)
-                      (bad-input #"Input ended with backslash")
-                      (if (or (or (double-quote? (u8 byte))
-                                  (back-slash? (u8 byte)))
-                              (or (= byte 110) ;; n
-                                  (= byte 114))) ;; r
-                          (lex-bytes bytes start (+ 1 cur))
-                          (bad-input #"Unknown character after backslash.")))))
-              (if (bytes-continue-byte? byte)
-                  (lex-bytes bytes start (+ 1 cur))
-                  (if (double-quote? byte)
-                      (case (unescape-bytes (subbytes bytes start cur))
-                        [(left _) (bad-input #"Bytes literal couldn't be unescaped")]
-                        [(right v)
-                         (lex-result (bytes-lexeme v) (lexer bytes (+ 1 cur)))])
-                      (bad-input #"Unsupported character in bytes literal")))))))
-
-  (define (lex-decimal [bytes : Bytes] [start : Int] [cur : Int]) : Result
-    (if (= (bytes-length bytes) cur)
-        (lex-result (decimal-number-lexeme (subbytes bytes start cur))
-                    (lexer bytes cur))
-        (if (decimal-continue-byte? (bytes-ref/u8 bytes cur))
-            (lex-decimal bytes start (+ 1 cur))
-            (lex-result (decimal-number-lexeme (subbytes bytes start cur))
-                        (lexer bytes cur)))))
-
-  (define (lex-hexadecimal [bytes : Bytes] [start : Int] [cur : Int]) : Result
-    (if (= (bytes-length bytes) cur)
-        (lex-result (hexadecimal-number-lexeme (subbytes bytes start cur))
-                    (lexer bytes cur))
-        (if (hexadecimal-byte? (bytes-ref/u8 bytes cur))
-            (lex-hexadecimal bytes start (+ 1 cur))
-            (lex-result (hexadecimal-number-lexeme (subbytes bytes start cur))
-                        (lexer bytes cur)))))
-
-
-  (define (lex-line-comment [bytes : Bytes] [pos : Int]) : Result
-    (if (= (bytes-length bytes) pos)
-        (lex-result (comment-lexeme) (lexer bytes pos))
-        (if (newline? (bytes-ref/u8 bytes pos))
-            (lex-result (comment-lexeme) (lexer bytes pos))
-            (lex-line-comment bytes (+ 1 pos)))))
-
-
-
-  (define (make-lexer [bytes : Bytes]) : Lexer
-    (lexer bytes 0))
-
-  (define (run-lexer [lexer : Lexer]) : Result
-    (run (lexer-input lexer) (lexer-pos lexer)))
-
-
-  (define (run [bytes : Bytes] [pos : Int]) : Result
-    (if (= pos (bytes-length bytes))
-        (end-of-input)
-        (let ([byte (bytes-ref bytes pos)])
-          (if (= byte 40)
-              (lex-result (left-paren-lexeme) (lexer bytes (+ pos 1)))
-              (if (= byte 41)
-                  (lex-result (right-paren-lexeme) (lexer bytes (+ pos 1)))
-                  (if (= byte 91)
-                      (lex-result (left-bracket-lexeme) (lexer bytes (+ pos 1)))
-                      (if (= byte 93)
-                          (lex-result (right-bracket-lexeme) (lexer bytes (+ pos 1)))
-                          (if (= byte 123)
-                              (lex-result (left-brace-lexeme) (lexer bytes (+ pos 1)))
-                              (if (= byte 125)
-                                  (lex-result (right-brace-lexeme) (lexer bytes (+ pos 1)))
-                                  (if (or (newline? (u8 byte)) (space? (u8 byte)))
-                                      (run bytes (+ 1 pos))
-                                      (if (symbol-start-byte? (u8 byte))
-                                          (lex-symbol bytes pos (+ pos 1))
-                                          (if (decimal-start-byte? (u8 byte))
-                                              (lex-decimal bytes pos (+ pos 1))
-                                              (if (hash? (u8 byte))
-                                                  (lex-after-hash bytes (+ pos 1))
-                                                  (if (semi-colon? (u8 byte))
-                                                      (lex-line-comment bytes (+ pos 1))
-                                                      (if (double-quote? (u8 byte))
-                                                          (bad-input #"String literals not supported")
-                                                          (bad-input #"Unsupported character"))))))))))))))))
-
-  (define (loop [lexer : Lexer]) : Int
-    (case (run-lexer lexer)
-      [(lex-result v lexer) (loop lexer)]
-      [(end-of-input) 0]
-      [(bad-input _) 1]))
-
-  (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Int
-    (loop (make-lexer (read-all-bytes stdin)))))
+(define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Int
+  (loop (make-lexer (read-all-bytes stdin))))
