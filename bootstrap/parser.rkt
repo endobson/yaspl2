@@ -12,50 +12,57 @@
 
 (define (parse-module sexps)
   (match sexps
-    [`((module ,(? symbol? name)
-         (import . ,(app parse-imports imports))
-         (export . ,(app parse-exports exports))
-         (types . ,(app parse-type-definitions types))
-         . ,(app parse-definitions definitions)))
-     (module& name imports exports types definitions)]
     [`(#:module ,(? symbol? name)
-        (import . ,(app parse-imports imports))
-        (export . ,(app parse-exports exports))
-        (types . ,(app parse-type-definitions types))
-        . ,(app parse-definitions definitions))
+       #:import ,(app parse-imports imports)
+       (export . ,(app parse-exports exports))
+       (types . ,(app parse-type-definitions types))
+       . ,(app parse-definitions definitions))
      (module& name imports exports types definitions)]))
 
+
 (define (parse-imports imports)
-  (define (parse-imports imports)
-    (for/lists (types vals patterns) ([import (in-list imports)])
-      (parse-import import)))
+  (define (recur imports)
+    (match imports
+      [(list) empty]
+      [(list-rest (? symbol? module-name) (? list? forms) rest)
+       (cons (parse-import-section module-name forms) (recur rest))]))
+  (define (parse-import-section module-name forms)
+    (define (parse-import-elem import-elem)
+      (match import-elem
+        [(? symbol? name)
+         (import& module-name name name)]
+        [(list (? symbol? exported-name) (? symbol? local-name))
+         (import& module-name exported-name local-name)]))
+    (define (type-point forms)
+      (match forms
+        [(list-rest #:types (? import-elem? import-elems) ... forms)
+         (cons (map parse-import-elem import-elems)
+               (value-point forms))]
+        [forms
+         (cons empty (value-point forms))]))
+    (define (value-point forms)
+      (match forms
+        [(list-rest #:values (? import-elem? import-elems) ... forms)
+         (cons (map parse-import-elem import-elems)
+               (pattern-point forms))]
+        [forms
+         (cons empty (pattern-point forms))]))
+    (define (pattern-point forms)
+      (match forms
+        [(list-rest #:patterns (? import-elem? import-elems) ... forms)
+         (list (map parse-import-elem import-elems) )]
+        [(list)
+         (list empty)]))
+    (type-point forms))
+  (define (import-elem? x)
+    (match x
+      [(? symbol?) #t]
+      [(list (? symbol?) (? symbol?)) #t]
+      [_ #f]))
 
-  (define (parse-import import)
-    (match import
-      [(list (? symbol? module-name) (? symbol? function-names) ...)
-       (values
-         empty
-         (for/list ([function-name (in-list function-names)])
-           (import& module-name function-name function-name))
-         empty)]
-      [`(,(? symbol? module-name)
-         ,@`(
-            ,@(list #:types ... (? list? types) ...)
-            ,@(list #:values ... (? list? functions) ...)
-            ,@(list #:patterns ... (? list? patterns) ...)))
-       (define (parse-import-name import-name)
-         (match import-name
-           [(? symbol? name)
-            (import& module-name name name)]
-           [(list (? symbol? exported-name) (? symbol? local-name))
-            (import& module-name exported-name local-name)]))
-       (values
-         (map parse-import-name (append* types))
-         (map parse-import-name (append* functions))
-         (map parse-import-name (append* patterns)))]))
-
-  (let-values ([(types vals patterns) (parse-imports imports)])
-    (imports& (append* types) (append* vals) (append* patterns))))
+  (match (recur imports)
+    [(list (list types values patterns) ...)
+     (imports& (append* types) (append* values) (append* patterns))]))
 
 ;; TODO support renaming
 (define (parse-exports exports)

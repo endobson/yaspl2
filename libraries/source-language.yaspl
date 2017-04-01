@@ -1,30 +1,62 @@
 #:module source-language
-(import
-  (either
-    #:types (Either)
-    #:values (left right)
-    #:patterns (left right))
-  (list
-    #:types (List)
-    #:values (cons empty map reverse)
-    #:patterns (cons empty))
-  (maybe
-    #:types (Maybe)
-    #:values (just nothing)
-    #:patterns ())
-  (prim
-    #:types (Boolean Bytes Int)
-    #:values ()
-    #:patterns ())
-  (sexp-parser
-    #:types (Sexp)
-    #:values ()
-    #:patterns (boolean-sexp brace-node bracket-node bytes-sexp keyword-sexp node number-sexp
-                symbol-sexp))
-  (tuples
-    #:types (Tuple2)
-    #:values (tuple2)
-    #:patterns (tuple2)))
+#:import {
+  either {
+    #:types
+      Either
+    #:values
+      left
+      right
+    #:patterns
+      left
+      right
+  }
+  list {
+    #:types
+      List
+    #:values
+      cons
+      empty
+      map
+      reverse
+    #:patterns
+      cons
+      empty
+  }
+  maybe {
+    #:types
+      Maybe
+    #:values
+      just
+      nothing
+  }
+  prim {
+    #:types
+      Boolean
+      Bytes
+      Int
+  }
+  sexp-parser {
+    #:types
+      Sexp
+    #:patterns
+      boolean-sexp
+      brace-node
+      bracket-node
+      bytes-sexp
+      keyword-sexp
+      node
+      number-sexp
+      symbol-sexp
+  }
+  tuples {
+    #:types
+      Tuple2
+    #:values
+      tuple2
+    #:patterns
+      tuple2
+  }
+}
 (export
   #:types (Module Imports Import Exports Export TypeDefinition VariantDefinition VariantField PreType
            FunctionDefinition Expression CaseClause Pattern Block BlockDefinition)
@@ -143,65 +175,66 @@
           [(right v3)
            (right (f v1 v2 v3))])])]))
 
+(define (parse-imports [sexps : (List Sexp)]) : (Either Bytes (List Imports))
+  (case sexps
+    [(empty)
+     (right (empty))]
+    [(cons _ (empty))
+     (left #"Bad import form: odd number of elements")]
+    [(cons (symbol-sexp mod-name)
+           (cons (brace-node import-elems)
+                 next-imports))
+     (case (parse-import-elems mod-name import-elems)
+       [(left v) (left v)]
+       [(right imports)
+        (case (parse-imports next-imports)
+          [(left err) (left err)]
+          [(right importss) (right (cons imports importss))])])]
+    [(cons _ (cons _ next-imports))
+     (left #"Bad import form: not symbol followed by brace")]))
 
-(define (parse-imports/top [sexp : Sexp]) : (Either Bytes (List Imports))
-  (case sexp
-    [(node (cons (symbol-sexp #"import") imports))
-     (leftmost-error (map parse-imports imports))]
-    [_ (left #"Not a valid imports section")]))
 
-(define (parse-imports [sexp : Sexp]) : (Either Bytes Imports)
-  (case sexp
-    [(node (cons (symbol-sexp mod-name) inner-sexps))
-     (match-define sexps inner-sexps)
-     (match-define no-imports ((lambda () : (List Sexp) (empty))))
-     (match-define (tuple2 type-imports sexps)
-       (case sexps
-         [(cons (keyword-sexp #"types")
-                (cons (node type-imports) sexps))
-          (tuple2 type-imports sexps)]
-         [_
-          (tuple2 no-imports sexps)]))
-     (match-define (tuple2 value-imports sexps)
-       (case sexps
-         [(cons (keyword-sexp #"values")
-                (cons (node value-imports) sexps))
-          (tuple2 value-imports sexps)]
-         [_
-          (tuple2 no-imports sexps)]))
-     (match-define (tuple2 pattern-imports sexps)
-       (case sexps
-         [(cons (keyword-sexp #"patterns")
-                (cons (node pattern-imports) sexps))
-          (tuple2 pattern-imports sexps)]
-         [_
-          (tuple2 no-imports sexps)]))
+(define (parse-import-elem-prefix [sexps : (List Sexp)]) : (Tuple2 (List Import) (List Sexp))
+  (parse-import-elem-prefix* sexps (empty)))
 
-     (case sexps
-       [(empty)
-        (case (leftmost-error (map parse-import type-imports))
-          [(left v) (left v)]
-          [(right types)
-           (case (leftmost-error (map parse-import value-imports))
-             [(left v) (left v)]
-             [(right values)
-              (case (leftmost-error (map parse-import pattern-imports))
-                [(left v) (left v)]
-                [(right patterns)
-                 (right (imports mod-name types values patterns))])])])]
-       [_
-        (case (leftmost-error (map parse-import inner-sexps))
-          [(left v) (left v)]
-          [(right values)
-           (right (imports mod-name (empty) values (empty)))])])]
-    [_ (left #"Not a valid imports clause")]))
+(define (parse-import-elem-prefix* [sexps : (List Sexp)] [acc : (List Import)])
+  : (Tuple2 (List Import) (List Sexp))
+  (case sexps
+    [(cons (symbol-sexp name) sexps)
+     (parse-import-elem-prefix* sexps (cons (import name name) acc))]
+    [(cons (bracket-node (cons (symbol-sexp exported-name) (cons (symbol-sexp local-name) (empty))))
+           sexps)
+     (parse-import-elem-prefix* sexps (cons (import exported-name local-name) acc))]
+    [_
+     (tuple2 (reverse acc) sexps)]))
 
-(define (parse-import [sexp : Sexp]) : (Either Bytes Import)
-  (case sexp
-    [(symbol-sexp v) (right (import v v))]
-    [(node (cons (symbol-sexp external-name) (cons (symbol-sexp local-name) (empty))))
-     (right (import external-name local-name))]
-    [_ (left #"Not a valid import clause")]))
+(define (parse-import-elems [mod-name : Bytes] [sexps : (List Sexp)]) : (Either Bytes Imports)
+  (match-define no-imports ((lambda () : (List Import) (empty))))
+
+  (match-define (tuple2 types sexps)
+    (case sexps
+      [(cons (keyword-sexp #"types") sexps)
+       (parse-import-elem-prefix sexps)]
+      [_
+       (tuple2 no-imports sexps)]))
+  (match-define (tuple2 values sexps)
+    (case sexps
+      [(cons (keyword-sexp #"values") sexps)
+       (parse-import-elem-prefix sexps)]
+      [_
+       (tuple2 no-imports sexps)]))
+  (match-define (tuple2 patterns sexps)
+    (case sexps
+      [(cons (keyword-sexp #"patterns") sexps)
+       (parse-import-elem-prefix sexps)]
+      [_
+       (tuple2 no-imports sexps)]))
+
+  (case sexps
+    [(empty)
+     (right (imports mod-name types values patterns))]
+    [_
+     (left #"Not a valid imports clause")]))
 
 
 (define (parse-exports/top [sexp : Sexp]) : (Either Bytes Exports)
@@ -530,11 +563,12 @@
 (define (parse-module-inner [bodies : (List Sexp)]) : (Either Bytes Module)
   (case bodies
     [(cons (symbol-sexp name)
-           (cons imports
-                 (cons exports
-                       (cons types
-                             definitions))))
-     (case (parse-imports/top imports)
+           (cons (keyword-sexp #"import")
+                 (cons (brace-node import-sexps)
+                       (cons exports
+                             (cons types
+                                   definitions)))))
+     (case (parse-imports import-sexps)
        [(left v) (left v)]
        [(right imports)
         (case (parse-exports/top exports)
