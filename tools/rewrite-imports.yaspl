@@ -1,0 +1,171 @@
+#:module rewrite-imports
+#:import {
+  bytes {
+    #:values
+      bytes-append
+      bytes=?
+  }
+  compiler {
+    #:values
+      parse-module-file
+  }
+  either {
+    #:types
+      Either
+    #:values
+      left
+      right
+    #:patterns
+      left
+      right
+  }
+  io {
+    #:values
+      call-with-input-file
+      read-all-bytes
+      write-all-bytes
+      write-line
+  }
+  list {
+    #:values
+      array->list
+      for-each
+      list
+    #:patterns
+      cons
+      empty
+  }
+  prim {
+    #:types
+      Array
+      Bytes
+      InputPort
+      Int
+      OutputPort
+    #:values
+      void
+  }
+  sexp-parser {
+    #:values
+      parse-sexp
+  }
+  source-language {
+    #:types
+      Import
+      Imports
+    #:values
+      module-imports
+      module-name
+    #:patterns
+      import
+      imports
+  }
+  tuples {
+    #:patterns
+      tuple2
+  }
+}
+(export)
+(types)
+
+(define (import->bytes [i : Import]) : Bytes
+  (match-define (import exported local) i)
+  (if (bytes=? exported local)
+      local
+      (bytes-append (varargs list #"[" exported #" " local #"]"))))
+
+(define (remove-import-section [b : Bytes]) : (Either Bytes Bytes)
+  (case (parse-sexp b)
+    [(left v) (left v)]
+    [(right (tuple2 _ b))
+     (case (parse-sexp b)
+       [(left v) (left v)]
+       [(right (tuple2 _ b))
+        (case (parse-sexp b)
+          [(left v) (left v)]
+          [(right (tuple2 _ b))
+           (case (parse-sexp b)
+             [(left v) (left v)]
+             [(right (tuple2 _ b))
+              (right b)])])])]))
+
+
+(define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Int
+  (case (array->list args)
+    [(empty)
+     (begin
+       (write-line #"No executable specified???" stderr)
+       1)]
+    [(cons _ (empty))
+     (begin
+       (write-line #"No input file name supplied." stderr)
+       1)]
+    [(cons _ (cons _ (cons _ _)))
+     (begin
+       (write-line #"Too many arguments supplied." stderr)
+       1)]
+    [(cons _ (cons input-file-name (empty)))
+     (case (parse-module-file input-file-name)
+       [(left v)
+        (begin
+          (write-line v stderr)
+          1)]
+       [(right mod)
+        (case (remove-import-section (call-with-input-file input-file-name read-all-bytes))
+          [(left v)
+           (begin
+             (write-line v stderr)
+             1)]
+          [(right rest-of-module)
+           (begin
+             (write-line
+               (bytes-append (varargs list #"#:module " (module-name mod)))
+               stdout)
+             (write-line #"#:import {" stdout)
+             (for-each
+               (lambda ([i : Imports])
+                 (case i
+                   [(imports mod-name types values patterns)
+                    (begin
+                      (write-line (bytes-append (varargs list #"  " mod-name #" {")) stdout)
+                      (case types
+                        [(empty)
+                         (void)]
+                        [_
+                         (begin
+                           (write-line #"    #:types" stdout)
+                           (for-each
+                             (lambda ([i : Import])
+                               (begin
+                                 (write-all-bytes #"      " stdout)
+                                 (write-line (import->bytes i) stdout)))
+                             types))])
+                      (case values
+                        [(empty)
+                         (void)]
+                        [_
+                         (begin
+                           (write-line #"    #:values" stdout)
+                           (for-each
+                             (lambda ([i : Import])
+                               (begin
+                                 (write-all-bytes #"      " stdout)
+                                 (write-line (import->bytes i) stdout)))
+                             values))])
+                      (case patterns
+                        [(empty)
+                         (void)]
+                        [_
+                         (begin
+                           (write-line #"    #:patterns" stdout)
+                           (for-each
+                             (lambda ([i : Import])
+                               (begin
+                                 (write-all-bytes #"      " stdout)
+                                 (write-line (import->bytes i) stdout)))
+                             patterns))])
+                      (write-line #"  }" stdout))]))
+               (module-imports mod))
+             (write-all-bytes #"}" stdout)
+             (write-all-bytes rest-of-module stdout)
+             0)])])]))
