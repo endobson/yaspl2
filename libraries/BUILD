@@ -544,7 +544,6 @@ yaspl_bootstrap_library(
   name = "sexp-parser",
   srcs = ["sexp-parser.yaspl"],
   deps = [
-    ":io",
     ":lexer",
     "//libraries/data:bytes",
     "//libraries/data:either",
