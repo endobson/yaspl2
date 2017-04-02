@@ -28,6 +28,16 @@ yaspl_library(
 )
 
 yaspl_library(
+  name = "lower-x86-64",
+  srcs = ["lower-x86-64.yaspl"],
+  deps = [
+    ":register-language",
+    ":lowered-register-language",
+    "//libraries/data:dict",
+  ]
+)
+
+yaspl_library(
   name = "lowered-register-language",
   srcs = ["lowered-register-language.yaspl"],
   deps = [
