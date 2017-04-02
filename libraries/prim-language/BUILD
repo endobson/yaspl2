@@ -88,6 +88,21 @@ yaspl_library(
 )
 
 yaspl_library(
+  name = "print-lowered-register-language",
+  srcs = ["print-lowered-register-language.yaspl"],
+  deps = [
+    ":prim-language",
+    ":lowered-register-language",
+    "//libraries/data:join-list",
+    "//libraries/data:list",
+    "//libraries/data:dict",
+    "//libraries/data:bytes",
+    "//libraries/data:numbers",
+  ]
+)
+
+
+yaspl_library(
   name = "print-register-language",
   srcs = ["print-register-language.yaspl"],
   deps = [

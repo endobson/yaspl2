@@ -1,0 +1,151 @@
+#:module print-lowered-register-language
+#:import {
+  bytes {
+    #:values
+      bytes-append
+  }
+  dict {
+    #:values
+      dict-map
+  }
+  join-list {
+    #:types
+      JoinList
+    #:values
+      append-jl
+      append-jl*
+      concat-jl
+      jl->list
+      join-list
+      single-jl
+  }
+  list {
+    #:values
+      map
+  }
+  lowered-register-language {
+    #:types
+      BasicBlock
+      FunctionDefinition
+      Instruction
+      Terminal
+    #:patterns
+      basic-block
+      bin-op-inst
+      cond-jump
+      function-definition
+      int-literal
+      jump
+      return
+  }
+  numbers {
+    #:values
+      integer->decimal-bytes
+  }
+  prim {
+    #:types
+      Bytes
+      Int
+  }
+  prim-language {
+    #:types
+      BinOp
+    #:patterns
+      and
+      equal
+      greater-than
+      greater-than-or-equal
+      less-than
+      less-than-or-equal
+      mul
+      not
+      or
+      plus
+      sub
+      xor
+  }
+}
+(export
+  #:types ()
+  #:values (print-function)
+  #:patterns ())
+(types)
+
+(define (Reg) (print-function [f : (FunctionDefinition Reg)]
+                              [print-reg : (Reg -> Bytes)]) : Bytes
+  (case f
+    [(function-definition name _ blocks)
+     (bytes-append
+       (jl->list
+         (append-jl
+           (varargs join-list
+              name
+              #"\n")
+           (concat-jl
+             (dict-map blocks
+                       (lambda ([i : Int] [b : (BasicBlock Reg)])
+                         (print-basic-block i b print-reg)))))))]))
+
+(define (Reg) (print-basic-block [index : Int] [b : (BasicBlock Reg)]
+                                 [print-reg : (Reg -> Bytes)]) : (JoinList Bytes)
+  (case b
+    [(basic-block instructions terminal)
+     (varargs append-jl*
+       (varargs join-list
+         #"block: "
+         (integer->decimal-bytes index)
+         #"(\n")
+       (concat-jl (map (lambda ([i : (Instruction Reg)])
+                         (print-instruction i print-reg))
+                       instructions))
+       (print-terminal terminal))]))
+
+(define (Reg) (print-instruction [i : (Instruction Reg)] [print-reg : (Reg -> Bytes)]) : (JoinList Bytes)
+  (case i
+    [(bin-op-inst out op left right)
+     (varargs append-jl*
+       (single-jl (print-reg out))
+       (varargs join-list #" = (" (print-bin-op op) #" ")
+       (single-jl (print-reg left))
+       (single-jl #" ")
+       (single-jl (print-reg right))
+       (single-jl #")\n"))]
+    [(int-literal out v)
+     (append-jl
+       (single-jl (print-reg out))
+       (varargs join-list #" = " (integer->decimal-bytes v) #"\n"))]
+    [_
+     (single-jl #"NYI\n")]))
+
+
+(define (print-bin-op [op : BinOp]) : Bytes
+  (case op
+    [(plus) #"+"]
+    [(mul) #"*"]
+    [(sub) #"-"]
+    [(and) #"and"]
+    [(or) #"or"]
+    [(xor) #"xor"]
+    [(not) #"not"]
+    [(less-than) #"<"]
+    [(less-than-or-equal) #"<="]
+    [(greater-than) #">"]
+    [(greater-than-or-equal) #">="]
+    [(equal) #"="]))
+
+(define (print-terminal [t : Terminal]) : (JoinList Bytes)
+  (case t
+    [(return)
+     (single-jl #"return")]
+    [(jump block-num)
+     (varargs join-list
+       #"jump "
+       (integer->decimal-bytes block-num)
+       #"\n")]
+    [(cond-jump t-block-num f-block-num)
+     (varargs join-list
+       #"cond-jump "
+       (integer->decimal-bytes t-block-num)
+       #" "
+       (integer->decimal-bytes f-block-num)
+       #"\n")]))
