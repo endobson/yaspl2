@@ -187,6 +187,11 @@
    (close-input-port port)]
   [(close-output-port [port : OutputPort]) : Void
    (close-output-port port)]
+  [(delete-file [name : Bytes]) : Void
+   (delete-file (bytes->path (subbytes name 0 (sub1 (bytes-length name)))))]
+  [(set-file-or-directory-permissions [name : Bytes] [permissions : Int]) : Void
+   (file-or-directory-permissions (bytes->path (subbytes name 0 (sub1 (bytes-length name))))
+                                  permissions)]
 
   [(write-bytes [b : Bytes] [p : OutputPort] [start-pos : Byte] [end-pos : Byte]) : Byte
    (write-bytes b p start-pos end-pos)]

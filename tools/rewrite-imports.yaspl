@@ -4,6 +4,7 @@
     #:values
       bytes-append
       bytes=?
+      make-null-terminated
   }
   compiler {
     #:values
@@ -22,11 +23,15 @@
   io {
     #:values
       call-with-input-file
+      call-with-output-file
+      delete-file
       read-all-bytes
       write-all-bytes
       write-line
   }
   list {
+    #:types
+      List
     #:values
       array->list
       for-each
@@ -42,7 +47,9 @@
       InputPort
       Int
       OutputPort
+      Void
     #:values
+      set-file-or-directory-permissions
       void
   }
   sexp-parser {
@@ -90,6 +97,71 @@
               (right b)])])])]))
 
 
+(define (rewrite-imports [mod-name : Bytes] [imports : (List Imports)] [module-file-name : Bytes])
+  : (Either Bytes Void)
+  (case (remove-import-section (call-with-input-file module-file-name read-all-bytes))
+    [(left v) (left v)]
+    [(right rest-of-module)
+     (begin
+       (delete-file module-file-name)
+       (right
+         (call-with-output-file module-file-name
+           (lambda ([output : OutputPort])
+             (begin
+               (set-file-or-directory-permissions
+                 (make-null-terminated module-file-name)
+                 432) ;; Octal 660
+               (write-line
+                 (bytes-append (varargs list #"#:module " mod-name))
+                 output)
+               (write-line #"#:import {" output)
+               (for-each
+                 (lambda ([i : Imports])
+                   (case i
+                     [(imports mod-name types values patterns)
+                      (begin
+                        (write-line (bytes-append (varargs list #"  " mod-name #" {")) output)
+                        (case types
+                          [(empty)
+                           (void)]
+                          [_
+                           (begin
+                             (write-line #"    #:types" output)
+                             (for-each
+                               (lambda ([i : Import])
+                                 (begin
+                                   (write-all-bytes #"      " output)
+                                   (write-line (import->bytes i) output)))
+                               types))])
+                        (case values
+                          [(empty)
+                           (void)]
+                          [_
+                           (begin
+                             (write-line #"    #:values" output)
+                             (for-each
+                               (lambda ([i : Import])
+                                 (begin
+                                   (write-all-bytes #"      " output)
+                                   (write-line (import->bytes i) output)))
+                               values))])
+                        (case patterns
+                          [(empty)
+                           (void)]
+                          [_
+                           (begin
+                             (write-line #"    #:patterns" output)
+                             (for-each
+                               (lambda ([i : Import])
+                                 (begin
+                                   (write-all-bytes #"      " output)
+                                   (write-line (import->bytes i) output)))
+                               patterns))])
+                        (write-line #"  }" output))]))
+                 imports)
+               (write-all-bytes #"}" output)
+               (write-all-bytes rest-of-module output))))))]))
+
 (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Int
   (case (array->list args)
     [(empty)
@@ -111,61 +183,10 @@
           (write-line v stderr)
           1)]
        [(right mod)
-        (case (remove-import-section (call-with-input-file input-file-name read-all-bytes))
+        (case (rewrite-imports (module-name mod) (module-imports mod) input-file-name)
           [(left v)
            (begin
              (write-line v stderr)
              1)]
-          [(right rest-of-module)
-           (begin
-             (write-line
-               (bytes-append (varargs list #"#:module " (module-name mod)))
-               stdout)
-             (write-line #"#:import {" stdout)
-             (for-each
-               (lambda ([i : Imports])
-                 (case i
-                   [(imports mod-name types values patterns)
-                    (begin
-                      (write-line (bytes-append (varargs list #"  " mod-name #" {")) stdout)
-                      (case types
-                        [(empty)
-                         (void)]
-                        [_
-                         (begin
-                           (write-line #"    #:types" stdout)
-                           (for-each
-                             (lambda ([i : Import])
-                               (begin
-                                 (write-all-bytes #"      " stdout)
-                                 (write-line (import->bytes i) stdout)))
-                             types))])
-                      (case values
-                        [(empty)
-                         (void)]
-                        [_
-                         (begin
-                           (write-line #"    #:values" stdout)
-                           (for-each
-                             (lambda ([i : Import])
-                               (begin
-                                 (write-all-bytes #"      " stdout)
-                                 (write-line (import->bytes i) stdout)))
-                             values))])
-                      (case patterns
-                        [(empty)
-                         (void)]
-                        [_
-                         (begin
-                           (write-line #"    #:patterns" stdout)
-                           (for-each
-                             (lambda ([i : Import])
-                               (begin
-                                 (write-all-bytes #"      " stdout)
-                                 (write-line (import->bytes i) stdout)))
-                             patterns))])
-                      (write-line #"  }" stdout))]))
-               (module-imports mod))
-             (write-all-bytes #"}" stdout)
-             (write-all-bytes rest-of-module stdout)
-             0)])])]))
+          [(right _)
+           0])])]))
