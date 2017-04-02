@@ -34,6 +34,7 @@ yaspl_library(
     ":register-language",
     ":lowered-register-language",
     "//libraries/data:dict",
+    "//libraries/data:tuples",
   ]
 )
 
