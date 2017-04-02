@@ -4,57 +4,139 @@
     #:types
       Dict
     #:values
+      dict-add
       dict-fold
+      dict-ref
       make-dict
+  }
+  list {
+    #:types
+      List
+    #:values
+      cons
+      empty
+      map
+      zip
   }
   lowered-register-language {
     #:types
       [BasicBlock l:BasicBlock]
       [FunctionDefinition l:FunctionDefinition]
+      [Instruction l:Instruction]
+      [Terminal l:Terminal]
     #:values
+      [basic-block l:basic-block]
+      [cond-jump l:cond-jump]
       [function-definition l:function-definition]
+      [jump l:jump]
+      [move l:move]
+      [return l:return]
+  }
+  maybe {
+    #:patterns
+      just
+      nothing
   }
   prim {
     #:types
       Int
-      Void
     #:values
+      +
       =
+      panic
   }
   register-language {
     #:types
       [BasicBlock r:BasicBlock]
       [FunctionDefinition r:FunctionDefinition]
+      [Instruction r:Instruction]
+      [Terminal r:Terminal]
+      [Var r:Var]
     #:patterns
       [basic-block r:basic-block]
+      [cond-jump r:cond-jump]
       [function-definition r:function-definition]
+      [jump r:jump]
+      [return r:return]
   }
   tuples {
     #:types
       Tuple2
+      Tuple3
     #:values
       tuple2
+      tuple3
     #:patterns
       tuple2
+      tuple3
   }
 }
 (export
   #:types ()
   #:values (lower-function)
   #:patterns ())
-(types)
+(types
+  (define-type X8664Register
+    (rax)
+    (rcx))
+  (define-type Reg
+    (fixed-reg [r : X8664Register])
+    (temporary-reg [r : r:Var])))
 
-(define (empty-blocks) : (Dict Int (l:BasicBlock Void))
+(define (empty-blocks) : (Dict Int (l:BasicBlock Reg))
   (make-dict =))
 
-(define (lower-function [fun : r:FunctionDefinition]) : (l:FunctionDefinition Void)
+(define (lower-function [fun : r:FunctionDefinition]) : (l:FunctionDefinition Reg)
   (match-define (r:function-definition name blocks _ next-block) fun)
   (match-define (tuple2 next-block new-blocks)
     (dict-fold blocks lower-block (tuple2 next-block (empty-blocks))))
 
   (l:function-definition name 0 new-blocks))
 
-(define (lower-block [index : Int]  [b : r:BasicBlock] [acc : (Tuple2 Int (Dict Int (l:BasicBlock Void)))])
-  : (Tuple2 Int (Dict Int (l:BasicBlock Void)))
+(define (lower-block [index : Int]  [b : r:BasicBlock] [acc : (Tuple2 Int (Dict Int (l:BasicBlock Reg)))])
+  : (Tuple2 Int (Dict Int (l:BasicBlock Reg)))
   (match-define (r:basic-block args instructions terminal) b)
   acc)
+
+(define (match-args [index : Int] [args : (List r:Var)] [blocks : (Dict Int r:BasicBlock)])
+  : (List (Tuple2 r:Var r:Var))
+  (case (dict-ref blocks index)
+    [(nothing) (panic #"No block")]
+    [(just (r:basic-block block-args _ _))
+     (case (zip args block-args)
+       [(nothing) (panic #"Args don't match")]
+       [(just v) v])]))
+
+(define (move-args [args : (List (Tuple2 r:Var r:Var))]) : (List (l:Instruction Reg))
+  (map (lambda ([t : (Tuple2 r:Var r:Var)])
+         (case t
+           [(tuple2 src dest)
+            (l:move (temporary-reg dest) (temporary-reg src))]))
+       args))
+
+(define (lower-terminal [t : r:Terminal] [blocks : (Dict Int r:BasicBlock)]
+                        [acc : (Tuple2 Int (Dict Int (l:BasicBlock Reg)))])
+  : (Tuple3 (List (l:Instruction Reg)) l:Terminal (Tuple2 Int (Dict Int (l:BasicBlock Reg))))
+  (case t
+    [(r:return name)
+     (tuple3
+       (cons (l:move (fixed-reg (rax)) (temporary-reg name)) (empty))
+       (l:return)
+       acc)]
+    [(r:jump index args)
+     (tuple3
+       (move-args (match-args index args blocks))
+       (l:jump index)
+       acc)]
+    [(r:cond-jump v t-index t-args f-index f-args)
+     (match-define (tuple2 next-block acc-blocks) acc)
+     (match-define new-acc-blocks
+       (dict-add
+         (dict-add acc-blocks next-block
+            (l:basic-block (move-args (match-args t-index t-args blocks)) (l:jump t-index)))
+         (+ 1 next-block)
+         (l:basic-block (move-args (match-args f-index f-args blocks)) (l:jump f-index))))
+     (tuple3
+       (cons (l:move (fixed-reg (rcx)) (temporary-reg v)) (empty))
+       (l:cond-jump next-block (+ next-block 1))
+       (tuple2 (+ next-block 2) new-acc-blocks))]))
