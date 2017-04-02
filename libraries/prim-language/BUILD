@@ -28,6 +28,17 @@ yaspl_library(
 )
 
 yaspl_library(
+  name = "lowered-register-language",
+  srcs = ["lowered-register-language.yaspl"],
+  deps = [
+    ":prim-language",
+    "//libraries/data:list",
+    "//libraries/data:dict",
+  ]
+)
+
+
+yaspl_library(
   name = "prim-language",
   srcs = ["prim-language.yaspl"],
   deps = [
