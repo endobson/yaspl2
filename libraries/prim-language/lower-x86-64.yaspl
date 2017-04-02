@@ -13,6 +13,7 @@
     #:types
       List
     #:values
+      append
       cons
       empty
       map
@@ -26,8 +27,10 @@
       [Terminal l:Terminal]
     #:values
       [basic-block l:basic-block]
+      [bin-op-inst l:bin-op-inst]
       [cond-jump l:cond-jump]
       [function-definition l:function-definition]
+      [int-literal l:int-literal]
       [jump l:jump]
       [move l:move]
       [return l:return]
@@ -54,8 +57,10 @@
       [Var r:Var]
     #:patterns
       [basic-block r:basic-block]
+      [bin-op-inst r:bin-op-inst]
       [cond-jump r:cond-jump]
       [function-definition r:function-definition]
+      [int-literal r:int-literal]
       [jump r:jump]
       [return r:return]
   }
@@ -89,14 +94,32 @@
 (define (lower-function [fun : r:FunctionDefinition]) : (l:FunctionDefinition Reg)
   (match-define (r:function-definition name blocks _ next-block) fun)
   (match-define (tuple2 next-block new-blocks)
-    (dict-fold blocks lower-block (tuple2 next-block (empty-blocks))))
+    (dict-fold
+      blocks
+      (lambda ([index : Int]  [b : r:BasicBlock]
+               [acc : (Tuple2 Int (Dict Int (l:BasicBlock Reg)))])
+        (lower-block index b blocks acc))
+      (tuple2 next-block (empty-blocks))))
 
   (l:function-definition name 0 new-blocks))
 
-(define (lower-block [index : Int]  [b : r:BasicBlock] [acc : (Tuple2 Int (Dict Int (l:BasicBlock Reg)))])
+(define (lower-block [index : Int]  [b : r:BasicBlock]
+                     [blocks : (Dict Int r:BasicBlock)]
+                     [acc : (Tuple2 Int (Dict Int (l:BasicBlock Reg)))])
   : (Tuple2 Int (Dict Int (l:BasicBlock Reg)))
-  (match-define (r:basic-block args instructions terminal) b)
-  acc)
+  (match-define (r:basic-block _ instructions terminal) b)
+  (match-define (tuple3 end-insts terminal (tuple2 next-block acc-blocks))
+    (lower-terminal terminal blocks acc))
+  (tuple2
+    next-block
+    (dict-add
+      acc-blocks
+      index
+      (l:basic-block
+        (append
+          (map lower-instruction instructions)
+          end-insts)
+        terminal))))
 
 (define (match-args [index : Int] [args : (List r:Var)] [blocks : (Dict Int r:BasicBlock)])
   : (List (Tuple2 r:Var r:Var))
@@ -140,3 +163,10 @@
        (cons (l:move (fixed-reg (rcx)) (temporary-reg v)) (empty))
        (l:cond-jump next-block (+ next-block 1))
        (tuple2 (+ next-block 2) new-acc-blocks))]))
+
+(define (lower-instruction [i : r:Instruction]) : (l:Instruction Reg)
+  (case i
+    [(r:int-literal output v)
+     (l:int-literal (temporary-reg output) v)]
+    [(r:bin-op-inst output op l r)
+     (l:bin-op-inst (temporary-reg output) op (temporary-reg l) (temporary-reg r))]))
