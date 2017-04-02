@@ -64,11 +64,13 @@ yaspl_library(
   srcs = ["prim-language-demo.yaspl"],
   deps = [
     ":live-variables",
+    ":lower-x86-64",
     ":prim-language",
     ":register-language",
     ":prim-language-parser",
     ":prim-to-register",
     ":print-register-language",
+    ":print-lowered-register-language",
     "//libraries:io",
     "//libraries:sexp-parser",
     "//libraries/data:either",
@@ -139,7 +141,8 @@ yaspl_library(
   deps = [
     ":prim-language",
     "//libraries/data:bytes",
-    "//libraries/data:list",
     "//libraries/data:dict",
+    "//libraries/data:list",
+    "//libraries/data:numbers",
   ]
 )
