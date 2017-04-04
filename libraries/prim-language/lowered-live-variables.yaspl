@@ -1,0 +1,391 @@
+#:module lowered-live-variables
+#:import {
+  bytes {
+    #:values
+      bytes-append
+  }
+  dict {
+    #:types
+      Dict
+    #:values
+      dict-fold
+      dict-keys
+      dict-map
+      dict-ref
+      dict-replace
+      dict-update
+      dict-value-map
+  }
+  graphviz {
+    #:types
+      EdgeData
+      VertexData
+    #:values
+      edge-data
+      graph->graphviz
+      vertex-data
+  }
+  join-list {
+    #:types
+      JoinList
+    #:values
+      append-jl*
+      concat-jl
+      jl->list
+      list->jl
+      single-jl
+  }
+  list {
+    #:types
+      List
+    #:values
+      cons
+      empty
+      foldl
+      interleave
+      list
+      map
+      reverse
+    #:patterns
+      cons
+      empty
+  }
+  lowered-register-language {
+    #:types
+      BasicBlock
+      FunctionDefinition
+      Instruction
+      Terminal
+    #:values
+      basic-block-terminal
+    #:patterns
+      basic-block
+      bin-op-inst
+      cond-jump
+      function-definition
+      int-literal
+      jump
+      move
+      return
+  }
+  maybe {
+    #:types
+      Maybe
+    #:values
+      just
+      nothing
+    #:patterns
+      just
+      nothing
+  }
+  numbers {
+    #:values
+      integer->decimal-bytes
+  }
+  prim {
+    #:types
+      Boolean
+      Bytes
+      Int
+    #:values
+      =
+      panic
+  }
+  set {
+    #:types
+      Set
+    #:values
+      make-set
+      set->list
+      set-add
+      set-add-all
+      set-count
+      set-difference
+      set-remove
+      set-split
+      set-union
+      set-union*
+  }
+  tuples {
+    #:patterns
+      tuple2
+  }
+  undirected-graph {
+    #:types
+      Graph
+    #:values
+      empty-graph
+      graph-add-edge-if-absent
+      graph-add-vertex-if-absent
+  }
+}
+(export
+  #:types ()
+  #:values (live-variables print-blocks print-graph)
+  #:patterns ())
+(types
+  (define-type (BlockState Reg)
+    (block-state [instruction-states : (List (PointState Reg))]
+                 [terminal-live-in : (Set Reg)]))
+  (define-type (PointState Reg)
+    (point-state [live-in : (Set Reg)]
+                 [defined : Reg]
+                 [move-source : (Maybe Reg)])))
+
+(define (Reg) (live-variables [f : (FunctionDefinition Reg)]
+                              [reg=? : (Reg Reg -> Boolean)]) : (Dict Int (BlockState Reg))
+  (match-define (function-definition _ _ blocks) f)
+  (match-define jump-index (make-jump-index blocks))
+  (fully-propagate-live-variables/blocks
+    (dict-value-map blocks (lambda ([block : (BasicBlock Reg)])
+                             (initial-block-state block reg=?)))
+    reg=?
+    jump-index
+    (reverse-jump-index jump-index)
+    (dict-keys blocks)))
+
+(define (Reg) (make-jump-index [blocks : (Dict Int (BasicBlock Reg))]) : (Dict Int (Set Int))
+  (dict-value-map
+    blocks
+    (lambda ([block : (BasicBlock Reg)])
+      (terminal-next-blocks (basic-block-terminal block)))))
+
+(define (Reg) (terminal-next-blocks [t : (Terminal Reg)]) : (Set Int)
+  (set-add-all
+    (make-set =)
+    (case t
+      [(return _) (empty)]
+      [(jump b) (varargs list b)]
+      [(cond-jump _ t f) (varargs list t f)])))
+
+(define (reverse-jump-index [jump-index : (Dict Int (Set Int))]) : (Dict Int (Set Int))
+  (dict-fold
+    jump-index
+    (lambda ([index : Int] [targets : (Set Int)] [acc : (Dict Int (Set Int))])
+      (foldl
+        (lambda ([target : Int] [acc : (Dict Int (Set Int))])
+          (dict-update
+            acc
+            target
+            (lambda ([set : (Set Int)]) (set-add set index))
+            (make-set =)))
+        (set->list targets)
+        acc))
+    (dict-value-map
+      jump-index
+      (lambda ([ignored : (Set Int)]) (make-set =)))))
+
+(define (Reg) (print-blocks [blocks : (Dict Int (BlockState Reg))] [reg->bytes : (Reg -> Bytes)]) : Bytes
+  (bytes-append
+    (dict-map
+      blocks
+      (lambda ([i : Int] [block : (BlockState Reg)])
+        (print-block-state i block reg->bytes)))))
+
+
+(define (Reg) (print-block-state [i : Int] [block : (BlockState Reg)] [reg->bytes : (Reg -> Bytes)]) : Bytes
+  (match-define (block-state instructions terminal) block)
+  (match-define print-live-set
+    (lambda ([live : (Set Reg)]) : (JoinList Bytes)
+      (list->jl (interleave (map reg->bytes (set->list live)) #", "))))
+  (match-define print-point-state
+    (lambda ([ps : (PointState Reg)]) : (JoinList Bytes)
+      (case ps
+        [(point-state live def move)
+         (varargs append-jl*
+           (case move
+             [(nothing)
+              (single-jl #"def: ")]
+             [(just _)
+              (single-jl #"mov: ")])
+           (single-jl (reg->bytes def))
+           (single-jl #" live: ")
+           (print-live-set live)
+           (single-jl #"\n"))])))
+  (bytes-append
+    (jl->list
+      (varargs append-jl*
+        (single-jl #"block: ")
+        (single-jl (integer->decimal-bytes i))
+        (single-jl #"\n")
+        (concat-jl (map print-point-state instructions))
+        (print-live-set terminal)
+        (single-jl #"\n")))))
+
+(define (Reg) (fully-propagate-live-variables/blocks
+                [blocks : (Dict Int (BlockState Reg))]
+                [reg=? : (Reg Reg -> Boolean)]
+                [jump-index : (Dict Int (Set Int))]
+                [reverse-jump-index : (Dict Int (Set Int))]
+                [worklist : (Set Int)])
+  : (Dict Int (BlockState Reg))
+  (case (set-split worklist)
+    [(nothing) blocks]
+    [(just (tuple2 block-num worklist))
+     (case (dict-ref jump-index block-num)
+       [(nothing)
+        (panic #"Unknown block")]
+       [(just other-blocks)
+        (case
+          (propagate-live-variables/block
+            (case (dict-ref blocks block-num)
+              [(nothing)
+               ((lambda () : (BlockState Reg) (panic #"Unknown block")))]
+              [(just block) block])
+            (set-union*
+              (make-set reg=?)
+              (map
+                (lambda ([num : Int]) : (Set Reg)
+                  (case (dict-ref blocks num)
+                    [(nothing)
+                     (panic #"Unknown block")]
+                    [(just block) (block-live-in block)]))
+                (set->list other-blocks))))
+          [(nothing)
+           (fully-propagate-live-variables/blocks
+             blocks
+             reg=?
+             jump-index
+             reverse-jump-index
+             worklist)]
+          [(just new-block)
+           (fully-propagate-live-variables/blocks
+             (dict-replace blocks block-num new-block)
+             reg=?
+             jump-index
+             reverse-jump-index
+             (set-union
+               worklist
+               (case (dict-ref reverse-jump-index block-num)
+                 [(nothing) ((lambda () : (Set Int) (panic #"Unknown block")))]
+                 [(just block-nums) block-nums])))])])]))
+
+(define (Reg) (propagate-live-variables/block [state : (BlockState Reg)] [new-live-in : (Set Reg)])
+  : (Maybe (BlockState Reg))
+  (match-define (block-state instructions old-live-in) state)
+  (if (= (set-count (set-difference new-live-in old-live-in)) 0)
+      (nothing)
+      (just
+        (block-state
+          (propagate-live-variables/instructions (reverse instructions) (empty) new-live-in)
+          new-live-in))))
+
+(define (Reg) (propagate-live-variables/instructions
+                [rev-instructions : (List (PointState Reg))]
+                [acc-instructions : (List (PointState Reg))]
+                [live-out : (Set Reg)]) : (List (PointState Reg))
+  (case rev-instructions
+    [(empty) acc-instructions]
+    [(cons (point-state live-in def move) rev-instructions)
+     (let ([live-in (set-union live-in (set-remove live-out def))])
+       (propagate-live-variables/instructions
+         rev-instructions
+         (cons
+           (point-state live-in def move)
+           acc-instructions)
+         live-in))]))
+
+(define (Reg) (initial-block-state [block : (BasicBlock Reg)]
+                                   [reg=? : (Reg Reg -> Boolean)])
+  : (BlockState Reg)
+  (match-define (basic-block instructions terminal) block)
+  (match-define terminal-live-in (initial-live-in/terminal terminal reg=?))
+  (block-state
+    (propagate-live-variables/instructions
+      (reverse
+        (map (lambda ([inst : (Instruction Reg)])
+               (initial-point-state/instruction inst reg=?)) instructions))
+      (empty)
+      terminal-live-in)
+    terminal-live-in))
+
+(define (Reg) (initial-point-state/instruction
+                [i : (Instruction Reg)]
+                [reg=? : (Reg Reg -> Boolean)]) : (PointState Reg)
+  (case i
+    [(int-literal output _)
+     (point-state (make-set reg=?) output (nothing))]
+    [(move dest src)
+     (point-state (set-add (make-set reg=?) src) dest (just src))]
+    [(bin-op-inst output _ input)
+     (point-state (set-add (set-add (make-set reg=?) input) output) output (nothing))]))
+
+(define (Reg) (initial-live-in/terminal [t : (Terminal Reg)] [reg=? : (Reg Reg -> Boolean)]) : (Set Reg)
+  (case t
+    [(return reg) (set-add (make-set reg=?) reg)]
+    [(jump index) (make-set reg=?)]
+    [(cond-jump reg index false) (set-add (make-set reg=?) reg)]))
+
+
+(define (Reg) (block-live-in [b : (BlockState Reg)]) : (Set Reg)
+  (case b
+    [(block-state (cons (point-state live _ _) _) _) live]
+    [(block-state (empty) live) live]))
+
+
+(define (Reg) (add-live-variables-to-graph/point-state
+                [p : (PointState Reg)]
+                [g : (Graph Reg VertexData EdgeData)]
+                [reg->bytes : (Reg -> Bytes)]) : (Graph Reg VertexData EdgeData)
+  (match-define (point-state live def move) p)
+  (foldl
+    (lambda ([r : Reg] [g : (Graph Reg VertexData EdgeData)])
+      (graph-add-vertex-if-absent g r (vertex-data (reg->bytes r))))
+    (set->list live)
+    g))
+
+;; Add moves back
+(define (Reg) (add-live-edges-to-graph/point-state
+                [p : (PointState Reg)]
+                [g : (Graph Reg VertexData EdgeData)]) : (Graph Reg VertexData EdgeData)
+  g)
+;; This is currently broken because of well known registers and the inital block is missing.
+
+;  (match-define (point-state live def moves) p)
+;  (foldl
+;    (lambda ([r : Reg] [g : (Graph Reg VertexData EdgeData)])
+;      (graph-add-edge-if-absent g def r (edge-data #"solid")))
+;    (set->list live)
+;    g))
+
+(define (Reg) (add-live-variables-to-graph/blocks
+                [blocks : (Dict Int (BlockState Reg))]
+                [g : (Graph Reg VertexData EdgeData)]
+                [reg->bytes : (Reg -> Bytes)]) : (Graph Reg VertexData EdgeData)
+  (dict-fold
+    blocks
+    (lambda ([block-num : Int] [state : (BlockState Reg)] [acc : (Graph Reg VertexData EdgeData)])
+      : (Graph Reg VertexData EdgeData)
+      (case state
+        [(block-state instructions _)
+         (foldl
+           (lambda ([p : (PointState Reg)] [g : (Graph Reg VertexData EdgeData)])
+             (add-live-variables-to-graph/point-state p g reg->bytes))
+           instructions
+           acc)]))
+    g))
+
+(define (Reg) (add-live-edges-to-graph/blocks
+                [blocks : (Dict Int (BlockState Reg))]
+                [g : (Graph Reg VertexData EdgeData)]) : (Graph Reg VertexData EdgeData)
+  (dict-fold
+    blocks
+    (lambda ([block-num : Int] [state : (BlockState Reg)] [acc : (Graph Reg VertexData EdgeData)])
+      : (Graph Reg VertexData EdgeData)
+      (case state
+        [(block-state instructions _)
+         (foldl (lambda ([p : (PointState Reg)] [g : (Graph Reg VertexData EdgeData)])
+                  (add-live-edges-to-graph/point-state p g)) instructions acc)]))
+    g))
+
+(define (Reg) (print-graph
+                [blocks : (Dict Int (BlockState Reg))]
+                [reg=? : (Reg Reg -> Boolean)]
+                [reg->bytes : (Reg -> Bytes)]) : Bytes
+  (graph->graphviz
+    (add-live-edges-to-graph/blocks
+      blocks
+      (add-live-variables-to-graph/blocks
+        blocks
+        ((lambda () : (Graph Reg VertexData EdgeData) (empty-graph reg=?)))
+        reg->bytes))))

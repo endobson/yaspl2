@@ -50,6 +50,23 @@ yaspl_library(
   ]
 )
 
+yaspl_library(
+  name = "lowered-live-variables",
+  srcs = ["lowered-live-variables.yaspl"],
+  deps = [
+    ":lowered-register-language",
+    "//libraries:graphviz",
+    "//libraries/data:list",
+    "//libraries/data:set",
+    "//libraries/data:dict",
+    "//libraries/data:maybe",
+    "//libraries/data:tuples",
+    "//libraries/data:bytes",
+    "//libraries/data:numbers",
+    "//libraries/data:undirected-graph",
+    "//libraries/data:join-list",
+  ]
+)
 
 yaspl_library(
   name = "prim-language",
@@ -63,7 +80,7 @@ yaspl_library(
   name = "prim-language-demo",
   srcs = ["prim-language-demo.yaspl"],
   deps = [
-    ":live-variables",
+    ":lowered-live-variables",
     ":lower-x86-64",
     ":prim-language",
     ":register-language",
