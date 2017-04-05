@@ -130,7 +130,11 @@
   (define-type (PointState Reg)
     (point-state [live-in : (Set Reg)]
                  [defined : Reg]
-                 [move-source : (Maybe Reg)])))
+                 [move-source : (Maybe Reg)]))
+  (define-type (LiveOutState Reg)
+    (live-out-state [live-out : (Set Reg)]
+                    [defined : Reg]
+                    [move-source : (Maybe Reg)])))
 
 (define (Reg) (live-variables [f : (FunctionDefinition Reg)]
                               [reg=? : (Reg Reg -> Boolean)]) : (Dict Int (BlockState Reg))
@@ -322,6 +326,17 @@
     [(block-state (cons (point-state live _ _) _) _) live]
     [(block-state (empty) live) live]))
 
+(define (Reg) (block->live-out-states [b : (BlockState Reg)]) : (List (LiveOutState Reg))
+  (match-define (block-state live-ins final-live-in) b)
+  (block->live-out-states* (reverse live-ins) final-live-in (empty)))
+
+(define (Reg) (block->live-out-states* [live-in-states : (List (PointState Reg))]
+                                       [live-out : (Set Reg)]
+                                       [acc : (List (LiveOutState Reg))]) : (List (LiveOutState Reg))
+  (case live-in-states
+    [(empty) acc]
+    [(cons (point-state live-in def move) live-in-states)
+     (block->live-out-states* live-in-states live-in (cons (live-out-state live-out def move) acc))]))
 
 (define (Reg) (add-live-variables-to-graph/point-state
                 [p : (PointState Reg)]
@@ -335,18 +350,33 @@
     g))
 
 ;; Add moves back
-(define (Reg) (add-live-edges-to-graph/point-state
-                [p : (PointState Reg)]
+(define (Reg) (add-interference-edges-to-graph/live-out-state
+                [s : (LiveOutState Reg)]
                 [g : (Graph Reg VertexData EdgeData)]) : (Graph Reg VertexData EdgeData)
-  g)
-;; This is currently broken because of well known registers and the inital block is missing.
+  (match-define (live-out-state live def move) s)
+  (case move
+    [(nothing)
+     (foldl
+       (lambda ([r : Reg] [g : (Graph Reg VertexData EdgeData)])
+         (graph-add-edge-if-absent g def r (edge-data #"solid")))
+       (set->list (set-remove live def))
+       g)]
+    [(just v)
+     (foldl
+       (lambda ([r : Reg] [g : (Graph Reg VertexData EdgeData)])
+         (graph-add-edge-if-absent g def r (edge-data #"solid")))
+       (set->list (set-remove (set-remove live def) v))
+       g)]))
 
-;  (match-define (point-state live def moves) p)
-;  (foldl
-;    (lambda ([r : Reg] [g : (Graph Reg VertexData EdgeData)])
-;      (graph-add-edge-if-absent g def r (edge-data #"solid")))
-;    (set->list live)
-;    g))
+(define (Reg) (add-move-edges-to-graph/live-out-state
+                [s : (LiveOutState Reg)]
+                [g : (Graph Reg VertexData EdgeData)]) : (Graph Reg VertexData EdgeData)
+  (match-define (live-out-state live def move) s)
+  (case move
+    [(just v)
+     (graph-add-edge-if-absent g def v (edge-data #"dashed"))]
+    [_ g]))
+
 
 (define (Reg) (add-live-variables-to-graph/blocks
                 [blocks : (Dict Int (BlockState Reg))]
@@ -365,27 +395,49 @@
            acc)]))
     g))
 
-(define (Reg) (add-live-edges-to-graph/blocks
+(define (Reg) (add-interference-edges-to-graph/blocks
                 [blocks : (Dict Int (BlockState Reg))]
                 [g : (Graph Reg VertexData EdgeData)]) : (Graph Reg VertexData EdgeData)
   (dict-fold
     blocks
     (lambda ([block-num : Int] [state : (BlockState Reg)] [acc : (Graph Reg VertexData EdgeData)])
       : (Graph Reg VertexData EdgeData)
-      (case state
-        [(block-state instructions _)
-         (foldl (lambda ([p : (PointState Reg)] [g : (Graph Reg VertexData EdgeData)])
-                  (add-live-edges-to-graph/point-state p g)) instructions acc)]))
+      (foldl
+        (lambda ([s : (LiveOutState Reg)] [g : (Graph Reg VertexData EdgeData)])
+          (add-interference-edges-to-graph/live-out-state s g))
+        (block->live-out-states state)
+        acc))
+    g))
+
+(define (Reg) (add-move-edges-to-graph/blocks
+                [blocks : (Dict Int (BlockState Reg))]
+                [g : (Graph Reg VertexData EdgeData)]) : (Graph Reg VertexData EdgeData)
+  (dict-fold
+    blocks
+    (lambda ([block-num : Int] [state : (BlockState Reg)] [acc : (Graph Reg VertexData EdgeData)])
+      : (Graph Reg VertexData EdgeData)
+      (foldl
+        (lambda ([s : (LiveOutState Reg)] [g : (Graph Reg VertexData EdgeData)])
+          (add-move-edges-to-graph/live-out-state s g))
+        (block->live-out-states state)
+        acc))
     g))
 
 (define (Reg) (print-graph
                 [blocks : (Dict Int (BlockState Reg))]
                 [reg=? : (Reg Reg -> Boolean)]
-                [reg->bytes : (Reg -> Bytes)]) : Bytes
+                [reg->bytes : (Reg -> Bytes)]
+                [fixed-regs : (Set Reg)]) : Bytes
   (graph->graphviz
-    (add-live-edges-to-graph/blocks
+    (add-move-edges-to-graph/blocks
       blocks
-      (add-live-variables-to-graph/blocks
+      (add-interference-edges-to-graph/blocks
         blocks
-        ((lambda () : (Graph Reg VertexData EdgeData) (empty-graph reg=?)))
-        reg->bytes))))
+        (add-live-variables-to-graph/blocks
+          blocks
+          (foldl
+            (lambda ([r : Reg] [g : (Graph Reg VertexData EdgeData)])
+              (graph-add-vertex-if-absent g r (vertex-data (reg->bytes r))))
+            (set->list fixed-regs)
+            ((lambda () : (Graph Reg VertexData EdgeData) (empty-graph reg=?))))
+          reg->bytes)))))

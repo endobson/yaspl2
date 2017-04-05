@@ -71,6 +71,13 @@
       [jump r:jump]
       [return r:return]
   }
+  set {
+    #:types
+      Set
+    #:values
+      make-set
+      set-add-all
+  }
   tuples {
     #:types
       Tuple2
@@ -85,12 +92,17 @@
 }
 (export
   #:types (Reg)
-  #:values (lower-function reg->bytes reg=?)
+  #:values (lower-function reg->bytes reg=? all-fixed-registers)
   #:patterns ())
 (types
   (define-type X8664Register
     (rax)
-    (rcx))
+    (rdi)
+    (rsi)
+    (rdx)
+    (rcx)
+    (r8)
+    (r9))
   (define-type Reg
     (fixed-reg [r : X8664Register])
     (temporary-reg [r : r:Var])))
@@ -98,24 +110,47 @@
 (define (empty-blocks) : (Dict Int (l:BasicBlock Reg))
   (make-dict =))
 
+(define (all-fixed-registers) : (Set Reg)
+  (set-add-all
+    (make-set reg=?)
+    (map
+      fixed-reg
+      (varargs list
+        (rax)
+        (rcx)
+        (rdx)
+        (rdi)
+        (rsi)
+        (r8)
+        (r9)))))
+
 (define (reg->bytes [reg : Reg]) : Bytes
   (case reg
-    [(fixed-reg (rax)) #"%rax"]
-    [(fixed-reg (rcx)) #"%rcx"]
+    [(fixed-reg (rax)) #"_rax"]
+    [(fixed-reg (rcx)) #"_rcx"]
+    [(fixed-reg (rdx)) #"_rdx"]
+    [(fixed-reg (rdi)) #"_rdi"]
+    [(fixed-reg (rsi)) #"_rsi"]
+    [(fixed-reg (r8)) #"_r8"]
+    [(fixed-reg (r9)) #"_r9"]
     [(temporary-reg v) (var->bytes v)]))
 
 (define (reg=? [reg1 : Reg] [reg2 : Reg]) : Boolean
   (case (tuple2 reg1 reg2)
     [(tuple2 (fixed-reg (rax)) (fixed-reg (rax))) #t]
     [(tuple2 (fixed-reg (rcx)) (fixed-reg (rcx))) #t]
+    [(tuple2 (fixed-reg (rdx)) (fixed-reg (rdx))) #t]
+    [(tuple2 (fixed-reg (rdi)) (fixed-reg (rdi))) #t]
+    [(tuple2 (fixed-reg (rsi)) (fixed-reg (rsi))) #t]
+    [(tuple2 (fixed-reg (r8)) (fixed-reg (r8))) #t]
+    [(tuple2 (fixed-reg (r9)) (fixed-reg (r9))) #t]
     [(tuple2 (temporary-reg v1) (temporary-reg v2)) (var=? v1 v2)]
-    [(tuple2 (fixed-reg (rax)) (fixed-reg (rcx))) #f]
-    [(tuple2 (fixed-reg (rcx)) (fixed-reg (rax))) #f]
+    [(tuple2 (fixed-reg _) (fixed-reg _)) #f]
     [(tuple2 (fixed-reg _) (temporary-reg _)) #f]
     [(tuple2 (temporary-reg _) (fixed-reg _)) #f]))
 
 (define (lower-function [fun : r:FunctionDefinition]) : (l:FunctionDefinition Reg)
-  (match-define (r:function-definition name blocks _ next-block) fun)
+  (match-define (r:function-definition name entry-block-num blocks _ next-block) fun)
   (match-define (tuple2 next-block new-blocks)
     (dict-fold
       blocks
@@ -123,8 +158,29 @@
                [acc : (Tuple2 Int (Dict Int (l:BasicBlock Reg)))])
         (lower-block index b blocks acc))
       (tuple2 next-block (empty-blocks))))
+  (match-define new-blocks
+    (dict-add new-blocks next-block (make-entry-block entry-block-num blocks)))
+  (match-define next-block (+ 1 next-block))
 
   (l:function-definition name 0 new-blocks))
+
+
+(define (make-entry-block [entry-block-num : Int] [blocks : (Dict Int r:BasicBlock)])
+  : (l:BasicBlock Reg)
+  (case (dict-ref blocks entry-block-num)
+    [(nothing) (panic #"No entry block")]
+    [(just (r:basic-block args _ _))
+     (l:basic-block
+       (case (zip args (varargs list (rdi)))
+         [(nothing) (panic #"Hacky initial args")]
+         [(just linked-args)
+          (map
+            (lambda ([t : (Tuple2 r:Var X8664Register)])
+              (case t
+                [(tuple2 v reg)
+                 (l:move (temporary-reg v) (fixed-reg reg))]))
+            linked-args)])
+       ((lambda () : (l:Terminal Reg) (l:jump entry-block-num))))]))
 
 (define (lower-block [index : Int]  [b : r:BasicBlock]
                      [blocks : (Dict Int r:BasicBlock)]
