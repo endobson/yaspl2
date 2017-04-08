@@ -11,6 +11,7 @@
       dict-keys
       dict-ref
       dict-remove
+      dict-update
       dict-update-existing
       dict-values
       make-dict
@@ -27,6 +28,8 @@
       List
     #:values
       cons
+      empty
+      filter-map
       findf
       foldl
       map
@@ -36,9 +39,20 @@
   }
   lower-x86-64 {
     #:types
+      Reg
       X8664Register
     #:values
       all-x86-64-registers
+      x86-64-register=?
+    #:patterns
+      fixed-reg
+      temporary-reg
+  }
+  lowered-live-variables {
+    #:types
+      LiveOutState
+    #:patterns
+      live-out-state
   }
   maybe {
     #:types
@@ -63,6 +77,7 @@
       >
       >=
       panic
+      void
   }
   register-language {
     #:types
@@ -74,7 +89,9 @@
     #:types
       Set
     #:values
+      make-set
       set->list
+      set-add
       set-add-all
       set-count
       set-difference
@@ -94,6 +111,8 @@
     #:types
       Graph
     #:values
+      empty-graph
+      graph-add-vertex-if-absent
       graph-remove-edge
       graph-remove-unconnected-vertex
       graph-update-edge
@@ -103,7 +122,7 @@
 }
 (export
   #:types ()
-  #:values (color-graph)
+  #:values (color-graph initial-state)
   #:patterns ())
 (types
   (define-type RegisterAssignment
@@ -118,6 +137,90 @@
       [graph : (Graph Var Void EdgeData)]
       [fixed-constraints : (Dict Var (Set X8664Register))]
       [register-assignments : (List RegisterAssignment)])))
+
+(define (initial-state [live-outs : (List (LiveOutState Reg))]) : State
+  (state
+    (initial-graph live-outs)
+    (initial-fixed-constraints live-outs)
+    (empty)))
+
+(define (initial-graph [live-outs : (List (LiveOutState Reg))]) : (Graph Var Void EdgeData)
+  (foldl
+    (lambda ([l : (LiveOutState Reg)] [acc : (Graph Var Void EdgeData)])
+      (case l
+        [(live-out-state out-regs (fixed-reg _) move-source)
+         acc]
+        [(live-out-state out-regs (temporary-reg reg) move-source)
+         (match-define out-regs
+           (filter-map
+             (lambda ([r : Reg]) : (Maybe Var)
+               (case r
+                 [(fixed-reg _) (nothing)]
+                 [(temporary-reg r) (just r)]))
+             (set->list out-regs)))
+         (match-define acc (graph-add-vertex-if-absent acc reg (void)))
+         (match-define acc
+           (foldl
+             (lambda ([v : Var] [acc : (Graph Var Void EdgeData)]) : (Graph Var Void EdgeData)
+               (case
+                 (graph-update-edge
+                   (graph-add-vertex-if-absent acc v (void))
+                   v reg
+                   (lambda ([e : EdgeData]) (interference-edge))
+                   (interference-edge))
+                 [(nothing) (panic #"Bad graph")]
+                 [(just g) g]))
+             out-regs
+             acc))
+         (match-define acc
+           (case move-source
+             [(nothing) acc]
+             [(just (fixed-reg _)) acc]
+             [(just (temporary-reg v))
+              (graph-update-edge
+                (graph-add-vertex-if-absent acc v (void))
+                v reg
+                (lambda ([e : EdgeData]) e)
+                (move-edge))]))
+         acc]))
+    live-outs
+    ((lambda () : (Graph Var Void EdgeData) (empty-graph var=?)))))
+
+(define (initial-fixed-constraints [live-outs : (List (LiveOutState Reg))])
+  : (Dict Var (Set X8664Register))
+  (foldl
+    (lambda ([l : (LiveOutState Reg)] [acc : (Dict Var (Set X8664Register))])
+      (case l
+        [(live-out-state out-regs defined _)
+         (case defined
+           [(fixed-reg f-reg)
+            (foldl
+              (lambda ([r : Reg] [acc : (Dict Var (Set X8664Register))])
+                (case r
+                  [(fixed-reg _) acc]
+                  [(temporary-reg r)
+                   (dict-update
+                     acc
+                     r
+                     (lambda ([s : (Set X8664Register)]) (set-add s f-reg))
+                     (make-set x86-64-register=?))]))
+              (set->list out-regs)
+              acc)]
+           [(temporary-reg t-reg)
+            (foldl
+              (lambda ([r : Reg] [acc : (Dict Var (Set X8664Register))])
+                (case r
+                  [(temporary-reg _) acc]
+                  [(fixed-reg r)
+                   (dict-update
+                     acc
+                     t-reg
+                     (lambda ([s : (Set X8664Register)]) (set-add s r))
+                     (make-set x86-64-register=?))]))
+              (set->list out-regs)
+              acc)])]))
+    live-outs
+    ((lambda () : (Dict Var (Set X8664Register)) (make-dict var=?)))))
 
 (define (color-graph [state : State]) : (Either Var (Dict Var X8664Register))
   (select-loop-start (reduce-loop state)))

@@ -15,6 +15,7 @@ yaspl_library(
   deps = [
     ":register-language",
     ":lower-x86-64",
+    ":lowered-live-variables",
     "//libraries/data:either",
     "//libraries/data:list",
     "//libraries/data:set",
@@ -97,6 +98,7 @@ yaspl_library(
   name = "prim-language-demo",
   srcs = ["prim-language-demo.yaspl"],
   deps = [
+    ":color-graph",
     ":lowered-live-variables",
     ":lower-x86-64",
     ":prim-language",
