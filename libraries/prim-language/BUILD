@@ -10,6 +10,22 @@ yaspl_binary(
 )
 
 yaspl_library(
+  name = "color-graph",
+  srcs = ["color-graph.yaspl"],
+  deps = [
+    ":register-language",
+    ":lower-x86-64",
+    "//libraries/data:either",
+    "//libraries/data:list",
+    "//libraries/data:set",
+    "//libraries/data:dict",
+    "//libraries/data:maybe",
+    "//libraries/data:tuples",
+    "//libraries/data:undirected-graph",
+  ]
+)
+
+yaspl_library(
   name = "live-variables",
   srcs = ["live-variables.yaspl"],
   deps = [
