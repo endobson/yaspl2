@@ -16,6 +16,7 @@ yaspl_library(
     ":register-language",
     ":lower-x86-64",
     ":lowered-live-variables",
+    "//libraries/data:bytes",
     "//libraries/data:either",
     "//libraries/data:list",
     "//libraries/data:set",
@@ -25,6 +26,23 @@ yaspl_library(
     "//libraries/data:undirected-graph",
   ]
 )
+
+yaspl_test(
+  name = "color-graph-test",
+  main_module = "color_graph_test",
+  srcs = ["color-graph-test.yaspl"],
+  deps = [
+    ":prim-language",
+    ":prim-to-register",
+    ":color-graph",
+    ":lower-x86-64",
+    ":lowered-live-variables",
+    "//libraries/data:list",
+    "//libraries/data:maybe",
+    "//libraries:yunit",
+  ]
+)
+
 
 yaspl_library(
   name = "live-variables",
