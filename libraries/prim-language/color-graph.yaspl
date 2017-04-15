@@ -27,6 +27,9 @@
     #:values
       left
       right
+    #:patterns
+      left
+      right
   }
   list {
     #:types
@@ -465,8 +468,8 @@
       (set->list vs)
       g))
   (case (graph-remove-unconnected-vertex g v)
-    [(nothing) (panic #"Bad graph")]
-    [(just g)
+    [(left _) (panic #"Bad graph")]
+    [(right g)
      (case (dict-ref fixed v)
        [(nothing) (panic #"Bad vertex")]
        [(just fixed-constraints)
@@ -486,17 +489,18 @@
        (dict-fold
          edges
          (lambda ([v : Var] [e : EdgeData] [g : (Graph Var Void EdgeData)]) : (Graph Var Void EdgeData)
-           (if (var=? v v2)
-               g
-               (case (graph-update-edge
-                       g v2 v
-                       (lambda ([old-e : EdgeData])
-                         (case e
-                           [(interference-edge) (interference-edge)]
-                           [(move-edge) old-e]))
-                       e)
+           (let ([g (graph-remove-edge g v1 v)])
+             (if (var=? v v2)
+                 g
+                 (case (graph-update-edge
+                         g v2 v
+                         (lambda ([old-e : EdgeData])
+                           (case e
+                             [(interference-edge) (interference-edge)]
+                             [(move-edge) old-e]))
+                         e)
                  [(nothing) (panic #"Bad edge")]
-                 [(just g) (graph-remove-edge g v1 v)])))
+                 [(just g) g]))))
          g))
 
      (match-define fixed
@@ -512,8 +516,24 @@
          v1))
 
      (case (graph-remove-unconnected-vertex g v1)
-       [(nothing) (panic #"Bad graph")]
-       [(just g)
+       [(left (nothing))
+        (panic
+          (bytes-append
+            (varargs list
+              #"Couldn't remove unconnected vertex it is not in the graph:\n"
+              (var->bytes v1))))]
+       [(left (just edges))
+        (panic
+          (bytes-append
+            (varargs list
+              #"Couldn't remove unconnected vertex it still has edges in the graph:\n"
+              (var->bytes v1)
+              #"\nEdges remain to :\n"
+              (bytes-append
+                (interleave
+                  (map var->bytes (set->list (dict-keys edges)))
+                  #" ")))))]
+       [(right g)
         (state g fixed (cons (assign-same v1 v2) assignments))])]))
 
 (define (spill-vertex [s : State] [v : Var]) : State
@@ -526,8 +546,8 @@
       (set->list vs)
       g))
   (case (graph-remove-unconnected-vertex g v)
-    [(nothing) (panic #"Bad graph")]
-    [(just g)
+    [(left _) (panic #"Bad graph")]
+    [(right g)
      (case (dict-ref fixed v)
        [(nothing) (panic #"Bad vertex")]
        [(just fixed-constraints)

@@ -208,6 +208,7 @@ yaspl_library(
   srcs = ["undirected-graph.yaspl"],
   deps = [
     ":dict",
+    ":either",
     ":maybe",
     ":tuples",
   ]
