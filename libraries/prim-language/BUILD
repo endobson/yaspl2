@@ -127,6 +127,8 @@ yaspl_library(
     ":print-lowered-register-language",
     "//libraries:io",
     "//libraries:sexp-parser",
+    "//libraries/data:bytes",
+    "//libraries/data:dict",
     "//libraries/data:either",
     "//libraries/data:list",
   ]
