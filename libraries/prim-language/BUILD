@@ -124,6 +124,7 @@ yaspl_library(
     ":prim-language-parser",
     ":prim-to-register",
     ":print-register-language",
+    ":lowered-register-language",
     ":print-lowered-register-language",
     "//libraries:io",
     "//libraries:sexp-parser",
@@ -131,6 +132,7 @@ yaspl_library(
     "//libraries/data:dict",
     "//libraries/data:either",
     "//libraries/data:list",
+    "//libraries/data:maybe",
   ]
 )
 

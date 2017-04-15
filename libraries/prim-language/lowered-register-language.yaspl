@@ -3,10 +3,14 @@
   dict {
     #:types
       Dict
+    #:values
+      dict-value-map
   }
   list {
     #:types
       List
+    #:values
+      map
   }
   prim {
     #:types
@@ -19,9 +23,10 @@
   }
 }
 (export
-  #:types (FunctionDefinition BasicBlock Instruction Terminal )
+  #:types (FunctionDefinition BasicBlock Instruction Terminal)
   #:values (function-definition return jump cond-jump move basic-block
-            bin-op-inst int-literal basic-block-terminal)
+            bin-op-inst int-literal basic-block-terminal
+            rename-registers/function-definition)
   #:patterns ())
 (types
   (define-type (FunctionDefinition Reg)
@@ -43,3 +48,48 @@
     (return [reg : Reg])
     (jump [block : Int])
     (cond-jump [reg : Reg] [true : Int] [false : Int])))
+
+(define (RegA RegB) (rename-registers/function-definition
+                      [f : (FunctionDefinition RegA)]
+                      [rename : (RegA -> RegB)]) : (FunctionDefinition RegB)
+  (match-define (function-definition name extras blocks) f)
+  (function-definition
+    name
+    extras
+    (dict-value-map
+      blocks
+      (lambda ([b : (BasicBlock RegA)]) (rename-registers/block b rename)))))
+
+
+(define (RegA RegB) (rename-registers/block
+                      [b : (BasicBlock RegA)]
+                      [rename : (RegA -> RegB)]) : (BasicBlock RegB)
+  (match-define (basic-block instructions terminal) b)
+  (basic-block
+    (map
+      (lambda ([i : (Instruction RegA)])
+        (rename-registers/instruction i rename))
+      instructions)
+    (rename-registers/terminal terminal rename)))
+
+(define (RegA RegB) (rename-registers/instruction
+                      [i : (Instruction RegA)]
+                      [rename : (RegA -> RegB)]) : (Instruction RegB)
+  (case i
+    [(int-literal out v)
+     (int-literal (rename out) v)]
+    [(move out in)
+     (move (rename out) (rename in))]
+    [(bin-op-inst out op in)
+     (bin-op-inst (rename out) op (rename in))]))
+
+(define (RegA RegB) (rename-registers/terminal
+                      [t : (Terminal RegA)]
+                      [rename : (RegA -> RegB)]) : (Terminal RegB)
+  (case t
+    [(return r)
+     (return (rename r))]
+    [(jump block)
+     (jump block)]
+    [(cond-jump reg true false)
+     (cond-jump (rename reg) true false)]))
