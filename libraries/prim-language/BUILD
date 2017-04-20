@@ -126,6 +126,7 @@ yaspl_library(
     ":print-register-language",
     ":lowered-register-language",
     ":print-lowered-register-language",
+    ":simplify-lowered-register-language",
     "//libraries:io",
     "//libraries:sexp-parser",
     "//libraries/data:bytes",
@@ -202,5 +203,16 @@ yaspl_library(
     "//libraries/data:dict",
     "//libraries/data:list",
     "//libraries/data:numbers",
+  ]
+)
+
+yaspl_library(
+  name = "simplify-lowered-register-language",
+  srcs = ["simplify-lowered-register-language.yaspl"],
+  deps = [
+    ":lowered-register-language",
+    "//libraries/data:list",
+    "//libraries/data:maybe",
+    "//libraries/data:dict",
   ]
 )

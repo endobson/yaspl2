@@ -1,0 +1,107 @@
+#:module simplify-lowered-register-language
+#:import {
+  dict {
+    #:types
+      Dict
+    #:values
+      dict-filter-map
+      dict-ref
+      dict-value-map
+  }
+  list {
+    #:patterns
+      empty
+  }
+  lowered-register-language {
+    #:types
+      BasicBlock
+      FunctionDefinition
+      Terminal
+    #:values
+      basic-block
+      cond-jump
+      function-definition
+      jump
+      return
+    #:patterns
+      basic-block
+      cond-jump
+      function-definition
+      jump
+      return
+  }
+  maybe {
+    #:types
+      Maybe
+    #:values
+      just
+      nothing
+    #:patterns
+      just
+      nothing
+  }
+  prim {
+    #:types
+      Boolean
+      Int
+  }
+}
+
+(export
+  #:types ()
+  #:values (simplify-function-definition)
+  #:patterns ())
+(types)
+
+(define (Reg) (simplify-function-definition
+                [f : (FunctionDefinition Reg)]
+                [reg=? : (Reg Reg -> Boolean)])
+  : (FunctionDefinition Reg)
+  (match-define (function-definition name extras blocks) f)
+  (function-definition name extras (collapse-trivial-blocks blocks)))
+
+(define (Reg) (collapse-trivial-blocks [blocks : (Dict Int (BasicBlock Reg))])
+  : (Dict Int (BasicBlock Reg))
+  (let ([replacements (find-trivial-blocks blocks)])
+    (dict-value-map
+      blocks
+      (lambda ([b : (BasicBlock Reg)])
+        (case b
+          [(basic-block insts term)
+           (basic-block insts (collapse-trivial-blocks/terminal term replacements))])))))
+
+
+(define (Reg) (collapse-trivial-blocks/terminal
+                [terminal : (Terminal Reg)]
+                [replacements : (Dict Int Int)])
+  : (Terminal Reg)
+ (case terminal
+   [(jump i)
+    (jump (collapse-trivial-blocks/jump i replacements))]
+   [(return r)
+    (return r)]
+   [(cond-jump c t f)
+    (cond-jump
+      c
+      (collapse-trivial-blocks/jump t replacements)
+      (collapse-trivial-blocks/jump f replacements))]))
+
+(define (collapse-trivial-blocks/jump
+          [block : Int]
+          [replacements : (Dict Int Int)])
+  : Int
+  (case (dict-ref replacements block)
+    [(nothing) block]
+    [(just new-block)
+     (collapse-trivial-blocks/jump new-block replacements)]))
+
+(define (Reg) (find-trivial-blocks
+                [blocks : (Dict Int (BasicBlock Reg))])
+  : (Dict Int Int)
+  (dict-filter-map
+    blocks
+    (lambda ([key : Int] [b : (BasicBlock Reg)]) : (Maybe Int)
+      (case b
+        [(basic-block (empty) (jump target))
+         (just target)]
+        [_ (nothing)]))))
