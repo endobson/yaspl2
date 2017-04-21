@@ -211,8 +211,9 @@ yaspl_library(
   srcs = ["simplify-lowered-register-language.yaspl"],
   deps = [
     ":lowered-register-language",
+    "//libraries/data:dict",
     "//libraries/data:list",
     "//libraries/data:maybe",
-    "//libraries/data:dict",
+    "//libraries/data:set",
   ]
 )
