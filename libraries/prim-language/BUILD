@@ -105,6 +105,23 @@ yaspl_library(
 )
 
 yaspl_library(
+  name = "lowered-register-language-to-x86-64",
+  srcs = ["lowered-register-language-to-x86-64.yaspl"],
+  deps = [
+    ":lowered-register-language",
+    ":prim-language",
+    ":lower-x86-64",
+    "//libraries:x86-64-stack-machine",
+    "//libraries/data:list",
+    "//libraries/data:dict",
+    "//libraries/data:maybe",
+    "//libraries/data:bytes",
+    "//libraries/data:numbers",
+    "//libraries/data:join-list",
+  ]
+)
+
+yaspl_library(
   name = "prim-language",
   srcs = ["prim-language.yaspl"],
   deps = [
@@ -125,6 +142,7 @@ yaspl_library(
     ":prim-to-register",
     ":print-register-language",
     ":lowered-register-language",
+    ":lowered-register-language-to-x86-64",
     ":print-lowered-register-language",
     ":simplify-lowered-register-language",
     "//libraries:io",

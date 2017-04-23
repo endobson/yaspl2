@@ -1,0 +1,243 @@
+#:module lowered-register-language-to-x86-64
+#:import {
+  bytes {
+    #:values
+      bytes-append
+  }
+  dict {
+    #:types
+      Dict
+    #:values
+      dict-filter-map
+      dict-ref
+      dict-remove
+      dict-values
+  }
+  join-list {
+    #:types
+      JoinList
+    #:values
+      append-jl
+      concat-jl
+      join-list
+      single-jl
+  }
+  list {
+    #:values
+      cons
+      list
+      map
+  }
+  lower-x86-64 {
+    #:types
+      X8664Register
+    #:patterns
+      r8
+      r9
+      rax
+      rcx
+      rdi
+      rdx
+      rsi
+  }
+  lowered-register-language {
+    #:types
+      BasicBlock
+      FunctionDefinition
+      Instruction
+      Terminal
+    #:patterns
+      basic-block
+      bin-op-inst
+      cond-jump
+      function-definition
+      int-literal
+      jump
+      move
+      return
+  }
+  maybe {
+    #:values
+      just
+    #:patterns
+      just
+      nothing
+  }
+  numbers {
+    #:values
+      integer->decimal-bytes
+  }
+  prim {
+    #:types
+      Bytes
+      Int
+    #:values
+      panic
+      s32
+  }
+  prim-language {
+    #:patterns
+      and
+      equal
+      greater-than
+      greater-than-or-equal
+      less-than
+      less-than-or-equal
+      mul
+      or
+      plus
+      sub
+  }
+  x86-64-stack-machine {
+    #:types
+      AssemblyFragment
+      [BasicBlock a:BasicBlock]
+      [Instruction a:Instruction]
+      [Register a:Register]
+    #:values
+      addq
+      [al a:al]
+      andq
+      [basic-block a:basic-block]
+      [cl a:cl]
+      cmpq
+      [dil a:dil]
+      [dl a:dl]
+      function-fragment
+      imm
+      imm-s32
+      imulq
+      jmp
+      jne
+      movq
+      movzbq
+      orq
+      [r8 a:r8]
+      [r8b a:r8b]
+      [r9 a:r9]
+      [r9b a:r9b]
+      [rax a:rax]
+      [rcx a:rcx]
+      [rdi a:rdi]
+      [rdx a:rdx]
+      reg
+      ret
+      rmi-imm
+      [rsi a:rsi]
+      sete
+      setg
+      setge
+      setl
+      setle
+      [sil a:sil]
+      subq
+  }
+}
+(export
+  #:types ()
+  #:values (function-definition->assembly-fragment)
+  #:patterns ())
+(types)
+
+(define (function-definition->assembly-fragment
+          [f : (FunctionDefinition X8664Register)]) : AssemblyFragment
+  (match-define (function-definition name _ entry-block blocks) f)
+  (match-define block-prefix (bytes-append (varargs list name #"_")))
+  (match-define new-blocks
+    (dict-full-map blocks
+      (lambda ([num : Int] [b : (BasicBlock X8664Register)])
+        (convert-block block-prefix num b))))
+  (case (dict-ref new-blocks entry-block)
+    [(nothing) (panic #"No entry block")]
+    [(just entry)
+     (function-fragment name (cons entry (dict-values (dict-remove new-blocks entry-block))))]))
+
+(define (a b c) (dict-full-map [d : (Dict a b)] [f : (a b -> c)]) : (Dict a c)
+  (dict-filter-map d (lambda ([a : a] [b : b]) (just (f a b)))))
+
+(define (convert-block [block-prefix : Bytes] [block-num : Int] [b : (BasicBlock X8664Register)]) : a:BasicBlock
+  (match-define (basic-block instructions terminal) b)
+  (a:basic-block
+    (make-block-label block-prefix block-num)
+    (append-jl (concat-jl (map convert-instruction instructions))
+               (convert-terminal #"" terminal))))
+
+(define (make-block-label [block-prefix : Bytes] [block-num : Int]) : Bytes
+  (bytes-append (varargs list block-prefix (integer->decimal-bytes block-num))))
+
+(define (convert-register [r : X8664Register]) : a:Register
+  (case r
+    [(rax) (a:rax)]
+    [(rdi) (a:rdi)]
+    [(rsi) (a:rsi)]
+    [(rdx) (a:rdx)]
+    [(rcx) (a:rcx)]
+    [(r8) (a:r8)]
+    [(r9) (a:r9)]))
+
+(define (convert-register/8 [r : X8664Register]) : a:Register
+  (case r
+    [(rax) (a:al)]
+    [(rdi) (a:dil)]
+    [(rsi) (a:sil)]
+    [(rdx) (a:dl)]
+    [(rcx) (a:cl)]
+    [(r8) (a:r8b)]
+    [(r9) (a:r9b)]))
+
+
+
+(define (convert-instruction [i : (Instruction X8664Register)]) : (JoinList a:Instruction)
+  (case i
+    [(int-literal r v)
+     (single-jl (movq (rmi-imm (imm-s32 (s32 v))) (reg (convert-register r))))]
+    [(move out in)
+     (single-jl (movq (reg (convert-register in)) (reg (convert-register out))))]
+    [(bin-op-inst out (plus) in)
+     (single-jl (addq (reg (convert-register in)) (convert-register out)))]
+    [(bin-op-inst out (sub) in)
+     (single-jl (subq (reg (convert-register in)) (convert-register out)))]
+    [(bin-op-inst out (mul) in)
+     (single-jl (imulq (convert-register in) (convert-register out)))]
+    [(bin-op-inst out (and) in)
+     (single-jl (andq (reg (convert-register in)) (convert-register out)))]
+    [(bin-op-inst out (or) in)
+     (single-jl (orq (convert-register in) (convert-register out)))]
+    [(bin-op-inst out (equal) in)
+     (varargs join-list
+       (cmpq (reg (convert-register in)) (reg (convert-register out)))
+       (sete (convert-register/8 out))
+       (movzbq (reg (convert-register/8 out)) (convert-register out)))]
+    [(bin-op-inst out (less-than) in)
+     (varargs join-list
+       (cmpq (reg (convert-register in)) (reg (convert-register out)))
+       (setl (convert-register/8 out))
+       (movzbq (reg (convert-register/8 out)) (convert-register out)))]
+    [(bin-op-inst out (greater-than) in)
+     (varargs join-list
+       (cmpq (reg (convert-register in)) (reg (convert-register out)))
+       (setg (convert-register/8 out))
+       (movzbq (reg (convert-register/8 out)) (convert-register out)))]
+    [(bin-op-inst out (less-than-or-equal) in)
+     (varargs join-list
+       (cmpq (reg (convert-register in)) (reg (convert-register out)))
+       (setle (convert-register/8 out))
+       (movzbq (reg (convert-register/8 out)) (convert-register out)))]
+    [(bin-op-inst out (greater-than-or-equal) in)
+     (varargs join-list
+       (cmpq (reg (convert-register in)) (reg (convert-register out)))
+       (setge (convert-register/8 out))
+       (movzbq (reg (convert-register/8 out)) (convert-register out)))]))
+
+(define (convert-terminal [block-prefix : Bytes] [t : (Terminal X8664Register)]) : (JoinList a:Instruction)
+  (case t
+    ;; TODO investigating making this not have a register
+    [(return _)
+     (single-jl (ret))]
+    [(jump block-num)
+     (single-jl (jmp (make-block-label block-prefix block-num)))]
+    [(cond-jump c t-block-num f-block-num)
+     (varargs join-list
+       (cmpq (imm 0) (reg (convert-register c)))
+       (jne (make-block-label block-prefix t-block-num))
+       (jmp (make-block-label block-prefix f-block-num)))]))
