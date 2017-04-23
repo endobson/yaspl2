@@ -146,6 +146,7 @@ yaspl_library(
     ":print-lowered-register-language",
     ":simplify-lowered-register-language",
     "//libraries:io",
+    "//libraries:mach-o-writer2_lib",
     "//libraries:sexp-parser",
     "//libraries/data:bytes",
     "//libraries/data:dict",
