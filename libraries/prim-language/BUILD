@@ -148,10 +148,12 @@ yaspl_library(
     "//libraries:io",
     "//libraries:mach-o-writer2_lib",
     "//libraries:sexp-parser",
+    "//libraries:x86-64-stack-machine",
     "//libraries/data:bytes",
     "//libraries/data:dict",
     "//libraries/data:either",
     "//libraries/data:list",
+    "//libraries/data:join-list",
     "//libraries/data:maybe",
   ]
 )

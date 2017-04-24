@@ -27,6 +27,10 @@
       write-all-bytes
       write-line
   }
+  join-list {
+    #:values
+      join-list
+  }
   list {
     #:values
       array->list
@@ -62,6 +66,7 @@
   }
   lowered-register-language {
     #:values
+      function-definition-name
       rename-registers/function-definition
   }
   lowered-register-language-to-x86-64 {
@@ -123,9 +128,43 @@
     #:values
       simplify-function-definition
   }
+  x86-64-stack-machine {
+    #:types
+      AssemblyFragment
+    #:values
+      basic-block
+      call
+      function-fragment
+      imm
+      jmp
+      mem
+      movq
+      rax
+      rdi
+      reg
+      rsp
+      syscall
+  }
 }
 (export)
 (types)
+
+
+(define (start-function-fragment [main-function-name : Bytes]) : AssemblyFragment
+  (function-fragment
+    #"start"
+    (varargs list
+      (basic-block #"start"
+        (varargs join-list
+          (jmp #"start_break")))
+      (basic-block #"start_break"
+        (varargs join-list
+          (movq (mem (rsp) 0) (reg (rdi)))
+          (call main-function-name)
+          (movq (reg (rax)) (reg (rdi)))
+          (movq (imm #x2000001) (reg (rax)))
+          (syscall))))))
+
 
 (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]): Int
   (case (array->list args)
@@ -216,7 +255,11 @@
                                           (let ([fragment (function-definition->assembly-fragment
                                                             opt-f)])
                                             (case (write-mach-o-library/fragments
-                                                    out-file-name (varargs list fragment))
+                                                    out-file-name
+                                                    (varargs list
+                                                      (start-function-fragment
+                                                        (function-definition-name opt-f))
+                                                      fragment))
                                               [(left v)
                                                (begin
                                                  (write-line v stderr)
