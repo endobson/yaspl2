@@ -5,8 +5,11 @@
       Dict
     #:values
       dict-add
+      dict-add-all
       dict-fold
       dict-ref
+      dict-remove
+      dict-split
       make-dict
   }
   list {
@@ -238,16 +241,38 @@
   (case (dict-ref blocks index)
     [(nothing) (panic #"No block")]
     [(just (r:basic-block block-args _ _))
-     (case (zip args block-args)
+     (case (zip block-args args)
        [(nothing) (panic #"Args don't match")]
        [(just v) v])]))
 
 (define (move-args [args : (List (Tuple2 r:Var r:Var))]) : (List (l:Instruction Reg))
-  (map (lambda ([t : (Tuple2 r:Var r:Var)])
-         (case t
-           [(tuple2 src dest)
-            (l:move (temporary-reg dest) (temporary-reg src))]))
-       args))
+  (match-define moves (dict-add-all ((lambda () : (Dict r:Var r:Var) (make-dict var=?))) args))
+  (if (has-cycle? moves)
+      (panic #"Cannot currently perform permutation of args when jumping to block")
+      (move-args/dict moves (empty))))
+
+
+;; TODO implement this to avoid the posibility of infinite loops
+(define (has-cycle? [args : (Dict r:Var r:Var)]) : Boolean
+  #f)
+
+(define (move-args/dict [args : (Dict r:Var r:Var)] [list : (List (l:Instruction Reg))]) :
+  (List (l:Instruction Reg))
+  (case (dict-split args)
+    [(nothing) list]
+    [(just (tuple2 (tuple2 dest src) args))
+     (match-define (tuple2 args list) (move-args/dict* args src list))
+     (move-args/dict args (cons (l:move (temporary-reg dest) (temporary-reg src)) list))]))
+
+
+(define (move-args/dict* [args : (Dict r:Var r:Var)] [src : r:Var] [list : (List (l:Instruction Reg))]) :
+  (Tuple2 (Dict r:Var r:Var) (List (l:Instruction Reg)))
+  (case (dict-ref args src)
+    [(nothing) (tuple2 args list)]
+    [(just src2)
+     (match-define (tuple2 args list) (move-args/dict* (dict-remove args src) src2 list))
+     (tuple2 args (cons (l:move (temporary-reg src) (temporary-reg src2)) list))]))
+
 
 (define (ann-term [t : (l:Terminal Reg)]) : (l:Terminal Reg)
   t)
