@@ -1,0 +1,779 @@
+#:module x86-64-runtime
+#:import {
+  bytes {
+    #:values
+      bytes-append
+  }
+  join-list {
+    #:types
+      JoinList
+    #:values
+      append-jl*
+      jl->list
+      join-list
+      list->jl
+  }
+  list {
+    #:types
+      List
+    #:values
+      append
+      list
+  }
+  prim {
+    #:types
+      Boolean
+      Bytes
+    #:values
+      -
+  }
+  stack-machine {
+    #:types
+      TopLevelObject
+  }
+  x86-64-stack-machine {
+    #:types
+      AssemblyFragment
+      Instruction
+    #:values
+      addq
+      address-fragment
+      andq
+      basic-block
+      call
+      call/indirect
+      cld
+      cmpq
+      convert-objects
+      decq
+      dl
+      function-fragment
+      imm
+      imulq
+      jb
+      je
+      jmp
+      jne
+      leaq
+      leaq/rel
+      mem
+      movb
+      movq
+      movzbq
+      nop
+      notq
+      orq
+      popq
+      pushq
+      r10
+      r11
+      r14
+      r15
+      r8
+      r9
+      rax
+      rbp
+      rcx
+      rdi
+      rdx
+      reg
+      rep-movsb
+      rep-stosb
+      repne-scasb
+      repne-scasq
+      ret
+      rip
+      rsi
+      rsp
+      scale-1
+      scale-8
+      scaled
+      shrq
+      subq
+      syscall
+      ud2
+  }
+}
+(export
+  #:types ()
+  #:values (compile-stack-machine )
+  #:patterns ())
+(types)
+
+(define (compile-stack-machine
+          [main-function-name : Bytes]
+          [objects : (List TopLevelObject)]) : (List AssemblyFragment)
+  (append (start-function-fragments main-function-name)
+        (append (jl->list (prim-function-fragments))
+                (convert-objects objects))))
+
+(define (start-function-fragments [main-function-name : Bytes]) : (List AssemblyFragment)
+  (varargs list
+    (function-fragment
+      #"start"
+      (varargs list
+        (basic-block #"start"
+          (varargs join-list
+            (jmp #"start_break")))))
+
+    (function-fragment
+      #"start_break"
+      (varargs list
+        (basic-block #"start_break"
+          (varargs join-list
+            ;; Allocate Heap (Call mmap)
+            ;; No fixed address desired
+            (movq (imm 0) (reg (rdi)))
+            ;; We want a large heap but cannot load more than an 32 bits
+            ;; currently so do a multiplication
+            ;; Currently this is 512 * 1Mib
+            (movq (imm #x100000) (reg (rsi)))
+            (movq (imm #x200) (reg (rax)))
+            (imulq (rax) (rsi))
+            ;; 0x1 = PROT_READ
+            ;; 0x2 = PROT_WRITE
+            ;; 0x4 = PROT_EXEC
+            (movq (imm #x7) (reg (rdx)))
+            ;; 0x0002 = MAP_SHARED
+            ;; 0x1000 = MAP_ANON
+            (movq (imm #x1002) (reg (r10)))
+            ;; FD = -1 for no FD
+            (movq (imm (- 0 1)) (reg (r8)))
+            ;; offset which is ignored because of MAP_ANON
+            (movq (imm 0) (reg (r9)))
+            ;; 0xC5 is mmap, plus 0x2000000 because xnu
+            (movq (imm #x20000C5) (reg (rax)))
+            (syscall)
+            (jb #"prim_start_panic")
+            ;; Save heap to %r15 which is our bump pointer
+            (movq (reg (rax)) (reg (r15)))
+
+            ;; Ignore number of args as we want to reuse code for environment.
+            (addq (imm 8) (rsp))
+            ;; Clear direction for all the scans that will be done when
+            (cld)
+
+            ;; Count number of args
+            (movq (reg (rsp)) (reg (rdi)))
+            (movq (imm 0) (reg (rax)))
+            ;; Assumption: Strings cannot be longer than 2^64-1
+            ;; Loads treat the immediate as a 32 bit signed number, which is sign extended.
+            ;; Then repne-scasq treats it as unsigned which means -1 => 2^64-1
+            (movq (imm (- 0 1)) (reg (rcx)))
+            (repne-scasq)
+            (notq (rcx))
+            (decq (rcx))
+            (movq (reg (rcx)) (reg (r8)))
+
+
+            (movq (reg (r15)) (reg (r10))) ; r10 is the array of bytes
+            (movq (reg (r10)) (reg (r11))) ; r11 is the address of the last bytes put into the array
+
+            (movq (reg (r8)) (mem (r10) 0))
+            (leaq (scaled (r10) (scale-8) (r8) 8) (r15))
+
+            (jmp #"start_copy_args_test")))
+
+        (basic-block #"start_copy_args_test"
+          (varargs join-list
+            (popq (reg (r9))) ; r9 is now the current string
+            (cmpq (imm 0) (reg (r9)))
+            (je #"start_copy_args_end")))
+
+        (basic-block #"start_copy_args_body"
+          (varargs join-list
+
+            ;; Count string length
+            (movq (reg (r9)) (reg (rdi)))
+            (movq (imm 0) (reg (rax)))
+            ;; Assumption: Strings cannot be longer than 2^64-1
+            ;; Loads treat the immediate as a 32 bit signed number, which is sign extended.
+            ;; Then repne-scasb treats it as unsigned which means -1 => 2^64-1
+            (movq (imm (- 0 1)) (reg (rcx)))
+            (repne-scasb)
+            (notq (rcx))
+            (decq (rcx))
+
+            ;; Copy bytes
+            (addq (imm 8) (r11))
+            (movq (reg (r15)) (mem (r11) 0))
+            (movq (reg (rcx)) (mem (r15) 0))
+            (addq (imm 8) (r15))
+            (movq (reg (r9)) (reg (rsi)))
+            (movq (reg (r15)) (reg (rdi)))
+            (rep-movsb)
+            (movq (reg (rdi)) (reg (r15)))
+            (jmp #"start_copy_args_test")))
+
+        (basic-block #"start_copy_args_end"
+          (varargs join-list
+
+            ;; Count number of env
+            (movq (reg (rsp)) (reg (rdi)))
+            (movq (imm 0) (reg (rax)))
+            ;; Assumption: Strings cannot be longer than 2^64-1
+            ;; Loads treat the immediate as a 32 bit signed number, which is sign extended.
+            ;; Then repne-scasq treats it as unsigned which means -1 => 2^64-1
+            (movq (imm (- 0 1)) (reg (rcx)))
+            (repne-scasq)
+            (notq (rcx))
+            (decq (rcx))
+            (movq (reg (rcx)) (reg (r8)))
+
+            (movq (reg (r15)) (reg (r14))) ; r14 is the array of bytes
+            (movq (reg (r14)) (reg (r11))) ; r11 is the address of the last bytes put into the array
+
+            (movq (reg (r8)) (mem (r14) 0))
+            (leaq (scaled (r14) (scale-8) (r8) 8) (r15))
+
+            (jmp #"start_copy_env_test")))
+
+        (basic-block #"start_copy_env_test"
+          (varargs join-list
+            (popq (reg (r9))) ; r9 is now the current string
+            (cmpq (imm 0) (reg (r9)))
+            (je #"start_copy_env_end")))
+
+        (basic-block #"start_copy_env_body"
+          (varargs join-list
+
+            ;; Count string length
+            (movq (reg (r9)) (reg (rdi)))
+            (movq (imm 0) (reg (rax)))
+            ;; Assumption: Strings cannot be longer than 2^64-1
+            ;; Loads treat the immediate as a 32 bit signed number, which is sign extended.
+            ;; Then repne-scasb treats it as unsigned which means -1 => 2^64-1
+            (movq (imm (- 0 1)) (reg (rcx)))
+            (repne-scasb)
+            (notq (rcx))
+            (decq (rcx))
+
+            ;; Copy bytes
+            (addq (imm 8) (r11))
+            (movq (reg (r15)) (mem (r11) 0))
+            (movq (reg (rcx)) (mem (r15) 0))
+            (addq (imm 8) (r15))
+            (movq (reg (r9)) (reg (rsi)))
+            (movq (reg (r15)) (reg (rdi)))
+            (rep-movsb)
+            (movq (reg (rdi)) (reg (r15)))
+            (jmp #"start_copy_env_test")))
+
+
+        (basic-block #"start_copy_env_end"
+          (varargs join-list
+            (nop)))
+
+
+        ;; Call main and then exit
+        (basic-block #"start_call_main"
+          (varargs join-list
+
+            ;; Set up initial base pointer
+            (movq (imm 0) (reg (rbp)))
+            (movq (reg (r10)) (reg (rdi))) ;; Arguments
+            (movq (imm 0) (reg (rsi)))
+            (movq (imm 1) (reg (rdx)))
+            (movq (imm 2) (reg (rcx)))
+            (movq (reg (r14)) (reg (r8))) ;; Environment
+            (pushq (imm 0)) ;; Bogus closure
+            (call (bytes-append (varargs list #"y" main-function-name #"_code")))
+            ;; Closure is still on the stack
+            (movq (reg (rax)) (reg (rdi)))
+            (movq (imm #x2000001) (reg (rax)))
+            (syscall)))
+
+        (basic-block #"prim_start_panic"
+          (varargs join-list
+            (ud2)))))))
+
+(define (prim-function-fragments) : (JoinList AssemblyFragment)
+  (varargs append-jl*
+    ;; write-bytes
+    (prim-assembly-function/panic #"write_bytes"
+      (varargs list
+        ;; Swap %rdi and %rsi
+        (movq (reg (rdi)) (reg (rax)))
+        (movq (reg (rsi)) (reg (rdi)))
+        (movq (reg (rax)) (reg (rsi)))
+
+        ;; %rdi is now the file descriptor
+        ;; Make %rsi the start of the buffer
+        (leaq (scaled (rsi) (scale-1) (rdx) 8) (rsi))
+        ;; Make %rdx the length to write
+        (subq (reg (rdx)) (rcx))
+        (movq (reg (rcx)) (reg (rdx)))
+        (movq (imm #x2000004) (reg (rax)))
+        (syscall)
+        (jb #"prim_write_bytes_panic")
+        (ret)))
+
+    ;; read-bytes
+    (prim-assembly-function/panic #"read_bytes"
+      (varargs list
+        ;; Swap %rdi and %rsi
+        (movq (reg (rdi)) (reg (rax)))
+        (movq (reg (rsi)) (reg (rdi)))
+        (movq (reg (rax)) (reg (rsi)))
+
+        ;; %rdi is the file descriptor
+        ;; Make %rsi the start of the buffer
+        (leaq (scaled (rsi) (scale-1) (rdx) 8) (rsi))
+        ;; Make %rdx the length to read
+        (subq (reg (rdx)) (rcx))
+        (movq (reg (rcx)) (reg (rdx)))
+        (movq (imm #x2000003) (reg (rax)))
+        (syscall)
+        (jb #"prim_read_bytes_panic")
+        (ret)))
+
+    ;; open-input-file
+    (prim-assembly-function/panic #"open_input_file"
+      (varargs list
+        ;; Make %rdi point at start of null terminated path
+        (addq (imm 8) (rdi))
+        (movq (imm 0) (reg (rsi))) ;; 0 is read only
+        (movq (imm #x2000005) (reg (rax)))
+        (syscall)
+        (jb #"prim_open_input_file_panic")
+        (ret)))
+
+    ;; open-output-file
+    (prim-assembly-function/panic #"open_output_file"
+      (varargs list
+        ;; Make %rdi point at start of null terminated path
+        (addq (imm 8) (rdi))
+        (movq (imm #x0a01) (reg (rsi))) ;; 0x01 is write only, 0x0a00 is exclusive create
+        (movq (imm 504) (reg (rdx))) ;; 770 for mode
+        (movq (imm #x2000005) (reg (rax)))
+        (syscall)
+        (jb #"prim_open_output_file_panic")
+        (ret)))
+
+    ;; close-output-port
+    ;; close-input-port
+    (prim-assembly-function/panic #"close_port"
+      (varargs list
+        (movq (imm #x2000006) (reg (rax)))
+        (syscall)
+        (jb #"prim_close_port_panic")
+        (ret)))
+
+    ;; delete-file
+    (prim-assembly-function/panic #"delete_file"
+      (varargs list
+        ;; Make %rdi point at start of null terminated path
+        (addq (imm 8) (rdi))
+        (movq (imm #x200000a) (reg (rax)))
+        (syscall)
+        (jb #"prim_delete_file_panic")
+        (ret)))
+
+    ;; set-file-or-directory-permissions
+    (prim-assembly-function/panic #"set_file_or_directory_permissions"
+      (varargs list
+        ;; Make %rdi point at start of null terminated path
+        (addq (imm 8) (rdi))
+        ;; %rsi is already the permissions
+        (movq (imm #x200000f) (reg (rax)))
+        (syscall)
+        (jb #"prim_set_file_or_directory_permissions_panic")
+        (ret)))
+
+
+    ;; socket
+    (prim-assembly-function/panic #"socket"
+      (varargs list
+        ;; Argument 1: domain
+        ;; Argument 2: type
+        ;; Argument 3: protocol
+        (movq (imm #x2000061) (reg (rax)))
+        (syscall)
+        (jb #"prim_socket_panic")
+        (ret)))
+
+    ;; bind
+    (prim-assembly-function/panic #"bind"
+      (varargs list
+        ;; Argument 1: socket
+        ;; Argument 2: sockaddr
+        ;; Argument 3: length
+        (addq (imm 8) (rsi))
+        (movq (imm #x2000068) (reg (rax)))
+        (syscall)
+        (jb #"prim_bind_panic")
+        (ret)))
+
+    ;; sendto
+    (prim-assembly-function/panic #"sendto"
+      (varargs list
+        ;; Argument 1: socket
+        ;; Argument 2: buffer
+        ;; Argument 3: buffer-length
+        ;; Argument 4: flags
+        ;; Argument 5: sockaddr
+        ;; Argument 6: sockaddr-length
+        (addq (imm 8) (rsi))
+        (addq (imm 8) (r8))
+        (movq (reg (rcx)) (reg (r10)))
+        (movq (imm #x2000085) (reg (rax)))
+        (syscall)
+        (jb #"prim_sendto_panic")
+        (ret)))
+
+    ;; recvfrom
+    (prim-assembly-function/panic #"recvfrom"
+      (varargs list
+        ;; Argument 1: socket
+        ;; Argument 2: buffer
+        ;; Argument 3: buffer-length
+        ;; Argument 4: flags
+        ;; Argument 5: sockaddr
+        ;; Argument 6: sockaddr-length
+        (addq (imm 8) (rsi))
+        (addq (imm 8) (r8))
+        (addq (imm 8) (r9))
+        (movq (reg (rcx)) (reg (r10)))
+        (movq (imm #x200001d) (reg (rax)))
+        (syscall)
+        (jb #"prim_recvfrom_panic")
+        (ret)))
+
+    ;; connect
+    (prim-assembly-function/panic #"connect"
+      (varargs list
+        ;; Argument 1: socket
+        ;; Argument 2: sockaddr
+        ;; Argument 3: sockaddr-length
+        (addq (imm 8) (rsi))
+        (movq (imm #x2000062) (reg (rax)))
+        (syscall)
+        (jb #"prim_connect_panic")
+        (ret)))
+
+    ;; shutdown
+    (prim-assembly-function/panic #"shutdown"
+      (varargs list
+        ;; Argument 1: socket
+        ;; Argument 2: how
+        (movq (imm #x2000086) (reg (rax)))
+        (syscall)
+        (jb #"prim_shutdown_panic")
+        (ret)))
+
+
+    ;; listen
+    (prim-assembly-function/panic #"listen"
+      (varargs list
+        ;; Argument 1: socket
+        ;; Argument 2: backlog
+        (movq (imm #x200006A) (reg (rax)))
+        (syscall)
+        (jb #"prim_listen_panic")
+        (ret)))
+
+    ;; accept
+    (prim-assembly-function/panic #"accept"
+      (varargs list
+        ;; Argument 1: socket
+        ;; Argument 2: sockaddr
+        ;; Argument 3: sockaddr-length
+        (addq (imm 8) (rsi))
+        (addq (imm 8) (rdx))
+        (movq (imm #x200001E) (reg (rax)))
+        (syscall)
+        (jb #"prim_accept_panic")
+        (ret)))
+
+
+    ;; setsockopt
+    (prim-assembly-function/panic #"setsockopt"
+      (varargs list
+        ;; Argument 1: socket
+        ;; Argument 2: level
+        ;; Argument 3: option name
+        ;; Argument 4: option value
+        ;; Argument 5: option length
+        (movq (reg (rcx)) (reg (r10)))
+        (addq (imm 8) (r10))
+        (movq (imm #x2000069) (reg (rax)))
+        (syscall)
+        (jb #"prim_setsockopt_panic")
+        (ret)))
+
+
+    ;; mach_task_self
+    (prim-assembly-function/panic #"mach_task_self"
+      (varargs list
+        (movq (imm #x100001c) (reg (rax)))
+        (syscall)
+        (cmpq (imm 0) (reg (rax)))
+        (je #"prim_mach_task_self_panic")
+        (ret)))
+
+
+    ;; mach_thread_self
+    (prim-assembly-function/panic #"mach_thread_self"
+      (varargs list
+        (movq (imm #x100001b) (reg (rax)))
+        (syscall)
+        (cmpq (imm 0) (reg (rax)))
+        (je #"prim_mach_thread_self_panic")
+        (ret)))
+
+
+    ;; mach_reply_port
+    (prim-assembly-function/panic #"mach_reply_port"
+      (varargs list
+        (movq (imm #x100001a) (reg (rax)))
+        (syscall)
+        (cmpq (imm 0) (reg (rax)))
+        (je #"prim_mach_reply_port_panic")
+        (ret)))
+
+
+    ;; mach_port_mod_refs
+    (prim-assembly-function/panic #"mach_port_mod_refs"
+      (varargs list
+        ;; Argument 1: task
+        ;; Argument 2: port
+        ;; Argument 3: right
+        ;; Argument 4: delta
+        (movq (reg (rcx)) (reg (r10)))
+        (movq (imm #x1000013) (reg (rax)))
+        (syscall)
+        (cmpq (imm 0) (reg (rax)))
+        (jne #"prim_mach_port_mod_refs_panic")
+        (ret)))
+
+    ;; mach_msg
+    (prim-assembly-function/panic #"mach_msg"
+      (varargs list
+        (movq (mem (r10) 0) (reg (rax))) ;; Notify Port
+        (movq (reg (rcx)) (reg (r10)))
+
+        (addq (imm 8) (rdi)) ;; Adjust past buffer's length field
+        (pushq (reg (rax))) ;; Push back the notify port
+        (pushq (imm 0)) ;; Dummy Return Address
+        (movq (imm #x100001f) (reg (rax)))
+        (syscall)
+        (cmpq (imm 0) (reg (rax)))
+        (jne #"prim_mach_msg_panic")
+        (addq (imm #x10) (rsp)) ;; 2 pop
+        (ret)))
+
+    ;; mach_start_thread
+    ;; This function is needed because we cannot cast the function to be called
+    ;; to a int without being atomic with respect to GC.
+    (prim-assembly-function/panic #"mach_start_thread"
+      (varargs list
+        ;; Argument 1: buffer (rdi)
+        ;; Argument 2: closure (rsi)
+        ;; Argument 3: reply-port (rdx)
+
+        ;; Alocate the stack and fill in the stack pointer
+        ;; The stack grows down so we adjust the pointer first
+        (addq (imm #xFFFFF) (r15))
+        (movq (reg (r15)) (mem (rdi) 104))
+        (addq (imm #x1) (r15))
+        ;; Alocate the heap and fill in the heap pointer
+        (movq (reg (r15)) (mem (rdi) 168))
+        (addq (imm #x100000) (r15))
+        ;; Set the instruction pointer to the bootstrap function
+        (leaq/rel #"prim_thread_bootstrap" (rip) (rax))
+        (movq (reg (rax)) (mem (rdi) 176))
+        ;; Set rax on the new thread to the closure
+        (movq (reg (rsi)) (mem (rdi) 48))
+
+        (movq (mem (rdi) 0) (reg (r10))) ;; Load buffer's length
+        (movq (reg (rdx)) (reg (r8))) ;; Move reply-port to correct register
+        (addq (imm 8) (rdi)) ;; Adjust past buffer's length field
+        (movq (imm 3) (reg (rsi))) ;; We want to send and receive
+        (movq (imm 208) (reg (rdx))) ;; The length of the incoming message
+        (movq (imm 0) (reg (r9))) ;; Specify that there is no timeout
+        (pushq (imm 0)) ;; Specify no notify port
+        (pushq (imm 0)) ;; Put a dummy return address since syscalls don't return like functions
+
+        (movq (imm #x100001f) (reg (rax)))
+        (syscall)
+        (cmpq (imm 0) (reg (rax)))
+        (jne #"prim_mach_start_thread_panic")
+
+        ;; TODO do GC magic to register new thread here
+        (addq (imm #x10) (rsp)) ;; 2 pop
+        (ret)))
+
+
+    ;; and
+    (prim-assembly-function #"and"
+      (varargs list
+        (andq (reg (rdi)) (rsi))
+        (movq (reg (rsi)) (reg (rax)))
+        (ret)))
+    ;; or
+    (prim-assembly-function #"or"
+      (varargs list
+        (orq (rdi) (rsi))
+        (movq (reg (rsi)) (reg (rax)))
+        (ret)))
+
+
+    ;; bytes-ref
+    (prim-assembly-function #"bytes_ref"
+      (varargs list
+        (movzbq (scaled (rdi) (scale-1) (rsi) 8) (rax))
+        (ret)))
+    ;; make-bytes
+    (prim-assembly-function #"make_bytes"
+      (varargs list
+        (movq (reg (r15)) (reg (rdx)))
+        (movq (reg (rdi)) (mem (r15) 0))
+        (movq (reg (rdi)) (reg (rcx)))
+        (addq (imm 8) (r15))
+        (movq (imm 0) (reg (rax)))
+        (movq (reg (r15)) (reg (rdi)))
+        (cld)
+        (rep-stosb)
+        (movq (reg (rdi)) (reg (r15)))
+        (movq (reg (rdx)) (reg (rax)))
+        (ret)))
+
+    ;; bytes-set!
+    (prim-assembly-function #"bytes_set"
+      (varargs list
+        (movb (reg (dl)) (scaled (rdi) (scale-1) (rsi) 8))
+        (movq (imm 0) (reg (rax)))
+        (ret)))
+    ;; bytes-length
+    (prim-assembly-function #"bytes_length"
+      (varargs list
+        (movq (mem (rdi) 0) (reg (rax)))
+        (ret)))
+
+    ;; void
+    (prim-assembly-function #"void"
+      (varargs list
+        (movq (imm 0) (reg (rax)))
+        (ret)))
+
+    ;; u8
+    ;; TODO(endobson) add check that it is in the right range
+    (prim-assembly-function #"u8"
+      (varargs list
+        (movq (reg (rdi)) (reg (rax)))
+        (ret)))
+
+    ;; s32
+    ;; TODO(endobson) add check that it is in the right range
+    (prim-assembly-function #"s32"
+      (varargs list
+        (movq (reg (rdi)) (reg (rax)))
+        (ret)))
+
+    ;; u32
+    ;; TODO(endobson) add check that it is in the right range
+    (prim-assembly-function #"u32"
+      (varargs list
+        (movq (reg (rdi)) (reg (rax)))
+        (ret)))
+
+    ;; u8->s64
+    (prim-assembly-function #"u8_s64"
+      (varargs list
+        (movq (reg (rdi)) (reg (rax)))
+        (ret)))
+
+    ;; s32->s64
+    (prim-assembly-function #"s32_s64"
+      (varargs list
+        (movq (reg (rdi)) (reg (rax)))
+        (ret)))
+
+    ;; u32->s64
+    (prim-assembly-function #"u32_s64"
+      (varargs list
+        (movq (reg (rdi)) (reg (rax)))
+        (ret)))
+
+    ;; u32/le-byte#
+    ;; s32/le-byte#
+    (prim-assembly-function #"quad_le_byte0"
+      (varargs list
+        (andq (imm #xFF) (rdi))
+        (movq (reg (rdi)) (reg (rax)))
+        (ret)))
+    (prim-assembly-function #"quad_le_byte1"
+      (varargs list
+        (movq (imm #x8) (reg (rcx)))
+        (shrq (rdi))
+        (andq (imm #xFF) (rdi))
+        (movq (reg (rdi)) (reg (rax)))
+        (ret)))
+    (prim-assembly-function #"quad_le_byte2"
+      (varargs list
+        (movq (imm #x10) (reg (rcx)))
+        (shrq (rdi))
+        (andq (imm #xFF) (rdi))
+        (movq (reg (rdi)) (reg (rax)))
+        (ret)))
+    (prim-assembly-function #"quad_le_byte3"
+      (varargs list
+        (movq (imm #x18) (reg (rcx)))
+        (shrq (rdi))
+        (andq (imm #xFF) (rdi))
+        (movq (reg (rdi)) (reg (rax)))
+        (ret)))
+
+    ;; panic
+    (prim-assembly-function #"panic"
+      (varargs list
+        (movq (mem (rsp) 0) (reg (rax)))
+        (addq (imm 8) (rax))
+        (ud2)))
+
+    ;; These are not native functions, but just native subroutines
+    ;; They do not follow standard calling conventions
+
+
+    ;; variant-panic
+    (prim-assembly-function #"variant_panic"
+      (varargs list
+        (ud2)))
+
+    ;; thread_bootstrap
+    (prim-assembly-function #"thread_bootstrap"
+      (varargs list
+        (pushq (reg (rax)))
+        (movq (reg (rax)) (reg (r11)))
+        (movq (mem (rax) 0) (reg (rax)))
+        (call/indirect (rax))
+        ;; Closure is still on the stack
+        (ud2)))))
+
+(define (prim-assembly-function
+          [name : Bytes]
+          [instructions : (List Instruction)]) : (JoinList AssemblyFragment)
+  (prim-assembly-function* name instructions #f))
+(define (prim-assembly-function/panic
+          [name : Bytes]
+          [instructions : (List Instruction)]) : (JoinList AssemblyFragment)
+  (prim-assembly-function* name instructions #t))
+
+(define (prim-assembly-function*
+          [name : Bytes]
+          [instructions : (List Instruction)]
+          [panic : Boolean]) : (JoinList AssemblyFragment)
+  (varargs join-list
+    (address-fragment
+      (bytes-append (varargs list #"prim_" name #"_closure"))
+      (bytes-append (varargs list #"prim_" name)))
+    (function-fragment (bytes-append (varargs list #"prim_" name))
+      (let ([main-block
+             (basic-block (bytes-append (varargs list #"prim_" name))
+               (list->jl instructions))])
+      (if panic
+          (varargs list
+            main-block
+            (basic-block (bytes-append (varargs list #"prim_" name #"_panic"))
+              (varargs join-list (ud2))))
+          (varargs list main-block))))))

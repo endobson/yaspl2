@@ -117,6 +117,7 @@ yaspl_bootstrap_library(
     ":compiler_lib",
     ":io",
     ":x86-64-stack-machine",
+    "//libraries/yaspl:x86-64-runtime",
     "//libraries/data:bytes",
     "//libraries/data:either",
     "//libraries/data:list",
@@ -441,7 +442,7 @@ yaspl_bootstrap_library(
   deps = [
     ":io",
     ":stack-machine-optimizer",
-    ":x86-64-stack-machine",
+    "//libraries/yaspl:x86-64-runtime",
     ":mach-o-writer2_lib",
     ":stack-machine",
     ":prim-implementation",
