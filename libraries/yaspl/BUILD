@@ -8,7 +8,6 @@ yaspl_bootstrap_library(
   name = "x86-64-runtime",
   srcs = ["x86-64-runtime.yaspl"],
   deps = [
-    "//libraries:stack-machine",
     "//libraries:x86-64-stack-machine",
     "//libraries/data:bytes",
     "//libraries/data:join-list",

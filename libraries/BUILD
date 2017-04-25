@@ -442,10 +442,11 @@ yaspl_bootstrap_library(
   deps = [
     ":io",
     ":stack-machine-optimizer",
-    "//libraries/yaspl:x86-64-runtime",
     ":mach-o-writer2_lib",
     ":stack-machine",
     ":prim-implementation",
+    ":x86-64-stack-machine",
+    "//libraries/yaspl:x86-64-runtime",
     "//libraries/data:bytes",
     "//libraries/data:dict",
     "//libraries/data:either",
