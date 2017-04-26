@@ -159,17 +159,11 @@ yaspl_library(
   deps = [
     ":extra-action-parser",
     ":io",
-    ":sexp-parser",
-    ":source-language",
-    ":unused-bindings",
-    ":module-signature",
-    ":module-signature-serialization",
-    ":module-header-lint",
     "//libraries/data:boolean",
     "//libraries/data:bytes",
     "//libraries/data:either",
     "//libraries/data:list",
-    "//libraries/data:set",
+    "//tools:linter_lib",
   ]
 )
 

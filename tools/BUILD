@@ -20,3 +20,23 @@ yaspl_library(
     "//libraries/data:tuples",
  ]
 )
+
+
+yaspl_library(
+  name = "linter_lib",
+  srcs = ["linter.yaspl"],
+  visibility = ["//visibility:public"],
+  deps = [
+    "//libraries:io",
+    "//libraries:sexp-parser",
+    "//libraries:source-language",
+    "//libraries:unused-bindings",
+    "//libraries:module-signature",
+    "//libraries:module-signature-serialization",
+    "//libraries:module-header-lint",
+    "//libraries/data:bytes",
+    "//libraries/data:either",
+    "//libraries/data:list",
+    "//libraries/data:set",
+  ]
+)

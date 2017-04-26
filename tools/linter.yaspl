@@ -1,0 +1,163 @@
+#:module linter
+#:import {
+  bytes {
+    #:values
+      bytes-append
+      bytes=?
+  }
+  either {
+    #:types
+      Either
+    #:values
+      left
+      right
+    #:patterns
+      left
+      right
+  }
+  io {
+    #:values
+      call-with-input-file
+      read-all-bytes
+      write-line
+  }
+  list {
+    #:types
+      List
+    #:values
+      extract-rights
+      for-each
+      list
+      map
+    #:patterns
+      empty
+  }
+  module-header-lint {
+    #:types
+      ModuleHeaderLintViolations
+    #:values
+      find-header-violations
+    #:patterns
+      module-header-lint-violations
+  }
+  module-signature {
+    #:values
+      module-signature-name
+  }
+  module-signature-serialization {
+    #:values
+      deserialize-module-signature
+  }
+  prim {
+    #:types
+      Bytes
+      OutputPort
+      Void
+    #:values
+      void
+  }
+  set {
+    #:values
+      make-set
+      set->list
+      set-add-all
+      set-remove-all
+  }
+  sexp-parser {
+    #:values
+      parse-sexps
+  }
+  source-language {
+    #:values
+      imports-module-name
+      module-imports
+      parse-module
+  }
+  unused-bindings {
+    #:types
+      UnusedBindings
+    #:values
+      module-unused-bindings
+    #:patterns
+      unused-bindings
+  }
+}
+(export
+  #:types (LintResults)
+  #:values (lint-module write-lint-results)
+  #:patterns ())
+(types
+  (define-type LintResults
+    (lint-results
+      [filename : Bytes]
+      [unused-bindings : UnusedBindings]
+      [unused-dependencies : (List Bytes)]
+      [header-violations : ModuleHeaderLintViolations])))
+
+(define (indent2 [bytes : Bytes]) : Bytes
+  (bytes-append (varargs list #"    " bytes)))
+
+(define (indent [bytes : Bytes]) : Bytes
+  (bytes-append (varargs list #"  " bytes)))
+
+(define (write-results-section [title : Bytes] [unused : (List Bytes)] [output : OutputPort]) : Void
+  (let ([write-out-line (lambda ([x : Bytes]) (write-line x output))])
+    (case unused
+      [(empty) (void)]
+      [unused
+       (begin
+         (write-out-line (indent title))
+         (for-each write-out-line (map indent2 unused)))])))
+
+(define (write-lint-results [results : LintResults] [output : OutputPort]) : Void
+  (case results
+    [(lint-results
+       _
+       (unused-bindings (empty) (empty) (empty) (empty))
+       (empty)
+       (module-header-lint-violations
+         (empty)
+         (empty)))
+     (void)]
+    [(lint-results
+       src-file-path
+       (unused-bindings unused-types unused-vars unused-patterns unused-var-defs)
+       unused-dependencies
+       (module-header-lint-violations
+         unsorted-modules
+       unsorted-bindings))
+     (begin
+      (write-line src-file-path output)
+      (write-results-section #"Unused types:" unused-types output)
+      (write-results-section #"Unused variables:" unused-vars output)
+      (write-results-section #"Unused patterns:" unused-patterns output)
+      (write-results-section #"Unused defined-functions" unused-var-defs output)
+      (write-results-section #"Unused dependencies:" unused-dependencies output)
+      (write-results-section #"Unsorted modules:" unsorted-modules output)
+      (write-results-section #"Unsorted bindings:" unsorted-bindings output))]))
+
+(define (lint-module [module-file : Bytes] [signatures : (List Bytes)]) : (Either Bytes LintResults)
+  (case (parse-sexps (call-with-input-file module-file read-all-bytes))
+    [(left v) (left v)]
+    [(right module-forms)
+     (case (extract-rights
+             (map
+               (lambda ([input-path : Bytes])
+                 (deserialize-module-signature
+                   (call-with-input-file input-path read-all-bytes)))
+               signatures))
+       [(left v) (left v)]
+       [(right signatures)
+        (case (parse-module module-forms)
+         [(left v) (left v)]
+         [(right module)
+          (right (lint-results
+                   module-file
+                   (module-unused-bindings module)
+                   (set->list
+                     (set-remove-all
+                       (set-add-all
+                         (make-set bytes=?)
+                         (map module-signature-name signatures))
+                       (map imports-module-name (module-imports module))))
+                   (find-header-violations module)))])])]))
