@@ -6,6 +6,14 @@ yaspl_binary(
   deps = [":rewrite-imports-main"]
 )
 
+yaspl_binary(
+  name = "aspect-linter",
+  main_module = "aspect_linter_main",
+  deps = [":aspect-linter-main"],
+  visibility = ["//visibility:public"],
+)
+
+
 yaspl_library(
   name = "rewrite-imports-main",
   srcs = ["rewrite-imports.yaspl"],
@@ -23,9 +31,20 @@ yaspl_library(
 
 
 yaspl_library(
+  name = "aspect-linter-main",
+  srcs = ["aspect-linter-main.yaspl"],
+  deps = [
+    ":linter_lib",
+    "//libraries:io",
+    "//libraries/data:either",
+    "//libraries/data:list",
+  ]
+)
+
+
+yaspl_library(
   name = "linter_lib",
   srcs = ["linter.yaspl"],
-  visibility = ["//visibility:public"],
   deps = [
     "//libraries:io",
     "//libraries:sexp-parser",

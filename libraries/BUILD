@@ -41,12 +41,6 @@ yaspl_binary(
 )
 
 yaspl_binary(
-  name = "extra-action-linter",
-  main_module = "extra_action_linter_main",
-  deps = [":extra-action-linter-main"]
-)
-
-yaspl_binary(
   name = "http-server",
   main_module = "http_server",
   deps = [":http-server_lib"]
@@ -150,20 +144,6 @@ yaspl_bootstrap_library(
     "//libraries/data:list",
     "//libraries/data:maybe",
     "//libraries/data:set",
-  ]
-)
-
-yaspl_library(
-  name = "extra-action-linter-main",
-  srcs = ["extra-action-linter-main.yaspl"],
-  deps = [
-    ":extra-action-parser",
-    ":io",
-    "//libraries/data:boolean",
-    "//libraries/data:bytes",
-    "//libraries/data:either",
-    "//libraries/data:list",
-    "//tools:linter_lib",
   ]
 )
 
@@ -916,19 +896,4 @@ yaspl_library(
     "//libraries/data:maybe",
     "//libraries/data:tuples",
   ]
-)
-
-action_listener(
-  name = "yaspl-lint",
-  mnemonics = ["YasplCompile"],
-  extra_actions = [":yaspl-lint-action"]
-)
-
-extra_action(
-  name = "yaspl-lint-action",
-  out_templates = ["$(ACTION_ID).lint"],
-  tools = [
-    ":extra-action-linter",
-  ],
-  cmd = "$(location :extra-action-linter) $(EXTRA_ACTION_FILE) $(output $(ACTION_ID).lint)"
 )
