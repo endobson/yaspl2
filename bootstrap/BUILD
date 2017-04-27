@@ -1,379 +1,324 @@
-load("//:racket.bzl", "racket_test", "racket_binary", "racket_library")
+load("//:racket.bzl", "racket_binary", "racket_library")
+
 package(
-  default_visibility = ["//visibility:public"]
+    default_visibility = ["//visibility:public"],
 )
 
 racket_binary(
-  name = "compiler-compiler_bin",
-  main_module =
-    ":compiler-compiler.rkt",
-  data = [
-    "//libraries:compiler_library_files"
-  ],
-  deps = [":compiler-compiler"],
+    name = "compiler-compiler_bin",
+    data = [
+        "//libraries:compiler_library_files",
+    ],
+    main_module = ":compiler-compiler.rkt",
+    deps = [":compiler-compiler"],
 )
 
 racket_binary(
-  name = "library-compiler-compiler_bin",
-  main_module =
-    ":library-compiler-compiler.rkt",
-  data = [
-    "//libraries:compiler_library_files",
-    "//libraries:library_compiler_library_files"
-  ],
-  deps = [":library-compiler-compiler"],
+    name = "library-compiler-compiler_bin",
+    data = [
+        "//libraries:compiler_library_files",
+        "//libraries:library_compiler_library_files",
+    ],
+    main_module = ":library-compiler-compiler.rkt",
+    deps = [":library-compiler-compiler"],
 )
 
 racket_binary(
-  name = "main-stub-compiler_bin",
-  main_module =
-    ":main-stub-compiler.rkt",
-  data = [
-    "//libraries:compiler_library_files",
-    "//libraries:main_stub_library_files"
-  ],
-  deps = [":main-stub-compiler"],
+    name = "main-stub-compiler_bin",
+    data = [
+        "//libraries:compiler_library_files",
+        "//libraries:main_stub_library_files",
+    ],
+    main_module = ":main-stub-compiler.rkt",
+    deps = [":main-stub-compiler"],
 )
 
 racket_binary(
-  name = "linker-compiler_bin",
-  main_module =
-    ":linker-compiler.rkt",
-  data = [
-    "//libraries:compiler_library_files",
-    "//libraries:linker_library_files"
-  ],
-  deps = [":linker-compiler"],
-)
-
-
-
-racket_library(
-  name = "compiler-compiler",
-  srcs = [
-    "compiler-compiler.rkt"
-  ],
-  deps = [
-    ":compiler",
-    ":libraries"
-  ]
-)
-
-
-racket_library(
-  name = "library-compiler-compiler",
-  srcs = [
-    "library-compiler-compiler.rkt"
-  ],
-  deps = [
-    ":compiler",
-    ":libraries"
-  ]
+    name = "linker-compiler_bin",
+    data = [
+        "//libraries:compiler_library_files",
+        "//libraries:linker_library_files",
+    ],
+    main_module = ":linker-compiler.rkt",
+    deps = [":linker-compiler"],
 )
 
 racket_library(
-  name = "main-stub-compiler",
-  srcs = [
-    "main-stub-compiler.rkt"
-  ],
-  deps = [
-    ":compiler",
-    ":libraries"
-  ]
+    name = "compiler-compiler",
+    srcs = ["compiler-compiler.rkt"],
+    deps = [
+        ":compiler",
+        ":libraries",
+    ],
 )
 
 racket_library(
-  name = "linker-compiler",
-  srcs = [
-    "linker-compiler.rkt"
-  ],
-  deps = [
-    ":compiler",
-    ":libraries"
-  ]
-)
-
-
-
-racket_library(
-  name = "parser-structs",
-  srcs = [
-    "parser-structs.rkt"
-  ]
+    name = "library-compiler-compiler",
+    srcs = ["library-compiler-compiler.rkt"],
+    deps = [
+        ":compiler",
+        ":libraries",
+    ],
 )
 
 racket_library(
-  name = "parser",
-  srcs = [
-    "parser.rkt"
-  ],
-  deps = [
-    ":parser-structs"
-  ]
-)
-
-
-racket_library(
-  name = "machine-structs",
-  srcs = [
-    "machine-structs.rkt"
-  ]
+    name = "main-stub-compiler",
+    srcs = ["main-stub-compiler.rkt"],
+    deps = [
+        ":compiler",
+        ":libraries",
+    ],
 )
 
 racket_library(
-  name = "signature-structs",
-  srcs = [
-    "signature-structs.rkt"
-  ]
+    name = "linker-compiler",
+    srcs = ["linker-compiler.rkt"],
+    deps = [
+        ":compiler",
+        ":libraries",
+    ],
 )
 
 racket_library(
-  name = "primitives",
-  srcs = [
-    "primitives.rkt"
-  ],
-  deps = [
-    ":machine-structs",
-    ":type-structs",
-    ":signature-structs",
-  ]
+    name = "parser-structs",
+    srcs = ["parser-structs.rkt"],
 )
 
 racket_library(
-  name = "simple-match",
-  srcs = [
-    "simple-match.rkt"
-  ],
-  deps = [
-    ":machine-structs",
-    ":parser-structs",
-  ]
+    name = "parser",
+    srcs = ["parser.rkt"],
+    deps = [
+        ":parser-structs",
+    ],
 )
 
 racket_library(
-  name = "validator",
-  srcs = [
-    "validator.rkt"
-  ],
-  deps = [
-    ":parser-structs",
-    ":type-structs",
-    ":signature-structs",
-    ":utils",
-  ]
+    name = "machine-structs",
+    srcs = ["machine-structs.rkt"],
 )
 
 racket_library(
-  name = "libraries",
-  srcs = [
-    "libraries.rkt"
-  ],
-  deps = [
-    ":parser",
-    ":parser-structs",
-    ":primitives",
-    ":topo-sort",
-    ":validator",
-  ]
+    name = "signature-structs",
+    srcs = ["signature-structs.rkt"],
 )
 
-
 racket_library(
-  name = "compiler",
-  srcs = [
-    "compiler.rkt"
-  ],
-  deps = [
-    ":machine-structs",
-    ":parser-structs",
-    ":primitives",
-    ":utils",
-    ":topo-sort",
-    ":simple-match",
-  ]
+    name = "primitives",
+    srcs = ["primitives.rkt"],
+    deps = [
+        ":machine-structs",
+        ":signature-structs",
+        ":type-structs",
+    ],
 )
 
-
-
-
-
 racket_library(
-  name = "topo-sort",
-  srcs = [
-    "topo-sort.rkt"
-  ],
-  deps = [
-    ":parser-structs",
-  ]
+    name = "simple-match",
+    srcs = ["simple-match.rkt"],
+    deps = [
+        ":machine-structs",
+        ":parser-structs",
+    ],
 )
 
-
 racket_library(
-  name = "utils",
-  srcs = [
-    "utils.rkt"
-  ]
+    name = "validator",
+    srcs = ["validator.rkt"],
+    deps = [
+        ":parser-structs",
+        ":signature-structs",
+        ":type-structs",
+        ":utils",
+    ],
 )
 
-
+racket_library(
+    name = "libraries",
+    srcs = ["libraries.rkt"],
+    deps = [
+        ":parser",
+        ":parser-structs",
+        ":primitives",
+        ":topo-sort",
+        ":validator",
+    ],
+)
 
 racket_library(
-  name = "type-structs",
-  srcs = [
-    "type-structs.rkt"
-  ]
+    name = "compiler",
+    srcs = ["compiler.rkt"],
+    deps = [
+        ":machine-structs",
+        ":parser-structs",
+        ":primitives",
+        ":simple-match",
+        ":topo-sort",
+        ":utils",
+    ],
+)
+
+racket_library(
+    name = "topo-sort",
+    srcs = ["topo-sort.rkt"],
+    deps = [
+        ":parser-structs",
+    ],
+)
+
+racket_library(
+    name = "utils",
+    srcs = ["utils.rkt"],
+)
+
+racket_library(
+    name = "type-structs",
+    srcs = ["type-structs.rkt"],
 )
 
 genrule(
-  name = "gen_bootstrap_compiler",
-  tools = [":compiler-compiler_bin"],
-  outs = ["bootstrap_compiler.s"],
-  cmd = "$(location :compiler-compiler_bin) $@"
+    name = "gen_bootstrap_compiler",
+    outs = ["bootstrap_compiler.s"],
+    cmd = "$(location :compiler-compiler_bin) $@",
+    tools = [":compiler-compiler_bin"],
 )
 
 genrule(
-  name = "assemble_bootstrap_compiler",
-  srcs = ["bootstrap_compiler.s"],
-  outs = ["bootstrap_compiler.o"],
-  cmd = "as $(location bootstrap_compiler.s) -o $(location bootstrap_compiler.o)"
-)
-
-
-genrule(
-  name = "link_bootstrap_compiler",
-  srcs = ["bootstrap_compiler.o"],
-  outs = ["bootstrap_compiler"],
-  executable = 1,
-  output_to_bindir = 1,
-  cmd = "ld -arch x86_64 " +
-    "-macosx_version_min 10.11 " +
-    "-static " +
-    "-sectcreate __DATA __data /dev/null " +
-    "$(location bootstrap_compiler.o) -o $(location bootstrap_compiler)"
+    name = "assemble_bootstrap_compiler",
+    srcs = ["bootstrap_compiler.s"],
+    outs = ["bootstrap_compiler.o"],
+    cmd = "as $(location bootstrap_compiler.s) -o $(location bootstrap_compiler.o)",
 )
 
 genrule(
-  name = "gen_bootstrap_library_compiler",
-  tools = [":library-compiler-compiler_bin"],
-  outs = ["bootstrap_library_compiler.s"],
-  cmd = "$(location :library-compiler-compiler_bin) $@"
+    name = "link_bootstrap_compiler",
+    srcs = ["bootstrap_compiler.o"],
+    outs = ["bootstrap_compiler"],
+    cmd = "ld -arch x86_64 " +
+          "-macosx_version_min 10.11 " +
+          "-static " +
+          "-sectcreate __DATA __data /dev/null " +
+          "$(location bootstrap_compiler.o) -o $(location bootstrap_compiler)",
+    executable = 1,
+    output_to_bindir = 1,
 )
 
 genrule(
-  name = "assemble_bootstrap_library_compiler",
-  srcs = ["bootstrap_library_compiler.s"],
-  outs = ["bootstrap_library_compiler.o"],
-  cmd = "as $(location bootstrap_library_compiler.s) -o $(location bootstrap_library_compiler.o)"
-)
-
-
-genrule(
-  name = "link_bootstrap_library_compiler",
-  srcs = ["bootstrap_library_compiler.o"],
-  outs = ["bootstrap_library_compiler"],
-  executable = 1,
-  output_to_bindir = 1,
-  cmd = "ld -arch x86_64 " +
-    "-macosx_version_min 10.11 " +
-    "-static " +
-    "-sectcreate __DATA __data /dev/null " +
-    "$(location bootstrap_library_compiler.o) -o $(location bootstrap_library_compiler)"
-)
-
-
-genrule(
-  name = "gen_bootstrap_main_stub",
-  tools = [":main-stub-compiler_bin"],
-  outs = ["bootstrap_main_stub.s"],
-  cmd = "$(location :main-stub-compiler_bin) $@"
+    name = "gen_bootstrap_library_compiler",
+    outs = ["bootstrap_library_compiler.s"],
+    cmd = "$(location :library-compiler-compiler_bin) $@",
+    tools = [":library-compiler-compiler_bin"],
 )
 
 genrule(
-  name = "assemble_bootstrap_main_stub",
-  srcs = ["bootstrap_main_stub.s"],
-  outs = ["bootstrap_main_stub.o"],
-  cmd = "as $(location bootstrap_main_stub.s) -o $(location bootstrap_main_stub.o)"
-)
-
-
-genrule(
-  name = "link_bootstrap_main_stub",
-  srcs = ["bootstrap_main_stub.o"],
-  outs = ["bootstrap_main_stub"],
-  executable = 1,
-  output_to_bindir = 1,
-  cmd = "ld -arch x86_64 " +
-    "-macosx_version_min 10.11 " +
-    "-static " +
-    "-sectcreate __DATA __data /dev/null " +
-    "$(location bootstrap_main_stub.o) -o $(location bootstrap_main_stub)"
+    name = "assemble_bootstrap_library_compiler",
+    srcs = ["bootstrap_library_compiler.s"],
+    outs = ["bootstrap_library_compiler.o"],
+    cmd = "as $(location bootstrap_library_compiler.s) -o $(location bootstrap_library_compiler.o)",
 )
 
 genrule(
-  name = "gen_bootstrap_linker",
-  tools = [":linker-compiler_bin"],
-  outs = ["bootstrap_linker.s"],
-  cmd = "$(location :linker-compiler_bin) $@"
+    name = "link_bootstrap_library_compiler",
+    srcs = ["bootstrap_library_compiler.o"],
+    outs = ["bootstrap_library_compiler"],
+    cmd = "ld -arch x86_64 " +
+          "-macosx_version_min 10.11 " +
+          "-static " +
+          "-sectcreate __DATA __data /dev/null " +
+          "$(location bootstrap_library_compiler.o) -o $(location bootstrap_library_compiler)",
+    executable = 1,
+    output_to_bindir = 1,
 )
 
 genrule(
-  name = "assemble_bootstrap_linker",
-  srcs = ["bootstrap_linker.s"],
-  outs = ["bootstrap_linker.o"],
-  cmd = "as $(location bootstrap_linker.s) -o $(location bootstrap_linker.o)"
-)
-
-
-genrule(
-  name = "link_bootstrap_linker",
-  srcs = ["bootstrap_linker.o"],
-  outs = ["bootstrap_linker"],
-  executable = 1,
-  output_to_bindir = 1,
-  cmd = "ld -arch x86_64 " +
-    "-macosx_version_min 10.11 " +
-    "-static " +
-    "-sectcreate __DATA __data /dev/null " +
-    "$(location bootstrap_linker.o) -o $(location bootstrap_linker)"
+    name = "gen_bootstrap_main_stub",
+    outs = ["bootstrap_main_stub.s"],
+    cmd = "$(location :main-stub-compiler_bin) $@",
+    tools = [":main-stub-compiler_bin"],
 )
 
 genrule(
-  name = "gen_compiler_binaries",
-  outs = ["compiler_binaries"],
-  tools = [
-    ":bootstrap_library_compiler",
-    ":bootstrap_linker",
-    ":bootstrap_main_stub",
-  ],
-  cmd = "touch $@"
+    name = "assemble_bootstrap_main_stub",
+    srcs = ["bootstrap_main_stub.s"],
+    outs = ["bootstrap_main_stub.o"],
+    cmd = "as $(location bootstrap_main_stub.s) -o $(location bootstrap_main_stub.o)",
+)
+
+genrule(
+    name = "link_bootstrap_main_stub",
+    srcs = ["bootstrap_main_stub.o"],
+    outs = ["bootstrap_main_stub"],
+    cmd = "ld -arch x86_64 " +
+          "-macosx_version_min 10.11 " +
+          "-static " +
+          "-sectcreate __DATA __data /dev/null " +
+          "$(location bootstrap_main_stub.o) -o $(location bootstrap_main_stub)",
+    executable = 1,
+    output_to_bindir = 1,
+)
+
+genrule(
+    name = "gen_bootstrap_linker",
+    outs = ["bootstrap_linker.s"],
+    cmd = "$(location :linker-compiler_bin) $@",
+    tools = [":linker-compiler_bin"],
+)
+
+genrule(
+    name = "assemble_bootstrap_linker",
+    srcs = ["bootstrap_linker.s"],
+    outs = ["bootstrap_linker.o"],
+    cmd = "as $(location bootstrap_linker.s) -o $(location bootstrap_linker.o)",
+)
+
+genrule(
+    name = "link_bootstrap_linker",
+    srcs = ["bootstrap_linker.o"],
+    outs = ["bootstrap_linker"],
+    cmd = "ld -arch x86_64 " +
+          "-macosx_version_min 10.11 " +
+          "-static " +
+          "-sectcreate __DATA __data /dev/null " +
+          "$(location bootstrap_linker.o) -o $(location bootstrap_linker)",
+    executable = 1,
+    output_to_bindir = 1,
+)
+
+genrule(
+    name = "gen_compiler_binaries",
+    outs = ["compiler_binaries"],
+    cmd = "touch $@",
+    tools = [
+        ":bootstrap_library_compiler",
+        ":bootstrap_linker",
+        ":bootstrap_main_stub",
+    ],
 )
 
 filegroup(
-  name = "library_compiler",
-  srcs = select({
-    ":yaspl_bootstrap" : [":bootstrap_library_compiler"],
-    "//conditions:default" : [":saved_library_compiler"]
-  }),
+    name = "library_compiler",
+    srcs = select({
+        ":yaspl_bootstrap": [":bootstrap_library_compiler"],
+        "//conditions:default": [":saved_library_compiler"],
+    }),
 )
 
 filegroup(
-  name = "main_stub",
-  srcs = select({
-    ":yaspl_bootstrap" : [":bootstrap_main_stub"],
-    "//conditions:default" : [":saved_main_stub"]
-  }),
+    name = "main_stub",
+    srcs = select({
+        ":yaspl_bootstrap": [":bootstrap_main_stub"],
+        "//conditions:default": [":saved_main_stub"],
+    }),
 )
 
 filegroup(
-  name = "linker",
-  srcs = select({
-    ":yaspl_bootstrap" : [":bootstrap_linker"],
-    "//conditions:default" : [":saved_linker"]
-  }),
+    name = "linker",
+    srcs = select({
+        ":yaspl_bootstrap": [":bootstrap_linker"],
+        "//conditions:default": [":saved_linker"],
+    }),
 )
-
 
 config_setting(
     name = "yaspl_bootstrap",
-    values = { "define": "yaspl_bootstrap=true" }
+    values = {"define": "yaspl_bootstrap=true"},
 )

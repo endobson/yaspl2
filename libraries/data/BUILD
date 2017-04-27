@@ -1,215 +1,212 @@
 load("//libraries:yaspl.bzl", "yaspl_library", "yaspl_test", "yaspl_bootstrap_library")
+
 package(
-  default_visibility = ["//visibility:public"]
+    default_visibility = ["//visibility:public"],
 )
 
 yaspl_bootstrap_library(
-  name = "boolean",
-  srcs = ["boolean.yaspl"],
+    name = "boolean",
+    srcs = ["boolean.yaspl"],
 )
 
 yaspl_bootstrap_library(
-  name = "bytes",
-  srcs = ["bytes.yaspl"],
-  deps = [
-    ":list"
-  ]
+    name = "bytes",
+    srcs = ["bytes.yaspl"],
+    deps = [
+        ":list",
+    ],
 )
 
 yaspl_test(
-  name = "bytes-test",
-  main_module = "bytes_test",
-  srcs = ["bytes-test.yaspl"],
-  deps = [
-    ":bytes",
-    "//libraries:yunit",
-    ":list",
-  ]
+    name = "bytes-test",
+    srcs = ["bytes-test.yaspl"],
+    main_module = "bytes_test",
+    deps = [
+        ":bytes",
+        ":list",
+        "//libraries:yunit",
+    ],
 )
 
 yaspl_bootstrap_library(
-  name = "dict",
-  srcs = ["dict.yaspl"],
-  deps = [
-    ":boolean",
-    ":list",
-    ":maybe",
-    ":tuples",
-    ":set",
-  ]
+    name = "dict",
+    srcs = ["dict.yaspl"],
+    deps = [
+        ":boolean",
+        ":list",
+        ":maybe",
+        ":set",
+        ":tuples",
+    ],
 )
 
 yaspl_test(
-  name = "dict-test",
-  main_module = "dict_test",
-  srcs = ["dict-test.yaspl"],
-  deps = [
-    ":bytes",
-    ":dict",
-    ":list",
-    ":maybe",
-    ":set",
-    ":tuples",
-    "//libraries:yunit",
-  ]
+    name = "dict-test",
+    srcs = ["dict-test.yaspl"],
+    main_module = "dict_test",
+    deps = [
+        ":bytes",
+        ":dict",
+        ":list",
+        ":maybe",
+        ":set",
+        ":tuples",
+        "//libraries:yunit",
+    ],
 )
 
 yaspl_library(
-  name = "directed-graph",
-  srcs = ["directed-graph.yaspl"],
-  deps = [
-    ":dict",
-    ":maybe",
-    ":tuples",
-  ]
+    name = "directed-graph",
+    srcs = ["directed-graph.yaspl"],
+    deps = [
+        ":dict",
+        ":maybe",
+        ":tuples",
+    ],
 )
 
 yaspl_bootstrap_library(
-  name = "either",
-  srcs = ["either.yaspl"],
+    name = "either",
+    srcs = ["either.yaspl"],
 )
 
 yaspl_bootstrap_library(
-  name = "join-list",
-  srcs = ["join-list.yaspl"],
-  deps = [":list"]
+    name = "join-list",
+    srcs = ["join-list.yaspl"],
+    deps = [":list"],
 )
 
 yaspl_bootstrap_library(
-  name = "list",
-  srcs = ["list.yaspl"],
-  deps = [
-    ":either",
-    ":maybe",
-    ":tuples",
-  ]
+    name = "list",
+    srcs = ["list.yaspl"],
+    deps = [
+        ":either",
+        ":maybe",
+        ":tuples",
+    ],
 )
-
 
 yaspl_test(
-  name = "list-test",
-  main_module = "list_test",
-  srcs = ["list-test.yaspl"],
-  deps = [
-    ":boolean",
-    ":bytes",
-    ":list",
-    ":maybe",
-    ":tuples",
-    "//libraries:yunit",
-  ]
+    name = "list-test",
+    srcs = ["list-test.yaspl"],
+    main_module = "list_test",
+    deps = [
+        ":boolean",
+        ":bytes",
+        ":list",
+        ":maybe",
+        ":tuples",
+        "//libraries:yunit",
+    ],
 )
-
 
 yaspl_bootstrap_library(
-  name = "maybe",
-  srcs = ["maybe.yaspl"],
+    name = "maybe",
+    srcs = ["maybe.yaspl"],
 )
-
 
 yaspl_test(
-  name = "maybe-test",
-  main_module = "maybe_test",
-  srcs = ["maybe-test.yaspl"],
-  deps = [
-    ":maybe",
-    ":list",
-    "//libraries:yunit",
-  ]
+    name = "maybe-test",
+    srcs = ["maybe-test.yaspl"],
+    main_module = "maybe_test",
+    deps = [
+        ":list",
+        ":maybe",
+        "//libraries:yunit",
+    ],
 )
 
 yaspl_bootstrap_library(
-  name = "multi-set",
-  srcs = ["multi-set.yaspl"],
-  deps = [
-    ":maybe",
-    ":list",
-    ":dict",
-    ":set",
-  ]
+    name = "multi-set",
+    srcs = ["multi-set.yaspl"],
+    deps = [
+        ":dict",
+        ":list",
+        ":maybe",
+        ":set",
+    ],
 )
 
 yaspl_bootstrap_library(
-  name = "numbers",
-  srcs = ["numbers.yaspl"],
-  deps = [
-    ":maybe",
-  ]
+    name = "numbers",
+    srcs = ["numbers.yaspl"],
+    deps = [
+        ":maybe",
+    ],
 )
 
 yaspl_library(
-  name = "regexp",
-  srcs = ["regexp.yaspl"],
-  deps = [
-    ":list",
-    ":maybe",
-    ":tuples",
-    ":bytes",
-  ]
+    name = "regexp",
+    srcs = ["regexp.yaspl"],
+    deps = [
+        ":bytes",
+        ":list",
+        ":maybe",
+        ":tuples",
+    ],
 )
 
 yaspl_test(
-  name = "regexp-test",
-  main_module = "regexp_test",
-  srcs = ["regexp-test.yaspl"],
-  deps = [
-    ":list",
-    ":regexp",
-    ":maybe",
-    "//libraries:yunit",
-  ],
-  size = "small",
-)
-
-
-yaspl_bootstrap_library(
-  name = "set",
-  srcs = ["set.yaspl"],
-  deps = [
-    ":list",
-    ":maybe",
-    ":tuples",
-  ]
-)
-
-yaspl_test(
-  name = "set-test",
-  main_module = "set_test",
-  srcs = ["set-test.yaspl"],
-  deps = [
-    ":boolean",
-    ":list",
-    ":set",
-    "//libraries:yunit",
-  ],
-  size = "small",
+    name = "regexp-test",
+    size = "small",
+    srcs = ["regexp-test.yaspl"],
+    main_module = "regexp_test",
+    deps = [
+        ":list",
+        ":maybe",
+        ":regexp",
+        "//libraries:yunit",
+    ],
 )
 
 yaspl_bootstrap_library(
-  name = "tuples",
-  srcs = ["tuples.yaspl"],
+    name = "set",
+    srcs = ["set.yaspl"],
+    deps = [
+        ":list",
+        ":maybe",
+        ":tuples",
+    ],
 )
 
 yaspl_test(
-  name = "tuples-test",
-  main_module = "tuples_test",
-  srcs = ["tuples-test.yaspl"],
-  deps = [
-    ":bytes",
-    ":list",
-    ":maybe",
-    ":tuples",
-    "//libraries:yunit",
-  ]
+    name = "set-test",
+    size = "small",
+    srcs = ["set-test.yaspl"],
+    main_module = "set_test",
+    deps = [
+        ":boolean",
+        ":list",
+        ":set",
+        "//libraries:yunit",
+    ],
+)
+
+yaspl_bootstrap_library(
+    name = "tuples",
+    srcs = ["tuples.yaspl"],
+)
+
+yaspl_test(
+    name = "tuples-test",
+    srcs = ["tuples-test.yaspl"],
+    main_module = "tuples_test",
+    deps = [
+        ":bytes",
+        ":list",
+        ":maybe",
+        ":tuples",
+        "//libraries:yunit",
+    ],
 )
 
 yaspl_library(
-  name = "undirected-graph",
-  srcs = ["undirected-graph.yaspl"],
-  deps = [
-    ":dict",
-    ":either",
-    ":maybe",
-    ":tuples",
-  ]
+    name = "undirected-graph",
+    srcs = ["undirected-graph.yaspl"],
+    deps = [
+        ":dict",
+        ":either",
+        ":maybe",
+        ":tuples",
+    ],
 )
