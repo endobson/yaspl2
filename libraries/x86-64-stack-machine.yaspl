@@ -142,24 +142,26 @@
   }
 }
 (export
-  #:types (AssemblyFragment BasicBlock Instruction Register)
+  #:types (AssemblyFragment Section BasicBlock Instruction Register)
   #:values (write-fragments convert-objects fragment->commands assembly-commands->bytes
-            instruction->mc-command instruction->assembly-bytes function-fragment basic-block rax rdi
+            instruction->mc-command instruction->assembly-bytes function-fragment rax rdi
             rsi rdx rcx r8 r9 imm-s32 rmi-imm movq reg addq subq orq andq al dil sil dl cl r8b r9b
             cmpq sete movzbq setle setge setl setg imulq jne imm jmp ret
             syscall call rsp mem rip leaq/rel r15 pushq je r10 jb scale-1 scaled leaq
             address-fragment call/indirect r11 ud2 shrq movb rep-stosb cld rbp nop r14
-            rep-movsb repne-scasb popq scale-8 decq notq repne-scasq)
-  #:patterns (function-fragment address-fragment bytes-fragment basic-block mc-bytes mc-jump
+            rep-movsb repne-scasb popq scale-8 decq notq repne-scasq
+            section-blocks basic-block section)
+  #:patterns (function-fragment address-fragment bytes-fragment mc-bytes mc-jump
               mcj-jb mcj-je mcj-jne mcj-jnz mcj-jmp mcj-call))
 (types
   (define-type AssemblyFragment
-    (function-fragment [name : Bytes] [blocks : (List BasicBlock)])
+    (function-fragment [name : Bytes] [sections : (List Section)])
     (address-fragment [name : Bytes] [value : Bytes])
     (bytes-fragment [name : Bytes] [value : Bytes]))
+  (define-type Section
+    (section [blocks : (List BasicBlock)]))
   (define-type BasicBlock
     (basic-block [name : Bytes] [instructions : (JoinList Instruction)]))
-
 
   (define-type MCJumpType
     (mcj-call)
@@ -1294,33 +1296,35 @@
     [(stack-function name num-args blocks)
      (function-fragment name
        (cons
-         (basic-block name
-           (varargs append-jl*
-             (varargs join-list
-               (pushq (reg (rbp)))
-               (movq (reg (rsp)) (reg (rbp))))
-             (if (>= num-args 1)
-                 (single-jl (pushq (reg (rdi))))
-                 (empty-jl))
-             (if (>= num-args 2)
-                 (single-jl (pushq (reg (rsi))))
-                 (empty-jl))
-             (if (>= num-args 3)
-                 (single-jl (pushq (reg (rdx))))
-                 (empty-jl))
-             (if (>= num-args 4)
-                 (single-jl (pushq (reg (rcx))))
-                 (empty-jl))
-             (if (>= num-args 5)
-                 (single-jl (pushq (reg (r8))))
-                 (empty-jl))
-             (if (>= num-args 6)
-                 (single-jl (pushq (reg (r9))))
-                 (empty-jl))
-             (if (>= num-args 7)
-                 (install-extra-arguments 0 (- num-args 6))
-                 (empty-jl))))
-         (convert-basic-blocks name 0 blocks)))]))
+         (section
+           (varargs list
+             (basic-block name
+               (varargs append-jl*
+                 (varargs join-list
+                   (pushq (reg (rbp)))
+                   (movq (reg (rsp)) (reg (rbp))))
+                 (if (>= num-args 1)
+                     (single-jl (pushq (reg (rdi))))
+                     (empty-jl))
+                 (if (>= num-args 2)
+                     (single-jl (pushq (reg (rsi))))
+                     (empty-jl))
+                 (if (>= num-args 3)
+                     (single-jl (pushq (reg (rdx))))
+                     (empty-jl))
+                 (if (>= num-args 4)
+                     (single-jl (pushq (reg (rcx))))
+                     (empty-jl))
+                 (if (>= num-args 5)
+                     (single-jl (pushq (reg (r8))))
+                     (empty-jl))
+                 (if (>= num-args 6)
+                     (single-jl (pushq (reg (r9))))
+                     (empty-jl))
+                 (if (>= num-args 7)
+                     (install-extra-arguments 0 (- num-args 6))
+                     (empty-jl))))))
+           (convert-basic-blocks name 0 blocks)))]))
 
 (define (write-fragments [fragments : (List AssemblyFragment)] [output : OutputPort]) : Void
   (write-assembly-commands (jl->list (fragments->commands fragments)) output))
@@ -1335,10 +1339,10 @@
 
 (define (fragment->commands [frag : AssemblyFragment]) : (JoinList AssemblyCommand)
   (case frag
-    [(function-fragment _ blocks)
+    [(function-fragment _ sections)
      (cons-jl
        (directive-cmd (section-directive #"__TEXT" #"__text"))
-       (basic-blocks->commands blocks))]
+       (sections->commands sections))]
     [(address-fragment name value)
      (varargs join-list
        (directive-cmd (section-directive #"__TEXT" #"__const"))
@@ -1352,6 +1356,15 @@
        (directive-cmd (label-directive name))
        (directive-cmd (quad-directive/integer (bytes-length value)))
        (directive-cmd (ascii-directive value)))]))
+
+
+(define (sections->commands [sections : (List Section)]) : (JoinList AssemblyCommand)
+  (case sections
+    [(empty) (empty-jl)]
+    [(cons (section blocks) sections)
+     (append-jl
+       (basic-blocks->commands blocks)
+       (sections->commands sections))]))
 
 (define (basic-blocks->commands [blocks : (List BasicBlock)]) : (JoinList AssemblyCommand)
   (case blocks
@@ -1367,7 +1380,7 @@
 
 
 (define (convert-basic-blocks [fun-name : Bytes] [index : Int] [blocks : (List StackBasicBlock)])
-  : (List BasicBlock)
+  : (List Section)
   (case blocks
     [(empty) (empty)]
     [(cons block blocks)
@@ -1376,14 +1389,16 @@
        (convert-basic-blocks fun-name (+ index 1) blocks))]))
 
 (define (convert-basic-block [fun-name : Bytes] [index : Int] [block : StackBasicBlock])
-  : BasicBlock
+  : Section
   (case block
     [(stack-basic-block cmds terminal)
-     (basic-block
-       (bytes-append (varargs list fun-name #"_" (integer->decimal-bytes index)))
-       (append-jl
-         (convert-commands cmds)
-         (convert-terminal fun-name terminal)))]))
+     (section
+       (varargs list
+         (basic-block
+           (bytes-append (varargs list fun-name #"_" (integer->decimal-bytes index)))
+           (append-jl
+             (convert-commands cmds)
+             (convert-terminal fun-name terminal)))))]))
 
 
 (define (line->bytes [line : (JoinList Bytes)]) : Bytes

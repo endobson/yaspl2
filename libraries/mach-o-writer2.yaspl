@@ -47,6 +47,7 @@
       List
     #:values
       append
+      append*
       cons
       empty
       filter
@@ -147,8 +148,10 @@
       AssemblyFragment
       BasicBlock
       Instruction
+      Section
     #:values
       instruction->mc-command
+      section-blocks
     #:patterns
       address-fragment
       basic-block
@@ -163,6 +166,7 @@
       mcj-jmp
       mcj-jne
       mcj-jnz
+      section
   }
 }
 (export
@@ -212,25 +216,31 @@
       (concat-map-jl
         (lambda ([fragment : AssemblyFragment]) : (JoinList Bytes)
           (case fragment
-            [(function-fragment name blocks)
+            [(function-fragment name sections)
              (concat-map-jl
-               (lambda ([bb : BasicBlock])
-                 (case bb
-                   [(basic-block block-name instructions)
-                    (map-jl
-                      (lambda ([inst : Instruction])
-                        (case (instruction->mc-command inst)
-                          [(mc-bytes bytes) bytes]
-                          [(mc-jump (mcj-jb) _) (varargs bytes #x0F #x82 0 0 0 0)]
-                          [(mc-jump (mcj-je) _) (varargs bytes #x0F #x84 0 0 0 0)]
-                          [(mc-jump (mcj-jne) _) (varargs bytes #x0F #x85 0 0 0 0)]
-                          [(mc-jump (mcj-jnz) _) (varargs bytes #x0F #x85 0 0 0 0)]
-                          [(mc-jump (mcj-jmp) _) (varargs bytes #xE9 0 0 0 0)]
-                          [(mc-jump (mcj-call) _) (varargs bytes #xE8 0 0 0 0)]
-                          [(mc-leaq/rel _ _ _) (varargs bytes #x48 #x8D #x05 0 0 0 0)]))
-                      instructions)]))
-               (list->jl blocks))]
-            [_ (empty-jl)]))
+               (lambda ([s : Section])
+                 (case s
+                   [(section blocks)
+                    (concat-map-jl
+                      (lambda ([bb : BasicBlock])
+                        (case bb
+                          [(basic-block block-name instructions)
+                           (map-jl
+                             (lambda ([inst : Instruction])
+                               (case (instruction->mc-command inst)
+                                 [(mc-bytes bytes) bytes]
+                                 [(mc-jump (mcj-jb) _) (varargs bytes #x0F #x82 0 0 0 0)]
+                                 [(mc-jump (mcj-je) _) (varargs bytes #x0F #x84 0 0 0 0)]
+                                 [(mc-jump (mcj-jne) _) (varargs bytes #x0F #x85 0 0 0 0)]
+                                 [(mc-jump (mcj-jnz) _) (varargs bytes #x0F #x85 0 0 0 0)]
+                                 [(mc-jump (mcj-jmp) _) (varargs bytes #xE9 0 0 0 0)]
+                                 [(mc-jump (mcj-call) _) (varargs bytes #xE8 0 0 0 0)]
+                                [(mc-leaq/rel _ _ _) (varargs bytes #x48 #x8D #x05 0 0 0 0)]))
+                            instructions)]))
+                      (list->jl blocks))]))
+               (list->jl sections))]
+            [_
+             (empty-jl)]))
         (list->jl fragments)))))
 
 (define (compute-text-segment-relocations [fragments : (List AssemblyFragment)] [offset : Int]
@@ -238,8 +248,10 @@
   : (Tuple2 (List TextSegmentRelocation) (List TextSegmentRelocation))
   (case fragments
     [(empty) (tuple2 (empty) (empty))]
-    [(cons (function-fragment _ blocks) fragments)
-     (compute-text-segment-relocations/blocks blocks fragments offset symbols)]
+    [(cons (function-fragment _ sections) fragments)
+     (compute-text-segment-relocations/blocks
+       (append* (map section-blocks sections))
+       fragments offset symbols)]
     [(cons _ fragments)
      (compute-text-segment-relocations fragments offset symbols)]))
 
@@ -369,8 +381,10 @@
     [(empty) (reverse acc)]
     [(cons fragment fragments)
      (case fragment
-       [(function-fragment name blocks)
-        (collect-defined-symbols/blocks* blocks fragments text-offset const-offset acc)]
+       [(function-fragment name sections)
+        (collect-defined-symbols/blocks*
+          (append* (map section-blocks sections))
+          fragments text-offset const-offset acc)]
        [(address-fragment name value)
         (collect-defined-symbols fragments text-offset (+ const-offset 8)
                                  (cons (const-symbol name const-offset) acc))]
@@ -420,19 +434,22 @@
     (concat-map-jl
       (lambda ([fragment : AssemblyFragment]) : (JoinList Bytes)
         (case fragment
-          [(function-fragment name blocks)
+          [(function-fragment name sections)
            (concat-map-jl
-             (lambda ([bb : BasicBlock])
-               (case bb
-                 [(basic-block block-name instructions)
-                  (concat-map-jl
-                    (lambda ([inst : Instruction]) : (JoinList Bytes)
-                      (case (instruction->mc-command inst)
-                        [(mc-bytes bytes) (empty-jl)]
-                        [(mc-jump _ label) (single-jl label)]
-                        [(mc-leaq/rel label _ _) (single-jl label)]))
-                    instructions)]))
-             (list->jl blocks))]
+             (lambda ([s : Section])
+               (concat-map-jl
+                 (lambda ([bb : BasicBlock])
+                   (case bb
+                     [(basic-block block-name instructions)
+                      (concat-map-jl
+                        (lambda ([inst : Instruction]) : (JoinList Bytes)
+                          (case (instruction->mc-command inst)
+                            [(mc-bytes bytes) (empty-jl)]
+                            [(mc-jump _ label) (single-jl label)]
+                            [(mc-leaq/rel label _ _) (single-jl label)]))
+                        instructions)]))
+                 (list->jl (section-blocks s))))
+             (list->jl sections))]
           [(address-fragment name value)
            (empty-jl)]
           [(bytes-fragment name value)

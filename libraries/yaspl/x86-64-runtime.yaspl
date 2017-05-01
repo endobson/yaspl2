@@ -83,6 +83,7 @@
       scale-1
       scale-8
       scaled
+      section
       shrq
       subq
       syscall
@@ -104,180 +105,185 @@
     (function-fragment
       #"start"
       (varargs list
-        (basic-block #"start"
-          (varargs join-list
-            (jmp #"start_break")))))
+        (section
+          (varargs list
+            (basic-block #"start"
+              (varargs join-list
+                (jmp #"start_break")))))))
 
     (function-fragment
       #"start_break"
       (varargs list
-        (basic-block #"start_break"
-          (varargs join-list
-            ;; Allocate Heap (Call mmap)
-            ;; No fixed address desired
-            (movq (imm 0) (reg (rdi)))
-            ;; We want a large heap but cannot load more than an 32 bits
-            ;; currently so do a multiplication
-            ;; Currently this is 512 * 1Mib
-            (movq (imm #x100000) (reg (rsi)))
-            (movq (imm #x200) (reg (rax)))
-            (imulq (rax) (rsi))
-            ;; 0x1 = PROT_READ
-            ;; 0x2 = PROT_WRITE
-            ;; 0x4 = PROT_EXEC
-            (movq (imm #x7) (reg (rdx)))
-            ;; 0x0002 = MAP_SHARED
-            ;; 0x1000 = MAP_ANON
-            (movq (imm #x1002) (reg (r10)))
-            ;; FD = -1 for no FD
-            (movq (imm (- 0 1)) (reg (r8)))
-            ;; offset which is ignored because of MAP_ANON
-            (movq (imm 0) (reg (r9)))
-            ;; 0xC5 is mmap, plus 0x2000000 because xnu
-            (movq (imm #x20000C5) (reg (rax)))
-            (syscall)
-            (jb #"prim_start_panic")
-            ;; Save heap to %r15 which is our bump pointer
-            (movq (reg (rax)) (reg (r15)))
+        (section
+          (varargs list
+            (basic-block #"start_break"
+              (varargs join-list
+                ;; Allocate Heap (Call mmap)
+                ;; No fixed address desired
+                (movq (imm 0) (reg (rdi)))
+                ;; We want a large heap but cannot load more than an 32 bits
+                ;; currently so do a multiplication
+                ;; Currently this is 512 * 1Mib
+                (movq (imm #x100000) (reg (rsi)))
+                (movq (imm #x200) (reg (rax)))
+                (imulq (rax) (rsi))
+                ;; 0x1 = PROT_READ
+                ;; 0x2 = PROT_WRITE
+                ;; 0x4 = PROT_EXEC
+                (movq (imm #x7) (reg (rdx)))
+                ;; 0x0002 = MAP_SHARED
+                ;; 0x1000 = MAP_ANON
+                (movq (imm #x1002) (reg (r10)))
+                ;; FD = -1 for no FD
+                (movq (imm (- 0 1)) (reg (r8)))
+                ;; offset which is ignored because of MAP_ANON
+                (movq (imm 0) (reg (r9)))
+                ;; 0xC5 is mmap, plus 0x2000000 because xnu
+                (movq (imm #x20000C5) (reg (rax)))
+                (syscall)
+                (jb #"prim_start_panic")
+                ;; Save heap to %r15 which is our bump pointer
+                (movq (reg (rax)) (reg (r15)))
 
-            ;; Ignore number of args as we want to reuse code for environment.
-            (addq (imm 8) (rsp))
-            ;; Clear direction for all the scans that will be done when
-            (cld)
+                ;; Ignore number of args as we want to reuse code for environment.
+                (addq (imm 8) (rsp))
+                ;; Clear direction for all the scans that will be done when
+                (cld)
 
-            ;; Count number of args
-            (movq (reg (rsp)) (reg (rdi)))
-            (movq (imm 0) (reg (rax)))
-            ;; Assumption: Strings cannot be longer than 2^64-1
-            ;; Loads treat the immediate as a 32 bit signed number, which is sign extended.
-            ;; Then repne-scasq treats it as unsigned which means -1 => 2^64-1
-            (movq (imm (- 0 1)) (reg (rcx)))
-            (repne-scasq)
-            (notq (rcx))
-            (decq (rcx))
-            (movq (reg (rcx)) (reg (r8)))
-
-
-            (movq (reg (r15)) (reg (r10))) ; r10 is the array of bytes
-            (movq (reg (r10)) (reg (r11))) ; r11 is the address of the last bytes put into the array
-
-            (movq (reg (r8)) (mem (r10) 0))
-            (leaq (scaled (r10) (scale-8) (r8) 8) (r15))
-
-            (jmp #"start_copy_args_test")))
-
-        (basic-block #"start_copy_args_test"
-          (varargs join-list
-            (popq (reg (r9))) ; r9 is now the current string
-            (cmpq (imm 0) (reg (r9)))
-            (je #"start_copy_args_end")))
-
-        (basic-block #"start_copy_args_body"
-          (varargs join-list
-
-            ;; Count string length
-            (movq (reg (r9)) (reg (rdi)))
-            (movq (imm 0) (reg (rax)))
-            ;; Assumption: Strings cannot be longer than 2^64-1
-            ;; Loads treat the immediate as a 32 bit signed number, which is sign extended.
-            ;; Then repne-scasb treats it as unsigned which means -1 => 2^64-1
-            (movq (imm (- 0 1)) (reg (rcx)))
-            (repne-scasb)
-            (notq (rcx))
-            (decq (rcx))
-
-            ;; Copy bytes
-            (addq (imm 8) (r11))
-            (movq (reg (r15)) (mem (r11) 0))
-            (movq (reg (rcx)) (mem (r15) 0))
-            (addq (imm 8) (r15))
-            (movq (reg (r9)) (reg (rsi)))
-            (movq (reg (r15)) (reg (rdi)))
-            (rep-movsb)
-            (movq (reg (rdi)) (reg (r15)))
-            (jmp #"start_copy_args_test")))
-
-        (basic-block #"start_copy_args_end"
-          (varargs join-list
-
-            ;; Count number of env
-            (movq (reg (rsp)) (reg (rdi)))
-            (movq (imm 0) (reg (rax)))
-            ;; Assumption: Strings cannot be longer than 2^64-1
-            ;; Loads treat the immediate as a 32 bit signed number, which is sign extended.
-            ;; Then repne-scasq treats it as unsigned which means -1 => 2^64-1
-            (movq (imm (- 0 1)) (reg (rcx)))
-            (repne-scasq)
-            (notq (rcx))
-            (decq (rcx))
-            (movq (reg (rcx)) (reg (r8)))
-
-            (movq (reg (r15)) (reg (r14))) ; r14 is the array of bytes
-            (movq (reg (r14)) (reg (r11))) ; r11 is the address of the last bytes put into the array
-
-            (movq (reg (r8)) (mem (r14) 0))
-            (leaq (scaled (r14) (scale-8) (r8) 8) (r15))
-
-            (jmp #"start_copy_env_test")))
-
-        (basic-block #"start_copy_env_test"
-          (varargs join-list
-            (popq (reg (r9))) ; r9 is now the current string
-            (cmpq (imm 0) (reg (r9)))
-            (je #"start_copy_env_end")))
-
-        (basic-block #"start_copy_env_body"
-          (varargs join-list
-
-            ;; Count string length
-            (movq (reg (r9)) (reg (rdi)))
-            (movq (imm 0) (reg (rax)))
-            ;; Assumption: Strings cannot be longer than 2^64-1
-            ;; Loads treat the immediate as a 32 bit signed number, which is sign extended.
-            ;; Then repne-scasb treats it as unsigned which means -1 => 2^64-1
-            (movq (imm (- 0 1)) (reg (rcx)))
-            (repne-scasb)
-            (notq (rcx))
-            (decq (rcx))
-
-            ;; Copy bytes
-            (addq (imm 8) (r11))
-            (movq (reg (r15)) (mem (r11) 0))
-            (movq (reg (rcx)) (mem (r15) 0))
-            (addq (imm 8) (r15))
-            (movq (reg (r9)) (reg (rsi)))
-            (movq (reg (r15)) (reg (rdi)))
-            (rep-movsb)
-            (movq (reg (rdi)) (reg (r15)))
-            (jmp #"start_copy_env_test")))
+                ;; Count number of args
+                (movq (reg (rsp)) (reg (rdi)))
+                (movq (imm 0) (reg (rax)))
+                ;; Assumption: Strings cannot be longer than 2^64-1
+                ;; Loads treat the immediate as a 32 bit signed number, which is sign extended.
+                ;; Then repne-scasq treats it as unsigned which means -1 => 2^64-1
+                (movq (imm (- 0 1)) (reg (rcx)))
+                (repne-scasq)
+                (notq (rcx))
+                (decq (rcx))
+                (movq (reg (rcx)) (reg (r8)))
 
 
-        (basic-block #"start_copy_env_end"
-          (varargs join-list
-            (nop)))
+                (movq (reg (r15)) (reg (r10))) ; r10 is the array of bytes
+                (movq (reg (r10)) (reg (r11))) ; r11 is the address of the last bytes put into the array
+
+                (movq (reg (r8)) (mem (r10) 0))
+                (leaq (scaled (r10) (scale-8) (r8) 8) (r15))
+
+                (jmp #"start_copy_args_test")))
+
+            (basic-block #"start_copy_args_test"
+              (varargs join-list
+                (popq (reg (r9))) ; r9 is now the current string
+                (cmpq (imm 0) (reg (r9)))
+                (je #"start_copy_args_end")))
+
+            (basic-block #"start_copy_args_body"
+              (varargs join-list
+
+                ;; Count string length
+                (movq (reg (r9)) (reg (rdi)))
+                (movq (imm 0) (reg (rax)))
+                ;; Assumption: Strings cannot be longer than 2^64-1
+                ;; Loads treat the immediate as a 32 bit signed number, which is sign extended.
+                ;; Then repne-scasb treats it as unsigned which means -1 => 2^64-1
+                (movq (imm (- 0 1)) (reg (rcx)))
+                (repne-scasb)
+                (notq (rcx))
+                (decq (rcx))
+
+                ;; Copy bytes
+                (addq (imm 8) (r11))
+                (movq (reg (r15)) (mem (r11) 0))
+                (movq (reg (rcx)) (mem (r15) 0))
+                (addq (imm 8) (r15))
+                (movq (reg (r9)) (reg (rsi)))
+                (movq (reg (r15)) (reg (rdi)))
+                (rep-movsb)
+                (movq (reg (rdi)) (reg (r15)))
+                (jmp #"start_copy_args_test")))
+
+            (basic-block #"start_copy_args_end"
+              (varargs join-list
+
+                ;; Count number of env
+                (movq (reg (rsp)) (reg (rdi)))
+                (movq (imm 0) (reg (rax)))
+                ;; Assumption: Strings cannot be longer than 2^64-1
+                ;; Loads treat the immediate as a 32 bit signed number, which is sign extended.
+                ;; Then repne-scasq treats it as unsigned which means -1 => 2^64-1
+                (movq (imm (- 0 1)) (reg (rcx)))
+                (repne-scasq)
+                (notq (rcx))
+                (decq (rcx))
+                (movq (reg (rcx)) (reg (r8)))
+
+                (movq (reg (r15)) (reg (r14))) ; r14 is the array of bytes
+                (movq (reg (r14)) (reg (r11))) ; r11 is the address of the last bytes put into the array
+
+                (movq (reg (r8)) (mem (r14) 0))
+                (leaq (scaled (r14) (scale-8) (r8) 8) (r15))
+
+                (jmp #"start_copy_env_test")))
+
+            (basic-block #"start_copy_env_test"
+              (varargs join-list
+                (popq (reg (r9))) ; r9 is now the current string
+                (cmpq (imm 0) (reg (r9)))
+                (je #"start_copy_env_end")))
+
+            (basic-block #"start_copy_env_body"
+              (varargs join-list
+
+                ;; Count string length
+                (movq (reg (r9)) (reg (rdi)))
+                (movq (imm 0) (reg (rax)))
+                ;; Assumption: Strings cannot be longer than 2^64-1
+                ;; Loads treat the immediate as a 32 bit signed number, which is sign extended.
+                ;; Then repne-scasb treats it as unsigned which means -1 => 2^64-1
+                (movq (imm (- 0 1)) (reg (rcx)))
+                (repne-scasb)
+                (notq (rcx))
+                (decq (rcx))
+
+                ;; Copy bytes
+                (addq (imm 8) (r11))
+                (movq (reg (r15)) (mem (r11) 0))
+                (movq (reg (rcx)) (mem (r15) 0))
+                (addq (imm 8) (r15))
+                (movq (reg (r9)) (reg (rsi)))
+                (movq (reg (r15)) (reg (rdi)))
+                (rep-movsb)
+                (movq (reg (rdi)) (reg (r15)))
+                (jmp #"start_copy_env_test")))
 
 
-        ;; Call main and then exit
-        (basic-block #"start_call_main"
-          (varargs join-list
+            (basic-block #"start_copy_env_end"
+              (varargs join-list
+                (nop)))
 
-            ;; Set up initial base pointer
-            (movq (imm 0) (reg (rbp)))
-            (movq (reg (r10)) (reg (rdi))) ;; Arguments
-            (movq (imm 0) (reg (rsi)))
-            (movq (imm 1) (reg (rdx)))
-            (movq (imm 2) (reg (rcx)))
-            (movq (reg (r14)) (reg (r8))) ;; Environment
-            (pushq (imm 0)) ;; Bogus closure
-            (call (bytes-append (varargs list #"y" main-function-name #"_code")))
-            ;; Closure is still on the stack
-            (movq (reg (rax)) (reg (rdi)))
-            (movq (imm #x2000001) (reg (rax)))
-            (syscall)))
 
-        (basic-block #"prim_start_panic"
-          (varargs join-list
-            (ud2)))))))
+            ;; Call main and then exit
+            (basic-block #"start_call_main"
+              (varargs join-list
+
+                ;; Set up initial base pointer
+                (movq (imm 0) (reg (rbp)))
+                (movq (reg (r10)) (reg (rdi))) ;; Arguments
+                (movq (imm 0) (reg (rsi)))
+                (movq (imm 1) (reg (rdx)))
+                (movq (imm 2) (reg (rcx)))
+                (movq (reg (r14)) (reg (r8))) ;; Environment
+                (pushq (imm 0)) ;; Bogus closure
+                (call (bytes-append (varargs list #"y" main-function-name #"_code")))
+                ;; Closure is still on the stack
+                (movq (reg (rax)) (reg (rdi)))
+                (movq (imm #x2000001) (reg (rax)))
+                (syscall)))
+
+            (basic-block #"prim_start_panic"
+              (varargs join-list
+                (ud2)))))))))
+
 
 (define (prim-function-fragments) : (JoinList AssemblyFragment)
   (varargs append-jl*
@@ -763,9 +769,11 @@
       (let ([main-block
              (basic-block (bytes-append (varargs list #"prim_" name))
                (list->jl instructions))])
-      (if panic
-          (varargs list
-            main-block
-            (basic-block (bytes-append (varargs list #"prim_" name #"_panic"))
-              (varargs join-list (ud2))))
-          (varargs list main-block))))))
+      (varargs list
+        (section
+          (if panic
+              (varargs list
+                main-block
+                (basic-block (bytes-append (varargs list #"prim_" name #"_panic"))
+                  (varargs join-list (ud2))))
+              (varargs list main-block))))))))
