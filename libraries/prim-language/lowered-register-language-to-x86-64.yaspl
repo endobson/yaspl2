@@ -5,13 +5,9 @@
       bytes-append
   }
   dict {
-    #:types
-      Dict
     #:values
-      dict-filter-map
+      dict-has-key?
       dict-ref
-      dict-remove
-      dict-values
   }
   join-list {
     #:types
@@ -23,6 +19,8 @@
       single-jl
   }
   list {
+    #:types
+      List
     #:values
       cons
       empty
@@ -48,6 +46,7 @@
       Instruction
       Terminal
     #:values
+      block-map-block-chains
       block-map-blocks
     #:patterns
       basic-block
@@ -61,8 +60,6 @@
       return
   }
   maybe {
-    #:values
-      just
     #:patterns
       just
       nothing
@@ -148,30 +145,28 @@
           [f : (FunctionDefinition X8664Register)]) : AssemblyFragment
   (match-define (function-definition name _ entry-block blocks) f)
   (match-define block-prefix (bytes-append (varargs list name #"_")))
-  (match-define new-blocks
-    (dict-full-map (block-map-blocks blocks)
-      (lambda ([num : Int] [b : (BasicBlock X8664Register)])
-        (convert-block block-prefix num b))))
-  (case (dict-ref new-blocks entry-block)
-    [(nothing) (panic #"No entry block")]
-    [(just entry)
-     (function-fragment name
-       (cons
-         (a:section
-           (cons
-             (a:basic-block
-               name
-               (single-jl (jmp (make-block-label block-prefix entry-block))))
-             (empty)))
-         (cons
-           (a:section (varargs list entry))
-           (map
-             (lambda ([b : a:BasicBlock])
-               (a:section (varargs list b)))
-             (dict-values (dict-remove new-blocks entry-block))))))]))
-
-(define (a b c) (dict-full-map [d : (Dict a b)] [f : (a b -> c)]) : (Dict a c)
-  (dict-filter-map d (lambda ([a : a] [b : b]) (just (f a b)))))
+  (match-define block-chains (block-map-block-chains blocks))
+  (if (dict-has-key? (block-map-blocks blocks) entry-block)
+      (function-fragment name
+        (cons
+          (a:section
+            (cons
+              (a:basic-block
+                name
+                (single-jl (jmp (make-block-label block-prefix entry-block))))
+              (empty)))
+          (map
+            (lambda ([chain : (List Int)])
+              (a:section
+                (map
+                  (lambda ([block-num : Int]) : a:BasicBlock
+                    (case (dict-ref (block-map-blocks blocks) block-num)
+                      [(nothing) (panic #"No such block")]
+                      [(just b)
+                       (convert-block block-prefix block-num b)]))
+                  chain)))
+            block-chains)))
+      (panic #"No entry block")))
 
 (define (convert-block [block-prefix : Bytes] [block-num : Int] [b : (BasicBlock X8664Register)]) : a:BasicBlock
   (match-define (basic-block instructions terminal) b)

@@ -82,6 +82,7 @@ yaspl_library(
     srcs = ["lowered-register-language.yaspl"],
     deps = [
         ":prim-language",
+        "//libraries/algorithms:find-chains",
         "//libraries/data:dict",
         "//libraries/data:either",
         "//libraries/data:list",
