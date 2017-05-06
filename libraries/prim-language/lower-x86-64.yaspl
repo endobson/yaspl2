@@ -4,13 +4,17 @@
     #:types
       Dict
     #:values
-      dict-add
       dict-add-all
       dict-fold
       dict-ref
       dict-remove
       dict-split
       make-dict
+  }
+  either {
+    #:patterns
+      left
+      right
   }
   list {
     #:types
@@ -31,15 +35,19 @@
       [FunctionDefinition l:FunctionDefinition]
       [Instruction l:Instruction]
       [Terminal l:Terminal]
+      [UnvalidatedBlockMap l:UnvalidatedBlockMap]
     #:values
       [basic-block l:basic-block]
       [bin-op-inst l:bin-op-inst]
       [cond-jump l:cond-jump]
+      [empty-unvalidated-block-map l:empty-unvalidated-block-map]
       [function-definition l:function-definition]
       [int-literal l:int-literal]
       [jump l:jump]
       [move l:move]
       [return l:return]
+      [unvalidated-block-map-add-block l:unvalidated-block-map-add-block]
+      [validate-block-map l:validate-block-map]
   }
   maybe {
     #:patterns
@@ -53,7 +61,6 @@
       Int
     #:values
       +
-      =
       panic
   }
   register-language {
@@ -112,8 +119,8 @@
     (fixed-reg [r : X8664Register])
     (temporary-reg [r : r:Var])))
 
-(define (empty-blocks) : (Dict Int (l:BasicBlock Reg))
-  (make-dict =))
+(define (empty-blocks) : (l:UnvalidatedBlockMap Reg)
+  (l:empty-unvalidated-block-map))
 
 
 (define (all-x86-64-registers) : (Set X8664Register)
@@ -190,15 +197,19 @@
     (dict-fold
       blocks
       (lambda ([index : Int]  [b : r:BasicBlock]
-               [acc : (Tuple2 Int (Dict Int (l:BasicBlock Reg)))])
+               [acc : (Tuple2 Int (l:UnvalidatedBlockMap Reg))])
         (lower-block index b blocks acc))
       (tuple2 next-block (empty-blocks))))
   (match-define lowered-entry-block next-block)
   (match-define next-bock (+ 1 next-block))
   (match-define new-blocks
-    (dict-add new-blocks lowered-entry-block (make-entry-block entry-block-num blocks)))
+    (l:unvalidated-block-map-add-block
+      new-blocks lowered-entry-block (make-entry-block entry-block-num blocks)))
 
-  (l:function-definition name 0 lowered-entry-block new-blocks))
+  (case (l:validate-block-map new-blocks)
+    [(left msg) (panic msg)]
+    [(right validated-new-blocks)
+     (l:function-definition name 0 lowered-entry-block validated-new-blocks)]))
 
 
 (define (make-entry-block [entry-block-num : Int] [blocks : (Dict Int r:BasicBlock)])
@@ -220,14 +231,14 @@
 
 (define (lower-block [index : Int]  [b : r:BasicBlock]
                      [blocks : (Dict Int r:BasicBlock)]
-                     [acc : (Tuple2 Int (Dict Int (l:BasicBlock Reg)))])
-  : (Tuple2 Int (Dict Int (l:BasicBlock Reg)))
+                     [acc : (Tuple2 Int (l:UnvalidatedBlockMap Reg))])
+  : (Tuple2 Int (l:UnvalidatedBlockMap Reg))
   (match-define (r:basic-block _ instructions terminal) b)
   (match-define (tuple3 end-insts terminal (tuple2 next-block acc-blocks))
     (lower-terminal terminal blocks acc))
   (tuple2
     next-block
-    (dict-add
+    (l:unvalidated-block-map-add-block
       acc-blocks
       index
       (l:basic-block
@@ -278,8 +289,8 @@
   t)
 
 (define (lower-terminal [t : r:Terminal] [blocks : (Dict Int r:BasicBlock)]
-                        [acc : (Tuple2 Int (Dict Int (l:BasicBlock Reg)))])
-  : (Tuple3 (List (l:Instruction Reg)) (l:Terminal Reg) (Tuple2 Int (Dict Int (l:BasicBlock Reg))))
+                        [acc : (Tuple2 Int (l:UnvalidatedBlockMap Reg))])
+  : (Tuple3 (List (l:Instruction Reg)) (l:Terminal Reg) (Tuple2 Int (l:UnvalidatedBlockMap Reg)))
   (case t
     [(r:return name)
      (tuple3
@@ -294,8 +305,10 @@
     [(r:cond-jump v t-index t-args f-index f-args)
      (match-define (tuple2 next-block acc-blocks) acc)
      (match-define new-acc-blocks
-       (dict-add
-         (dict-add acc-blocks next-block
+       (l:unvalidated-block-map-add-block
+         (l:unvalidated-block-map-add-block
+            acc-blocks
+            next-block
             (l:basic-block (move-args (match-args t-index t-args blocks))
                            (ann-term (l:jump t-index))))
          (+ 1 next-block)

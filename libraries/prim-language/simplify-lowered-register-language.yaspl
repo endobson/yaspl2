@@ -8,11 +8,14 @@
     #:types
       Dict
     #:values
-      dict-filter
       dict-filter-map
       dict-ref
-      dict-value-map
       dict-values
+  }
+  either {
+    #:patterns
+      left
+      right
   }
   list {
     #:values
@@ -24,15 +27,21 @@
   lowered-register-language {
     #:types
       BasicBlock
+      BlockMap
       FunctionDefinition
       Instruction
       Terminal
     #:values
       basic-block
+      block-map->unvalidated-block-map
+      block-map-blocks
       cond-jump
       function-definition
       jump
       return
+      unvalidated-block-map-filter
+      unvalidated-block-map-map
+      validate-block-map
     #:patterns
       basic-block
       cond-jump
@@ -57,6 +66,7 @@
       Int
     #:values
       =
+      panic
   }
   set {
     #:types
@@ -86,17 +96,20 @@
     (remove-unused-blocks
       entry
       (collapse-trivial-blocks
-        (remove-redundant-moves reg=?  blocks)))))
+        (remove-redundant-moves reg=? blocks)))))
 
-(define (Reg) (collapse-trivial-blocks [blocks : (Dict Int (BasicBlock Reg))])
-  : (Dict Int (BasicBlock Reg))
-  (let ([replacements (find-trivial-blocks blocks)])
-    (dict-value-map
-      blocks
-      (lambda ([b : (BasicBlock Reg)])
-        (case b
-          [(basic-block insts term)
-           (basic-block insts (collapse-trivial-blocks/terminal term replacements))])))))
+(define (Reg) (collapse-trivial-blocks [blocks : (BlockMap Reg)])
+  : (BlockMap Reg)
+  (let ([replacements (find-trivial-blocks (block-map-blocks blocks))])
+    (case (validate-block-map
+            (unvalidated-block-map-map
+              (block-map->unvalidated-block-map blocks)
+              (lambda ([int : Int] [b : (BasicBlock Reg)])
+                (case b
+                  [(basic-block insts term)
+                   (basic-block insts (collapse-trivial-blocks/terminal term replacements))]))))
+      [(left msg) (panic msg)]
+      [(right v) v])))
 
 
 (define (Reg) (collapse-trivial-blocks/terminal
@@ -135,15 +148,16 @@
         [_ (nothing)]))))
 
 
-(define (Reg) (remove-unused-blocks
-                [entry-block : Int]
-                [blocks : (Dict Int (BasicBlock Reg))])
-  : (Dict Int (BasicBlock Reg))
-  (let ([live-blocks (set-add (find-live-blocks blocks) entry-block)])
-    (dict-filter
-      blocks
-      (lambda ([key : Int] [b : (BasicBlock Reg)]) : Boolean
-        (set-member? live-blocks key)))))
+(define (Reg) (remove-unused-blocks [entry-block : Int] [blocks : (BlockMap Reg)])
+  : (BlockMap Reg)
+  (let ([live-blocks (set-add (find-live-blocks (block-map-blocks blocks)) entry-block)])
+    (case (validate-block-map
+            (unvalidated-block-map-filter
+              (block-map->unvalidated-block-map blocks)
+              (lambda ([key : Int] [b : (BasicBlock Reg)]) : Boolean
+                (set-member? live-blocks key))))
+      [(left msg) (panic msg)]
+      [(right v) v])))
 
 (define (Reg) (find-live-blocks
                 [blocks : (Dict Int (BasicBlock Reg))])
@@ -162,19 +176,22 @@
 
 (define (Reg) (remove-redundant-moves
                 [reg=? : (Reg Reg -> Boolean)]
-                [blocks : (Dict Int (BasicBlock Reg))])
-  : (Dict Int (BasicBlock Reg))
-  (dict-value-map
-    blocks
-    (lambda ([b : (BasicBlock Reg)])
-      (case b
-        [(basic-block instructions terminal)
-         (basic-block
-           (filter
-             (lambda ([i : (Instruction Reg)])
-               (useful-move? i reg=?))
-             instructions)
-           terminal)]))))
+                [blocks : (BlockMap Reg)])
+  : (BlockMap Reg)
+  (case (validate-block-map
+          (unvalidated-block-map-map
+            (block-map->unvalidated-block-map blocks)
+            (lambda ([index : Int] [b : (BasicBlock Reg)])
+              (case b
+                [(basic-block instructions terminal)
+                 (basic-block
+                   (filter
+                     (lambda ([i : (Instruction Reg)])
+                       (useful-move? i reg=?))
+                     instructions)
+                   terminal)]))))
+    [(left msg) (panic msg)]
+    [(right v) v]))
 
 (define (Reg) (useful-move? [i : (Instruction Reg)] [reg=? : (Reg Reg -> Boolean)]) : Boolean
   (case i

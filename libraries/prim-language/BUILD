@@ -68,6 +68,7 @@ yaspl_library(
     deps = [
         ":lowered-register-language",
         ":register-language",
+        "//libraries/data:either",
         "//libraries/data:dict",
         "//libraries/data:list",
         "//libraries/data:maybe",
@@ -236,6 +237,7 @@ yaspl_library(
         ":lowered-register-language",
         "//libraries/data:boolean",
         "//libraries/data:dict",
+        "//libraries/data:either",
         "//libraries/data:list",
         "//libraries/data:maybe",
         "//libraries/data:set",
