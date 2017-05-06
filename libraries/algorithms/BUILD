@@ -28,3 +28,15 @@ yaspl_test(
         "//libraries/data:maybe",
     ],
 )
+
+yaspl_library(
+    name = "find-chains",
+    srcs = ["find-chains.yaspl"],
+    deps = [
+        "//libraries/data:list",
+        "//libraries/data:maybe",
+        "//libraries/data:set",
+        "//libraries/data:tuples",
+        "//libraries/data:unique-dict",
+    ],
+)
