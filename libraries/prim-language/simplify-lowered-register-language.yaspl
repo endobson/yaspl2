@@ -35,6 +35,7 @@
       basic-block
       block-map->unvalidated-block-map
       block-map-blocks
+      block-map-predecessors
       cond-jump
       fallthrough
       function-definition
@@ -76,7 +77,12 @@
     #:values
       make-set
       set-add
+      set-count
       set-member?
+  }
+  set-multi-dict {
+    #:values
+      set-multi-dict-ref/empty
   }
 }
 
@@ -95,10 +101,11 @@
     name
     extras
     entry
-    (remove-unused-blocks
-      entry
-      (collapse-trivial-blocks
-        (remove-redundant-moves reg=? blocks)))))
+    (add-unambiguous-fallthrough
+      (remove-unused-blocks
+        entry
+        (collapse-trivial-blocks
+          (remove-redundant-moves reg=? blocks))))))
 
 ;; TODO support collapsing trivial fallthrough blocks
 (define (Reg) (collapse-trivial-blocks [blocks : (BlockMap Reg)])
@@ -214,3 +221,19 @@
     [(move r1 r2)
      (not (reg=? r1 r2))]
     [_ #t]))
+
+(define (Reg) (add-unambiguous-fallthrough [blocks : (BlockMap Reg)])
+  : (BlockMap Reg)
+  (case (validate-block-map
+          (unvalidated-block-map-map
+            (block-map->unvalidated-block-map blocks)
+            (lambda ([int : Int] [b : (BasicBlock Reg)]) : (BasicBlock Reg)
+              (case b
+                [(basic-block insts (jump target))
+                 (if (= 1 (set-count (set-multi-dict-ref/empty
+                                       (block-map-predecessors blocks) target)))
+                     (basic-block insts (fallthrough target))
+                     b)]
+                [_ b]))))
+    [(left msg) (panic msg)]
+    [(right v) v]))
