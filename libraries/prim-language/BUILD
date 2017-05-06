@@ -88,6 +88,7 @@ yaspl_library(
         "//libraries/data:maybe",
         "//libraries/data:set",
         "//libraries/data:set-multi-dict",
+        "//libraries/data:unique-dict",
     ],
 )
 
