@@ -220,3 +220,12 @@ yaspl_library(
         ":tuples",
     ],
 )
+
+yaspl_bootstrap_library(
+    name = "unique-dict",
+    srcs = ["unique-dict.yaspl"],
+    deps = [
+        ":dict",
+        ":maybe",
+    ],
+)
