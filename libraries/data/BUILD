@@ -160,6 +160,16 @@ yaspl_test(
 )
 
 yaspl_bootstrap_library(
+    name = "set-multi-dict",
+    srcs = ["set-multi-dict.yaspl"],
+    deps = [
+        ":dict",
+        ":maybe",
+        ":set",
+    ],
+)
+
+yaspl_bootstrap_library(
     name = "set",
     srcs = ["set.yaspl"],
     deps = [
