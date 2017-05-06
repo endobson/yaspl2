@@ -45,24 +45,6 @@ yaspl_test(
 )
 
 yaspl_library(
-    name = "live-variables",
-    srcs = ["live-variables.yaspl"],
-    deps = [
-        ":register-language",
-        "//libraries:graphviz",
-        "//libraries/data:bytes",
-        "//libraries/data:dict",
-        "//libraries/data:join-list",
-        "//libraries/data:list",
-        "//libraries/data:maybe",
-        "//libraries/data:numbers",
-        "//libraries/data:set",
-        "//libraries/data:tuples",
-        "//libraries/data:undirected-graph",
-    ],
-)
-
-yaspl_library(
     name = "lower-x86-64",
     srcs = ["lower-x86-64.yaspl"],
     deps = [
