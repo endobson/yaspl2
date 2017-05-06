@@ -50,10 +50,7 @@
     #:values
       make-set
       set->list
-      set-add
       set-add-all
-      set-count
-      set-remove
   }
   set-multi-dict {
     #:types
@@ -61,6 +58,9 @@
     #:values
       make-set-multi-dict
       set-multi-dict-add
+      set-multi-dict-empty?
+      set-multi-dict-ref/empty
+      set-multi-dict-remove
   }
 }
 (export
@@ -89,7 +89,7 @@
     (unvalidated-block-map
       [blocks : (Dict Int (BasicBlock Reg))]
       [predecessors : (SetMultiDict Int Int)]
-      [missing-nodes : (Set Int)]))
+      [missing-edges : (SetMultiDict Int Int)]))
 
 
   (define-type (Instruction Reg)
@@ -152,16 +152,16 @@
 
 (define (Reg) (validate-block-map [uv : (UnvalidatedBlockMap Reg)]) : (Either Bytes (BlockMap Reg))
   (match-define (unvalidated-block-map blocks pred missing) uv)
-  (if (= 0 (set-count missing))
+  (if (set-multi-dict-empty? missing)
       (right (block-map blocks pred))
       (left #"Some blocks are not missing")))
 
 (define (Reg) (block-map->unvalidated-block-map [bm : (BlockMap Reg)]) : (UnvalidatedBlockMap Reg)
   (match-define (block-map blocks pred) bm)
-  (unvalidated-block-map blocks pred (make-set =)))
+  (unvalidated-block-map blocks pred (make-set-multi-dict = =)))
 
 (define (Reg) (empty-unvalidated-block-map) : (UnvalidatedBlockMap Reg)
-  (unvalidated-block-map (make-dict =) (make-set-multi-dict = =) (make-set =)))
+  (unvalidated-block-map (make-dict =) (make-set-multi-dict = =) (make-set-multi-dict = =)))
 
 
 (define (Reg) (unvalidated-block-map-add-block
@@ -173,22 +173,26 @@
     [(just block) (panic #"Existing block")]
     [(nothing)
      (let ([next-blocks (set->list (terminal-next-blocks (basic-block-terminal block)))])
-       (unvalidated-block-map
-         (dict-add blocks index block)
-         (foldl
-           (lambda ([target : Int] [pred : (SetMultiDict Int Int)])
-             (set-multi-dict-add pred target index))
-           next-blocks
-           pred)
-         (set-remove
+       (let ([new-blocks (dict-add blocks index block)])
+         (unvalidated-block-map
+           new-blocks
            (foldl
-             (lambda ([target : Int] [missing : (Set Int)])
-               (if (dict-has-key? blocks target)
-                   missing
-                   (set-add missing target)))
+             (lambda ([target : Int] [pred : (SetMultiDict Int Int)])
+               (set-multi-dict-add pred target index))
              next-blocks
-             missing)
-           index)))]))
+             pred)
+
+           (foldl
+             (lambda ([target : Int] [missing : (SetMultiDict Int Int)])
+               (if (dict-has-key? new-blocks target)
+                   missing
+                   (set-multi-dict-add missing index target)))
+             next-blocks
+             (foldl
+               (lambda ([pred : Int] [missing : (SetMultiDict Int Int)])
+                 (set-multi-dict-remove missing pred index))
+               (set->list (set-multi-dict-ref/empty pred index))
+               missing)))))]))
 
 (define (Reg) (unvalidated-block-map-map
                 [uv : (UnvalidatedBlockMap Reg)]
