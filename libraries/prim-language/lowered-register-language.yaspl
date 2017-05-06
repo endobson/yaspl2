@@ -8,6 +8,7 @@
       dict-fold
       dict-has-key?
       dict-ref
+      dict-remove
       dict-value-map
       make-dict
   }
@@ -34,6 +35,7 @@
   }
   prim {
     #:types
+      Boolean
       Bytes
       Int
     #:values
@@ -194,6 +196,35 @@
                (set->list (set-multi-dict-ref/empty pred index))
                missing)))))]))
 
+(define (Reg) (unvalidated-block-map-remove-block
+                [uv : (UnvalidatedBlockMap Reg)]
+                [index : Int]) : (UnvalidatedBlockMap Reg)
+  (match-define (unvalidated-block-map blocks pred missing) uv)
+  (case (dict-ref blocks index)
+    [(nothing) (panic #"No existing block")]
+    [(just block)
+     (let ([next-blocks (set->list (terminal-next-blocks (basic-block-terminal block)))])
+       (let ([new-blocks (dict-remove blocks index)])
+         (let ([new-predecessors
+                (foldl
+                  (lambda ([target : Int] [pred : (SetMultiDict Int Int)])
+                    (set-multi-dict-remove pred target index))
+                  next-blocks
+                  pred)])
+         (unvalidated-block-map
+           new-blocks
+           new-predecessors
+           (foldl
+             (lambda ([pred : Int] [missing : (SetMultiDict Int Int)])
+               (set-multi-dict-add missing pred index))
+             (set->list (set-multi-dict-ref/empty new-predecessors index))
+             (foldl
+               (lambda ([target : Int] [missing : (SetMultiDict Int Int)])
+                 (set-multi-dict-remove missing index target))
+               next-blocks
+               missing))))))]))
+
+
 (define (Reg) (unvalidated-block-map-map
                 [uv : (UnvalidatedBlockMap Reg)]
                 [f : (Int (BasicBlock Reg) -> (BasicBlock Reg))]) : (UnvalidatedBlockMap Reg)
@@ -203,6 +234,20 @@
     (lambda ([index : Int] [block : (BasicBlock Reg)] [acc : (UnvalidatedBlockMap Reg)])
       (unvalidated-block-map-add-block acc index (f index block)))
     ((lambda () : (UnvalidatedBlockMap Reg) (empty-unvalidated-block-map)))))
+
+
+(define (Reg) (unvalidated-block-map-filter
+                [uv : (UnvalidatedBlockMap Reg)]
+                [f : (Int (BasicBlock Reg) -> Boolean)]) : (UnvalidatedBlockMap Reg)
+  (match-define (unvalidated-block-map blocks pred missing) uv)
+  (dict-fold
+    blocks
+    (lambda ([index : Int] [block : (BasicBlock Reg)] [acc : (UnvalidatedBlockMap Reg)])
+      (if (f index block)
+          acc
+          (unvalidated-block-map-remove-block acc index)))
+    uv))
+
 
 (define (Reg) (terminal-next-blocks [t : (Terminal Reg)]) : (Set Int)
   (set-add-all
