@@ -89,7 +89,7 @@
             bin-op-inst int-literal basic-block-terminal rename-registers/function-definition
             function-definition-name terminal-next-blocks empty-unvalidated-block-map block-map-blocks
             unvalidated-block-map-map unvalidated-block-map-add-block block-map->unvalidated-block-map
-            unvalidated-block-map-filter validate-block-map fallthrough block-map-block-chains
+            unvalidated-block-map-filter validate-block-map fall-through block-map-block-chains
             block-map-predecessors)
   #:patterns ())
 (types
@@ -106,13 +106,13 @@
     (block-map
       [blocks : (Dict Int (BasicBlock Reg))]
       [predecessors : (SetMultiDict Int Int)]
-      [fallthrough : (UniqueDict Int Int)]))
+      [fall-through : (UniqueDict Int Int)]))
 
   (define-type (UnvalidatedBlockMap Reg)
     (unvalidated-block-map
       [blocks : (Dict Int (BasicBlock Reg))]
       [predecessors : (SetMultiDict Int Int)]
-      [fallthrough : (UniqueDict Int Int)]
+      [fall-through : (UniqueDict Int Int)]
       [missing-edges : (SetMultiDict Int Int)]))
 
 
@@ -126,13 +126,13 @@
   (define-type (Terminal Reg)
     (return [reg : Reg])
     (jump [block : Int])
-    (fallthrough [block : Int])
+    (fall-through [block : Int])
     (cond-jump [reg : Reg] [true : Int] [false : Int])))
 
 (define (RegA RegB) (rename-registers/function-definition
                       [f : (FunctionDefinition RegA)]
                       [rename : (RegA -> RegB)]) : (FunctionDefinition RegB)
-  (match-define (function-definition name extras entry (block-map blocks pred fallthrough)) f)
+  (match-define (function-definition name extras entry (block-map blocks pred fall-through)) f)
   (function-definition
     name
     extras
@@ -142,7 +142,7 @@
         blocks
         (lambda ([b : (BasicBlock RegA)]) (rename-registers/block b rename)))
       pred
-      fallthrough)))
+      fall-through)))
 
 
 (define (RegA RegB) (rename-registers/block
@@ -175,20 +175,20 @@
      (return (rename r))]
     [(jump block)
      (jump block)]
-    [(fallthrough block)
-     (fallthrough block)]
+    [(fall-through block)
+     (fall-through block)]
     [(cond-jump reg true false)
      (cond-jump (rename reg) true false)]))
 
 (define (Reg) (validate-block-map [uv : (UnvalidatedBlockMap Reg)]) : (Either Bytes (BlockMap Reg))
-  (match-define (unvalidated-block-map blocks pred fallthrough missing) uv)
+  (match-define (unvalidated-block-map blocks pred fall-through missing) uv)
   (if (set-multi-dict-empty? missing)
-      (right (block-map blocks pred fallthrough))
+      (right (block-map blocks pred fall-through))
       (left #"Some blocks are not missing")))
 
 (define (Reg) (block-map->unvalidated-block-map [bm : (BlockMap Reg)]) : (UnvalidatedBlockMap Reg)
-  (match-define (block-map blocks pred fallthrough) bm)
-  (unvalidated-block-map blocks pred fallthrough (make-set-multi-dict = =)))
+  (match-define (block-map blocks pred fall-through) bm)
+  (unvalidated-block-map blocks pred fall-through (make-set-multi-dict = =)))
 
 (define (Reg) (empty-unvalidated-block-map) : (UnvalidatedBlockMap Reg)
   (unvalidated-block-map (make-dict =) (make-set-multi-dict = =) (make-unique-dict = =) (make-set-multi-dict = =)))
@@ -198,7 +198,7 @@
                 [uv : (UnvalidatedBlockMap Reg)]
                 [index : Int]
                 [block : (BasicBlock Reg)]) : (UnvalidatedBlockMap Reg)
-  (match-define (unvalidated-block-map blocks pred fallthrough missing) uv)
+  (match-define (unvalidated-block-map blocks pred fall-through missing) uv)
   (case (dict-ref blocks index)
     [(just block) (panic #"Existing block")]
     [(nothing)
@@ -211,10 +211,10 @@
                (set-multi-dict-add pred target index))
              next-blocks
              pred)
-           (case (terminal-maybe-fallthrough (basic-block-terminal block))
-             [(nothing) fallthrough]
+           (case (terminal-maybe-fall-through (basic-block-terminal block))
+             [(nothing) fall-through]
              [(just next-block)
-              (unique-dict-add fallthrough index next-block)])
+              (unique-dict-add fall-through index next-block)])
            (foldl
              (lambda ([target : Int] [missing : (SetMultiDict Int Int)])
                (if (dict-has-key? new-blocks target)
@@ -230,7 +230,7 @@
 (define (Reg) (unvalidated-block-map-remove-block
                 [uv : (UnvalidatedBlockMap Reg)]
                 [index : Int]) : (UnvalidatedBlockMap Reg)
-  (match-define (unvalidated-block-map blocks pred fallthrough missing) uv)
+  (match-define (unvalidated-block-map blocks pred fall-through missing) uv)
   (case (dict-ref blocks index)
     [(nothing) (panic #"No existing block")]
     [(just block)
@@ -245,7 +245,7 @@
          (unvalidated-block-map
            new-blocks
            new-predecessors
-           (unique-dict-remove fallthrough index)
+           (unique-dict-remove fall-through index)
            (foldl
              (lambda ([pred : Int] [missing : (SetMultiDict Int Int)])
                (set-multi-dict-add missing pred index))
@@ -281,8 +281,8 @@
     uv))
 
 (define (Reg) (block-map-block-chains [bm : (BlockMap Reg)]) : (List (List Int))
-  (match-define (block-map blocks _ fallthrough) bm)
-  (find-chains (dict-keys blocks) fallthrough))
+  (match-define (block-map blocks _ fall-through) bm)
+  (find-chains (dict-keys blocks) fall-through))
 
 (define (Reg) (terminal-next-blocks [t : (Terminal Reg)]) : (Set Int)
   (set-add-all
@@ -290,12 +290,12 @@
     (case t
       [(return _) (empty)]
       [(jump b) (varargs list b)]
-      [(fallthrough b) (varargs list b)]
+      [(fall-through b) (varargs list b)]
       [(cond-jump _ t f) (varargs list t f)])))
 
-(define (Reg) (terminal-maybe-fallthrough [t : (Terminal Reg)]) : (Maybe Int)
+(define (Reg) (terminal-maybe-fall-through [t : (Terminal Reg)]) : (Maybe Int)
   (case t
     [(return _) (nothing)]
     [(jump b) (nothing)]
-    [(fallthrough b) (just b)]
+    [(fall-through b) (just b)]
     [(cond-jump _ t f) (nothing)]))
