@@ -82,7 +82,11 @@ yaspl_library(
     deps = [
         ":prim-language",
         "//libraries/data:dict",
+        "//libraries/data:either",
         "//libraries/data:list",
+        "//libraries/data:maybe",
+        "//libraries/data:set",
+        "//libraries/data:set-multi-dict",
     ],
 )
 

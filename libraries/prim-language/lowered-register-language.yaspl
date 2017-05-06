@@ -4,29 +4,70 @@
     #:types
       Dict
     #:values
+      dict-add
+      dict-has-key?
+      dict-ref
       dict-value-map
+      make-dict
+  }
+  either {
+    #:types
+      Either
+    #:values
+      left
+      right
   }
   list {
     #:types
       List
     #:values
+      empty
+      foldl
+      list
       map
+  }
+  maybe {
+    #:patterns
+      just
+      nothing
   }
   prim {
     #:types
       Bytes
       Int
+    #:values
+      =
+      panic
   }
   prim-language {
     #:types
       BinOp
+  }
+  set {
+    #:types
+      Set
+    #:values
+      make-set
+      set->list
+      set-add
+      set-add-all
+      set-count
+      set-remove
+  }
+  set-multi-dict {
+    #:types
+      SetMultiDict
+    #:values
+      make-set-multi-dict
+      set-multi-dict-add
   }
 }
 (export
   #:types (FunctionDefinition BasicBlock Instruction Terminal)
   #:values (function-definition return jump cond-jump move basic-block
             bin-op-inst int-literal basic-block-terminal
-            rename-registers/function-definition function-definition-name)
+            rename-registers/function-definition function-definition-name
+            terminal-next-blocks)
   #:patterns ())
 (types
   (define-type (FunctionDefinition Reg)
@@ -37,6 +78,18 @@
       [blocks : (Dict Int (BasicBlock Reg))]))
   (define-type (BasicBlock Reg)
     (basic-block [instructions : (List (Instruction Reg))] [terminal : (Terminal Reg)]))
+
+  (define-type (BlockMap Reg)
+    (block-map
+      [blocks : (Dict Int (BasicBlock Reg))]
+      [predecessors : (SetMultiDict Int Int)]))
+
+  (define-type (UnvalidatedBlockMap Reg)
+    (unvalidated-block-map
+      [blocks : (Dict Int (BasicBlock Reg))]
+      [predecessors : (SetMultiDict Int Int)]
+      [missing-nodes : (Set Int)]))
+
 
   (define-type (Instruction Reg)
     (int-literal [output : Reg] [v : Int])
@@ -95,3 +148,51 @@
      (jump block)]
     [(cond-jump reg true false)
      (cond-jump (rename reg) true false)]))
+
+(define (Reg) (validate-block-map [uv : (UnvalidatedBlockMap Reg)]) : (Either Bytes (BlockMap Reg))
+  (match-define (unvalidated-block-map blocks pred missing) uv)
+  (if (= 0 (set-count missing))
+      (right (block-map blocks pred))
+      (left #"Some blocks are not missing")))
+
+(define (Reg) (block-map->unvalidated-block-map [bm : (BlockMap Reg)]) : (UnvalidatedBlockMap Reg)
+  (match-define (block-map blocks pred) bm)
+  (unvalidated-block-map blocks pred (make-set =)))
+
+(define (Reg) (empty-unvalidated-block-map) : (UnvalidatedBlockMap Reg)
+  (unvalidated-block-map (make-dict =) (make-set-multi-dict = =) (make-set =)))
+
+
+(define (Reg) (unvalidated-block-map-add-block
+                [uv : (UnvalidatedBlockMap Reg)]
+                [index : Int]
+                [block : (BasicBlock Reg)]) : (UnvalidatedBlockMap Reg)
+  (match-define (unvalidated-block-map blocks pred missing) uv)
+  (case (dict-ref blocks index)
+    [(just block) (panic #"Existing block")]
+    [(nothing)
+     (let ([next-blocks (set->list (terminal-next-blocks (basic-block-terminal block)))])
+       (unvalidated-block-map
+         (dict-add blocks index block)
+         (foldl
+           (lambda ([target : Int] [pred : (SetMultiDict Int Int)])
+             (set-multi-dict-add pred target index))
+           next-blocks
+           pred)
+         (set-remove
+           (foldl
+             (lambda ([target : Int] [missing : (Set Int)])
+               (if (dict-has-key? blocks target)
+                   missing
+                   (set-add missing target)))
+             next-blocks
+             missing)
+           index)))]))
+
+(define (Reg) (terminal-next-blocks [t : (Terminal Reg)]) : (Set Int)
+  (set-add-all
+    (make-set =)
+    (case t
+      [(return _) (empty)]
+      [(jump b) (varargs list b)]
+      [(cond-jump _ t f) (varargs list t f)])))
