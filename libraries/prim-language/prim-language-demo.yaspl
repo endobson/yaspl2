@@ -126,7 +126,11 @@
   }
   simplify-lowered-register-language {
     #:values
-      simplify-function-definition
+      [simplify-function-definition l:simplify-function-definition]
+  }
+  simplify-register-language {
+    #:values
+      [simplify-function-definition r:simplify-function-definition]
   }
   x86-64-stack-machine {
     #:types
@@ -206,72 +210,73 @@
                ; (write-line name stdout)
                (for-each
                  (lambda ([f : r:FunctionDefinition])
-                   (let ([lowered (lower-function f)])
-                     (let ([live (live-variables lowered reg=?)])
-                       (if #t
-                         (begin
-                           (write-all-bytes (print-function f) stdout)
-                           (newline stdout)
-                           (write-all-bytes (l:print-function lowered reg->bytes) stdout)
-                           (newline stdout)
-                           (write-all-bytes (print-blocks live reg->bytes) stdout)
-                           (newline stdout)
-                           (if #t
-                               (let ([live-outs (blocks->live-out-states live)])
-                                 (case (color-graph (initial-state live-outs))
-                                   [(left v)
-                                    (begin
-                                      (write-all-bytes #"Couldn't color vertex: " stdout)
-                                      (write-all-bytes (var->bytes v) stdout)
-                                      (newline stdout))]
-                                   [(right assignments)
-                                    (begin
-                                      (write-line #"Colored graph" stdout)
-                                      (write-line
-                                        (bytes-append
-                                          (interleave
-                                            (dict-map
-                                              assignments
-                                              (lambda ([var : Var] [reg : X8664Register])
-                                                (bytes-append
-                                                  (varargs list
-                                                    (var->bytes var)
-                                                    #" -> "
-                                                    (x86-64-register->bytes reg)))))
-                                            #"\n"))
-                                        stdout)
-                                      (let ([opt-f
-                                             (simplify-function-definition
-                                               (rename-registers/function-definition
-                                                 lowered
-                                                 (lambda ([r : Reg]) : X8664Register
-                                                   (case r
-                                                     [(fixed-reg r) r]
-                                                     [(temporary-reg v)
-                                                      (case (dict-ref assignments v)
-                                                        [(nothing) (panic #"No assignment")]
-                                                        [(just r) r])])))
-                                               x86-64-register=?)])
-                                        (begin
-                                          (write-line (l:print-function opt-f x86-64-register->bytes)
-                                                      stdout)
-                                          (let ([fragment (function-definition->assembly-fragment
-                                                            opt-f)])
-                                            (case (write-mach-o-library/fragments
-                                                    out-file-name
+                   (let ([f (r:simplify-function-definition f)])
+                     (let ([lowered (lower-function f)])
+                       (let ([live (live-variables lowered reg=?)])
+                         (if #t
+                           (begin
+                             (write-all-bytes (print-function f) stdout)
+                             (newline stdout)
+                             (write-all-bytes (l:print-function lowered reg->bytes) stdout)
+                             (newline stdout)
+                             (write-all-bytes (print-blocks live reg->bytes) stdout)
+                             (newline stdout)
+                             (if #t
+                                 (let ([live-outs (blocks->live-out-states live)])
+                                   (case (color-graph (initial-state live-outs))
+                                     [(left v)
+                                      (begin
+                                        (write-all-bytes #"Couldn't color vertex: " stdout)
+                                        (write-all-bytes (var->bytes v) stdout)
+                                        (newline stdout))]
+                                     [(right assignments)
+                                      (begin
+                                        (write-line #"Colored graph" stdout)
+                                        (write-line
+                                          (bytes-append
+                                            (interleave
+                                              (dict-map
+                                                assignments
+                                                (lambda ([var : Var] [reg : X8664Register])
+                                                  (bytes-append
                                                     (varargs list
-                                                      (start-function-fragment
-                                                        (function-definition-name opt-f))
-                                                      fragment))
-                                              [(left v)
-                                               (begin
-                                                 (write-line v stderr)
-                                                 (void))]
-                                              [(right _)
-                                               (void)])))))]))
-                               (void)))
-                         (begin
-                           (write-all-bytes (print-graph live reg=? reg->bytes (all-fixed-registers)) stdout)
-                           (newline stdout))))))
+                                                      (var->bytes var)
+                                                      #" -> "
+                                                      (x86-64-register->bytes reg)))))
+                                              #"\n"))
+                                          stdout)
+                                        (let ([opt-f
+                                               (l:simplify-function-definition
+                                                 (rename-registers/function-definition
+                                                   lowered
+                                                   (lambda ([r : Reg]) : X8664Register
+                                                     (case r
+                                                       [(fixed-reg r) r]
+                                                       [(temporary-reg v)
+                                                        (case (dict-ref assignments v)
+                                                          [(nothing) (panic #"No assignment")]
+                                                          [(just r) r])])))
+                                                 x86-64-register=?)])
+                                          (begin
+                                            (write-line (l:print-function opt-f x86-64-register->bytes)
+                                                        stdout)
+                                            (let ([fragment (function-definition->assembly-fragment
+                                                              opt-f)])
+                                              (case (write-mach-o-library/fragments
+                                                      out-file-name
+                                                      (varargs list
+                                                        (start-function-fragment
+                                                          (function-definition-name opt-f))
+                                                        fragment))
+                                                [(left v)
+                                                 (begin
+                                                   (write-line v stderr)
+                                                   (void))]
+                                                [(right _)
+                                                 (void)])))))]))
+                                 (void)))
+                           (begin
+                             (write-all-bytes (print-graph live reg=? reg->bytes (all-fixed-registers)) stdout)
+                             (newline stdout)))))))
                  (map convert-function functions))
                0)])]))]))

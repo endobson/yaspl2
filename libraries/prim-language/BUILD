@@ -134,6 +134,7 @@ yaspl_library(
         ":print-register-language",
         ":register-language",
         ":simplify-lowered-register-language",
+        ":simplify-register-language",
         "//libraries:io",
         "//libraries:mach-o-writer2_lib",
         "//libraries:sexp-parser",
@@ -226,5 +227,17 @@ yaspl_library(
         "//libraries/data:maybe",
         "//libraries/data:set",
         "//libraries/data:set-multi-dict",
+    ],
+)
+
+yaspl_library(
+    name = "simplify-register-language",
+    srcs = ["simplify-register-language.yaspl"],
+    deps = [
+        ":register-language",
+        ":prim-language",
+        "//libraries/data:dict",
+        "//libraries/data:list",
+        "//libraries/data:maybe",
     ],
 )

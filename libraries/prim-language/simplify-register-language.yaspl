@@ -1,0 +1,84 @@
+#:module simplify-register-language
+#:import {
+  dict {
+    #:types
+      Dict
+    #:values
+      dict-value-map
+  }
+  list {
+    #:values
+      find/maybe
+  }
+  maybe {
+    #:types
+      Maybe
+    #:values
+      just
+      nothing
+    #:patterns
+      just
+      nothing
+  }
+  prim {
+    #:types
+      Int
+  }
+  prim-language {
+    #:patterns
+      comparison-bin-op
+  }
+  register-language {
+    #:types
+      BasicBlock
+      Condition
+      FunctionDefinition
+      Instruction
+    #:values
+      basic-block
+      comparison-condition
+      cond-jump
+      function-definition
+      var=?
+    #:patterns
+      basic-block
+      bin-op-inst
+      cond-jump
+      function-definition
+      var-condition
+  }
+}
+
+(export
+  #:types ()
+  #:values (simplify-function-definition)
+  #:patterns ())
+(types)
+
+(define (Reg) (simplify-function-definition [f : FunctionDefinition]) : FunctionDefinition
+  (match-define (function-definition name entry-block blocks next-var-number next-block-number) f)
+  (match-define new-blocks
+    (optimize-conditional-jumps blocks))
+  (function-definition name entry-block new-blocks next-var-number next-block-number))
+
+(define (optimize-conditional-jumps [blocks : (Dict Int BasicBlock)]) : (Dict Int BasicBlock)
+  (dict-value-map blocks optimize-conditional-jumps/block))
+
+;; TODO Use better flow analysis
+(define (optimize-conditional-jumps/block [b : BasicBlock]) : BasicBlock
+  (match-define (basic-block args instructions terminal) b)
+  (case terminal
+    [(cond-jump (var-condition v) t t-args f f-args)
+     (case (find/maybe
+             (lambda ([i : Instruction]) : (Maybe Condition)
+               (case i
+                 [(bin-op-inst out (comparison-bin-op c) left right)
+                  (if (var=? out v)
+                      (just (comparison-condition c left right))
+                      (nothing))]
+                 [_ (nothing)]))
+             instructions)
+       [(nothing) b]
+       [(just c)
+        (basic-block args instructions (cond-jump c t t-args f f-args))])]
+    [_ b]))
