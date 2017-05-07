@@ -32,8 +32,23 @@
       Int
   }
   prim-language {
+    #:types
+      ComparisonOp
+    #:values
+      equal
+      greater-than
+      greater-than-or-equal
+      less-than
+      less-than-or-equal
+      not-equal
     #:patterns
       comparison-bin-op
+      equal
+      greater-than
+      greater-than-or-equal
+      less-than
+      less-than-or-equal
+      not-equal
   }
   register-language {
     #:types
@@ -52,10 +67,12 @@
     #:patterns
       basic-block
       bin-op-inst
+      comparison-condition
       cond-jump
       function-definition
       int-literal
       jump
+      negated-var-condition
       return
       var-condition
   }
@@ -67,6 +84,14 @@
       set-add
       set-add-all
       set-member?
+  }
+  tuples {
+    #:types
+      Tuple2
+    #:values
+      tuple2
+    #:patterns
+      tuple2
   }
 }
 
@@ -90,20 +115,35 @@
 (define (optimize-conditional-jumps/block [b : BasicBlock]) : BasicBlock
   (match-define (basic-block args instructions terminal) b)
   (case terminal
-    [(cond-jump (var-condition v) t t-args f f-args)
-     (case (find/maybe
-             (lambda ([i : Instruction]) : (Maybe Condition)
-               (case i
-                 [(bin-op-inst out (comparison-bin-op c) left right)
-                  (if (var=? out v)
-                      (just (comparison-condition c left right))
-                      (nothing))]
-                 [_ (nothing)]))
-             instructions)
+    [(cond-jump c t t-args f f-args)
+     (case (case c
+             [(var-condition v) (just (tuple2 v #f))]
+             [(negated-var-condition v) (just (tuple2 v #t))]
+             [_ ((lambda () : (Maybe (Tuple2 Var Boolean)) (nothing)))])
        [(nothing) b]
-       [(just c)
-        (basic-block args instructions (cond-jump c t t-args f f-args))])]
+       [(just (tuple2 v negated?))
+        (case (find/maybe
+                (lambda ([i : Instruction]) : (Maybe Condition)
+                  (case i
+                    [(bin-op-inst out (comparison-bin-op c) left right)
+                     (if (var=? out v)
+                         (just (comparison-condition (if negated? (flip-comparison c) c) left right))
+                         (nothing))]
+                    [_ (nothing)]))
+                instructions)
+          [(nothing) b]
+          [(just c)
+           (basic-block args instructions (cond-jump c t t-args f f-args))])])]
     [_ b]))
+
+(define (flip-comparison [c : ComparisonOp]) : ComparisonOp
+  (case c
+    [(less-than) (greater-than-or-equal)]
+    [(greater-than) (less-than-or-equal)]
+    [(less-than-or-equal) (greater-than)]
+    [(greater-than-or-equal) (less-than)]
+    [(equal) (not-equal)]
+    [(not-equal) (equal)]))
 
 (define (remove-dead-instructions [blocks : (Dict Int BasicBlock)]) : (Dict Int BasicBlock)
   (dict-value-map blocks remove-dead-instructions/block))
@@ -134,8 +174,13 @@
 (define (terminal-used-vars [t : Terminal]) : (List Var)
   (case t
     [(return var) (varargs list var)]
-    [(cond-jump _ _ t-args _ f-args)
-     (append t-args f-args)]
+    [(cond-jump con _ t-args _ f-args)
+     (append
+       (case con
+         [(var-condition var) (varargs list var)]
+         [(negated-var-condition var) (varargs list var)]
+         [(comparison-condition op v1 v2) (varargs list v1 v2)])
+       (append t-args f-args))]
     [(jump _ args) args]))
 
 (define (pure-instruction? [i : Instruction]) : Boolean
