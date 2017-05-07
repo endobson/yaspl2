@@ -234,10 +234,11 @@ yaspl_library(
     name = "simplify-register-language",
     srcs = ["simplify-register-language.yaspl"],
     deps = [
-        ":register-language",
         ":prim-language",
+        ":register-language",
         "//libraries/data:dict",
         "//libraries/data:list",
         "//libraries/data:maybe",
+        "//libraries/data:set",
     ],
 )

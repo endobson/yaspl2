@@ -7,8 +7,14 @@
       dict-value-map
   }
   list {
+    #:types
+      List
     #:values
+      append
+      filter
       find/maybe
+      foldl
+      list
   }
   maybe {
     #:types
@@ -22,6 +28,7 @@
   }
   prim {
     #:types
+      Boolean
       Int
   }
   prim-language {
@@ -34,6 +41,8 @@
       Condition
       FunctionDefinition
       Instruction
+      Terminal
+      Var
     #:values
       basic-block
       comparison-condition
@@ -45,7 +54,19 @@
       bin-op-inst
       cond-jump
       function-definition
+      int-literal
+      jump
+      return
       var-condition
+  }
+  set {
+    #:types
+      Set
+    #:values
+      make-set
+      set-add
+      set-add-all
+      set-member?
   }
 }
 
@@ -58,7 +79,8 @@
 (define (Reg) (simplify-function-definition [f : FunctionDefinition]) : FunctionDefinition
   (match-define (function-definition name entry-block blocks next-var-number next-block-number) f)
   (match-define new-blocks
-    (optimize-conditional-jumps blocks))
+    (remove-dead-instructions
+      (optimize-conditional-jumps blocks)))
   (function-definition name entry-block new-blocks next-var-number next-block-number))
 
 (define (optimize-conditional-jumps [blocks : (Dict Int BasicBlock)]) : (Dict Int BasicBlock)
@@ -82,3 +104,46 @@
        [(just c)
         (basic-block args instructions (cond-jump c t t-args f f-args))])]
     [_ b]))
+
+(define (remove-dead-instructions [blocks : (Dict Int BasicBlock)]) : (Dict Int BasicBlock)
+  (dict-value-map blocks remove-dead-instructions/block))
+
+(define (remove-dead-instructions/block [b : BasicBlock]) : BasicBlock
+  (match-define (basic-block args instructions terminal) b)
+  (match-define used-variables
+    (set-add-all
+      (foldl
+        (lambda ([instruction : Instruction] [acc : (Set Var)])
+          (case instruction
+            [(int-literal _ _) acc]
+            [(bin-op-inst _ _ left right)
+             (set-add (set-add acc left) right)]))
+        instructions
+        (make-set var=?))
+      (terminal-used-vars terminal)))
+  (basic-block
+    args
+    (filter
+      (lambda ([i : Instruction])
+        (if (pure-instruction? i)
+            (set-member? used-variables (instruction-output-var i))
+            #t))
+      instructions)
+    terminal))
+
+(define (terminal-used-vars [t : Terminal]) : (List Var)
+  (case t
+    [(return var) (varargs list var)]
+    [(cond-jump _ _ t-args _ f-args)
+     (append t-args f-args)]
+    [(jump _ args) args]))
+
+(define (pure-instruction? [i : Instruction]) : Boolean
+  (case i
+    [(int-literal _ _) #t]
+    [(bin-op-inst _ _ _ _) #t]))
+
+(define (instruction-output-var [i : Instruction]) : Var
+  (case i
+    [(int-literal v _) v]
+    [(bin-op-inst v _ _ _) v]))
