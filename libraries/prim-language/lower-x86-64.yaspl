@@ -49,6 +49,7 @@
       [negated-reg-condition l:negated-reg-condition]
       [reg-condition l:reg-condition]
       [return l:return]
+      [syscall-inst l:syscall-inst]
       [unvalidated-block-map-add-block l:unvalidated-block-map-add-block]
       [validate-block-map l:validate-block-map]
   }
@@ -86,6 +87,7 @@
       [jump r:jump]
       [negated-var-condition r:negated-var-condition]
       [return r:return]
+      [syscall-inst r:syscall-inst]
       [var-condition r:var-condition]
   }
   set {
@@ -120,7 +122,9 @@
     (rdx)
     (rcx)
     (r8)
-    (r9))
+    (r9)
+    (r10)
+    (r11))
   (define-type Reg
     (fixed-reg [r : X8664Register])
     (temporary-reg [r : r:Var])))
@@ -139,7 +143,9 @@
       (rdi)
       (rsi)
       (r8)
-      (r9))))
+      (r9)
+      (r10)
+      (r11))))
 
 (define (all-fixed-registers) : (Set Reg)
   (set-add-all
@@ -153,7 +159,9 @@
         (rdi)
         (rsi)
         (r8)
-        (r9)))))
+        (r9)
+        (r10)
+        (r11)))))
 
 (define (reg->bytes [reg : Reg]) : Bytes
   (case reg
@@ -164,6 +172,8 @@
     [(fixed-reg (rsi)) #"_rsi"]
     [(fixed-reg (r8)) #"_r8"]
     [(fixed-reg (r9)) #"_r9"]
+    [(fixed-reg (r10)) #"_r10"]
+    [(fixed-reg (r11)) #"_r11"]
     [(temporary-reg v) (var->bytes v)]))
 
 
@@ -175,7 +185,9 @@
     [(rdi) #"rdi"]
     [(rsi) #"rsi"]
     [(r8) #"r8"]
-    [(r9) #"r9"]))
+    [(r9) #"r9"]
+    [(r10) #"r10"]
+    [(r11) #"r11"]))
 
 
 (define (x86-64-register=? [reg1 : X8664Register] [reg2 : X8664Register]) : Boolean
@@ -187,6 +199,8 @@
     [(tuple2 (rsi) (rsi)) #t]
     [(tuple2 (r8) (r8)) #t]
     [(tuple2 (r9) (r9)) #t]
+    [(tuple2 (r10) (r10)) #t]
+    [(tuple2 (r11) (r11)) #t]
     [(tuple2 _ _) #f]))
 
 (define (reg=? [reg1 : Reg] [reg2 : Reg]) : Boolean
@@ -342,4 +356,25 @@
     [(r:bin-op-inst output op l r)
      (varargs list
        (l:move (temporary-reg output) (temporary-reg l))
-       (l:bin-op-inst (temporary-reg output) op (temporary-reg r)))]))
+       (l:bin-op-inst (temporary-reg output) op (temporary-reg r)))]
+    [(r:syscall-inst output num args)
+     (case (zip/left args (varargs list (rdi) (rsi) (rdx) (r10) (r8) (r9)))
+       [(nothing) (panic #"Too long syscall args")]
+       [(just linked-args)
+        (append
+          (map
+            (lambda ([t : (Tuple2 r:Var X8664Register)])
+              (case t
+                [(tuple2 v reg)
+                 (l:move (fixed-reg reg) (temporary-reg v))]))
+            linked-args)
+          (varargs list
+            (l:syscall-inst
+              (fixed-reg (rax))
+              num
+              (map (lambda ([t : (Tuple2 r:Var X8664Register)])
+                     (case t
+                       [(tuple2 v reg)
+                        (fixed-reg reg)]))
+                   linked-args))
+            (l:move (temporary-reg output) (fixed-reg (rax)))))])]))
