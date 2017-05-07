@@ -6,7 +6,6 @@
   }
   dict {
     #:values
-      dict-has-key?
       dict-ref
   }
   join-list {
@@ -49,6 +48,7 @@
     #:values
       block-map-block-chains
       block-map-blocks
+      block-map-entry-block
     #:patterns
       basic-block
       bin-op-inst
@@ -152,32 +152,31 @@
   #:patterns ())
 (types)
 
+;; TODO add check to ensure this has 0 extra temporaries
 (define (function-definition->assembly-fragment
           [f : (FunctionDefinition X8664Register)]) : AssemblyFragment
-  (match-define (function-definition name _ entry-block blocks) f)
+  (match-define (function-definition name _ blocks) f)
   (match-define block-prefix (bytes-append (varargs list name #"_")))
   (match-define block-chains (block-map-block-chains blocks))
-  (if (dict-has-key? (block-map-blocks blocks) entry-block)
-      (function-fragment name
+  (function-fragment name
+    (cons
+      (a:section
         (cons
+          (a:basic-block
+            name
+            (single-jl (jmp (make-block-label block-prefix (block-map-entry-block blocks)))))
+          (empty)))
+      (map
+        (lambda ([chain : (List Int)])
           (a:section
-            (cons
-              (a:basic-block
-                name
-                (single-jl (jmp (make-block-label block-prefix entry-block))))
-              (empty)))
-          (map
-            (lambda ([chain : (List Int)])
-              (a:section
-                (map
-                  (lambda ([block-num : Int]) : a:BasicBlock
-                    (case (dict-ref (block-map-blocks blocks) block-num)
-                      [(nothing) (panic #"No such block")]
-                      [(just b)
-                       (convert-block block-prefix block-num b)]))
-                  chain)))
-            block-chains)))
-      (panic #"No entry block")))
+            (map
+              (lambda ([block-num : Int]) : a:BasicBlock
+                (case (dict-ref (block-map-blocks blocks) block-num)
+                  [(nothing) (panic #"No such block")]
+                  [(just b)
+                   (convert-block block-prefix block-num b)]))
+              chain)))
+        block-chains))))
 
 (define (convert-block [block-prefix : Bytes] [block-num : Int] [b : (BasicBlock X8664Register)]) : a:BasicBlock
   (match-define (basic-block instructions terminal) b)
