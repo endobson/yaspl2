@@ -107,6 +107,7 @@
       make-set
       set->list
       set-add
+      set-add-all
       set-count
       set-difference
       set-remove
@@ -137,11 +138,11 @@
                  [terminal-live-in : (Set Reg)]))
   (define-type (PointState Reg)
     (point-state [live-in : (Set Reg)]
-                 [defined : Reg]
+                 [defined : (Set Reg)]
                  [move-source : (Maybe Reg)]))
   (define-type (LiveOutState Reg)
     (live-out-state [live-out : (Set Reg)]
-                    [defined : Reg]
+                    [defined : (Set Reg)]
                     [move-source : (Maybe Reg)])))
 
 (define (Reg) (live-out-state->bytes [los : (LiveOutState Reg)] [reg->bytes : (Reg -> Bytes)]) : Bytes
@@ -149,7 +150,7 @@
   (bytes-append
     (jl->list
       (varargs append-jl*
-        (single-jl (reg->bytes defined))
+        (list->jl (interleave (map reg->bytes (set->list defined)) #", "))
         (case move-source
           [(nothing) (single-jl #" (")]
           [(just reg) (varargs join-list #" <- " (reg->bytes reg) #" (")])
@@ -215,7 +216,7 @@
               (single-jl #"def: ")]
              [(just _)
               (single-jl #"mov: ")])
-           (single-jl (reg->bytes def))
+           (list->jl (interleave (map reg->bytes (set->list def)) #", "))
            (single-jl #" live: ")
            (print-live-set live)
            (single-jl #"\n"))])))
@@ -294,7 +295,7 @@
   (case rev-instructions
     [(empty) acc-instructions]
     [(cons (point-state live-in def move) rev-instructions)
-     (let ([live-in (set-union live-in (set-remove live-out def))])
+     (let ([live-in (set-union live-in (set-difference live-out def))])
        (propagate-live-variables/instructions
          rev-instructions
          (cons
@@ -321,13 +322,16 @@
                 [reg=? : (Reg Reg -> Boolean)]) : (PointState Reg)
   (case i
     [(int-literal output _)
-     (point-state (make-set reg=?) output (nothing))]
+     (point-state (make-set reg=?) (set-add (make-set reg=?) output) (nothing))]
     [(move dest src)
-     (point-state (set-add (make-set reg=?) src) dest (just src))]
+     (point-state (set-add (make-set reg=?) src) (set-add (make-set reg=?) dest) (just src))]
     [(bin-op-inst output _ input)
-     (point-state (set-add (set-add (make-set reg=?) input) output) output (nothing))]
-    [(syscall-inst output _ input)
-     (panic #"Cannot compute live variables of syscalls yet")]))
+     (point-state (set-add (set-add (make-set reg=?) input) output)
+                  (set-add (make-set reg=?) output) (nothing))]
+    [(syscall-inst output _ input conflicts)
+     (point-state (set-add-all (make-set reg=?) input)
+                  (set-add (set-add-all (make-set reg=?) conflicts) output)
+                  (nothing))]))
 
 (define (Reg) (initial-live-in/terminal [t : (Terminal Reg)] [reg=? : (Reg Reg -> Boolean)]) : (Set Reg)
   (case t
@@ -375,18 +379,27 @@
                 [s : (LiveOutState Reg)]
                 [g : (Graph Reg VertexData EdgeData)]) : (Graph Reg VertexData EdgeData)
   (match-define (live-out-state live def move) s)
+  (match-define def-list (set->list def))
   (case move
     [(nothing)
      (foldl
        (lambda ([r : Reg] [g : (Graph Reg VertexData EdgeData)])
-         (graph-add-edge-if-absent g def r (edge-data #"solid")))
-       (set->list (set-remove live def))
+         (foldl
+           (lambda ([def-reg : Reg] [g : (Graph Reg VertexData EdgeData)])
+             (graph-add-edge-if-absent g def-reg r (edge-data #"solid")))
+           def-list
+           g))
+       (set->list (set-difference live def))
        g)]
     [(just v)
      (foldl
        (lambda ([r : Reg] [g : (Graph Reg VertexData EdgeData)])
-         (graph-add-edge-if-absent g def r (edge-data #"solid")))
-       (set->list (set-remove (set-remove live def) v))
+         (foldl
+           (lambda ([def-reg : Reg] [g : (Graph Reg VertexData EdgeData)])
+             (graph-add-edge-if-absent g def-reg r (edge-data #"solid")))
+           def-list
+           g))
+       (set->list (set-remove (set-difference live def) v))
        g)]))
 
 (define (Reg) (add-move-edges-to-graph/live-out-state
@@ -395,7 +408,11 @@
   (match-define (live-out-state live def move) s)
   (case move
     [(just v)
-     (graph-add-edge-if-absent g def v (edge-data #"dashed"))]
+     (foldl
+       (lambda ([def-reg : Reg] [g : (Graph Reg VertexData EdgeData)])
+         (graph-add-edge-if-absent g def-reg v (edge-data #"dashed")))
+       (set->list def)
+       g)]
     [_ g]))
 
 

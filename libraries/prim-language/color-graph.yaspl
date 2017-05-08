@@ -172,47 +172,52 @@
   (foldl
     (lambda ([l : (LiveOutState Reg)] [acc : (Graph Var Void EdgeData)])
       (case l
-        [(live-out-state out-regs (fixed-reg _) move-source)
-         acc]
-        [(live-out-state out-regs (temporary-reg reg) move-source)
-         (match-define out-regs
-           (filter-map
-             (lambda ([r : Reg]) : (Maybe Var)
-               (case r
-                 [(fixed-reg _) (nothing)]
-                 [(temporary-reg r)
-                  (if (var=? r reg)
-                      (nothing)
-                      (just r))]))
-             (set->list out-regs)))
-         (match-define acc (graph-add-vertex-if-absent acc reg (void)))
-         (match-define acc
-           (foldl
-             (lambda ([v : Var] [acc : (Graph Var Void EdgeData)]) : (Graph Var Void EdgeData)
-               (case
-                 (graph-update-edge
-                   (graph-add-vertex-if-absent acc v (void))
-                   v reg
-                   (lambda ([e : EdgeData]) (interference-edge))
-                   (interference-edge))
-                 [(nothing) (panic #"Bad graph")]
-                 [(just g) g]))
-             out-regs
-             acc))
-         (match-define acc
-           (case move-source
-             [(nothing) acc]
-             [(just (fixed-reg _)) acc]
-             [(just (temporary-reg v))
-              (case
-                (graph-update-edge
-                  (graph-add-vertex-if-absent acc v (void))
-                  v reg
-                  (lambda ([e : EdgeData]) e)
-                  (move-edge))
-                [(nothing) ((lambda () : (Graph Var Void EdgeData) (panic #"Bad graph")))]
-                [(just g) g])]))
-         acc]))
+        [(live-out-state out-regs def-regs move-source)
+         (foldl
+           (lambda ([def-reg : Reg] [acc : (Graph Var Void EdgeData)])
+             (case def-reg
+               [(fixed-reg _) acc]
+               [(temporary-reg reg)
+                (match-define out-regs
+                  (filter-map
+                    (lambda ([r : Reg]) : (Maybe Var)
+                      (case r
+                        [(fixed-reg _) (nothing)]
+                        [(temporary-reg r)
+                         (if (var=? r reg)
+                             (nothing)
+                             (just r))]))
+                    (set->list out-regs)))
+                (match-define acc (graph-add-vertex-if-absent acc reg (void)))
+                (match-define acc
+                  (foldl
+                    (lambda ([v : Var] [acc : (Graph Var Void EdgeData)]) : (Graph Var Void EdgeData)
+                      (case
+                        (graph-update-edge
+                          (graph-add-vertex-if-absent acc v (void))
+                          v reg
+                          (lambda ([e : EdgeData]) (interference-edge))
+                          (interference-edge))
+                        [(nothing) (panic #"Bad graph")]
+                        [(just g) g]))
+                    out-regs
+                    acc))
+                (match-define acc
+                  (case move-source
+                    [(nothing) acc]
+                    [(just (fixed-reg _)) acc]
+                    [(just (temporary-reg v))
+                     (case
+                       (graph-update-edge
+                         (graph-add-vertex-if-absent acc v (void))
+                         v reg
+                         (lambda ([e : EdgeData]) e)
+                         (move-edge))
+                       [(nothing) ((lambda () : (Graph Var Void EdgeData) (panic #"Bad graph")))]
+                       [(just g) g])]))
+                acc]))
+           (set->list def-regs)
+           acc)]))
     live-outs
     ((lambda () : (Graph Var Void EdgeData) (empty-graph var=?)))))
 
@@ -221,37 +226,41 @@
   (foldl
     (lambda ([l : (LiveOutState Reg)] [acc : (Dict Var (Set X8664Register))])
       (case l
-        [(live-out-state out-regs defined _)
-         (case defined
-           [(fixed-reg f-reg)
-            (foldl
-              (lambda ([r : Reg] [acc : (Dict Var (Set X8664Register))])
-                (case r
-                  [(fixed-reg _) acc]
-                  [(temporary-reg r)
-                   (dict-update
-                     acc
-                     r
-                     (lambda ([s : (Set X8664Register)]) (set-add s f-reg))
-                     (make-set x86-64-register=?))]))
-              (set->list out-regs)
-              acc)]
-           [(temporary-reg t-reg)
-            (foldl
-              (lambda ([r : Reg] [acc : (Dict Var (Set X8664Register))])
-                (case r
-                  [(temporary-reg _) acc]
-                  [(fixed-reg r)
-                   (dict-update-existing
-                     acc
-                     t-reg
-                     (lambda ([s : (Set X8664Register)]) (set-add s r)))]))
-              (set->list out-regs)
-              (dict-update
-                acc
-                t-reg
-                (lambda ([s : (Set X8664Register)]) s)
-                (make-set x86-64-register=?)))])]))
+        [(live-out-state out-regs defined-regs _)
+         (foldl
+           (lambda ([defined : Reg] [acc : (Dict Var (Set X8664Register))])
+             (case defined
+               [(fixed-reg f-reg)
+                (foldl
+                  (lambda ([r : Reg] [acc : (Dict Var (Set X8664Register))])
+                    (case r
+                      [(fixed-reg _) acc]
+                      [(temporary-reg r)
+                       (dict-update
+                         acc
+                         r
+                         (lambda ([s : (Set X8664Register)]) (set-add s f-reg))
+                         (make-set x86-64-register=?))]))
+                  (set->list out-regs)
+                  acc)]
+               [(temporary-reg t-reg)
+                (foldl
+                  (lambda ([r : Reg] [acc : (Dict Var (Set X8664Register))])
+                    (case r
+                      [(temporary-reg _) acc]
+                      [(fixed-reg r)
+                       (dict-update-existing
+                         acc
+                         t-reg
+                         (lambda ([s : (Set X8664Register)]) (set-add s r)))]))
+                  (set->list out-regs)
+                  (dict-update
+                    acc
+                    t-reg
+                    (lambda ([s : (Set X8664Register)]) s)
+                    (make-set x86-64-register=?)))]))
+           (set->list defined-regs)
+           acc)]))
     live-outs
     ((lambda () : (Dict Var (Set X8664Register)) (make-dict var=?)))))
 
