@@ -278,3 +278,16 @@ yaspl_library(
         "//libraries/data:tuples",
     ],
 )
+
+################################################################################
+load(":prim-language.bzl", "prim_binary")
+
+prim_binary(
+    name = "factorial",
+    srcs = ["factorial.prim"],
+)
+
+prim_binary(
+    name = "exit",
+    srcs = ["exit.prim"],
+)
