@@ -1,0 +1,240 @@
+#:module prim-language-compiler-main
+#:import {
+  bytes {
+    #:values
+      bytes-append
+  }
+  color-graph {
+    #:values
+      color-graph
+      initial-state
+  }
+  dict {
+    #:values
+      dict-ref
+  }
+  either {
+    #:types
+      Either
+    #:values
+      left
+      right
+    #:patterns
+      left
+      right
+  }
+  io {
+    #:values
+      call-with-input-file
+      read-all-bytes
+      write-line
+  }
+  join-list {
+    #:values
+      join-list
+  }
+  list {
+    #:types
+      List
+    #:values
+      array->list
+      list
+    #:patterns
+      cons
+      empty
+  }
+  lower-x86-64 {
+    #:types
+      Reg
+      X8664Register
+    #:values
+      lower-function
+      reg=?
+      x86-64-register=?
+    #:patterns
+      fixed-reg
+      temporary-reg
+  }
+  lowered-live-variables {
+    #:values
+      blocks->live-out-states
+      live-variables
+  }
+  lowered-register-language {
+    #:values
+      function-definition-name
+      rename-registers/function-definition
+  }
+  lowered-register-language-to-x86-64 {
+    #:values
+      function-definition->assembly-fragment
+  }
+  mach-o-writer2 {
+    #:values
+      write-mach-o-library/fragments
+  }
+  maybe {
+    #:patterns
+      just
+      nothing
+  }
+  prim {
+    #:types
+      Array
+      Bytes
+      InputPort
+      Int
+      OutputPort
+    #:values
+      panic
+  }
+  prim-language {
+    #:patterns
+      module
+  }
+  prim-language-parser {
+    #:values
+      parse-module
+  }
+  prim-to-register {
+    #:values
+      convert-function
+  }
+  register-language {
+    #:values
+      var->bytes
+  }
+  sexp-parser {
+    #:values
+      parse-single-sexp
+  }
+  simplify-lowered-register-language {
+    #:values
+      [simplify-function-definition l:simplify-function-definition]
+  }
+  simplify-register-language {
+    #:values
+      [simplify-function-definition r:simplify-function-definition]
+  }
+  tuples {
+    #:types
+      Tuple2
+    #:values
+      tuple2
+    #:patterns
+      tuple2
+  }
+  x86-64-stack-machine {
+    #:types
+      AssemblyFragment
+    #:values
+      basic-block
+      call
+      function-fragment
+      imm
+      jmp
+      mem
+      movq
+      rax
+      rdi
+      reg
+      rsp
+      section
+      syscall
+  }
+}
+(export)
+(types)
+
+
+(define (start-function-fragment [main-function-name : Bytes]) : AssemblyFragment
+  (function-fragment
+    #"start"
+    (varargs list
+      (section
+        (varargs list
+          (basic-block #"start"
+            (varargs join-list
+              (jmp #"start_break")))
+          (basic-block #"start_break"
+            (varargs join-list
+              (movq (mem (rsp) 0) (reg (rdi)))
+              (call main-function-name)
+              (movq (reg (rax)) (reg (rdi)))
+              (movq (imm #x2000001) (reg (rax)))
+              (syscall))))))))
+
+(define (parse-args [args : (List Bytes)]) : (Either Bytes (Tuple2 Bytes Bytes))
+  (case args
+    [(empty)
+     (left #"No executable???")]
+    [(cons _ (empty))
+     (left #"No file name provided.")]
+    [(cons _ (cons _ (empty)))
+     (left #"No output file name provided.")]
+    [(cons _ (cons _ (cons _ (cons _ _))))
+     (left #"Too many arguments.")]
+    [(cons _ (cons file-name (cons out-file-name (empty))))
+     (right (tuple2 file-name out-file-name))]))
+
+(define (compile-prim-program [file-bytes : Bytes]) : (Either Bytes (List AssemblyFragment))
+  (case (parse-single-sexp file-bytes)
+    [(left v)
+     (left v)]
+    [(right sexp)
+     (case (parse-module sexp)
+       [(left v)
+        (left v)]
+       [(right (module name (empty)))
+        (left #"No function to compile")]
+       [(right (module name (cons _ (cons _ _))))
+        (left #"Too many functions to compile")]
+       [(right (module name (cons function (empty))))
+        (let ([f (r:simplify-function-definition (convert-function function))])
+          (let ([lowered (lower-function f)])
+            (let ([live (live-variables lowered reg=?)])
+              (let ([live-outs (blocks->live-out-states live)])
+                (case (color-graph (initial-state live-outs))
+                  [(left v)
+                   (left (bytes-append (varargs list #"Couldn't color vertex: " (var->bytes v))))]
+                  [(right assignments)
+                   (let ([opt-f
+                          (l:simplify-function-definition
+                            (rename-registers/function-definition
+                              lowered
+                              (lambda ([r : Reg]) : X8664Register
+                                (case r
+                                  [(fixed-reg r) r]
+                                  [(temporary-reg v)
+                                   (case (dict-ref assignments v)
+                                     [(nothing) (panic #"No assignment")]
+                                     [(just r) r])])))
+                            x86-64-register=?)])
+                     (let ([fragment (function-definition->assembly-fragment opt-f)])
+                       (right
+                         (varargs list
+                           (start-function-fragment
+                             (function-definition-name opt-f))
+                           fragment))))])))))])]))
+
+
+(define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]): Int
+  (case (parse-args (array->list args))
+    [(left msg)
+     (begin
+       (write-line msg stderr)
+       1)]
+    [(right (tuple2 file-name out-file-name))
+     (case (compile-prim-program (call-with-input-file file-name read-all-bytes))
+       [(left msg)
+        (begin
+          (write-line msg stderr)
+          1)]
+       [(right fragments)
+        (case (write-mach-o-library/fragments out-file-name fragments)
+          [(left msg)
+           (begin
+             (write-line msg stderr)
+             1)]
+          [(right _)
+           0])])]))

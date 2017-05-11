@@ -10,6 +10,12 @@ yaspl_binary(
     deps = [":prim-language-demo"],
 )
 
+yaspl_binary(
+    name = "prim-language-compiler",
+    main_module = "prim_language_compiler_main",
+    deps = [":prim-language-compiler-main"],
+)
+
 yaspl_library(
     name = "color-graph",
     srcs = ["color-graph.yaspl"],
@@ -115,6 +121,35 @@ yaspl_library(
     srcs = ["prim-language.yaspl"],
     deps = [
         "//libraries/data:list",
+    ],
+)
+
+yaspl_library(
+    name = "prim-language-compiler-main",
+    srcs = ["prim-language-compiler-main.yaspl"],
+    deps = [
+        ":color-graph",
+        ":lower-x86-64",
+        ":lowered-live-variables",
+        ":lowered-register-language",
+        ":lowered-register-language-to-x86-64",
+        ":prim-language",
+        ":prim-language-parser",
+        ":prim-to-register",
+        ":register-language",
+        ":simplify-lowered-register-language",
+        ":simplify-register-language",
+        "//libraries:io",
+        "//libraries:mach-o-writer2_lib",
+        "//libraries:sexp-parser",
+        "//libraries:x86-64-stack-machine",
+        "//libraries/data:bytes",
+        "//libraries/data:dict",
+        "//libraries/data:either",
+        "//libraries/data:join-list",
+        "//libraries/data:list",
+        "//libraries/data:maybe",
+        "//libraries/data:tuples",
     ],
 )
 
