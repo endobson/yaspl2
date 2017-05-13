@@ -56,6 +56,7 @@ yaspl_library(
     deps = [
         ":lowered-register-language",
         ":register-language",
+        ":syscalls",
         "//libraries/data:dict",
         "//libraries/data:either",
         "//libraries/data:list",
@@ -120,6 +121,7 @@ yaspl_library(
     name = "prim-language",
     srcs = ["prim-language.yaspl"],
     deps = [
+        ":syscalls",
         "//libraries/data:list",
     ],
 )
@@ -189,6 +191,7 @@ yaspl_library(
     srcs = ["prim-language-parser.yaspl"],
     deps = [
         ":prim-language",
+        ":syscalls",
         "//libraries:sexp-parser",
         "//libraries/data:either",
         "//libraries/data:list",
@@ -229,6 +232,7 @@ yaspl_library(
     deps = [
         ":prim-language",
         ":register-language",
+        ":syscalls",
         "//libraries/data:bytes",
         "//libraries/data:dict",
         "//libraries/data:join-list",
@@ -258,6 +262,7 @@ yaspl_library(
     srcs = ["register-language.yaspl"],
     deps = [
         ":prim-language",
+        ":syscalls",
         "//libraries/data:bytes",
         "//libraries/data:dict",
         "//libraries/data:list",
@@ -291,6 +296,13 @@ yaspl_library(
         "//libraries/data:maybe",
         "//libraries/data:set",
         "//libraries/data:tuples",
+    ],
+)
+
+yaspl_library(
+    name = "syscalls",
+    srcs = ["syscalls.yaspl"],
+    deps = [
     ],
 )
 
