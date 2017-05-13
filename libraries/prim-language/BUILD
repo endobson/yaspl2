@@ -135,6 +135,7 @@ yaspl_library(
         ":lowered-register-language-to-x86-64",
         ":prim-language",
         ":prim-language-parser",
+        ":prim-language-type-checker",
         ":prim-to-register",
         ":register-language",
         ":simplify-lowered-register-language",
@@ -191,6 +192,20 @@ yaspl_library(
         "//libraries:sexp-parser",
         "//libraries/data:either",
         "//libraries/data:list",
+    ],
+)
+
+yaspl_library(
+    name = "prim-language-type-checker",
+    srcs = ["prim-language-type-checker.yaspl"],
+    deps = [
+        ":prim-language",
+        "//libraries/data:bytes",
+        "//libraries/data:dict",
+        "//libraries/data:either",
+        "//libraries/data:list",
+        "//libraries/data:maybe",
+        "//libraries/data:tuples",
     ],
 )
 

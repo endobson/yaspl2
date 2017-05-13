@@ -1,0 +1,207 @@
+#:module prim-language-type-checker
+#:import {
+  bytes {
+    #:values
+      bytes=?
+  }
+  dict {
+    #:types
+      Dict
+    #:values
+      dict-add
+      dict-ref
+      make-dict
+  }
+  either {
+    #:types
+      Either
+    #:values
+      left
+      right
+    #:patterns
+      left
+      right
+  }
+  list {
+    #:types
+      List
+    #:values
+      find/maybe
+      foldl
+    #:patterns
+      cons
+      empty
+  }
+  maybe {
+    #:types
+      Maybe
+    #:values
+      just
+      nothing
+    #:patterns
+      just
+      nothing
+  }
+  prim {
+    #:types
+      Boolean
+      Bytes
+  }
+  prim-language {
+    #:types
+      Expr
+      FunctionDefinition
+      Module
+      Statement
+    #:patterns
+      assignment
+      bin-op-expr
+      comparison-bin-op
+      declaration
+      function-definition
+      if-statement
+      int-literal
+      logical-bin-op
+      module
+      numeric-bin-op
+      return
+      syscall-expr
+      var-expr
+      while
+  }
+  tuples {
+    #:values
+      tuple2
+    #:patterns
+      tuple2
+  }
+}
+(export
+  #:types ()
+  #:values (type-check type-check/function)
+  #:patterns ())
+(types
+  (define-type Environment
+    (environment [types : (Dict Bytes Type)]))
+  (define-type Type
+    (int64-type)
+    (boolean-type)))
+
+(define (type-check [module : Module]) : (Maybe Bytes)
+  (match-define (module _ functions) module)
+  (find/maybe type-check/function functions))
+
+(define (type-check/function [f : FunctionDefinition]) : (Maybe Bytes)
+  (match-define (function-definition _ args body) f)
+  (type-check/statements
+    body
+    (initial-environment args)))
+
+(define (type-check/statements [statements : (List Statement)] [env : Environment]) : (Maybe Bytes)
+  (case statements
+    [(empty) (nothing)]
+    [(cons statement statements)
+     (case (type-check/statement statement env)
+       [(left v) (just v)]
+       [(right env)
+        (type-check/statements statements env)])]))
+
+(define (type-check/statement [statement : Statement] [env : Environment])
+  : (Either Bytes Environment)
+  (case statement
+    [(return e)
+     (case (type-check/expression e env (int64-type))
+       [(just v) (left v)]
+       [(nothing) (right env)])]
+    [(declaration var e)
+     (case (type-infer/expression e env)
+       [(left v) (left v)]
+       [(right type) (right (environment-add-binding env var type))])]
+    [(assignment var e)
+     (case (environment-ref-binding env var)
+       [(nothing) (left #"Unbound variable")]
+       [(just type)
+        (case (type-check/expression e env type)
+          [(just v) (left v)]
+          [(nothing) (right env)])])]
+    [(while e body)
+     (case (type-check/expression e env (boolean-type))
+       [(just v) (left v)]
+       [(nothing)
+        (case (type-check/statements body env)
+          [(just v) (left v)]
+          [(nothing) (right env)])])]
+    [(if-statement cond then else)
+     (case (type-check/expression cond env (boolean-type))
+       [(just v) (left v)]
+       [(nothing)
+        (case (type-check/statements then env)
+          [(just v) (left v)]
+          [(nothing)
+           (case (type-check/statements else env)
+             [(just v) (left v)]
+             [(nothing) (right env)])])])]))
+
+(define (type-check/expression [expr : Expr] [env : Environment] [t : Type]) : (Maybe Bytes)
+  (case (type-infer/expression expr env)
+    [(left v) (just v)]
+    [(right actual-type)
+     (if (type=? actual-type t)
+         (nothing)
+         (just #"Expected type and actual type don't match"))]))
+
+(define (type-infer/expression [expr : Expr] [env : Environment]) : (Either Bytes Type)
+  (case expr
+    [(var-expr v)
+     (case (environment-ref-binding env v)
+       [(nothing) (left #"Unbound variable")]
+       [(just v) (right v)])]
+    [(syscall-expr _ _)
+     ;; TODO check arguments to syscalls
+     (right (int64-type))]
+    [(int-literal _)
+     (right (int64-type))]
+    [(bin-op-expr (numeric-bin-op _) l r)
+     (case (type-check/expression l env (int64-type))
+       [(just v) (left v)]
+       [(nothing)
+        (case (type-check/expression r env (int64-type))
+          [(just v) (left v)]
+          [(nothing) (right (int64-type))])])]
+    [(bin-op-expr (comparison-bin-op _) l r)
+     (case (type-check/expression l env (int64-type))
+       [(just v) (left v)]
+       [(nothing)
+        (case (type-check/expression r env (int64-type))
+          [(just v) (left v)]
+          [(nothing) (right (boolean-type))])])]
+    [(bin-op-expr (logical-bin-op _) l r)
+     (case (type-check/expression l env (boolean-type))
+       [(just v) (left v)]
+       [(nothing)
+        (case (type-check/expression r env (boolean-type))
+          [(just v) (left v)]
+          [(nothing) (right (boolean-type))])])]))
+
+(define (initial-environment [args : (List Bytes)]) : Environment
+  (foldl
+    (lambda ([name : Bytes] [env : Environment])
+      (environment-add-binding env name (int64-type)))
+    args
+    (environment (make-dict bytes=?))))
+
+
+(define (environment-add-binding [env : Environment] [name : Bytes] [t : Type]) : Environment
+  (match-define (environment types) env)
+  (environment (dict-add types name t)))
+
+(define (environment-ref-binding [env : Environment] [name : Bytes]) : (Maybe Type)
+  (match-define (environment types) env)
+  (dict-ref types name))
+
+(define (type=? [t1 : Type] [t2 : Type]) : Boolean
+  (case (tuple2 t1 t2)
+    [(tuple2 (int64-type) (int64-type)) #t]
+    [(tuple2 (int64-type) _) #f]
+    [(tuple2 (boolean-type) (boolean-type)) #t]
+    [(tuple2 (boolean-type) _) #f]))

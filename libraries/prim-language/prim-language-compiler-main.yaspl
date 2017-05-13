@@ -96,6 +96,10 @@
     #:values
       parse-module
   }
+  prim-language-type-checker {
+    #:values
+      type-check/function
+  }
   prim-to-register {
     #:values
       convert-function
@@ -190,32 +194,35 @@
        [(right (module name (cons _ (cons _ _))))
         (left #"Too many functions to compile")]
        [(right (module name (cons function (empty))))
-        (let ([f (r:simplify-function-definition (convert-function function))])
-          (let ([lowered (lower-function f)])
-            (let ([live (live-variables lowered reg=?)])
-              (let ([live-outs (blocks->live-out-states live)])
-                (case (color-graph (initial-state live-outs))
-                  [(left v)
-                   (left (bytes-append (varargs list #"Couldn't color vertex: " (var->bytes v))))]
-                  [(right assignments)
-                   (let ([opt-f
-                          (l:simplify-function-definition
-                            (rename-registers/function-definition
-                              lowered
-                              (lambda ([r : Reg]) : X8664Register
-                                (case r
-                                  [(fixed-reg r) r]
-                                  [(temporary-reg v)
-                                   (case (dict-ref assignments v)
-                                     [(nothing) (panic #"No assignment")]
-                                     [(just r) r])])))
-                            x86-64-register=?)])
-                     (let ([fragment (function-definition->assembly-fragment opt-f)])
-                       (right
-                         (varargs list
-                           (start-function-fragment
-                             (function-definition-name opt-f))
-                           fragment))))])))))])]))
+        (case (type-check/function function)
+          [(just v) (left v)]
+          [(nothing)
+           (let ([f (r:simplify-function-definition (convert-function function))])
+             (let ([lowered (lower-function f)])
+               (let ([live (live-variables lowered reg=?)])
+                 (let ([live-outs (blocks->live-out-states live)])
+                   (case (color-graph (initial-state live-outs))
+                     [(left v)
+                      (left (bytes-append (varargs list #"Couldn't color vertex: " (var->bytes v))))]
+                     [(right assignments)
+                      (let ([opt-f
+                             (l:simplify-function-definition
+                               (rename-registers/function-definition
+                                 lowered
+                                 (lambda ([r : Reg]) : X8664Register
+                                   (case r
+                                     [(fixed-reg r) r]
+                                     [(temporary-reg v)
+                                      (case (dict-ref assignments v)
+                                        [(nothing) (panic #"No assignment")]
+                                        [(just r) r])])))
+                               x86-64-register=?)])
+                        (let ([fragment (function-definition->assembly-fragment opt-f)])
+                          (right
+                            (varargs list
+                              (start-function-fragment
+                                (function-definition-name opt-f))
+                              fragment))))])))))])])]))
 
 
 (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]): Int
