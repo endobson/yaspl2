@@ -67,6 +67,11 @@
       +
       panic
   }
+  prim-language {
+    #:values
+      numeric-bin-op
+      sub
+  }
   register-language {
     #:types
       [BasicBlock r:BasicBlock]
@@ -82,6 +87,7 @@
       [bin-op-inst r:bin-op-inst]
       [comparison-condition r:comparison-condition]
       [cond-jump r:cond-jump]
+      [function-allocate-inst r:function-allocate-inst]
       [function-definition r:function-definition]
       [int-literal r:int-literal]
       [jump r:jump]
@@ -116,7 +122,7 @@
 (export
   #:types (Reg X8664Register)
   #:values (lower-function reg->bytes x86-64-register=?  x86-64-register->bytes reg=?
-            all-x86-64-registers all-fixed-registers)
+            valid-temporary-x86-64-registers all-fixed-registers)
   #:patterns ())
 (types
   (define-type X8664Register
@@ -128,7 +134,8 @@
     (r8)
     (r9)
     (r10)
-    (r11))
+    (r11)
+    (rsp))
   (define-type Reg
     (fixed-reg [r : X8664Register])
     (temporary-reg [r : r:Var])))
@@ -137,7 +144,7 @@
   (l:empty-unvalidated-block-map entry-block-num))
 
 
-(define (all-x86-64-registers) : (Set X8664Register)
+(define (valid-temporary-x86-64-registers) : (Set X8664Register)
   (set-add-all
     (make-set x86-64-register=?)
     (varargs list
@@ -165,7 +172,8 @@
         (r8)
         (r9)
         (r10)
-        (r11)))))
+        (r11)
+        (rsp)))))
 
 (define (syscall-conflicts) : (List Reg)
   (map
@@ -192,6 +200,7 @@
     [(fixed-reg (r9)) #"_r9"]
     [(fixed-reg (r10)) #"_r10"]
     [(fixed-reg (r11)) #"_r11"]
+    [(fixed-reg (rsp)) #"_rsp"]
     [(temporary-reg v) (var->bytes v)]))
 
 
@@ -205,21 +214,32 @@
     [(r8) #"r8"]
     [(r9) #"r9"]
     [(r10) #"r10"]
-    [(r11) #"r11"]))
+    [(r11) #"r11"]
+    [(rsp) #"rsp"]))
 
 
 (define (x86-64-register=? [reg1 : X8664Register] [reg2 : X8664Register]) : Boolean
   (case (tuple2 reg1 reg2)
     [(tuple2 (rax) (rax)) #t]
+    [(tuple2 (rax) _) #f]
     [(tuple2 (rcx) (rcx)) #t]
+    [(tuple2 (rcx) _) #f]
     [(tuple2 (rdx) (rdx)) #t]
+    [(tuple2 (rdx) _) #f]
     [(tuple2 (rdi) (rdi)) #t]
+    [(tuple2 (rdi) _) #f]
     [(tuple2 (rsi) (rsi)) #t]
+    [(tuple2 (rsi) _) #f]
     [(tuple2 (r8) (r8)) #t]
+    [(tuple2 (r8) _) #f]
     [(tuple2 (r9) (r9)) #t]
+    [(tuple2 (r9) _) #f]
     [(tuple2 (r10) (r10)) #t]
+    [(tuple2 (r10) _) #f]
     [(tuple2 (r11) (r11)) #t]
-    [(tuple2 _ _) #f]))
+    [(tuple2 (r11) _) #f]
+    [(tuple2 (rsp) (rsp)) #t]
+    [(tuple2 (rsp) _) #f]))
 
 (define (reg=? [reg1 : Reg] [reg2 : Reg]) : Boolean
   (case (tuple2 reg1 reg2)
@@ -332,6 +352,7 @@
   : (Tuple3 (List (l:Instruction Reg)) (l:Terminal Reg) (Tuple2 Int (l:UnvalidatedBlockMap Reg)))
   (case t
     [(r:return name)
+     ;; TODO restore stack pointer
      (tuple3
        (cons (l:move (fixed-reg (rax)) (temporary-reg name)) (empty))
        (ann-term (l:return (fixed-reg (rax))))
@@ -375,6 +396,10 @@
      (varargs list
        (l:move (temporary-reg output) (temporary-reg l))
        (l:bin-op-inst (temporary-reg output) op (temporary-reg r)))]
+    [(r:function-allocate-inst output num-bytes)
+     (varargs list
+       (l:bin-op-inst (fixed-reg (rsp)) (numeric-bin-op (sub)) (temporary-reg num-bytes))
+       (l:move (temporary-reg output) (fixed-reg (rsp))))]
     [(r:syscall-inst output s args)
      (case (zip/left args (varargs list (rdi) (rsi) (rdx) (r10) (r8) (r9)))
        [(nothing) (panic #"Too long syscall args")]

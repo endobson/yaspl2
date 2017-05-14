@@ -55,6 +55,7 @@ yaspl_library(
     srcs = ["lower-x86-64.yaspl"],
     deps = [
         ":lowered-register-language",
+        ":prim-language",
         ":register-language",
         ":syscalls",
         "//libraries/data:dict",
