@@ -30,6 +30,8 @@
     #:types
       Boolean
       Int
+    #:values
+      panic
   }
   prim-language {
     #:types
@@ -74,6 +76,7 @@
       int-literal
       jump
       negated-var-condition
+      pointer-set!-inst
       return
       syscall-inst
       var-condition
@@ -159,6 +162,7 @@
           (case instruction
             [(int-literal _ _) acc]
             [(function-allocate-inst _ var) (set-add acc var)]
+            [(pointer-set!-inst ptr val) (set-add (set-add acc ptr) val)]
             [(syscall-inst _ _ vars) (set-add-all acc vars)]
             [(bin-op-inst _ _ left right)
              (set-add (set-add acc left) right)]))
@@ -170,7 +174,9 @@
     (filter
       (lambda ([i : Instruction])
         (if (pure-instruction? i)
-            (set-member? used-variables (instruction-output-var i))
+            (case (instruction-output-var i)
+              [(just v) (set-member? used-variables v)]
+              [(nothing) (panic #"Pure instruction didn't have output var")])
             #t))
       instructions)
     terminal))
@@ -191,12 +197,14 @@
   (case i
     [(syscall-inst _ _ _) #f]
     [(function-allocate-inst _ _) #f]
+    [(pointer-set!-inst _ _) #f]
     [(int-literal _ _) #t]
     [(bin-op-inst _ _ _ _) #t]))
 
-(define (instruction-output-var [i : Instruction]) : Var
+(define (instruction-output-var [i : Instruction]) : (Maybe Var)
   (case i
-    [(syscall-inst v _ _) v]
-    [(function-allocate-inst v _) v]
-    [(int-literal v _) v]
-    [(bin-op-inst v _ _ _) v]))
+    [(syscall-inst v _ _) (just v)]
+    [(function-allocate-inst v _) (just v)]
+    [(pointer-set!-inst _ _) (nothing)]
+    [(int-literal v _) (just v)]
+    [(bin-op-inst v _ _ _) (just v)]))
