@@ -319,3 +319,8 @@ prim_binary(
     name = "exit",
     srcs = ["exit.prim"],
 )
+
+prim_binary(
+    name = "pointers1",
+    srcs = ["pointers1.prim"],
+)
