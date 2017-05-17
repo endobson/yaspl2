@@ -46,3 +46,38 @@ prim_binary = rule(
     ),
   }
 )
+
+def _binary_test_impl(ctx):
+  ctx.file_action(
+    output = ctx.outputs.executable,
+    content =
+      "#!/bin/sh\n" +
+      ctx.executable.binary.short_path + " " + " ".join(ctx.attr.binary_args) + "\n"+
+      "EXIT_CODE=$?\n" +
+      'if [ "$EXIT_CODE" -ne "' + str(ctx.attr.exit_code) + '" ]\n' +
+      "then\n" +
+      '  echo "Expected exit code: "' + str(ctx.attr.exit_code) + '\n' +
+      '  echo "Got exit code: $EXIT_CODE"\n' +
+      "  exit 1\n" +
+      "fi\n" ,
+    executable = True)
+
+  return struct(
+    runfiles=ctx.runfiles(files=[ctx.executable.binary]),
+  )
+
+
+binary_test = rule(
+  implementation = _binary_test_impl,
+  outputs = {},
+  test = True,
+  attrs = {
+    "binary": attr.label(
+       allow_files = True,
+       executable = True,
+       cfg = "data",
+    ),
+    "binary_args": attr.string_list(),
+    "exit_code": attr.int()
+  }
+)

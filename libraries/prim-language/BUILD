@@ -308,11 +308,18 @@ yaspl_library(
 )
 
 ################################################################################
-load(":prim-language.bzl", "prim_binary")
+load(":prim-language.bzl", "prim_binary", "binary_test")
 
 prim_binary(
     name = "factorial",
     srcs = ["factorial.prim"],
+)
+
+binary_test(
+    name = "factorial_test",
+    binary = ":factorial",
+    binary_args = ["2", "3", "4"],
+    exit_code = 5,
 )
 
 prim_binary(
@@ -320,7 +327,19 @@ prim_binary(
     srcs = ["exit.prim"],
 )
 
+binary_test(
+    name = "exit_test",
+    binary = ":exit",
+    exit_code = 42,
+)
+
 prim_binary(
     name = "pointers1",
     srcs = ["pointers1.prim"],
+)
+
+binary_test(
+    name = "pointers1_test",
+    binary = ":pointers1",
+    exit_code = 4,
 )
