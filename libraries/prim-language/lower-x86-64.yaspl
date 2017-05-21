@@ -48,6 +48,8 @@
       [load l:load]
       [move l:move]
       [negated-reg-condition l:negated-reg-condition]
+      [pop l:pop]
+      [push l:push]
       [reg-condition l:reg-condition]
       [return l:return]
       [store l:store]
@@ -139,6 +141,7 @@
     (r9)
     (r10)
     (r11)
+    (rbp)
     (rsp))
   (define-type Reg
     (fixed-reg [r : X8664Register])
@@ -177,6 +180,7 @@
         (r9)
         (r10)
         (r11)
+        (rbp)
         (rsp)))))
 
 (define (syscall-conflicts) : (List Reg)
@@ -204,6 +208,7 @@
     [(fixed-reg (r9)) #"_r9"]
     [(fixed-reg (r10)) #"_r10"]
     [(fixed-reg (r11)) #"_r11"]
+    [(fixed-reg (rbp)) #"_rbp"]
     [(fixed-reg (rsp)) #"_rsp"]
     [(temporary-reg v) (var->bytes v)]))
 
@@ -219,6 +224,7 @@
     [(r9) #"r9"]
     [(r10) #"r10"]
     [(r11) #"r11"]
+    [(rbp) #"rbp"]
     [(rsp) #"rsp"]))
 
 
@@ -243,7 +249,9 @@
     [(tuple2 (r11) (r11)) #t]
     [(tuple2 (r11) _) #f]
     [(tuple2 (rsp) (rsp)) #t]
-    [(tuple2 (rsp) _) #f]))
+    [(tuple2 (rsp) _) #f]
+    [(tuple2 (rbp) (rbp)) #t]
+    [(tuple2 (rbp) _) #f]))
 
 (define (reg=? [reg1 : Reg] [reg2 : Reg]) : Boolean
   (case (tuple2 reg1 reg2)
@@ -281,15 +289,19 @@
     [(nothing) (panic #"No entry block")]
     [(just (r:basic-block args _ _))
      (l:basic-block
-       (case (zip/left args (varargs list (rdi) (rsi) (rdx) (rcx) (r8) (r9)))
-         [(nothing) (panic #"Too long initial args")]
-         [(just linked-args)
-          (map
-            (lambda ([t : (Tuple2 r:Var X8664Register)])
-              (case t
-                [(tuple2 v reg)
-                 (l:move (temporary-reg v) (fixed-reg reg))]))
-            linked-args)])
+       (append
+         (varargs list
+           (l:push (fixed-reg (rbp)))
+           (l:move (fixed-reg (rbp)) (fixed-reg (rsp))))
+         (case (zip/left args (varargs list (rdi) (rsi) (rdx) (rcx) (r8) (r9)))
+           [(nothing) (panic #"Too long initial args")]
+           [(just linked-args)
+            (map
+              (lambda ([t : (Tuple2 r:Var X8664Register)])
+                (case t
+                  [(tuple2 v reg)
+                   (l:move (temporary-reg v) (fixed-reg reg))]))
+              linked-args)]))
        ((lambda () : (l:Terminal Reg) (l:jump entry-block-num))))]))
 
 (define (lower-block [index : Int]  [b : r:BasicBlock]
@@ -356,9 +368,11 @@
   : (Tuple3 (List (l:Instruction Reg)) (l:Terminal Reg) (Tuple2 Int (l:UnvalidatedBlockMap Reg)))
   (case t
     [(r:return name)
-     ;; TODO restore stack pointer
      (tuple3
-       (cons (l:move (fixed-reg (rax)) (temporary-reg name)) (empty))
+       (varargs list
+         (l:move (fixed-reg (rax)) (temporary-reg name))
+         (l:move (fixed-reg (rsp)) (fixed-reg (rbp)))
+         (l:pop (fixed-reg (rbp))))
        (ann-term (l:return (fixed-reg (rax))))
        acc)]
     [(r:jump index args)
