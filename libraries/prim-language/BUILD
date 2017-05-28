@@ -314,6 +314,28 @@ yaspl_library(
 load(":prim-language.bzl", "prim_binary", "binary_test")
 
 prim_binary(
+    name = "cast1",
+    srcs = ["cast1.prim"],
+)
+
+binary_test(
+    name = "cast1_test",
+    binary = ":cast1",
+    exit_code = 30,
+)
+
+prim_binary(
+    name = "exit",
+    srcs = ["exit.prim"],
+)
+
+binary_test(
+    name = "exit_test",
+    binary = ":exit",
+    exit_code = 42,
+)
+
+prim_binary(
     name = "factorial",
     srcs = ["factorial.prim"],
 )
@@ -327,17 +349,6 @@ binary_test(
         "4",
     ],
     exit_code = 5,
-)
-
-prim_binary(
-    name = "exit",
-    srcs = ["exit.prim"],
-)
-
-binary_test(
-    name = "exit_test",
-    binary = ":exit",
-    exit_code = 42,
 )
 
 prim_binary(
