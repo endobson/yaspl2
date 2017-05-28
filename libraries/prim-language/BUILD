@@ -361,3 +361,14 @@ binary_test(
     binary = ":pointers1",
     exit_code = 4,
 )
+
+prim_binary(
+    name = "pointers2",
+    srcs = ["pointers2.prim"],
+)
+
+binary_test(
+    name = "pointers2_test",
+    binary = ":pointers2",
+    exit_code = 3,
+)
