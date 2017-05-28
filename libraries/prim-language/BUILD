@@ -72,6 +72,7 @@ yaspl_library(
     srcs = ["lowered-register-language.yaspl"],
     deps = [
         ":prim-language",
+        ":register-language",
         "//libraries/algorithms:find-chains",
         "//libraries/data:dict",
         "//libraries/data:either",
@@ -108,6 +109,7 @@ yaspl_library(
         ":lower-x86-64",
         ":lowered-register-language",
         ":prim-language",
+        ":register-language",
         "//libraries:x86-64-stack-machine",
         "//libraries/data:bytes",
         "//libraries/data:dict",
@@ -219,6 +221,7 @@ yaspl_library(
     deps = [
         ":lowered-register-language",
         ":prim-language",
+        ":register-language",
         "//libraries/data:bytes",
         "//libraries/data:dict",
         "//libraries/data:join-list",
@@ -318,7 +321,11 @@ prim_binary(
 binary_test(
     name = "factorial_test",
     binary = ":factorial",
-    binary_args = ["2", "3", "4"],
+    binary_args = [
+        "2",
+        "3",
+        "4",
+    ],
     exit_code = 5,
 )
 
