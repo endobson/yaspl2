@@ -145,17 +145,16 @@ yaspl_library(
         ":register-language",
         ":simplify-lowered-register-language",
         ":simplify-register-language",
+        ":spill-lowered-register-language",
         "//libraries:io",
         "//libraries:mach-o-writer2_lib",
         "//libraries:sexp-parser",
         "//libraries:x86-64-stack-machine",
-        "//libraries/data:bytes",
         "//libraries/data:dict",
         "//libraries/data:either",
         "//libraries/data:join-list",
         "//libraries/data:list",
         "//libraries/data:maybe",
-        "//libraries/data:set",
         "//libraries/data:tuples",
     ],
 )
@@ -305,6 +304,23 @@ yaspl_library(
 )
 
 yaspl_library(
+    name = "spill-lowered-register-language",
+    srcs = ["spill-lowered-register-language.yaspl"],
+    deps = [
+        ":lower-x86-64",
+        ":lowered-live-variables",
+        ":lowered-register-language",
+        ":register-language",
+        "//libraries/data:dict",
+        "//libraries/data:either",
+        "//libraries/data:list",
+        "//libraries/data:maybe",
+        "//libraries/data:set",
+        "//libraries/data:tuples",
+    ],
+)
+
+yaspl_library(
     name = "syscalls",
     srcs = ["syscalls.yaspl"],
     deps = [
@@ -372,4 +388,15 @@ binary_test(
     name = "pointers2_test",
     binary = ":pointers2",
     exit_code = 3,
+)
+
+prim_binary(
+    name = "spill",
+    srcs = ["spill.prim"],
+)
+
+binary_test(
+    name = "spill_test",
+    binary = ":spill",
+    exit_code = 6,
 )

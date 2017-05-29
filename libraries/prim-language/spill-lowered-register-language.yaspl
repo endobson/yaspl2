@@ -1,0 +1,214 @@
+#:module spill-lowered-register-language
+#:import {
+  dict {
+    #:types
+      Dict
+    #:values
+      dict-add
+      dict-ref
+      make-dict
+  }
+  either {
+    #:patterns
+      left
+      right
+  }
+  list {
+    #:types
+      List
+    #:values
+      cons
+      empty
+      foldl
+      list
+      reverse
+    #:patterns
+      cons
+      empty
+  }
+  lower-x86-64 {
+    #:types
+      Reg
+    #:values
+      reg=?
+    #:patterns
+      fixed-reg
+      temporary-reg
+  }
+  lowered-live-variables {
+    #:values
+      input-registers
+      output-registers
+  }
+  lowered-register-language {
+    #:types
+      BasicBlock
+      FunctionDefinition
+      Instruction
+      Terminal
+    #:values
+      basic-block
+      block-map->unvalidated-block-map
+      function-definition
+      load-temporary
+      store-temporary
+      unvalidated-block-map-map
+      validate-block-map
+    #:patterns
+      basic-block
+      comparison-condition
+      cond-jump/false-fall-through
+      fall-through
+      function-definition
+      jump
+      negated-reg-condition
+      reg-condition
+      return
+  }
+  maybe {
+    #:patterns
+      just
+      nothing
+  }
+  prim {
+    #:types
+      Int
+    #:values
+      +
+      panic
+  }
+  register-language {
+    #:types
+      Var
+    #:values
+      var=?
+  }
+  set {
+    #:types
+      Set
+    #:values
+      set->list
+  }
+  tuples {
+    #:types
+      Tuple2
+    #:values
+      tuple2
+    #:patterns
+      tuple2
+  }
+}
+(export
+  #:types ()
+  #:values (spill-variables)
+  #:patterns ())
+(types)
+
+(define (spill-variables [f : (FunctionDefinition Reg)] [vars : (Set Var)]) : (FunctionDefinition Reg)
+  (match-define (function-definition name num-temporaries block-map) f)
+  (match-define (tuple2 new-num-temporaries spilled)
+    (foldl
+      (lambda ([v : Var] [acc : (Tuple2 Int (Dict Var Int))])
+        (case acc
+          [(tuple2 num-temp dict)
+           (tuple2 (+ 1 num-temp) (dict-add dict v num-temp))]))
+      (set->list vars)
+      (tuple2 num-temporaries ((lambda () : (Dict Var Int) (make-dict var=?))))))
+  (case (validate-block-map
+          (unvalidated-block-map-map
+            (block-map->unvalidated-block-map block-map)
+            (lambda ([index : Int] [b : (BasicBlock Reg)])
+              (spill-variables/block b spilled))))
+    [(left v) (panic v)]
+    [(right block-map)
+     (function-definition name new-num-temporaries block-map)]))
+
+
+(define (spill-variables/block [b : (BasicBlock Reg)] [spilled : (Dict Var Int)]) : (BasicBlock Reg)
+  (case b
+    [(basic-block instructions terminal)
+     (match-define term-instructions (spill-variables/terminal terminal spilled))
+     (basic-block
+       (spill-variables/reverse-instructions
+         (reverse instructions)
+         term-instructions
+         spilled)
+       terminal)]))
+
+(define (spill-variables/terminal [t : (Terminal Reg)] [spilled : (Dict Var Int)])
+  : (List (Instruction Reg))
+  (add-load-spilled
+    (case t
+          [(return reg)
+           (varargs list reg)]
+          [(jump _)
+           (empty)]
+          [(fall-through _)
+           (empty)]
+          [(cond-jump/false-fall-through (reg-condition reg) _ _)
+           (varargs list reg)]
+          [(cond-jump/false-fall-through (negated-reg-condition reg) _ _)
+           (varargs list reg)]
+          [(cond-jump/false-fall-through (comparison-condition _ reg1 reg2) _ _)
+           (varargs list reg1 reg1)])
+    (empty) spilled))
+
+(define (spill-variables/reverse-instructions
+          [instructions : (List (Instruction Reg))]
+          [acc : (List (Instruction Reg))]
+          [spilled : (Dict Var Int)])
+  : (List (Instruction Reg))
+  (case instructions
+    [(empty) acc]
+    [(cons inst instructions)
+     (spill-variables/reverse-instructions
+       instructions
+       (spill-variables/instruction inst acc spilled)
+       spilled)]))
+
+(define (spill-variables/instruction
+          [instruction : (Instruction Reg)]
+          [acc : (List (Instruction Reg))]
+          [spilled : (Dict Var Int)])
+  : (List (Instruction Reg))
+  (add-load-spilled
+    (set->list (input-registers instruction reg=?))
+    (cons
+      instruction
+      (add-store-spilled
+        (set->list (output-registers instruction reg=?))
+        acc
+        spilled))
+    spilled))
+
+(define (add-load-spilled [regs : (List Reg)]
+                          [instructions : (List (Instruction Reg))]
+                          [spilled : (Dict Var Int)]) : (List (Instruction Reg))
+  (case regs
+    [(empty) instructions]
+    [(cons reg regs)
+     (case reg
+       [(fixed-reg _)
+        (add-load-spilled regs instructions spilled)]
+       [(temporary-reg v)
+        (case (dict-ref spilled v)
+          [(nothing)
+           (add-load-spilled regs instructions spilled)]
+          [(just temp)
+           (add-load-spilled regs (cons (load-temporary reg temp) instructions) spilled)])])]))
+
+(define (add-store-spilled [regs : (List Reg)]
+                           [instructions : (List (Instruction Reg))]
+                           [spilled : (Dict Var Int)]) : (List (Instruction Reg))
+  (case regs
+    [(empty) instructions]
+    [(cons reg regs)
+     (case reg
+       [(fixed-reg _)
+        (add-store-spilled regs instructions spilled)]
+       [(temporary-reg v)
+        (case (dict-ref spilled v)
+          [(nothing)
+           (add-store-spilled regs instructions spilled)]
+          [(just temp)
+           (add-store-spilled regs (cons (store-temporary temp reg) instructions) spilled)])])]))

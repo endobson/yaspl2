@@ -139,7 +139,8 @@
 }
 (export
   #:types (LiveOutState)
-  #:values (live-variables print-blocks print-graph blocks->live-out-states live-out-state->bytes)
+  #:values (live-variables print-blocks print-graph blocks->live-out-states live-out-state->bytes
+                           input-registers output-registers)
   #:patterns ())
 (types
   (define-type (BlockState Reg)
@@ -330,36 +331,80 @@
                 [i : (Instruction Reg)]
                 [reg=? : (Reg Reg -> Boolean)]) : (PointState Reg)
   (case i
+    [(move _ src)
+     (point-state
+       (input-registers i reg=?)
+       (output-registers i reg=?)
+       (just src))]
+    [(syscall-inst _ _ _ conflicts)
+     (point-state
+       (input-registers i reg=?)
+       (set-add-all (output-registers i reg=?) conflicts)
+       (nothing))]
+    [_
+     (point-state
+       (input-registers i reg=?)
+       (output-registers i reg=?)
+       (nothing))]))
+
+(define (Reg) (input-registers [inst : (Instruction Reg)] [reg=? : (Reg Reg -> Boolean)]) : (Set Reg)
+  (case inst
     [(int-literal output _)
-     (point-state (make-set reg=?) (set-add (make-set reg=?) output) (nothing))]
+     (make-set reg=?)]
     [(move dest src)
-     (point-state (set-add (make-set reg=?) src) (set-add (make-set reg=?) dest) (just src))]
+     (set-add (make-set reg=?) src)]
     [(push reg)
-     (point-state (set-add (make-set reg=?) reg) (make-set reg=?) (nothing))]
+     (set-add (make-set reg=?) reg)]
     [(pop reg)
-     (point-state (make-set reg=?) (set-add (make-set reg=?) reg) (nothing))]
+     (make-set reg=?)]
     [(store-least-significant-byte loc val)
-     (point-state (set-add (set-add (make-set reg=?) loc) val) (make-set reg=?) (nothing))]
+     (set-add (set-add (make-set reg=?) loc) val)]
     [(load-zero-extended-byte output loc)
-     (point-state (set-add (make-set reg=?) loc) (set-add (make-set reg=?) output) (nothing))]
+     (set-add (make-set reg=?) loc)]
     [(store-8byte loc val)
-     (point-state (set-add (set-add (make-set reg=?) loc) val) (make-set reg=?) (nothing))]
+     (set-add (set-add (make-set reg=?) loc) val)]
     [(load-8byte output loc)
-     (point-state (set-add (make-set reg=?) loc) (set-add (make-set reg=?) output) (nothing))]
+     (set-add (make-set reg=?) loc)]
     [(store-temporary index val)
-     (point-state (set-add (make-set reg=?) val) (make-set reg=?) (nothing))]
+     (set-add (make-set reg=?) val)]
     [(load-temporary output index)
-     (point-state (make-set reg=?) (set-add (make-set reg=?) output) (nothing))]
+     (make-set reg=?)]
     [(bin-op-inst output _ input)
-     (point-state (set-add (set-add (make-set reg=?) input) output)
-                  (set-add (make-set reg=?) output) (nothing))]
+     (set-add (set-add (make-set reg=?) input) output)]
     [(unary-op-inst output _ input)
-     (point-state (set-add (make-set reg=?) input)
-                  (set-add (make-set reg=?) output) (nothing))]
+     (set-add (make-set reg=?) input)]
     [(syscall-inst output _ input conflicts)
-     (point-state (set-add-all (make-set reg=?) input)
-                  (set-add (set-add-all (make-set reg=?) conflicts) output)
-                  (nothing))]))
+     (set-add-all (make-set reg=?) input)]))
+
+(define (Reg) (output-registers [inst : (Instruction Reg)] [reg=? : (Reg Reg -> Boolean)]) : (Set Reg)
+  (case inst
+    [(int-literal output _)
+     (set-add (make-set reg=?) output)]
+    [(move dest src)
+     (set-add (make-set reg=?) dest)]
+    [(push reg)
+     (make-set reg=?)]
+    [(pop reg)
+     (set-add (make-set reg=?) reg)]
+    [(store-least-significant-byte loc val)
+     (make-set reg=?)]
+    [(load-zero-extended-byte output loc)
+     (set-add (make-set reg=?) output)]
+    [(store-8byte loc val)
+     (make-set reg=?)]
+    [(load-8byte output loc)
+     (set-add (make-set reg=?) output)]
+    [(store-temporary index val)
+     (make-set reg=?)]
+    [(load-temporary output index)
+     (set-add (make-set reg=?) output)]
+    [(bin-op-inst output _ input)
+     (set-add (make-set reg=?) output)]
+    [(unary-op-inst output _ input)
+     (set-add (make-set reg=?) output)]
+    [(syscall-inst output _ input conflicts)
+     (set-add (make-set reg=?) output)]))
+
 
 (define (Reg) (initial-live-in/terminal [t : (Terminal Reg)] [reg=? : (Reg Reg -> Boolean)]) : (Set Reg)
   (case t
