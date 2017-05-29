@@ -206,6 +206,7 @@ yaspl_library(
     srcs = ["prim-language-type-checker.yaspl"],
     deps = [
         ":prim-language",
+        ":syscalls",
         "//libraries/data:bytes",
         "//libraries/data:dict",
         "//libraries/data:either",
@@ -366,6 +367,18 @@ binary_test(
         "4",
     ],
     exit_code = 5,
+)
+
+prim_binary(
+    name = "hello-world",
+    srcs = ["hello-world.prim"],
+)
+
+binary_test(
+    name = "hello-world_test",
+    binary = ":hello-world",
+    exit_code = 6,
+    output = "Hello",
 )
 
 prim_binary(

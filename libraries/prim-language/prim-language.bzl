@@ -52,14 +52,23 @@ def _binary_test_impl(ctx):
     output = ctx.outputs.executable,
     content =
       "#!/bin/sh\n" +
-      ctx.executable.binary.short_path + " " + " ".join(ctx.attr.binary_args) + "\n"+
+      "STDOUT=$(" + ctx.executable.binary.short_path + " " + " ".join(ctx.attr.binary_args) + ")\n"+
       "EXIT_CODE=$?\n" +
+      "PASSED=0\n" +
       'if [ "$EXIT_CODE" -ne "' + str(ctx.attr.exit_code) + '" ]\n' +
       "then\n" +
       '  echo "Expected exit code: "' + str(ctx.attr.exit_code) + '\n' +
       '  echo "Got exit code: $EXIT_CODE"\n' +
-      "  exit 1\n" +
-      "fi\n" ,
+      "  PASSED=1\n" +
+      "fi\n" +
+      'if [ "$STDOUT" != "' + ctx.attr.output + '" ]\n' +
+      "then\n" +
+      '  echo "Expected output: \\""' + "" + '\\"\n' +
+      '  echo "Got output: \\"${STDOUT}\\""\n' +
+      "  PASSED=1\n" +
+      "fi\n" +
+
+      "exit $PASSED\n",
     executable = True)
 
   return struct(
@@ -78,6 +87,7 @@ binary_test = rule(
        cfg = "data",
     ),
     "binary_args": attr.string_list(),
-    "exit_code": attr.int()
+    "exit_code": attr.int(),
+    "output": attr.string(default = "")
   }
 )
