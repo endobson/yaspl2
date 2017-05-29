@@ -11,6 +11,7 @@
       dict-add
       dict-count
       dict-filter
+      dict-filter-map
       dict-fold
       dict-keys
       dict-map
@@ -589,12 +590,20 @@
 
 (define (select-loop-start [assignment : (List RegisterAssignment)])
   : (Either (Set Var) (Dict Var X8664Register))
-  (select-loop assignment (make-dict var=?)))
+  (let ([maybe-mapping (select-loop assignment (make-dict var=?))])
+    (let ([uncolorable-nodes (dict-keys (dict-filter maybe-mapping
+                                                     (lambda ([k : Var] [v : (Maybe X8664Register)])
+                                                       (case v
+                                                         [(nothing) #t]
+                                                         [(just _) #f]))))])
+      (if (= 0 (set-count uncolorable-nodes))
+          (right (dict-filter-map maybe-mapping (lambda ([k : Var] [v : (Maybe X8664Register)]) v)))
+          (left uncolorable-nodes)))))
 
-(define (select-loop [assignment : (List RegisterAssignment)] [acc : (Dict Var X8664Register)])
-  : (Either (Set Var) (Dict Var X8664Register))
+(define (select-loop [assignment : (List RegisterAssignment)] [acc : (Dict Var (Maybe X8664Register))])
+  : (Dict Var (Maybe X8664Register))
   (case assignment
-    [(empty) (right acc)]
+    [(empty) acc]
     [(cons (assign-same v1 v2) assignment)
      (case (dict-ref acc v2)
        [(nothing) (panic #"Bad assign-same")]
@@ -606,27 +615,28 @@
                (valid-temporary-x86-64-registers)
                (set-add-all
                  fixed-con
-                 (map
-                   (lambda ([v : Var]) : X8664Register
+                 (filter-map
+                   (lambda ([v : Var]) : (Maybe X8664Register)
                      (case (dict-ref acc v)
                        [(nothing) (panic #"Bad assign-free")]
                        [(just v) v]))
                    (set->list con)))))
        [(nothing) (panic #"Bad assign-free")]
        [(just (tuple2 reg _))
-        (select-loop assignment (dict-add acc v reg))])]
+        (select-loop assignment (dict-add acc v (just reg)))])]
     [(cons (assign-spill v con fixed-con) assignment)
      (case (set-split
              (set-difference
                (valid-temporary-x86-64-registers)
                (set-add-all
                  fixed-con
-                 (map
-                   (lambda ([v : Var]) : X8664Register
+                 (filter-map
+                   (lambda ([v : Var]) : (Maybe X8664Register)
                      (case (dict-ref acc v)
                        [(nothing) (panic #"Bad assign-spill")]
                        [(just v) v]))
                    (set->list con)))))
-       [(nothing) (left (set-add (make-set var=?) v))]
+       [(nothing)
+        (select-loop assignment (dict-add acc v (nothing)))]
        [(just (tuple2 reg _))
-        (select-loop assignment (dict-add acc v reg))])]))
+        (select-loop assignment (dict-add acc v (just reg)))])]))
