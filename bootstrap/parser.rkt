@@ -12,7 +12,7 @@
 
 (define (parse-module sexps)
   (match sexps
-    [`(#:module ,(? symbol? name)
+    [`(#:module (,(? symbol? name))
        #:import ,(app parse-imports imports)
        (export . ,(app parse-exports exports))
        (types . ,(app parse-type-definitions types))
@@ -24,7 +24,7 @@
   (define (recur imports)
     (match imports
       [(list) empty]
-      [(list-rest (? symbol? module-name) (? list? forms) rest)
+      [(list-rest (list (? symbol? module-name)) (? list? forms) rest)
        (cons (parse-import-section module-name forms) (recur rest))]))
   (define (parse-import-section module-name forms)
     (define (parse-import-elem import-elem)
