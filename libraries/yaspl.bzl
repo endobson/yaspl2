@@ -183,6 +183,7 @@ yaspl_srcs = rule(
 
 def yaspl_test(name, main_module, srcs=[], deps=[], size="medium"):
   yaspl_library(
+    testonly = 1,
     name = name + "_lib",
     srcs = srcs,
     deps = deps

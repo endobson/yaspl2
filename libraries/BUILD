@@ -717,10 +717,21 @@ yaspl_test(
     main_module = "types_test",
     deps = [
         ":types",
+        ":types-test-utils",
         ":yunit",
         "//libraries/data:bytes",
         "//libraries/data:list",
         "//libraries/data:maybe",
+    ],
+)
+
+yaspl_library(
+    name = "types-test-utils",
+    testonly = 1,
+    srcs = ["types-test-utils.yaspl"],
+    deps = [
+        ":types",
+        "//libraries/data:list",
     ],
 )
 
@@ -770,6 +781,7 @@ yaspl_test(
         ":type-checker",
         ":type-checker-context",
         ":types",
+        ":types-test-utils",
         ":yunit",
         "//libraries/data:bytes",
         "//libraries/data:dict",
@@ -803,6 +815,7 @@ yaspl_test(
     deps = [
         ":type-unification",
         ":types",
+        ":types-test-utils",
         ":yunit",
         "//libraries/data:bytes",
         "//libraries/data:dict",
