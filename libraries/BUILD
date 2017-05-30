@@ -157,6 +157,7 @@ yaspl_library(
     name = "module-header-lint",
     srcs = ["module-header-lint.yaspl"],
     deps = [
+        ":module-name",
         ":source-language",
         "//libraries/data:bytes",
         "//libraries/data:list",
@@ -234,6 +235,7 @@ yaspl_bootstrap_library(
     name = "intermediate-language",
     srcs = ["intermediate-language.yaspl"],
     deps = [
+        ":module-name",
         ":source-language",
         ":types",
         "//libraries/data:list",
@@ -431,9 +433,20 @@ yaspl_bootstrap_library(
 )
 
 yaspl_bootstrap_library(
+    name = "module-name",
+    srcs = ["module-name.yaspl"],
+    deps = [
+        ":sexp-parser",
+        "//libraries/data:bytes",
+        "//libraries/data:maybe",
+    ],
+)
+
+yaspl_bootstrap_library(
     name = "module-signature",
     srcs = ["module-signature.yaspl"],
     deps = [
+        ":module-name",
         ":types",
         "//libraries/data:dict",
         "//libraries/data:list",
@@ -444,6 +457,7 @@ yaspl_bootstrap_library(
     name = "module-signature-serialization",
     srcs = ["module-signature-serialization.yaspl"],
     deps = [
+        ":module-name",
         ":module-signature",
         ":sexp-parser",
         ":sexp-printer",
@@ -461,6 +475,7 @@ yaspl_test(
     srcs = ["module-signature-serialization-test.yaspl"],
     main_module = "module_signature_serialization_test",
     deps = [
+        ":module-name",
         ":module-signature",
         ":module-signature-serialization",
         ":types",
@@ -478,6 +493,7 @@ yaspl_bootstrap_library(
     name = "prim-implementation",
     srcs = ["prim-implementation.yaspl"],
     deps = [
+        ":module-name",
         ":module-signature",
         ":stack-machine",
         ":types",
@@ -576,6 +592,7 @@ yaspl_bootstrap_library(
     name = "source-language",
     srcs = ["source-language.yaspl"],
     deps = [
+        ":module-name",
         ":sexp-parser",
         "//libraries/data:either",
         "//libraries/data:list",
@@ -590,6 +607,7 @@ yaspl_bootstrap_library(
     deps = [
         ":free-variables",
         ":intermediate-language",
+        ":module-name",
         ":module-signature",
         ":source-language",
         ":type-checker",
@@ -628,6 +646,7 @@ yaspl_bootstrap_library(
         ":environment",
         ":intermediate-language",
         ":intermediate-to-module-signature",
+        ":module-name",
         ":module-signature",
         ":source-language",
         ":stack-machine",
@@ -702,6 +721,7 @@ yaspl_bootstrap_library(
     name = "types",
     srcs = ["types.yaspl"],
     deps = [
+        ":module-name",
         ":sexp-parser",
         ":sexp-printer",
         "//libraries/data:bytes",
@@ -716,6 +736,7 @@ yaspl_test(
     srcs = ["types-test.yaspl"],
     main_module = "types_test",
     deps = [
+        ":module-name",
         ":types",
         ":types-test-utils",
         ":yunit",
@@ -730,6 +751,7 @@ yaspl_library(
     testonly = 1,
     srcs = ["types-test-utils.yaspl"],
     deps = [
+        ":module-name",
         ":types",
         "//libraries/data:list",
     ],
@@ -739,6 +761,7 @@ yaspl_bootstrap_library(
     name = "type-checker",
     srcs = ["type-checker.yaspl"],
     deps = [
+        ":module-name",
         ":module-signature",
         ":prim-implementation",
         ":sexp-printer",
@@ -796,6 +819,7 @@ yaspl_bootstrap_library(
     name = "type-unification",
     srcs = ["type-unification.yaspl"],
     deps = [
+        ":module-name",
         ":sexp-parser",
         ":sexp-printer",
         ":types",
@@ -813,6 +837,7 @@ yaspl_test(
     srcs = ["type-unification-test.yaspl"],
     main_module = "type_unification_test",
     deps = [
+        ":module-name",
         ":type-unification",
         ":types",
         ":types-test-utils",
@@ -853,6 +878,7 @@ yaspl_bootstrap_library(
     srcs = ["validator.yaspl"],
     deps = [
         ":free-variables",
+        ":module-name",
         ":module-signature",
         ":source-language",
         "//libraries/data:bytes",

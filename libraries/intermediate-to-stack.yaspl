@@ -122,6 +122,14 @@
       just
       nothing
   }
+  (module-name) {
+    #:types
+      ModName
+    #:values
+      mod-name->bytes
+      mod-name-v
+      mod-name=?
+  }
   (module-signature) {
     #:types
       ModuleSignature
@@ -302,18 +310,18 @@
        (add-imported-types module-name types
          (module-signature-type-bindings (lookup-signature module-name sigs)) env))]))
 
-(define (lookup-signature [name : Bytes] [sigs : (List ModuleSignature)])
+(define (lookup-signature [name : ModName] [sigs : (List ModuleSignature)])
   : ModuleSignature
   (case sigs
     [(empty) (panic #"No such signature")]
     [(cons sig sigs)
-     (if (bytes=? (module-signature-name sig) name)
+     (if (mod-name=? (module-signature-name sig) name)
          sig
          (lookup-signature name sigs))]))
 
 
 (define (add-imported-types
-          [module-name : Bytes]
+          [module-name : ModName]
           [types : (List Import)]
           [external-types : (Dict Bytes Type)]
           [env : (Dict Bytes Type)])
@@ -328,7 +336,7 @@
        (dict-add env local-name
           (case (dict-ref external-types external-name)
             [(nothing) (panic (bytes-append (varargs list #"No type " external-name #" exported by "
-                                                     module-name)))]
+                                                     (mod-name->bytes module-name))))]
             [(just type) type])))]))
 
 
@@ -375,8 +383,8 @@
           [sigs : (List ModuleSignature)]) : (Either Bytes (Dict Bytes VariantInfo))
   (case imports
     [(empty) (right env)]
-    [(cons (imports mod-name _ _ patterns) imports)
-     (case (lookup-module-signature mod-name sigs)
+    [(cons (imports name _ _ patterns) imports)
+     (case (lookup-module-signature name sigs)
        [(left v) (left v)]
        [(right sig)
         (case (add-imports/patterns env patterns sig)
@@ -415,8 +423,8 @@
           [sigs : (List ModuleSignature)]) : (Either Bytes (Dict Bytes VarReference))
   (case imps
     [(empty) (right env)]
-    [(cons (imports mod-name _ values _) imps)
-     (case (lookup-module-signature mod-name sigs)
+    [(cons (imports name _ values _) imps)
+     (case (lookup-module-signature name sigs)
        [(left v) (panic v)]
        [(right sig)
         (case (add-imports env values sig)
@@ -460,12 +468,13 @@
           sig)])]))
 
 
-(define (lookup-module-signature [mod-name : Bytes] [sigs : (List ModuleSignature)])
+(define (lookup-module-signature [mod-name : ModName] [sigs : (List ModuleSignature)])
   : (Either Bytes ModuleSignature)
   (case sigs
-    [(empty) (left (bytes-append (cons #"No module found for import: " (cons mod-name (empty)))))]
+    [(empty)
+     (left (bytes-append (varargs list #"No module found for import: " (mod-name->bytes mod-name))))]
     [(cons sig sigs)
-     (if (bytes=? (module-signature-name sig) mod-name)
+     (if (mod-name=? (module-signature-name sig) mod-name)
          (right sig)
          (lookup-module-signature mod-name sigs))]))
 
@@ -475,20 +484,20 @@
     (let ([mangled-names (get-mangled-names (i:module-name imod) (i:module-definitions imod))])
       (add-all-globals env var-names mangled-names))))
 
-(define (get-mangled-names [mod-name : Bytes] [funs : (List i:FunctionDefinition)]) : (List Bytes)
+(define (get-mangled-names [mod-name : ModName] [funs : (List i:FunctionDefinition)]) : (List Bytes)
   (case funs
     [(empty) (empty)]
     [(cons (i:function-definition name _ _ _ _) funs)
      (cons
-       (mangle-name (bytes-append (varargs list mod-name #"_" name)))
+       (mangle-name (bytes-append (varargs list (mod-name-v mod-name) #"_" name)))
        (get-mangled-names mod-name funs))]))
 
-(define (i-get-mangled-names [mod-name : Bytes] [names : (List Bytes)]) : (List Bytes)
+(define (i-get-mangled-names [mod-name : ModName] [names : (List Bytes)]) : (List Bytes)
   (case names
     [(empty) (empty)]
     [(cons name names)
      (cons
-       (mangle-name (bytes-append (varargs list mod-name #"_" name)))
+       (mangle-name (bytes-append (varargs list (mod-name-v mod-name) #"_" name)))
        (i-get-mangled-names mod-name names))]))
 
 (define (add-locally-defined-closures [env : (Dict Bytes VarReference)] [imod : i:Module])
@@ -537,7 +546,7 @@
 
 (define (add-variant-definitions-constructors
           [env : (Dict Bytes VarReference)]
-          [mod-name : Bytes]
+          [mod-name : ModName]
           [type-name : Bytes]
           [defs : (List VariantDefinition)]) : (Dict Bytes VarReference)
   (case defs
@@ -551,7 +560,7 @@
 
 (define (add-variant-definition-constructor
           [env : (Dict Bytes VarReference)]
-          [mod-name : Bytes]
+          [mod-name : ModName]
           [type-name : Bytes]
           [def : VariantDefinition]) : (Dict Bytes VarReference)
   (case def
@@ -562,11 +571,11 @@
        (global-value
          (mangle-name
            (bytes-append
-             (varargs list mod-name #"_" type-name #"_" name #"_closure")))))]))
+             (varargs list (mod-name-v mod-name) #"_" type-name #"_" name #"_closure")))))]))
 
 (define (add-variant-definition-accessors
           [env : (Dict Bytes VarReference)]
-          [mod-name : Bytes]
+          [mod-name : ModName]
           [type-name : Bytes]
           [variant-name : Bytes]
           [fields : (List VariantField)]) : (Dict Bytes VarReference)
@@ -580,7 +589,7 @@
          (global-value
            (mangle-name
              (bytes-append
-               (varargs list mod-name #"_" type-name #"_" variant-name #"_" name #"_closure")))))
+               (varargs list (mod-name-v mod-name) #"_" type-name #"_" variant-name #"_" name #"_closure")))))
        mod-name
        type-name
        variant-name
@@ -630,7 +639,7 @@
   (compile-type-definitions/list (i:module-name imod) (i:module-types imod) (empty)))
 
 (define (compile-type-definitions/list
-          [mod-name : Bytes]
+          [mod-name : ModName]
           [defs : (List TypeDefinition)]
           [acc : (List TopLevelObject)]) : (List TopLevelObject)
   (case defs
@@ -642,7 +651,7 @@
        (compile-type-definition mod-name def acc))]))
 
 (define (compile-type-definition
-          [mod-name : Bytes]
+          [mod-name : ModName]
           [def : TypeDefinition]
           [acc : (List TopLevelObject)]) : (List TopLevelObject)
   (case def
@@ -652,7 +661,7 @@
      (compile-type-definition/variants mod-name name variants acc)]))
 
 (define (compile-type-definition/variants
-          [mod-name : Bytes]
+          [mod-name : ModName]
           [type-name : Bytes]
           [variants : (List VariantDefinition)]
           [acc : (List TopLevelObject)]) : (List TopLevelObject)
@@ -666,7 +675,7 @@
        (compile-variant-definition mod-name type-name variant #f acc))]))
 
 (define (compile-variant-definition
-          [mod-name : Bytes]
+          [mod-name : ModName]
           [type-name : Bytes]
           [def : VariantDefinition]
           [generate-accessors : Boolean]
@@ -674,7 +683,7 @@
   (case def
     [(variant-definition name variant-tag fields)
      (let ([mangled-name
-            (mangle-name (bytes-append (varargs list mod-name #"_" type-name #"_" name)))])
+            (mangle-name (bytes-append (varargs list (mod-name-v mod-name) #"_" type-name #"_" name)))])
        (cons
          (function-tlo
            (stack-function
@@ -706,7 +715,7 @@
                acc))))]))
 
 (define (compile-variant-definition/accessors
-          [mod-name : Bytes]
+          [mod-name : ModName]
           [type-name : Bytes]
           [variant-name : Bytes]
           [variant-tag : Int]
@@ -725,7 +734,7 @@
        fields
        (let ([mangled-name
               (mangle-name
-                (bytes-append (varargs list mod-name #"_" type-name #"_" variant-name #"_" name)))])
+                (bytes-append (varargs list (mod-name-v mod-name) #"_" type-name #"_" variant-name #"_" name)))])
          (cons
            (function-tlo
              (stack-function
@@ -757,7 +766,7 @@
             (case b
               [(bytes-constant name value)
                (bytes-tlo
-                 (mangle-name (bytes-append (varargs list mod-name #"_" name)))
+                 (mangle-name (bytes-append (varargs list (mod-name-v mod-name) #"_" name)))
                  value)])))
        (i:module-bytes imod)))
 
@@ -765,7 +774,7 @@
   (compile-closures/list (i:module-name imod) (i:module-closures imod)))
 
 (define (compile-closures/list
-          [mod-name : Bytes]
+          [mod-name : ModName]
           [pairs : (List ClosureConstant)])
   : (List TopLevelObject)
   (case pairs
@@ -773,15 +782,15 @@
     [(cons (closure-constant name fun-name) pairs)
      (cons
        (trivial-closure-tlo
-         (mangle-name (bytes-append (varargs list mod-name #"_" name)))
-         (mangle-name (bytes-append (varargs list mod-name #"_" fun-name))))
+         (mangle-name (bytes-append (varargs list (mod-name-v mod-name) #"_" name)))
+         (mangle-name (bytes-append (varargs list (mod-name-v mod-name) #"_" fun-name))))
        (compile-closures/list mod-name pairs))]))
 
 (define (compile-function-definitions [imod : i:Module] [env : Environment]) : (List TopLevelObject)
   (compile-function-definitions/list (i:module-name imod) (i:module-definitions imod) env))
 
 (define (compile-function-definitions/list
-          [mod-name : Bytes]
+          [mod-name : ModName]
           [funs : (List i:FunctionDefinition)]
           [env : Environment]) : (List TopLevelObject)
   (case funs
@@ -791,14 +800,14 @@
            (compile-function-definitions/list mod-name funs env))]))
 
 (define (compile-function-definition
-          [mod-name : Bytes]
+          [mod-name : ModName]
           [fun : i:FunctionDefinition]
           [env : Environment]) : TopLevelObject
   (case fun
     [(i:function-definition name pre-type arg-names free-vars body)
      (function-tlo
        (stack-function
-         (mangle-name (bytes-append (varargs list mod-name #"_" name)))
+         (mangle-name (bytes-append (varargs list (mod-name-v mod-name) #"_" name)))
          (length arg-names)
          ;; TODO validate the genstate has one temporary left in it, the return addr, and then the
          ;; variables.

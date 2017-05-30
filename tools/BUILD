@@ -19,6 +19,7 @@ yaspl_library(
     deps = [
         "//libraries:compiler_lib",
         "//libraries:io",
+        "//libraries:module-name",
         "//libraries:sexp-parser",
         "//libraries:source-language",
         "//libraries/data:bytes",
@@ -45,6 +46,7 @@ yaspl_library(
     deps = [
         "//libraries:io",
         "//libraries:module-header-lint",
+        "//libraries:module-name",
         "//libraries:module-signature",
         "//libraries:module-signature-serialization",
         "//libraries:sexp-parser",

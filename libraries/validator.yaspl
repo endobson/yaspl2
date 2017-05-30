@@ -66,6 +66,13 @@
       just
       nothing
   }
+  (module-name) {
+    #:types
+      ModName
+    #:values
+      mod-name->bytes
+      mod-name=?
+  }
   (module-signature) {
     #:types
       ModuleSignature
@@ -175,7 +182,7 @@
 (types
   (define-type ModuleErrors
     (module-errors
-      [module-name : Bytes]
+      [module-name : ModName]
       [error : (List ModuleError)]))
   (define-type ModuleError
     (duplicate-module-bindings
@@ -190,9 +197,9 @@
       [types : (List Bytes)]
       [values : (List Bytes)]
       [patterns : (List Bytes)])
-    (non-existent-imports/module [module-name : Bytes])
+    (non-existent-imports/module [module-name : ModName])
     (non-existent-imports/bindings
-      [module-name : Bytes]
+      [module-name : ModName]
       [types : (List Bytes)]
       [values : (List Bytes)]
       [patterns : (List Bytes)])
@@ -252,7 +259,7 @@
     (lambda ([sig : ModuleSignature]) : (Maybe ModuleError)
       (case sig
         [(module-signature name _ _ _ _ _)
-         (if (bytes=? name (module-name mod))
+         (if (mod-name=? name (module-name mod))
              (just (non-unique-name))
              (nothing))]))
     sigs))
@@ -487,8 +494,8 @@
           (just (import-exported-name import))))
     imports))
 
-(define (find-signature [name : Bytes] [sigs : (List ModuleSignature)]) : (Maybe ModuleSignature)
-  (findf (lambda ([sig : ModuleSignature]) (bytes=? name (module-signature-name sig))) sigs))
+(define (find-signature [name : ModName] [sigs : (List ModuleSignature)]) : (Maybe ModuleSignature)
+  (findf (lambda ([sig : ModuleSignature]) (mod-name=? name (module-signature-name sig))) sigs))
 
 (define (validate-module/imports-exist [mod : Module] [sigs : (List ModuleSignature)]) :
   (List ModuleError)
@@ -499,7 +506,7 @@
          (case (find-signature import-name sigs)
            [(nothing)
             (just (non-existent-imports/module import-name))]
-           [(just (module-signature mod-name e-vals e-patterns e-types _ _))
+           [(just (module-signature _ e-vals e-patterns e-types _ _))
             (case (tuple3
                     (validate-imports types (dict-keys e-types))
                     (validate-imports values (dict-keys e-vals))
@@ -611,7 +618,7 @@
      (bytes-append
        (map (lambda ([error : ModuleError]) (module-error->bytes mod-name error)) errors))]))
 
-(define (module-error->bytes [mod-name : Bytes] [error : ModuleError]) : Bytes
+(define (module-error->bytes [mod-name : ModName] [error : ModuleError]) : Bytes
   (case error
     [(duplicate-module-bindings types values patterns)
      (let ([warn-duplicates
@@ -627,12 +634,12 @@
         (bytes-append
           (jl->list
             (varargs append-jl*
-              (varargs join-list #"Duplicate bindings in module " mod-name #":\n")
+              (varargs join-list #"Duplicate bindings in module " (mod-name->bytes mod-name) #":\n")
               (warn-duplicates #"Type" types)
               (warn-duplicates #"Value" values)
               (warn-duplicates #"Pattern" patterns)))))]
     [(non-unique-name)
-     (bytes-append (varargs list #"Module named \"" mod-name #"\" already exists."))]
+     (bytes-append (varargs list #"Module \"" (mod-name->bytes mod-name) #"\" already exists."))]
     [(undefined-exports types values patterns)
      (let ([warn-undefined-exports
              (lambda ([kind : Bytes] [names : (List Bytes)]) : (JoinList Bytes)
@@ -647,7 +654,7 @@
         (bytes-append
           (jl->list
             (append-jl
-              (varargs join-list #"Undefined exports in module " mod-name #":\n")
+              (varargs join-list #"Undefined exports in module " (mod-name->bytes mod-name) #":\n")
               (varargs append-jl*
                 (warn-undefined-exports #"Type" types)
                 (warn-undefined-exports #"Value" values)
@@ -666,14 +673,15 @@
         (bytes-append
           (jl->list
             (append-jl
-              (varargs join-list #"Duplicate exports in module " mod-name #":\n")
+              (varargs join-list #"Duplicate exports in module " (mod-name->bytes mod-name) #":\n")
               (varargs append-jl*
                 (warn-duplicate-exports #"Type" types)
                 (warn-duplicate-exports #"Value" values)
                 (warn-duplicate-exports #"Pattern" patterns))))))]
     [(non-existent-imports/module import-name)
      (bytes-append
-       (varargs list #"Missing import in " mod-name #". Could not find module: " import-name #"\n"))]
+       (varargs list #"Missing import in " (mod-name->bytes mod-name)
+                     #". Could not find module: " (mod-name->bytes import-name) #"\n"))]
     [(non-existent-imports/bindings import-name types values patterns)
      (let ([warn-no-exports
              (lambda ([kind : Bytes] [names : (List Bytes)]) : (JoinList Bytes)
@@ -689,7 +697,8 @@
           (jl->list
             (append-jl
               (varargs join-list
-                #"Undefined imports in module " mod-name #" from module " import-name #":\n")
+                #"Undefined imports in module " (mod-name->bytes mod-name) #" from module "
+                (mod-name->bytes import-name) #":\n")
               (varargs append-jl*
                 (warn-no-exports #"Type" types)
                 (warn-no-exports #"Value" values)
@@ -709,7 +718,7 @@
           (jl->list
             (append-jl
               (varargs join-list
-                #"Free variables in module " mod-name #" in function " function-name #":\n")
+                #"Free variables in module " (mod-name->bytes mod-name) #" in function " function-name #":\n")
               (varargs append-jl*
                 (warn-free-variables #"Types" types)
                 (warn-free-variables #"Values" values)
@@ -717,5 +726,5 @@
     [(function-error function-name (duplicate-bindings dups))
      (bytes-append
        (append
-         (varargs list #"Duplicate bindings in " mod-name #" in " function-name #": ")
+         (varargs list #"Duplicate bindings in " (mod-name->bytes mod-name) #" in " function-name #": ")
          (interleave dups #", ")))]))
