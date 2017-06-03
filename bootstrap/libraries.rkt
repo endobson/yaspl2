@@ -13,7 +13,7 @@
 
 (define (load-modules paths)
   (define modules (mutable-set))
-  (define module-signatures (make-hash (list (cons 'prim primitive-module-signature))))
+  (define module-signatures (make-hash (list (cons (module-name& '(prim)) primitive-module-signature))))
   (define module-names (mutable-set))
 
   (define (read-module port)

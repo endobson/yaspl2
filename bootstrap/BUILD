@@ -107,6 +107,7 @@ racket_library(
     srcs = ["primitives.rkt"],
     deps = [
         ":machine-structs",
+        ":parser-structs",
         ":signature-structs",
         ":type-structs",
     ],

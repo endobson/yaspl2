@@ -67,7 +67,7 @@
   (define (make-primitive-environment)
     (hash-copy
       (for/hash ([(prim-name prim-val) (in-hash supported-primitives)])
-        (values (full-name 'prim prim-name) prim-val))))
+        (values (full-name (module-name& '(prim)) prim-name) prim-val))))
 
   ;; Mapping to identifiers
   (define global-env (make-primitive-environment))

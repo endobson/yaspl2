@@ -2,6 +2,7 @@
 
 (require
   "machine-structs.rkt"
+  "parser-structs.rkt"
   "type-structs.rkt"
   "signature-structs.rkt"
   racket/match
@@ -101,7 +102,7 @@
              (?@ 'clauses.name clauses.impl)
              ...))
          (define module-sig
-           (module-signature 'prim
+           (module-signature (module-name& '(prim))
               (hash-union
                 (hash (?@ 'clauses.name clauses.ty) ...)
                 prim-types)

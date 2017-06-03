@@ -150,7 +150,7 @@
                [(import& src-mod exported-name local-name)
                 ;; TODO make the prim module-signature work the same way as others
                 (hash-set! mut-type-name-env local-name
-                  (if (equal? src-mod 'prim)
+                  (if (equal? src-mod (module-name& '(prim)))
                       (hash-ref (module-signature-exports (hash-ref module-signatures src-mod))
                                 exported-name)
                       (match (hash-ref (module-signature-types (hash-ref module-signatures src-mod))

@@ -3,6 +3,7 @@
 (provide (all-defined-out))
 
 (struct module& (name imports exports types definitions))
+(struct module-name& (v) #:transparent)
 
 (struct exports& (types values patterns))
 (struct export& (in-name out-name))

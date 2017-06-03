@@ -4,6 +4,7 @@
 (require
   "compiler.rkt"
   "libraries.rkt"
+  "parser-structs.rkt"
   racket/file
   racket/runtime-path)
 
@@ -24,7 +25,7 @@
     (vector-ref (current-command-line-arguments) 0)))
 
 
-(let ([result (run-program modules 'compiler-main 'main #:stdin #""
+(let ([result (run-program modules (module-name& '(compiler-main)) 'main #:stdin #""
                            #:args (list* output-file #"library_compiler_main" library-compiler-files))])
   (write-bytes (program-result-stdout result) (current-output-port))
   (write-bytes (program-result-stderr result) (current-error-port))
