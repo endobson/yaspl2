@@ -438,6 +438,7 @@ yaspl_bootstrap_library(
     deps = [
         ":sexp-parser",
         "//libraries/data:bytes",
+        "//libraries/data:list",
         "//libraries/data:maybe",
     ],
 )
