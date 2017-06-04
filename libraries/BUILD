@@ -336,6 +336,7 @@ yaspl_bootstrap_library(
         ":io",
         ":module-signature",
         ":prim-implementation",
+        ":resolved-imports-language",
         ":sexp-parser",
         ":source-language",
         ":source-to-intermediate-language",
@@ -518,6 +519,22 @@ yaspl_library(
         "//libraries/data:join-list",
         "//libraries/data:list",
         "//libraries/data:numbers",
+    ],
+)
+
+yaspl_bootstrap_library(
+    name = "resolved-imports-language",
+    srcs = ["resolved-imports-language.yaspl"],
+    deps = [
+        ":module-name",
+        ":module-signature",
+        ":source-language",
+        ":types",
+        "//libraries/data:bytes",
+        "//libraries/data:dict",
+        "//libraries/data:either",
+        "//libraries/data:list",
+        "//libraries/data:maybe",
     ],
 )
 
