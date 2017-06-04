@@ -10,18 +10,9 @@
       Dict
     #:values
       dict-add
-      dict-ref
+      dict-value-map
       make-dict
-  }
-  (either) {
-    #:types
-      Either
-    #:values
-      left
-      right
-    #:patterns
-      left
-      right
+      merge-dicts
   }
   (environment) {
     #:types
@@ -49,7 +40,6 @@
       ClosureConstant
       Expression
       [FunctionDefinition i:FunctionDefinition]
-      Imports
       [Module i:Module]
       Pattern
       TypeDefinition
@@ -80,7 +70,6 @@
       global-var-expr
       if-expr
       ignore-pattern
-      imports
       int-literal
       int-pattern
       let-expr
@@ -107,7 +96,6 @@
       List
     #:values
       append
-      append*
       cons
       empty
       foldl
@@ -129,20 +117,17 @@
     #:types
       ModName
     #:values
-      mod-name->bytes
       mod-name-parts
-      mod-name=?
   }
   (module-signature) {
     #:types
       ModuleSignature
+      PatternSignature
+      ValueSignature
     #:values
-      module-signature-name
-      module-signature-pattern-exports
-      module-signature-value-exports
+      value-signature-symbol
     #:patterns
       pattern-signature
-      value-signature
   }
   (prim) {
     #:types
@@ -163,11 +148,9 @@
       panic
       u8
   }
-  (source-language) {
-    #:types
-      Import
+  (resolved-imports-language) {
     #:patterns
-      import
+      [imports r:imports]
   }
   (stack-machine) {
     #:types
@@ -238,24 +221,20 @@
       [code : (List TopLevelObject)]
       [sig : ModuleSignature])))
 
-(define (compile-module [imod : i:Module] [sigs : (List ModuleSignature)]) :
-  (Either Bytes CompiledModule)
-  (case (make-global-env imod sigs)
-    [(left v) (left v)]
-    [(right env)
-     (let ([tlos
-             (append
-               (compile-type-definitions imod)
-               (append
-                 (compile-function-definitions imod env)
-                 (append
-                   (compile-closures imod)
-                   (compile-byte-constants imod))))])
-       (right
-         (compiled-module
-           tlos
-           (module->module-signature imod env
-             (add-known-functions tlos (make-dict bytes=?))))))]))
+(define (compile-module [imod : i:Module]) : CompiledModule
+  (match-define env (make-global-env imod))
+  (let ([tlos
+          (append
+            (compile-type-definitions imod)
+            (append
+              (compile-function-definitions imod env)
+              (append
+                (compile-closures imod)
+                (compile-byte-constants imod))))])
+    (compiled-module
+      tlos
+      (module->module-signature imod env
+        (add-known-functions tlos (make-dict bytes=?))))))
 
 (define (add-known-functions [tlos : (List TopLevelObject)]
                              [dict : (Dict Bytes Bytes)]) : (Dict Bytes Bytes)
@@ -267,21 +246,15 @@
      (add-known-functions tlos dict)]))
 
 
-(define (make-global-env [imod : i:Module] [sigs : (List ModuleSignature)])
-  : (Either Bytes Environment)
-  (case (add-all-imported-patterns
-          (add-type-definitions-variant-infos/top
-            (make-dict bytes=?) imod)
-          imod sigs)
-    [(left v) (left v)]
-    [(right pattern-env)
-     (case (setup-value-environment imod sigs)
-       [(left v) (left v)]
-       [(right value-env)
-        (right (environment value-env pattern-env))])]))
+(define (make-global-env [imod : i:Module]) : Environment
+  (environment
+    (setup-value-environment imod)
+    (add-all-imported-patterns
+      (add-type-definitions-variant-infos/top
+        (make-dict bytes=?) imod)
+      imod)))
 
-(define (setup-value-environment [imod : i:Module] [sigs : (List ModuleSignature)])
-  : (Either Bytes (Dict Bytes VarReference))
+(define (setup-value-environment [imod : i:Module]) : (Dict Bytes VarReference)
   (add-all-imported-functions
     (add-type-definitions-functions/top
       (add-locally-defined-functions
@@ -292,114 +265,28 @@
           imod)
         imod)
       imod)
-    imod sigs))
+    imod))
 
-(define (add-all-imported-patterns
-          [env : (Dict Bytes VariantInfo)]
-          [imod : i:Module]
-          [sigs : (List ModuleSignature)]) : (Either Bytes (Dict Bytes VariantInfo))
-  (add-all-imports/patterns env (i:module-imports imod) sigs))
+(define (add-all-imported-patterns [env : (Dict Bytes VariantInfo)] [imod : i:Module])
+  : (Dict Bytes VariantInfo)
+  (match-define (r:imports _ _ patterns) (i:module-imports imod))
+  (merge-dicts
+    (dict-value-map
+      patterns
+      (lambda ([p : PatternSignature])
+        (case p
+          [(pattern-signature _ tag _ _ _ _)
+           (variant-info tag)])))
+    env))
 
-(define (add-all-imports/patterns
-          [env : (Dict Bytes VariantInfo)]
-          [imports : (List Imports)]
-          [sigs : (List ModuleSignature)]) : (Either Bytes (Dict Bytes VariantInfo))
-  (case imports
-    [(empty) (right env)]
-    [(cons (imports name _ _ patterns) imports)
-     (case (lookup-module-signature name sigs)
-       [(left v) (left v)]
-       [(right sig)
-        (case (add-imports/patterns env patterns sig)
-          [(left v) (left v)]
-          [(right env)
-           (add-all-imports/patterns env imports sigs)])])]))
-
-(define (add-imports/patterns
-          [env : (Dict Bytes VariantInfo)]
-          [imports : (List Import)]
-          [sig : ModuleSignature]) : (Either Bytes (Dict Bytes VariantInfo))
-  (case imports
-    [(empty) (right env)]
-    [(cons (import exported-name local-name) imports)
-     (case (dict-ref (module-signature-pattern-exports sig) exported-name)
-       [(nothing)
-        (left
-          (bytes-append
-            (cons #"No corresponding export for pattern import of "
-              (cons exported-name (empty)))))]
-       [(just (pattern-signature _ tag _ _ _ _))
-        (add-imports/patterns
-          (dict-add env local-name (variant-info tag))
-          imports
-          sig)])]))
-
-(define (add-all-imported-functions
-          [env : (Dict Bytes VarReference)]
-          [imod : i:Module]
-          [sigs : (List ModuleSignature)]) : (Either Bytes (Dict Bytes VarReference))
-  (add-all-imports env (i:module-imports imod)sigs))
-
-(define (add-all-imports
-          [env : (Dict Bytes VarReference)]
-          [imps : (List Imports)]
-          [sigs : (List ModuleSignature)]) : (Either Bytes (Dict Bytes VarReference))
-  (case imps
-    [(empty) (right env)]
-    [(cons (imports name _ values _) imps)
-     (case (lookup-module-signature name sigs)
-       [(left v) (panic v)]
-       [(right sig)
-        (case (add-imports env values sig)
-          [(left v) (left v)]
-          [(right env) (add-all-imports env imps sigs)])])]))
-
-(define (add-imports
-          [env : (Dict Bytes VarReference)]
-          [imps : (List Import)]
-          [sig : ModuleSignature]) : (Either Bytes (Dict Bytes VarReference))
-  (case (add-imports* (empty) env imps sig)
-    [(tuple2 (empty) env)
-     (right env)]
-    [(tuple2 missing-exports _)
-     (left
-       (bytes-append
-         (cons #"No corresponding export for import of:"
-           (append*
-             (map (lambda ([e : Bytes]) (varargs list #"\n  " e)) missing-exports)))))]))
-
-(define (add-imports*
-          [missing-exports : (List Bytes)]
-          [env : (Dict Bytes VarReference)]
-          [imps : (List Import)]
-          [sig : ModuleSignature]) : (Tuple2 (List Bytes) (Dict Bytes VarReference))
-  (case imps
-    [(empty) (tuple2 missing-exports env)]
-    [(cons (import exported-name local-name) imps)
-     (case (dict-ref (module-signature-value-exports sig) exported-name)
-       [(nothing)
-        (add-imports*
-          (cons exported-name missing-exports)
-          env
-          imps
-          sig)]
-       [(just (value-signature _ global-name))
-        (add-imports*
-          missing-exports
-          (dict-add env local-name (global-value global-name))
-          imps
-          sig)])]))
-
-
-(define (lookup-module-signature [mod-name : ModName] [sigs : (List ModuleSignature)])
-  : (Either Bytes ModuleSignature)
-  (case sigs
-    [(empty)
-     (left (bytes-append (varargs list #"No module found for import: " (mod-name->bytes mod-name))))]
-    [(cons sig sigs)
-     (if (mod-name=? (module-signature-name sig) mod-name)
-         (right sig)
-         (lookup-module-signature mod-name sigs))]))
+(define (add-all-imported-functions [env : (Dict Bytes VarReference)] [imod : i:Module])
+  : (Dict Bytes VarReference)
+  (match-define (r:imports _ values _) (i:module-imports imod))
+  (merge-dicts
+    (dict-value-map values
+      (lambda ([v : ValueSignature])
+        (global-value (value-signature-symbol v))))
+    env))
 
 (define (add-locally-defined-functions [env : (Dict Bytes VarReference)] [imod : i:Module])
   : (Dict Bytes VarReference)
