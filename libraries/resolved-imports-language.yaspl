@@ -2,6 +2,7 @@
 #:import {
   (bytes) {
     #:values
+      bytes-append
       bytes=?
   }
   (dict) {
@@ -22,11 +23,26 @@
       left
       right
   }
+  (join-list) {
+    #:types
+      JoinList
+    #:values
+      append-jl
+      append-jl*
+      concat-jl
+      empty-jl
+      jl->list
+      join-list
+  }
   (list) {
     #:types
       List
     #:values
+      cons
+      empty
       findf
+      list
+      map
     #:patterns
       cons
       empty
@@ -42,6 +58,7 @@
     #:types
       ModName
     #:values
+      mod-name->bytes
       mod-name=?
   }
   (module-signature) {
@@ -71,6 +88,14 @@
       [module s:module]
       [partial-imports s:partial-imports]
   }
+  (tuples) {
+    #:types
+      Tuple3
+    #:values
+      tuple3
+    #:patterns
+      tuple3
+  }
   (types) {
     #:types
       Type
@@ -78,7 +103,7 @@
 }
 (export
   #:types (Imports Module)
-  #:values (resolve-imports)
+  #:values (resolve-imports import-resolution-errors->bytes )
   #:patterns (imports module))
 (types
   (define-type Module
@@ -91,12 +116,33 @@
     (imports
       [types : (Dict Bytes Type)]
       [values : (Dict Bytes ValueSignature)]
-      [patterns : (Dict Bytes PatternSignature)])))
+      [patterns : (Dict Bytes PatternSignature)]))
 
-(define (resolve-imports [mod : s:Module] [sigs : (List ModuleSignature)]) : (Either Bytes Module)
+  (define-type ImportResolutionErrors
+    (import-resolution-errors
+      [module-name : ModName]
+      [errors : (List ImportResolutionError)]))
+
+  (define-type ImportResolutionError
+    (non-existent-imports/module [module-name : ModName])
+    (non-existent-imports/bindings
+      [module-name : ModName]
+      [types : (List Bytes)]
+      [values : (List Bytes)]
+      [patterns : (List Bytes)])
+    (duplicate-imports
+      [types : (List Bytes)]
+      [values : (List Bytes)]
+      [patterns : (List Bytes)])))
+
+(define (resolve-imports [mod : s:Module] [sigs : (List ModuleSignature)])
+  : (Either ImportResolutionErrors Module)
   (match-define (s:module name importss exports types definitions) mod)
-  (case (resolve-imports/importss importss sigs (make-dict bytes=?) (make-dict bytes=?) (make-dict bytes=?))
-    [(left v) (left v)]
+  (case (resolve-imports/importss
+          importss sigs (make-dict bytes=?) (make-dict bytes=?) (make-dict bytes=?)
+                        (empty) (empty) (empty) (empty))
+    [(left errors)
+     (left (import-resolution-errors name errors))]
     [(right imports)
      (right (module name imports exports types definitions))]))
 
@@ -105,78 +151,177 @@
           [sigs : (List ModuleSignature)]
           [types : (Dict Bytes Type)]
           [values : (Dict Bytes ValueSignature)]
-          [patterns : (Dict Bytes PatternSignature)]) :
-  (Either Bytes Imports)
+          [patterns : (Dict Bytes PatternSignature)]
+          [errors : (List ImportResolutionError)]
+          [duplicate-types : (List Bytes)]
+          [duplicate-values : (List Bytes)]
+          [duplicate-patterns : (List Bytes)])
+  : (Either (List ImportResolutionError) Imports)
   (case importss
     [(empty)
-     (right (imports types values patterns))]
+     (match-define final-errors
+       (case (tuple3 duplicate-types duplicate-values duplicate-patterns)
+         [(tuple3 (empty) (empty) (empty))
+          errors]
+         [_
+          (cons (duplicate-imports duplicate-types duplicate-values duplicate-patterns)
+                errors)]))
+     (case final-errors
+       [(empty)
+        (right (imports types values patterns))]
+       [e
+        (left e)])]
     [(cons (s:partial-imports mod-name i-types i-values i-patterns) importss)
      (case (find-signature mod-name sigs)
-       [(nothing) (left #"Couldnt' find signature")]
+       [(nothing)
+        (resolve-imports/importss
+          importss sigs types values patterns
+          (cons (non-existent-imports/module mod-name) errors)
+          duplicate-types duplicate-values duplicate-patterns)]
        [(just (module-signature _ e-values e-patterns e-types _))
-        (case (add-type-imports i-types e-types types)
-          [(left v) (left v)]
-          [(right types)
-           (case (add-value-imports i-values e-values values)
-             [(left v) (left v)]
-             [(right values)
-              (case (add-pattern-imports i-patterns e-patterns patterns)
-                [(left v) (left v)]
-                [(right patterns)
-                 (resolve-imports/importss importss sigs types values patterns)])])])])]))
+        (match-define (tuple3 unknown-types duplicate-types types)
+          (add-type-imports i-types e-types types (empty) duplicate-types))
+        (match-define (tuple3 unknown-values duplicate-values values)
+          (add-value-imports i-values e-values values (empty) duplicate-values))
+        (match-define (tuple3 unknown-patterns duplicate-patterns patterns)
+          (add-pattern-imports i-patterns e-patterns patterns (empty) duplicate-patterns))
+        (match-define new-errors
+          (case (tuple3 unknown-types unknown-values unknown-patterns)
+            [(tuple3 (empty) (empty) (empty))
+             errors]
+            [_
+             (cons (non-existent-imports/bindings mod-name unknown-types unknown-values unknown-patterns)
+                   errors)]))
+        (resolve-imports/importss
+          importss sigs types values patterns new-errors
+          duplicate-types duplicate-values duplicate-patterns)])]))
 
 (define (add-type-imports
           [imports : (List Import)]
           [exported-types : (Dict Bytes Type)]
-          [types : (Dict Bytes Type)])
-  : (Either Bytes (Dict Bytes Type))
+          [types : (Dict Bytes Type)]
+          [unknown-imports : (List Bytes)]
+          [duplicate-bindings : (List Bytes)])
+  : (Tuple3 (List Bytes) (List Bytes) (Dict Bytes Type))
   (case imports
     [(empty)
-     (right types)]
+     (tuple3 unknown-imports duplicate-bindings types)]
     [(cons (import ex-name im-name) imports)
      (case (dict-ref exported-types ex-name)
-       [(nothing) (left #"No such export")]
+       [(nothing)
+        (add-type-imports imports exported-types types (cons ex-name unknown-imports)
+                          duplicate-bindings)]
        [(just t)
         (case (dict-maybe-add types im-name t)
-          [(nothing) (left #"Duplicate import binding")]
+          [(nothing)
+           (add-type-imports imports exported-types types unknown-imports
+                             (cons im-name duplicate-bindings))]
           [(just types)
-           (add-type-imports imports exported-types types)])])]))
+           (add-type-imports imports exported-types types unknown-imports duplicate-bindings)])])]))
 
 
 (define (add-value-imports
           [imports : (List Import)]
           [exported-values : (Dict Bytes ValueSignature)]
-          [values : (Dict Bytes ValueSignature)])
-  : (Either Bytes (Dict Bytes ValueSignature))
+          [values : (Dict Bytes ValueSignature)]
+          [unknown-imports : (List Bytes)]
+          [duplicate-bindings : (List Bytes)])
+  : (Tuple3 (List Bytes) (List Bytes) (Dict Bytes ValueSignature))
   (case imports
     [(empty)
-     (right values)]
+     (tuple3 unknown-imports duplicate-bindings values)]
     [(cons (import ex-name im-name) imports)
      (case (dict-ref exported-values ex-name)
-       [(nothing) (left #"No such export")]
+       [(nothing)
+        (add-value-imports imports exported-values values (cons ex-name unknown-imports)
+                           duplicate-bindings)]
        [(just t)
         (case (dict-maybe-add values im-name t)
-          [(nothing) (left #"Duplicate import binding")]
+          [(nothing)
+           (add-value-imports imports exported-values values unknown-imports
+                              (cons im-name duplicate-bindings))]
           [(just values)
-           (add-value-imports imports exported-values values)])])]))
+           (add-value-imports imports exported-values values unknown-imports duplicate-bindings)])])]))
 
 (define (add-pattern-imports
           [imports : (List Import)]
           [exported-patterns : (Dict Bytes PatternSignature)]
-          [patterns : (Dict Bytes PatternSignature)])
-  : (Either Bytes (Dict Bytes PatternSignature))
+          [patterns : (Dict Bytes PatternSignature)]
+          [unknown-imports : (List Bytes)]
+          [duplicate-bindings : (List Bytes)])
+  : (Tuple3 (List Bytes) (List Bytes) (Dict Bytes PatternSignature))
   (case imports
     [(empty)
-     (right patterns)]
+     (tuple3 unknown-imports duplicate-bindings patterns)]
     [(cons (import ex-name im-name) imports)
      (case (dict-ref exported-patterns ex-name)
-       [(nothing) (left #"No such export")]
+       [(nothing)
+        (add-pattern-imports imports exported-patterns patterns (cons ex-name unknown-imports)
+                             duplicate-bindings)]
        [(just sig)
         (case (dict-maybe-add patterns im-name sig)
-          [(nothing) (left #"Duplicate import binding")]
+          [(nothing)
+           (add-pattern-imports imports exported-patterns patterns unknown-imports
+                                (cons im-name duplicate-bindings))]
           [(just patterns)
-           (add-pattern-imports imports exported-patterns patterns)])])]))
+           (add-pattern-imports imports exported-patterns patterns unknown-imports duplicate-bindings)])])]))
 
 
 (define (find-signature [name : ModName] [sigs : (List ModuleSignature)]) : (Maybe ModuleSignature)
   (findf (lambda ([sig : ModuleSignature]) (mod-name=? name (module-signature-name sig))) sigs))
+
+
+(define (import-resolution-errors->bytes [me : ImportResolutionErrors]) : Bytes
+  (case me
+    [(import-resolution-errors mod-name errors)
+     (bytes-append
+       (map (lambda ([error : ImportResolutionError]) (import-resolution-error->bytes mod-name error))
+            errors))]))
+
+(define (import-resolution-error->bytes [mod-name : ModName] [e : ImportResolutionError]) : Bytes
+  (case e
+    [(non-existent-imports/module import-name)
+     (bytes-append
+       (varargs list #"Missing import in " (mod-name->bytes mod-name)
+                     #". Could not find module: " (mod-name->bytes import-name) #"\n"))]
+    [(non-existent-imports/bindings import-name types values patterns)
+     (let ([warn-no-exports
+             (lambda ([kind : Bytes] [names : (List Bytes)]) : (JoinList Bytes)
+               (case names
+                 [(empty) (empty-jl)]
+                 [_
+                   (append-jl
+                     (varargs join-list #"  " kind #" imports:\n")
+                     (concat-jl (map (lambda ([name : Bytes])
+                                       (varargs join-list #"    " name #"\n"))
+                                     names)))]))])
+        (bytes-append
+          (jl->list
+            (append-jl
+              (varargs join-list
+                #"Undefined imports in module " (mod-name->bytes mod-name) #" from module "
+                (mod-name->bytes import-name) #":\n")
+              (varargs append-jl*
+                (warn-no-exports #"Type" types)
+                (warn-no-exports #"Value" values)
+                (warn-no-exports #"Pattern" patterns))))))]
+    [(duplicate-imports types values patterns)
+     (let ([warn-duplicate-imports
+             (lambda ([kind : Bytes] [names : (List Bytes)]) : (JoinList Bytes)
+               (case names
+                 [(empty) (empty-jl)]
+                 [_
+                   (append-jl
+                     (varargs join-list #"  " kind #" imports:\n")
+                     (concat-jl (map (lambda ([name : Bytes])
+                                       (varargs join-list #"    " name #"\n"))
+                                     names)))]))])
+        (bytes-append
+          (jl->list
+            (append-jl
+              (varargs join-list
+                #"Duplicate imports in module " (mod-name->bytes mod-name) #":\n")
+              (varargs append-jl*
+                (warn-duplicate-imports #"Type" types)
+                (warn-duplicate-imports #"Value" values)
+                (warn-duplicate-imports #"Pattern" patterns))))))]))
