@@ -13,6 +13,7 @@
       dict-add-all
       dict-map
       dict-ref
+      dict-value-map
       make-dict
       merge-dicts*
   }
@@ -78,13 +79,7 @@
   }
   (module-signature) {
     #:types
-      ModuleSignature
       PatternSignature
-    #:values
-      module-signature-name
-      module-signature-pattern-exports
-      module-signature-type-bindings
-      module-signature-value-types
     #:patterns
       pattern-signature
       type-signature
@@ -108,6 +103,14 @@
       int-type
       void-type
   }
+  (resolved-imports-language) {
+    #:types
+      Imports
+      Module
+    #:patterns
+      imports
+      module
+  }
   (set) {
     #:values
       make-set
@@ -126,8 +129,6 @@
       Expression
       FunctionDefinition
       Import
-      Imports
-      Module
       Pattern
       PreType
       TypeDefinition
@@ -137,7 +138,6 @@
       case-clause-pattern
       function-definition-name
       module-definitions
-      module-name
       type-definition-name
       variant-definition-name
     #:patterns
@@ -160,8 +160,6 @@
       lambda-expr
       let-expr
       match-def
-      module
-      partial-imports
       type-app-pre-type
       type-definition
       var-expr
@@ -253,53 +251,18 @@
   (match-define (type-check-error name errors) err)
   (bytes-append (append (varargs list #"Module: " (mod-name->bytes name) #"\n") (interleave errors #"\n\n"))))
 
-
-(define (extract-imports
-          [imports : (List Import)]
-          [exports : (Dict Bytes Type)]
-          [acc : (Dict Bytes Type)])
-  : (Dict Bytes Type)
+(define (imports->context [imports : Imports]) : Context
   (case imports
-    [(empty) acc]
-    [(cons (import exported-name local-name) imports)
-     (extract-imports
-       imports
-       exports
-       (case (dict-ref exports exported-name)
-         [(nothing) (panic (bytes-append (varargs list #"Couldn't find export: " exported-name)))]
-         [(just type)
-          (dict-add acc local-name type)]))]))
-
-(define (extract-imports/patterns
-          [imports : (List Import)]
-          [exports : (Dict Bytes PatternSignature)]
-          [acc : (Dict Bytes PatternDescriptor)])
-  : (Dict Bytes PatternDescriptor)
-  (case imports
-    [(empty) acc]
-    [(cons (import exported-name local-name) imports)
-     (extract-imports/patterns
-       imports
-       exports
-       (case (dict-ref exports exported-name)
-         [(nothing) (panic (bytes-append (varargs list #"Couldn't find pattern export: " exported-name)))]
-         [(just (pattern-signature var-name tag type-vars self-type field-types
-                                   (type-signature all-variant-names)))
-          (dict-add
-            acc
-            local-name
-            (pattern-descriptor type-vars self-type field-types var-name all-variant-names))]))]))
-
-(define (imports->context [imports : Imports] [sigs : (List ModuleSignature)]) : Context
-  (case imports
-    [(partial-imports name types values patterns)
-     (case (find-signature name sigs)
-       [(nothing) (panic #"Couldn't find signature")]
-       [(just sig)
-        (context
-          (extract-imports types (module-signature-type-bindings sig) (make-dict bytes=?))
-          (extract-imports/patterns patterns (module-signature-pattern-exports sig) (make-dict bytes=?))
-          (extract-imports values (module-signature-value-types sig) (make-dict bytes=?)))])]))
+    [(imports types values patterns)
+     (context
+       types
+       (dict-value-map patterns
+         (lambda ([p : PatternSignature])
+           (case p
+            [(pattern-signature var-name tag type-vars self-type field-types
+                                (type-signature all-variant-names))
+             (pattern-descriptor type-vars self-type field-types var-name all-variant-names)])))
+       values)]))
 
 (define (type-definitions->types
           [mod-name : ModName]
@@ -407,9 +370,6 @@
                                                    all-variants ctx))
                     variants))))))]))
 
-(define (find-signature [name : ModName] [sigs : (List ModuleSignature)]) : (Maybe ModuleSignature)
-  (findf (lambda ([sig : ModuleSignature]) (mod-name=? name (module-signature-name sig))) sigs))
-
 (define (function-definition->type [def : FunctionDefinition] [context : Context])
   : (Either Bytes Type)
   (case def
@@ -465,12 +425,10 @@
   (extract-rights
     (map (lambda ([def : FunctionDefinition]) (get-function-type def context)) defs)))
 
-(define (create-context [mod : Module] [sigs : (List ModuleSignature)]) : (Either Bytes Context)
+(define (create-context [mod : Module]) : (Either Bytes Context)
   (case mod
     [(module mod-name imports _ types defs)
-     (let ([init-context
-             (merge-contexts*
-               (map (lambda ([imports : Imports]) (imports->context imports sigs)) imports))])
+     (let ([init-context (imports->context imports)])
        (let ([context/local-types
                (merge-contexts
                  init-context
@@ -1117,13 +1075,14 @@
                               (concat-jl constraintss)))
                           s))])])]))])])]))
 
-(define (type-check [mod : Module] [sigs : (List ModuleSignature)]) : (Either TypeCheckError Context)
-  (case (create-context mod sigs)
-    [(left v) (left (type-check-error (module-name mod) (varargs list v)))]
+(define (type-check [mod : Module]) : (Either TypeCheckError Context)
+  (match-define (module name imports _ _ definitions) mod)
+  (case (create-context mod)
+    [(left v) (left (type-check-error name (varargs list v)))]
     [(right context)
      (case (filter-map
              (lambda ([def : FunctionDefinition]) (type-check/definition def context))
-             (module-definitions mod))
+             definitions)
        [(empty) (right context)]
        [vs
-        (left (type-check-error (module-name mod) vs))])]))
+        (left (type-check-error name vs))])]))

@@ -57,7 +57,6 @@
   (prim) {
     #:types
       Bytes
-      Void
     #:values
       void
   }
@@ -80,9 +79,9 @@
   }
 }
 (export
-  #:types (Imports)
-  #:values (imports resolve-imports)
-  #:patterns (imports))
+  #:types (Imports Module)
+  #:values (resolve-imports)
+  #:patterns (imports module))
 (types
   (define-type Module
     (module [name : ModName]
@@ -92,9 +91,9 @@
             [definitions : (List FunctionDefinition)]))
   (define-type Imports
     (imports
-      [types : (Dict Bytes Void)]
-      [values : (Dict Bytes Void)]
-      [patterns : (Dict Bytes Void)])))
+      [types : (Dict Bytes Type)]
+      [values : (Dict Bytes Type)]
+      [patterns : (Dict Bytes PatternSignature)])))
 
 (define (resolve-imports [mod : s:Module] [sigs : (List ModuleSignature)]) : (Either Bytes Module)
   (match-define (s:module name importss exports types definitions) mod)
@@ -106,22 +105,21 @@
 (define (resolve-imports/importss
           [importss : (List s:Imports)]
           [sigs : (List ModuleSignature)]
-          [types : (Dict Bytes Void)]
-          [values : (Dict Bytes Void)]
-          [patterns : (Dict Bytes Void)]) :
+          [types : (Dict Bytes Type)]
+          [values : (Dict Bytes Type)]
+          [patterns : (Dict Bytes PatternSignature)]) :
   (Either Bytes Imports)
   (case importss
     [(empty)
-     (right
-       (imports types values patterns))]
+     (right (imports types values patterns))]
     [(cons (s:partial-imports mod-name i-types i-values i-patterns) importss)
      (case (find-signature mod-name sigs)
        [(nothing) (left #"Couldnt' find signature")]
-       [(just (module-signature _ e-values e-patterns e-types _ _))
+       [(just (module-signature _ _ e-patterns e-types e-value-types _))
         (case (add-type-imports i-types e-types types)
           [(left v) (left v)]
           [(right types)
-           (case (add-value-imports i-values e-values values)
+           (case (add-value-imports i-values e-value-types values)
              [(left v) (left v)]
              [(right values)
               (case (add-pattern-imports i-patterns e-patterns patterns)
@@ -132,8 +130,8 @@
 (define (add-type-imports
           [imports : (List Import)]
           [exported-types : (Dict Bytes Type)]
-          [types : (Dict Bytes Void)])
-  : (Either Bytes (Dict Bytes Void))
+          [types : (Dict Bytes Type)])
+  : (Either Bytes (Dict Bytes Type))
   (case imports
     [(empty)
      (right types)]
@@ -141,7 +139,7 @@
      (case (dict-ref exported-types ex-name)
        [(nothing) (left #"No such export")]
        [(just t)
-        (case (dict-maybe-add types im-name (void))
+        (case (dict-maybe-add types im-name t)
           [(nothing) (left #"Duplicate import binding")]
           [(just types)
            (add-type-imports imports exported-types types)])])]))
@@ -149,9 +147,9 @@
 
 (define (add-value-imports
           [imports : (List Import)]
-          [exported-values : (Dict Bytes Bytes)]
-          [values : (Dict Bytes Void)])
-  : (Either Bytes (Dict Bytes Void))
+          [exported-values : (Dict Bytes Type)]
+          [values : (Dict Bytes Type)])
+  : (Either Bytes (Dict Bytes Type))
   (case imports
     [(empty)
      (right values)]
@@ -159,26 +157,26 @@
      (case (dict-ref exported-values ex-name)
        [(nothing) (left #"No such export")]
        [(just t)
-        (case (dict-maybe-add values im-name (void))
+        (case (dict-maybe-add values im-name t)
           [(nothing) (left #"Duplicate import binding")]
-          [(just types)
+          [(just values)
            (add-value-imports imports exported-values values)])])]))
 
 (define (add-pattern-imports
           [imports : (List Import)]
           [exported-patterns : (Dict Bytes PatternSignature)]
-          [patterns : (Dict Bytes Void)])
-  : (Either Bytes (Dict Bytes Void))
+          [patterns : (Dict Bytes PatternSignature)])
+  : (Either Bytes (Dict Bytes PatternSignature))
   (case imports
     [(empty)
      (right patterns)]
     [(cons (import ex-name im-name) imports)
      (case (dict-ref exported-patterns ex-name)
        [(nothing) (left #"No such export")]
-       [(just t)
-        (case (dict-maybe-add patterns im-name (void))
+       [(just sig)
+        (case (dict-maybe-add patterns im-name sig)
           [(nothing) (left #"Duplicate import binding")]
-          [(just types)
+          [(just patterns)
            (add-pattern-imports imports exported-patterns patterns)])])]))
 
 
