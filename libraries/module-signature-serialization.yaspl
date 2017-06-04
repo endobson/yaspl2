@@ -47,14 +47,17 @@
     #:types
       ModuleSignature
       PatternSignature
+      ValueSignature
     #:values
       module-signature
       pattern-signature
       type-signature
+      value-signature
     #:patterns
       module-signature
       pattern-signature
       type-signature
+      value-signature
   }
   (prim) {
     #:types
@@ -97,15 +100,18 @@
 
 (define (serialize-module-signature [sig : ModuleSignature]) : Bytes
   (case sig
-    [(module-signature name values patterns type-bindings value-types known-functions)
+    [(module-signature name values patterns type-bindings known-functions)
      (print-sexp
        (node
          (varargs list
            (mod-name->sexp name)
-           (node (dict-map values (lambda ([value : Bytes] [fun-name : Bytes])
-                                    (node (varargs list
-                                            (bytes-sexp value)
-                                            (bytes-sexp fun-name))))))
+           (node (dict-map values (lambda ([value : Bytes] [sig : ValueSignature])
+                                    (case sig
+                                      [(value-signature type fun-name)
+                                       (node (varargs list
+                                               (bytes-sexp value)
+                                               (type->sexp type)
+                                               (bytes-sexp fun-name)))]))))
            (node (dict-map patterns (lambda ([value : Bytes] [sig : PatternSignature])
                                       (case sig
                                         [(pattern-signature variant-name
@@ -123,25 +129,34 @@
                            (lambda ([name : Bytes] [type : Type])
                              (node (varargs list (bytes-sexp name)
                                                  (type->sexp type))))))
-           (node (dict-map value-types
-                           (lambda ([value : Bytes] [type : Type])
-                             (node (varargs list (bytes-sexp value)
-                                                 (type->sexp type))))))
            (node (dict-map known-functions
                            (lambda ([value : Bytes] [fun-name : Bytes])
                              (node (varargs list
                                      (bytes-sexp value)
                                      (bytes-sexp fun-name)))))))))]))
 
-;; TODO make a better name for this
-(define (value-exports->dict [value-exports : (List Sexp)] [acc : (Dict Bytes Bytes)])
+(define (value-exports->dict [value-exports : (List Sexp)] [acc : (Dict Bytes ValueSignature)])
+  : (Dict Bytes ValueSignature)
+  (case value-exports
+    [(empty) acc]
+    [(cons (node (cons (bytes-sexp k) (cons type (cons (bytes-sexp symbol) (empty))))) value-exports)
+     (case (sexp->type type)
+       [(just type)
+        (value-exports->dict value-exports (dict-add acc k (value-signature type symbol)))]
+       [(nothing)
+        (panic #"Bad value-exports")])]
+    [_
+     (panic #"Bad value-exports")]))
+
+(define (known-functions->dict [value-exports : (List Sexp)] [acc : (Dict Bytes Bytes)])
   : (Dict Bytes Bytes)
   (case value-exports
     [(empty) acc]
     [(cons (node (cons (bytes-sexp k) (cons (bytes-sexp v) (empty)))) value-exports)
-     (value-exports->dict value-exports (dict-add acc k v))]
+     (known-functions->dict value-exports (dict-add acc k v))]
     [_
-     (panic #"Bad value-exports")]))
+     (panic #"Bad known-functions")]))
+
 
 (define (type-exports->dict [type-exports : (List Sexp)] [acc : (Dict Bytes Type)])
   : (Dict Bytes Type)
@@ -206,8 +221,7 @@
                         (cons (node value-exports)
                               (cons (node pattern-exports)
                                     (cons (node type-bindings)
-                                          (cons (node value-types)
-                                                (cons (node known-functions) (empty)))))))))
+                                          (cons (node known-functions) (empty))))))))
      (case (sexp->mod-name name)
        [(nothing) (left #"Bad mod-name")]
        [(just name)
@@ -217,7 +231,6 @@
             (value-exports->dict value-exports (make-dict bytes=?))
             (pattern-exports->dict pattern-exports (make-dict bytes=?))
             (type-exports->dict type-bindings (make-dict bytes=?))
-            (type-exports->dict value-types (make-dict bytes=?))
-            (value-exports->dict known-functions (make-dict bytes=?))))])]
+            (known-functions->dict known-functions (make-dict bytes=?))))])]
     [(right _)
      (left #"Unexpected sexp shape")]))

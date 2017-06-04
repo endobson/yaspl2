@@ -668,6 +668,7 @@ yaspl_bootstrap_library(
         ":module-name",
         ":module-signature",
         ":source-language",
+        ":resolved-imports-language",
         ":stack-machine",
         ":types",
         "//libraries/data:bytes",
