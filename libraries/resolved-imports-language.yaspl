@@ -9,6 +9,7 @@
     #:types
       Dict
     #:values
+      dict-fold
       dict-maybe-add
       dict-ref
       make-dict
@@ -84,16 +85,20 @@
       [Module s:Module]
       TypeDefinition
     #:patterns
+      [full-imports s:full-imports]
       import
       [module s:module]
       [partial-imports s:partial-imports]
   }
   (tuples) {
     #:types
+      Tuple2
       Tuple3
     #:values
+      tuple2
       tuple3
     #:patterns
+      tuple2
       tuple3
   }
   (types) {
@@ -172,6 +177,23 @@
         (right (imports types values patterns))]
        [e
         (left e)])]
+    [(cons (s:full-imports mod-name) importss)
+     (case (find-signature mod-name sigs)
+       [(nothing)
+        (resolve-imports/importss
+          importss sigs types values patterns
+          (cons (non-existent-imports/module mod-name) errors)
+          duplicate-types duplicate-values duplicate-patterns)]
+       [(just (module-signature _ e-values e-patterns e-types _))
+        (match-define (tuple2 duplicate-types types)
+          (add-all-type-imports e-types types duplicate-types))
+        (match-define (tuple2 duplicate-values values)
+          (add-all-value-imports e-values values duplicate-values))
+        (match-define (tuple2 duplicate-patterns patterns)
+          (add-all-pattern-imports e-patterns patterns duplicate-patterns))
+        (resolve-imports/importss
+          importss sigs types values patterns errors
+          duplicate-types duplicate-values duplicate-patterns)])]
     [(cons (s:partial-imports mod-name i-types i-values i-patterns) importss)
      (case (find-signature mod-name sigs)
        [(nothing)
@@ -220,7 +242,6 @@
           [(just types)
            (add-type-imports imports exported-types types unknown-imports duplicate-bindings)])])]))
 
-
 (define (add-value-imports
           [imports : (List Import)]
           [exported-values : (Dict Bytes ValueSignature)]
@@ -267,6 +288,60 @@
           [(just patterns)
            (add-pattern-imports imports exported-patterns patterns unknown-imports duplicate-bindings)])])]))
 
+(define (add-all-type-imports
+          [exported-types : (Dict Bytes Type)]
+          [types : (Dict Bytes Type)]
+          [duplicate-bindings : (List Bytes)])
+  : (Tuple2 (List Bytes) (Dict Bytes Type))
+  (dict-fold
+    exported-types
+    (lambda ([name : Bytes] [t : Type] [acc : (Tuple2 (List Bytes) (Dict Bytes Type))])
+      (case acc
+        [(tuple2 duplicate-bindings types)
+         (case (dict-maybe-add types name t)
+           [(nothing)
+            (tuple2 (cons name duplicate-bindings) types)]
+           [(just types)
+            (tuple2 duplicate-bindings types)])]))
+    (tuple2 duplicate-bindings types)))
+
+(define (add-all-value-imports
+          [exported-values : (Dict Bytes ValueSignature)]
+          [values : (Dict Bytes ValueSignature)]
+          [duplicate-bindings : (List Bytes)])
+  : (Tuple2 (List Bytes) (Dict Bytes ValueSignature))
+  (dict-fold
+    exported-values
+    (lambda ([name : Bytes]
+             [v : ValueSignature]
+             [acc : (Tuple2 (List Bytes) (Dict Bytes ValueSignature))])
+      (case acc
+        [(tuple2 duplicate-bindings values)
+         (case (dict-maybe-add values name v)
+           [(nothing)
+            (tuple2 (cons name duplicate-bindings) values)]
+           [(just values)
+            (tuple2 duplicate-bindings values)])]))
+    (tuple2 duplicate-bindings values)))
+
+(define (add-all-pattern-imports
+          [exported-patterns : (Dict Bytes PatternSignature)]
+          [patterns : (Dict Bytes PatternSignature)]
+          [duplicate-bindings : (List Bytes)])
+  : (Tuple2 (List Bytes) (Dict Bytes PatternSignature))
+  (dict-fold
+    exported-patterns
+    (lambda ([name : Bytes]
+             [p : PatternSignature]
+             [acc : (Tuple2 (List Bytes) (Dict Bytes PatternSignature))])
+      (case acc
+        [(tuple2 duplicate-bindings values)
+         (case (dict-maybe-add patterns name p)
+           [(nothing)
+            (tuple2 (cons name duplicate-bindings) patterns)]
+           [(just patterns)
+            (tuple2 duplicate-bindings patterns)])]))
+    (tuple2 duplicate-bindings patterns)))
 
 (define (find-signature [name : ModName] [sigs : (List ModuleSignature)]) : (Maybe ModuleSignature)
   (findf (lambda ([sig : ModuleSignature]) (mod-name=? name (module-signature-name sig))) sigs))
