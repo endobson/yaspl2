@@ -47,7 +47,6 @@
       empty
       filter-map
       find/maybe
-      findf
       foldl
       interleave
       list
@@ -76,8 +75,6 @@
   (module-signature) {
     #:types
       ModuleSignature
-    #:values
-      module-signature-name
     #:patterns
       module-signature
   }
@@ -97,6 +94,17 @@
     #:values
       >
   }
+  (resolved-imports-language) {
+    #:types
+      Module
+    #:values
+      module-definitions
+      module-name
+      module-types
+    #:patterns
+      imports
+      module
+  }
   (set) {
     #:types
       Set
@@ -104,7 +112,6 @@
       make-set
       set->list
       set-add-all
-      set-member?
       set-remove-all
   }
   (source-language) {
@@ -115,9 +122,6 @@
       Export
       Expression
       FunctionDefinition
-      Import
-      Imports
-      Module
       Pattern
       PreType
       TypeDefinition
@@ -127,11 +131,6 @@
       export-exported-name
       export-local-name
       function-definition-name
-      import-exported-name
-      module-definitions
-      module-imports
-      module-name
-      module-types
     #:patterns
       abstraction-pattern
       app-expr
@@ -146,14 +145,11 @@
       function-definition
       if-expr
       ignore-pattern
-      import
       int-literal
       int-pattern
       lambda-expr
       let-expr
       match-def
-      module
-      partial-imports
       type-definition
       var-expr
       varargs-app-expr
@@ -174,10 +170,7 @@
 }
 (export
   #:types ()
-  #:values (validate-module
-            module-imported-environment module-imported-pattern-environment
-            module-imported-type-environment
-            module-defined-functions module-errors->bytes)
+  #:values (validate-module module-errors->bytes)
   #:patterns ())
 (types
   (define-type ModuleErrors
@@ -194,12 +187,6 @@
       [values : (List Bytes)]
       [patterns : (List Bytes)])
     (duplicate-exports
-      [types : (List Bytes)]
-      [values : (List Bytes)]
-      [patterns : (List Bytes)])
-    (non-existent-imports/module [module-name : ModName])
-    (non-existent-imports/bindings
-      [module-name : ModName]
       [types : (List Bytes)]
       [values : (List Bytes)]
       [patterns : (List Bytes)])
@@ -223,7 +210,6 @@
            (validate-module/free-variables mod type-env env pat-env)
            (validate-module/undefined-exports mod type-env env pat-env)
            (validate-module/duplicate-exports mod)
-           (validate-module/imports-exist mod sigs)
            (validate-module/unique-name mod sigs)
            (validate-module/unique-bindings mod)))
        [(empty)
@@ -350,50 +336,30 @@
 
 (define (module-type-environment [mod : Module]) : (MultiSet Bytes)
   (case mod
-    [(module _ imports _ types definitions)
-     (add-importss-type-bindings imports
+    [(module _ (imports imported-types _ _) _ types definitions)
+     (multi-set-add-all
        (add-type-definitions-bindings types
-         (make-multi-set bytes=?)))]))
+         (make-multi-set bytes=?))
+       (set->list (dict-keys imported-types)))]))
 
-(define (module-imported-type-environment [mod : Module]) : (MultiSet Bytes)
-  (case mod
-    [(module _ imports _ types definitions)
-     (add-importss-type-bindings imports
-       (make-multi-set bytes=?))]))
 
 (define (module-environment [mod : Module]) : (MultiSet Bytes)
   (case mod
-    [(module _ imports _ types definitions)
-     (add-importss-bindings imports
+    [(module _ (imports _ imported-values _) _ types definitions)
+     (multi-set-add-all
        (add-constructor-bindings/types types
          (add-accessor-bindings/types types
            (add-definitions-bindings definitions
-             (make-multi-set bytes=?)))))]))
-
-(define (module-defined-functions [mod : Module]) : (MultiSet Bytes)
-  (case mod
-    [(module _ imports _ types definitions)
-     (add-definitions-bindings definitions
-       (make-multi-set bytes=?))]))
-
-(define (module-imported-environment [mod : Module]) : (MultiSet Bytes)
-  (case mod
-    [(module _ imports _ _ _)
-     (add-importss-bindings imports
-       (make-multi-set bytes=?))]))
+             (make-multi-set bytes=?))))
+       (set->list (dict-keys imported-values)))]))
 
 (define (module-pattern-environment [mod : Module]) : (MultiSet Bytes)
   (case mod
-    [(module _ imports _ types _)
-       (add-importss-pattern-bindings imports
-         (add-constructor-bindings/types types
-           (make-multi-set bytes=?)))]))
-
-(define (module-imported-pattern-environment [mod : Module]) : (MultiSet Bytes)
-  (case mod
-    [(module _ imports _ _ _)
-       (add-importss-pattern-bindings imports
-         (make-multi-set bytes=?))]))
+    [(module _ (imports _ _ imported-patterns) _ types _)
+     (multi-set-add-all
+       (add-constructor-bindings/types types
+         (make-multi-set bytes=?))
+       (set->list (dict-keys imported-patterns)))]))
 
 (define (add-definitions-bindings [defs : (List FunctionDefinition)] [env : (MultiSet Bytes)])
   : (MultiSet Bytes)
@@ -447,75 +413,6 @@
     [(cons (variant-field name _) fields)
      (let ([acc-name (bytes-append (varargs list variant #"-" name))])
        (add-variant-field-bindings variant fields (multi-set-add env acc-name)))]))
-
-(define (add-importss-type-bindings [importss : (List Imports)] [env : (MultiSet Bytes)])
-  : (MultiSet Bytes)
-  (case importss
-    [(empty) env]
-    [(cons (partial-imports _ types _ _) importss)
-     (add-importss-type-bindings importss (add-imports-bindings types env))]))
-
-(define (add-importss-bindings [importss : (List Imports)] [env : (MultiSet Bytes)])
-  : (MultiSet Bytes)
-  (case importss
-    [(empty) env]
-    [(cons (partial-imports _ _ values _) importss)
-     (add-importss-bindings importss (add-imports-bindings values env))]))
-
-(define (add-importss-pattern-bindings [importss : (List Imports)] [env : (MultiSet Bytes)])
-  : (MultiSet Bytes)
-  (case importss
-    [(empty) env]
-    [(cons (partial-imports _ _ _ patterns) importss)
-     (add-importss-pattern-bindings importss (add-imports-bindings patterns env))]))
-
-
-(define (add-imports-bindings [imports : (List Import)] [env : (MultiSet Bytes)])
-  : (MultiSet Bytes)
-  (case imports
-    [(empty) env]
-    [(cons (import _ name) imports)
-     (add-imports-bindings imports (multi-set-add env name))]))
-
-
-
-(define (A) (first-just [ms : (List (Maybe A))]) : (Maybe A)
-  (case ms
-    [(empty) (nothing)]
-    [(cons (nothing) ms) (first-just ms)]
-    [(cons (just v) ms) (just v)]))
-
-(define (validate-imports [imports : (List Import)] [exported : (Set Bytes)])
-  : (List Bytes)
-  (filter-map
-    (lambda ([import : Import]) : (Maybe Bytes)
-      (if (set-member? exported (import-exported-name import))
-          (nothing)
-          (just (import-exported-name import))))
-    imports))
-
-(define (find-signature [name : ModName] [sigs : (List ModuleSignature)]) : (Maybe ModuleSignature)
-  (findf (lambda ([sig : ModuleSignature]) (mod-name=? name (module-signature-name sig))) sigs))
-
-(define (validate-module/imports-exist [mod : Module] [sigs : (List ModuleSignature)]) :
-  (List ModuleError)
-  (filter-map
-    (lambda ([imports : Imports]) : (Maybe ModuleError)
-      (case imports
-        [(partial-imports import-name types values patterns)
-         (case (find-signature import-name sigs)
-           [(nothing)
-            (just (non-existent-imports/module import-name))]
-           [(just (module-signature _ e-vals e-patterns e-types _))
-            (case (tuple3
-                    (validate-imports types (dict-keys e-types))
-                    (validate-imports values (dict-keys e-vals))
-                    (validate-imports patterns (dict-keys e-patterns)))
-              [(tuple3 (empty) (empty) (empty))
-               (nothing)]
-              [(tuple3 types values patterns)
-               (just (non-existent-imports/bindings import-name types values patterns))])])]))
-    (module-imports mod)))
 
 (define (validate-module/unique-bindings [mod : Module]) : (List ModuleError)
   (filter-map
@@ -678,31 +575,6 @@
                 (warn-duplicate-exports #"Type" types)
                 (warn-duplicate-exports #"Value" values)
                 (warn-duplicate-exports #"Pattern" patterns))))))]
-    [(non-existent-imports/module import-name)
-     (bytes-append
-       (varargs list #"Missing import in " (mod-name->bytes mod-name)
-                     #". Could not find module: " (mod-name->bytes import-name) #"\n"))]
-    [(non-existent-imports/bindings import-name types values patterns)
-     (let ([warn-no-exports
-             (lambda ([kind : Bytes] [names : (List Bytes)]) : (JoinList Bytes)
-               (case names
-                 [(empty) (empty-jl)]
-                 [_
-                   (append-jl
-                     (varargs join-list #"  " kind #" imports:\n")
-                     (concat-jl (map (lambda ([name : Bytes])
-                                       (varargs join-list #"    " name #"\n"))
-                                     names)))]))])
-        (bytes-append
-          (jl->list
-            (append-jl
-              (varargs join-list
-                #"Undefined imports in module " (mod-name->bytes mod-name) #" from module "
-                (mod-name->bytes import-name) #":\n")
-              (varargs append-jl*
-                (warn-no-exports #"Type" types)
-                (warn-no-exports #"Value" values)
-                (warn-no-exports #"Pattern" patterns))))))]
     [(function-error function-name (free-variables types values patterns))
      (let ([warn-free-variables
              (lambda ([kind : Bytes] [names : (List Bytes)]) : (JoinList Bytes)

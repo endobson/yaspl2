@@ -236,7 +236,6 @@ yaspl_bootstrap_library(
     deps = [
         ":module-name",
         ":resolved-imports-language",
-        ":source-language",
         ":types",
         "//libraries/data:list",
     ],
@@ -884,7 +883,6 @@ yaspl_library(
     deps = [
         ":free-variables",
         ":source-language",
-        ":validator",
         "//libraries/data:bytes",
         "//libraries/data:list",
         "//libraries/data:multi-set",
@@ -899,6 +897,7 @@ yaspl_bootstrap_library(
         ":free-variables",
         ":module-name",
         ":module-signature",
+        ":resolved-imports-language",
         ":source-language",
         "//libraries/data:bytes",
         "//libraries/data:dict",
