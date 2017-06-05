@@ -8,10 +8,8 @@ yaspl_library(
     name = "depth-first-search",
     srcs = ["depth-first-search.yaspl"],
     deps = [
-        "//libraries/data:dict",
-        "//libraries/data:either",
+        "//libraries/data:set",
         "//libraries/data:list",
-        "//libraries/data:maybe",
         "//libraries/data:tuples",
     ],
 )
@@ -23,7 +21,6 @@ yaspl_test(
     deps = [
         ":depth-first-search",
         "//libraries:yunit",
-        "//libraries/data:either",
         "//libraries/data:list",
         "//libraries/data:maybe",
     ],
