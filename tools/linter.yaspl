@@ -85,10 +85,12 @@
   }
   (unused-bindings) {
     #:types
+      ImportsUnusedBindings
       UnusedBindings
     #:values
       module-unused-bindings
     #:patterns
+      partial-imports-unused
       unused-bindings
   }
 }
@@ -104,11 +106,16 @@
       [unused-dependencies : (List ModName)]
       [header-violations : ModuleHeaderLintViolations])))
 
-(define (indent2 [bytes : Bytes]) : Bytes
-  (bytes-append (varargs list #"    " bytes)))
 
 (define (indent [bytes : Bytes]) : Bytes
   (bytes-append (varargs list #"  " bytes)))
+(define (indent2 [bytes : Bytes]) : Bytes
+  (bytes-append (varargs list #"    " bytes)))
+(define (indent3 [bytes : Bytes]) : Bytes
+  (bytes-append (varargs list #"      " bytes)))
+(define (indent4 [bytes : Bytes]) : Bytes
+  (bytes-append (varargs list #"        " bytes)))
+
 
 (define (write-results-section [title : Bytes] [unused : (List Bytes)] [output : OutputPort]) : Void
   (let ([write-out-line (lambda ([x : Bytes]) (write-line x output))])
@@ -119,11 +126,38 @@
          (write-out-line (indent title))
          (for-each write-out-line (map indent2 unused)))])))
 
+(define (write-unused-imports-section [imports : (List ImportsUnusedBindings)] [output : OutputPort]) : Void
+  (let ([write-out-line (lambda ([x : Bytes]) (write-line x output))])
+    (let ([write-section (lambda ([name : Bytes] [entries : (List Bytes)])
+                           (case entries
+                             [(empty) (void)]
+                             [_
+                              (begin
+                                (write-out-line (indent3 name))
+                                (for-each
+                                  write-out-line
+                                  (map indent4 entries)))]))])
+      (case imports
+        [(empty) (void)]
+        [_
+          (begin
+            (write-out-line #"  Unused imports:")
+            (for-each
+              (lambda ([unused : ImportsUnusedBindings])
+                (case unused
+                  [(partial-imports-unused mod-name types values patterns)
+                   (begin
+                     (write-out-line (indent2 (mod-name->bytes mod-name)))
+                     (write-section #"Types:" types)
+                     (write-section #"Values:" values)
+                     (write-section #"Patterns:" patterns))]))
+              imports))]))))
+
 (define (write-lint-results [results : LintResults] [output : OutputPort]) : Void
   (case results
     [(lint-results
        _
-       (unused-bindings (empty) (empty) (empty) (empty))
+       (unused-bindings (empty) (empty))
        (empty)
        (module-header-lint-violations
          (empty)
@@ -131,16 +165,14 @@
      (void)]
     [(lint-results
        src-file-path
-       (unused-bindings unused-types unused-vars unused-patterns unused-var-defs)
+       (unused-bindings unused-imports unused-var-defs)
        unused-dependencies
        (module-header-lint-violations
          unsorted-modules
          unsorted-bindings))
      (begin
       (write-line src-file-path output)
-      (write-results-section #"Unused types:" unused-types output)
-      (write-results-section #"Unused variables:" unused-vars output)
-      (write-results-section #"Unused patterns:" unused-patterns output)
+      (write-unused-imports-section unused-imports output)
       (write-results-section #"Unused defined-functions" unused-var-defs output)
       (write-results-section #"Unused dependencies:" (map mod-name->bytes unused-dependencies) output)
       (write-results-section #"Unsorted modules:" (map mod-name->bytes unsorted-modules) output)

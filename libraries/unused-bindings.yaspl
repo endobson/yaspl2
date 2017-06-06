@@ -26,24 +26,27 @@
     #:values
       cons
       empty
+      filter-map
       map
       sort
     #:patterns
-      cons
       empty
   }
   (maybe) {
+    #:types
+      Maybe
+    #:values
+      just
+      nothing
     #:patterns
       just
       nothing
   }
-  (multi-set) {
+  (module-name) {
     #:types
-      MultiSet
-    #:values
-      make-multi-set
-      multi-set-add
-      multi-set-keys
+      ModName
+  }
+  (multi-set) {
   }
   (prim) {
     #:types
@@ -54,56 +57,86 @@
       make-set
       set->list
       set-add-all
+      set-difference
       set-remove-all
   }
   (source-language) {
     #:types
-      Import
       Imports
       Module
     #:values
       export-local-name
       function-definition-name
+      import-local-name
       module-definitions
     #:patterns
       exports
       full-imports
-      import
       module
       partial-imports
   }
+  (tuples) {
+    #:values
+      tuple3
+    #:patterns
+      tuple3
+  }
 }
 (export
-  #:types (UnusedBindings)
+  #:types (UnusedBindings ImportsUnusedBindings)
   #:values (module-unused-bindings)
-  #:patterns (unused-bindings))
+  #:patterns (unused-bindings partial-imports-unused))
 (types
   (define-type UnusedBindings
     (unused-bindings
-      [type-imports : (List Bytes)]
-      [value-imports : (List Bytes)]
-      [pattern-imports : (List Bytes)]
-      [value-definitions : (List Bytes)])))
+      [imports : (List ImportsUnusedBindings)]
+      [value-definitions : (List Bytes)]))
+  (define-type ImportsUnusedBindings
+    (partial-imports-unused
+      [m : ModName]
+      [types : (List Bytes)]
+      [values : (List Bytes)]
+      [patterns : (List Bytes)])))
 
 (define (module-unused-bindings [mod : Module]) : UnusedBindings
   (case mod
     [(module name imports (exports exported-types exported-values exported-patterns) types _)
+     (match-define used-types
+       (set-add-all (free-types/module mod (make-set bytes=?))
+                    (map export-local-name exported-types)))
+     (match-define used-values
+       (set-add-all (free-variables/module mod (make-set bytes=?))
+                    (map export-local-name exported-values)))
+     (match-define used-patterns
+       (set-add-all (free-patterns/module mod (make-set bytes=?))
+                    (map export-local-name exported-patterns)))
      (unused-bindings
-       (let ([env (multi-set-keys (module-imported-type-environment mod))])
-         (let ([used-types
-                 (set-add-all (free-types/module mod (make-set bytes=?))
-                              (map export-local-name exported-types))])
-           (sort (set->list (set-remove-all env (set->list used-types))) bytes<)))
-       (let ([env (multi-set-keys (module-imported-environment mod))])
-         (let ([used-vars
-                 (set-add-all (free-variables/module mod (make-set bytes=?))
-                              (map export-local-name exported-values))])
-           (sort (set->list (set-remove-all env (set->list used-vars))) bytes<)))
-       (let ([env (multi-set-keys (module-imported-pattern-environment mod))])
-         (let ([used-patterns
-                 (set-add-all (free-patterns/module mod (make-set bytes=?))
-                              (map export-local-name exported-patterns))])
-           (sort (set->list (set-remove-all env (set->list used-patterns))) bytes<)))
+       (filter-map
+         (lambda ([imports : Imports]) : (Maybe ImportsUnusedBindings)
+           (case imports
+             [(partial-imports mod-name types values patterns)
+              (match-define unused-types
+                (set->list
+                  (set-difference
+                    (set-add-all (make-set bytes=?) (map import-local-name types))
+                    used-types)))
+              (match-define unused-values
+                (set->list
+                  (set-difference
+                    (set-add-all (make-set bytes=?) (map import-local-name values))
+                    used-values)))
+              (match-define unused-patterns
+                (set->list
+                  (set-difference
+                    (set-add-all (make-set bytes=?) (map import-local-name patterns))
+                    used-patterns)))
+              (case (tuple3 unused-types unused-values unused-patterns)
+                [(tuple3 (empty) (empty) (empty)) (nothing)]
+                [_
+                 (just (partial-imports-unused mod-name unused-types unused-values unused-patterns))])]
+             [(full-imports mod-name)
+              (nothing)]))
+         imports)
        (let ([defined-functions (map function-definition-name (module-definitions mod))])
          (let ([exported-functions (cons #"main" (map export-local-name exported-values))])
            (let ([used-vars (free-variables-by-function-definition mod)])
@@ -123,56 +156,3 @@
                        defined-functions)
                      reachable-functions))
                  bytes<))))))]))
-
-
-(define (module-imported-environment [mod : Module]) : (MultiSet Bytes)
-  (case mod
-    [(module _ imports _ _ _)
-     (add-importss-bindings imports
-       (make-multi-set bytes=?))]))
-
-(define (module-imported-pattern-environment [mod : Module]) : (MultiSet Bytes)
-  (case mod
-    [(module _ imports _ _ _)
-       (add-importss-pattern-bindings imports
-         (make-multi-set bytes=?))]))
-
-(define (module-imported-type-environment [mod : Module]) : (MultiSet Bytes)
-  (case mod
-    [(module _ imports _ types definitions)
-     (add-importss-type-bindings imports
-       (make-multi-set bytes=?))]))
-
-(define (add-importss-type-bindings [importss : (List Imports)] [env : (MultiSet Bytes)])
-  : (MultiSet Bytes)
-  (case importss
-    [(empty) env]
-    [(cons (full-imports _) importss)
-     (add-importss-type-bindings importss env)]
-    [(cons (partial-imports _ types _ _) importss)
-     (add-importss-type-bindings importss (add-imports-bindings types env))]))
-
-(define (add-importss-bindings [importss : (List Imports)] [env : (MultiSet Bytes)])
-  : (MultiSet Bytes)
-  (case importss
-    [(empty) env]
-    [(cons (full-imports _) importss)
-     (add-importss-bindings importss env)]
-    [(cons (partial-imports _ _ values _) importss)
-     (add-importss-bindings importss (add-imports-bindings values env))]))
-
-(define (add-importss-pattern-bindings [importss : (List Imports)] [env : (MultiSet Bytes)])
-  : (MultiSet Bytes)
-  (case importss
-    [(empty) env]
-    [(cons (full-imports _) importss)
-     (add-importss-pattern-bindings importss env)]
-    [(cons (partial-imports _ _ _ patterns) importss)
-     (add-importss-pattern-bindings importss (add-imports-bindings patterns env))]))
-
-(define (add-imports-bindings [imports : (List Import)] [env : (MultiSet Bytes)])
-  : (MultiSet Bytes)
-  (case imports
-    [(empty) env]
-    [(cons (import _ name) imports)
-     (add-imports-bindings imports (multi-set-add env name))]))

@@ -884,6 +884,7 @@ yaspl_library(
     deps = [
         ":free-variables",
         ":source-language",
+        ":module-name",
         "//libraries/data:bytes",
         "//libraries/data:dict",
         "//libraries/algorithms:depth-first-search",
@@ -891,6 +892,7 @@ yaspl_library(
         "//libraries/data:list",
         "//libraries/data:multi-set",
         "//libraries/data:set",
+        "//libraries/data:tuples",
     ],
 )
 
