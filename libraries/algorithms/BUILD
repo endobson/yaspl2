@@ -8,8 +8,8 @@ yaspl_library(
     name = "depth-first-search",
     srcs = ["depth-first-search.yaspl"],
     deps = [
-        "//libraries/data:set",
         "//libraries/data:list",
+        "//libraries/data:set",
         "//libraries/data:tuples",
     ],
 )
