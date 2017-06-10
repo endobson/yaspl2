@@ -8,6 +8,8 @@
   (data indexed-set) {
     #:types
       IndexedSet
+    #:values
+      indexed-set-ref
   }
   (depth-first-search) {
     #:values
@@ -16,6 +18,7 @@
   (dict) {
     #:values
       dict-ref
+      dict-keys
   }
   (free-variables) {
     #:values
@@ -53,18 +56,25 @@
   (module-signature) {
     #:types
       ModuleSignature
+    #:patterns
+      module-signature
   }
   (multi-set) {
   }
   (prim) {
     #:types
       Bytes
+    #:values
+      =
+      and
   }
   (set) {
     #:values
       make-set
       set->list
       set-add-all
+      set-count
+      set-intersect
       set-difference
       set-remove-all
   }
@@ -104,7 +114,10 @@
       [m : ModName]
       [types : (List Bytes)]
       [values : (List Bytes)]
-      [patterns : (List Bytes)])))
+      [patterns : (List Bytes)])
+    (full-imports-unused
+      [m : ModName])))
+
 
 (define (module-unused-bindings [mod : Module] [sigs : (IndexedSet ModuleSignature ModName)]) : UnusedBindings
   (case mod
@@ -143,7 +156,20 @@
                 [_
                  (just (partial-imports-unused mod-name unused-types unused-values unused-patterns))])]
              [(full-imports mod-name)
-              (nothing)]))
+              (case (indexed-set-ref sigs mod-name)
+                [(nothing) (nothing)] ;; This won't compile anyways no use linting
+                [(just (module-signature _ values pattern types _))
+                 (match-define used-type-imports
+                   (set-intersect (dict-keys types) used-types))
+                 (match-define used-value-imports
+                   (set-intersect (dict-keys values) used-values))
+                 (match-define used-pattern-imports
+                   (set-intersect (dict-keys pattern) used-patterns))
+                 (if (and (= 0 (set-count used-type-imports))
+                          (and (= 0 (set-count used-value-imports))
+                               (= 0 (set-count used-pattern-imports))))
+                     (just (full-imports-unused mod-name))
+                     (nothing))])]))
          imports)
        (let ([defined-functions (map function-definition-name (module-definitions mod))])
          (let ([exported-functions (cons #"main" (map export-local-name exported-values))])
