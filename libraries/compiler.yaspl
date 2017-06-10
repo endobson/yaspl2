@@ -4,6 +4,14 @@
     #:values
       bytes=?
   }
+  (data indexed-set) {
+    #:types
+      IndexedSet
+    #:values
+      indexed-set->list
+      indexed-set-add
+      make-indexed-set
+  }
   (dict) {
     #:values
       make-dict
@@ -37,9 +45,9 @@
       List
     #:values
       append
-      cons
       empty
       extract-rights
+      foldl
       map
     #:patterns
       cons
@@ -50,11 +58,18 @@
       just
       nothing
   }
+  (module-name) {
+    #:types
+      ModName
+    #:values
+      mod-name=?
+  }
   (module-signature) {
     #:types
       ModuleSignature
     #:values
       module-signature-known-functions
+      module-signature-name
   }
   (prim) {
     #:types
@@ -116,7 +131,14 @@
           [main-module : Module]
           [sigs : (List ModuleSignature)])
   : (Either Bytes (Tuple2 (List TopLevelObject) ModuleSignature))
-  (let ([sigs (cons (prim-signature) sigs)])
+  (let ([sigs
+          (foldl
+            (lambda ([sig : ModuleSignature] [acc : (IndexedSet ModuleSignature ModName)])
+              (indexed-set-add acc sig))
+            sigs
+            (indexed-set-add
+              (make-indexed-set module-signature-name mod-name=?)
+              (prim-signature)))])
     (case (compile-module* main-module sigs)
       [(left v)
        (left v)]
@@ -124,20 +146,24 @@
        (right
          (tuple2
            (optimize-tlos tlos
-             (merge-dicts* (make-dict bytes=?) (map module-signature-known-functions
-                                                    (cons sig sigs))))
+             (merge-dicts* (make-dict bytes=?)
+                           (map module-signature-known-functions
+                                (indexed-set->list
+                                  (indexed-set-add sigs sig)))))
            sig))])))
 
 (define (compile-modules [mods : (List Module)])
   : (Either Bytes (List TopLevelObject))
  (compile-modules*
    mods
-   (cons (prim-signature) (empty))
+   (indexed-set-add
+     (make-indexed-set module-signature-name mod-name=?)
+     (prim-signature))
    (empty)))
 
 (define (compile-modules*
           [mods : (List Module)]
-          [sigs : (List ModuleSignature)]
+          [sigs : (IndexedSet ModuleSignature ModName)]
           [tlos : (List TopLevelObject)])
   : (Either Bytes (List TopLevelObject))
   (case (compile-module-list* mods sigs tlos)
@@ -146,14 +172,14 @@
     [(right (tuple2 sigs tlos))
      (right (optimize-tlos
               (append (prim-implementation) tlos)
-              (merge-dicts* (make-dict bytes=?) (map module-signature-known-functions sigs))))]))
+              (merge-dicts* (make-dict bytes=?) (map module-signature-known-functions
+                                                     (indexed-set->list sigs)))))]))
 
 (define (compile-module-list*
           [mods : (List Module)]
-          [sigs : (List ModuleSignature)]
+          [sigs : (IndexedSet ModuleSignature ModName)]
           [tlos : (List TopLevelObject)])
-  : (Either Bytes (Tuple2 (List ModuleSignature)
-                          (List TopLevelObject)))
+  : (Either Bytes (Tuple2 (IndexedSet ModuleSignature ModName) (List TopLevelObject)))
   (case mods
     [(empty)
      (right (tuple2 sigs tlos))]
@@ -163,12 +189,12 @@
         (left v)]
        [(right (compiled-module new-tlos sig))
         (compile-module-list* mods
-                              (cons sig sigs)
+                              (indexed-set-add sigs sig)
                               (append new-tlos tlos))])]))
 
 (define (compile-module*
           [mod : Module]
-          [sigs : (List ModuleSignature)])
+          [sigs : (IndexedSet ModuleSignature ModName)])
   : (Either Bytes CompiledModule)
   (case (resolve-imports mod sigs)
     [(left v)

@@ -75,7 +75,8 @@ yaspl_bootstrap_library(
     srcs = ["indexed-set.yaspl"],
     deps = [
       ":dict",
-      ":maybe"
+      ":maybe",
+      ":list",
     ],
 )
 
