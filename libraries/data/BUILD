@@ -71,6 +71,16 @@ yaspl_bootstrap_library(
 )
 
 yaspl_bootstrap_library(
+    name = "indexed-set",
+    srcs = ["indexed-set.yaspl"],
+    deps = [
+      ":dict",
+      ":maybe"
+    ],
+)
+
+
+yaspl_bootstrap_library(
     name = "join-list",
     srcs = ["join-list.yaspl"],
     deps = [":list"],
