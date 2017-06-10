@@ -30,9 +30,9 @@
     (define (parse-import-elem import-elem)
       (match import-elem
         [(? symbol? name)
-         (import& module-name name name)]
+         (import& name name)]
         [(list (? symbol? exported-name) (? symbol? local-name))
-         (import& module-name exported-name local-name)]))
+         (import& exported-name local-name)]))
     (define (type-point forms)
       (match forms
         [(list-rest #:types (? import-elem? import-elems) ... forms)
@@ -50,19 +50,19 @@
     (define (pattern-point forms)
       (match forms
         [(list-rest #:patterns (? import-elem? import-elems) ... forms)
-         (list (map parse-import-elem import-elems) )]
+         (list (map parse-import-elem import-elems))]
         [(list)
          (list empty)]))
-    (type-point forms))
+    (match (type-point forms)
+      [(list types values patterns)
+       (partial-imports& module-name types values patterns)]))
   (define (import-elem? x)
     (match x
       [(? symbol?) #t]
       [(list (? symbol?) (? symbol?)) #t]
       [_ #f]))
 
-  (match (recur imports)
-    [(list (list types values patterns) ...)
-     (imports& (append* types) (append* values) (append* patterns))]))
+  (recur imports))
 
 ;; TODO support renaming
 (define (parse-exports exports)

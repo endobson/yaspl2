@@ -78,15 +78,21 @@
       (define local-env (make-hash))
       (define local-pattern-env (make-hash))
 
-      (for ([import (in-list (imports&-values (module&-imports module)))])
-        (hash-set! local-env (import&-local-name import)
-                   (hash-ref global-env
-                     (full-name (import&-module-name import) (import&-exported-name import)))))
+      (for ([imports (in-list (module&-imports module))])
+        (match imports
+          [(partial-imports& mod-name _ values _)
+           (for ([import (in-list values)])
+             (hash-set! local-env (import&-local-name import)
+                        (hash-ref global-env
+                          (full-name mod-name (import&-exported-name import)))))]))
 
       ;; TODO actually support more complicated pattern bindings
-      (for ([import (in-list (imports&-patterns (module&-imports module)))])
-        (hash-set! local-pattern-env (import&-local-name import)
-                   (import&-exported-name import)))
+      (for ([imports (in-list (module&-imports module))])
+        (match imports
+          [(partial-imports& mod-name _ _ patterns)
+           (for ([import (in-list patterns)])
+             (hash-set! local-pattern-env (import&-local-name import)
+                        (import&-exported-name import)))]))
 
 
 

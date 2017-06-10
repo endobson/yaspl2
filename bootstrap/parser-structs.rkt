@@ -7,9 +7,8 @@
 
 (struct exports& (types values patterns))
 (struct export& (in-name out-name))
-;; TODO change the order to match others
-(struct imports& (types values patterns))
-(struct import& (module-name exported-name local-name))
+(struct partial-imports& (module-name types values patterns))
+(struct import& (exported-name local-name))
 (struct definition& (type args body))
 
 (struct block& (definitions body) #:transparent)

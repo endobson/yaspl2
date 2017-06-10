@@ -81,14 +81,15 @@
        (recur/block (set-union env (list->set binders)) defs body)]))
 
   (match module
-    [(module& _ (imports& _ (list (import& _ _ import-names) ...) _) _
+    [(module& _ (list (partial-imports& _ _ (list (import& _ import-namess) ...) _) ...) _
        (list (define-type& _ _
                (list (variant& variant-namess (list (variant-field& field-namesss _) ...)) ...)) ...)
        definitions)
 
 
      (define mut-env (mutable-set))
-     (for ([import-name (in-list import-names)])
+     (for* ([import-names (in-list import-namess)]
+            [import-name (in-list import-names)])
        (set-add! mut-env import-name))
      (for ([variant-name (in-list (append* variant-namess))]
            [field-names (in-list (append* field-namesss))])
@@ -134,7 +135,7 @@
 
 (define (construct-module-signature module module-signatures)
   (match module
-    [(module& module-name imports exports type-defs defs)
+    [(module& module-name importss exports type-defs defs)
      (define type-name-env
        (hash-copy/immutable
          (let ([mut-type-name-env (make-hash)])
@@ -145,9 +146,11 @@
                [(define-type& type-name (list (? symbol? type-vars) ...) _)
                 (hash-set! mut-type-name-env type-name
                            (data-ty-constructor module-name type-name (map (λ (_) (*-kind)) type-vars)))]))
-           (for ([import (in-list (imports&-types imports))])
+           (for* ([imports (in-list importss)]
+                  [import (in-list (partial-imports&-types imports))])
+             (define src-mod (partial-imports&-module-name imports))
              (match import
-               [(import& src-mod exported-name local-name)
+               [(import& exported-name local-name)
                 ;; TODO make the prim module-signature work the same way as others
                 (hash-set! mut-type-name-env local-name
                   (if (equal? src-mod (module-name& '(prim)))
@@ -202,9 +205,11 @@
          [(definition& type _ _)
           (hash-set! mut-type-env def-name (parse-type type))]))
 
-     (for ([import (in-list (imports&-values imports))])
+     (for* ([imports (in-list importss)]
+            [import (in-list (partial-imports&-values imports))])
+       (define src-mod (partial-imports&-module-name imports))
        (match import
-         [(import& src-mod exported-name local-name)
+         [(import& exported-name local-name)
           (hash-set! mut-type-env local-name
                      (hash-ref (module-signature-exports (hash-ref module-signatures src-mod))
                                exported-name
@@ -246,9 +251,11 @@
                                   (data-ty ty-module-name ty-name (map type-var-ty type-vars))
                                   type-vars
                                   (hash-ref variant-parsed-field-types name)))]))]))
-          (for ([import (in-list (imports&-patterns imports))])
+          (for* ([imports (in-list importss)]
+                 [import (in-list (partial-imports&-patterns imports))])
+            (define src-mod (partial-imports&-module-name imports))
             (match import
-              [(import& src-mod exported-name local-name)
+              [(import& exported-name local-name)
                (hash-set!
                  mut-pattern-env
                  local-name
@@ -273,11 +280,8 @@
      ;; TODO remove hack to limit imports
      (define imported-inductive-signatures
        (for/fold ([acc empty]) ([module-signature (in-hash-values module-signatures)])
-         (match-define (imports& (list (import& t-mods _ _) ...)
-                                 (list (import& v-mods _ _) ...)
-                                 (list (import& p-mods _ _) ...)) imports)
-         (if (member (module-signature-name module-signature)
-                     (append t-mods v-mods p-mods))
+         (define mods (map partial-imports&-module-name importss))
+         (if (member (module-signature-name module-signature) mods)
              (append (hash-values (module-signature-types module-signature)) acc)
              acc)))
 
