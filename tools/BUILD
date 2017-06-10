@@ -53,6 +53,7 @@ yaspl_library(
         "//libraries:source-language",
         "//libraries:unused-bindings",
         "//libraries/data:bytes",
+        "//libraries/data:indexed-set",
         "//libraries/data:either",
         "//libraries/data:list",
         "//libraries/data:set",

@@ -891,6 +891,8 @@ yaspl_library(
         "//libraries/algorithms:depth-first-search",
         "//libraries/data:bytes",
         "//libraries/data:dict",
+        "//libraries/data:indexed-set",
+        ":module-signature",
         "//libraries/data:list",
         "//libraries/data:maybe",
         "//libraries/data:multi-set",
