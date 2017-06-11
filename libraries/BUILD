@@ -543,6 +543,27 @@ yaspl_bootstrap_library(
     ],
 )
 
+yaspl_test(
+    name = "resolved-imports-language-test",
+    size = "small",
+    srcs = ["resolved-imports-language-test.yaspl"],
+    main_module = "resolved_imports_language_test",
+    deps = [
+        ":module-name",
+        ":module-signature",
+        ":resolved-imports-language",
+        ":source-language",
+        ":types",
+        ":yunit",
+        "//libraries/data:bytes",
+        "//libraries/data:dict",
+        "//libraries/data:either",
+        "//libraries/data:indexed-set",
+        "//libraries/data:list",
+        "//libraries/data:maybe",
+    ],
+)
+
 yaspl_bootstrap_library(
     name = "stack-machine-optimizer",
     srcs = ["stack-machine-optimizer.yaspl"],
@@ -887,12 +908,12 @@ yaspl_library(
     deps = [
         ":free-variables",
         ":module-name",
+        ":module-signature",
         ":source-language",
         "//libraries/algorithms:depth-first-search",
         "//libraries/data:bytes",
         "//libraries/data:dict",
         "//libraries/data:indexed-set",
-        ":module-signature",
         "//libraries/data:list",
         "//libraries/data:maybe",
         "//libraries/data:multi-set",
