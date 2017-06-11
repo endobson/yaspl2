@@ -5,6 +5,7 @@
     #:values
       not
   }
+  (either)
   (list)
   (mach-o) {
     #:types
@@ -31,16 +32,7 @@
       symbol-table
       symbol-table-entry
   }
-  (maybe) {
-    #:types
-      Maybe
-    #:values
-      just
-      nothing
-    #:patterns
-      just
-      nothing
-  }
+  (maybe)
   (prim) {
     #:types
       Boolean
@@ -195,13 +187,14 @@
        [(symbol-table-entry name2 _ _ _ _)
         (bytes< name1 name2)])]))
 
-(define (parse-mach-o [mach-o : MachOFile]) : ParsedMachO
-  (parsed-mach-o
-    (read-text-section mach-o)
-    (read-const-section mach-o)
-    (read-text-relocations mach-o)
-    (read-const-relocations mach-o)
-    (read-symbol-table mach-o)))
+(define (parse-mach-o [mach-o : MachOFile]) : (Either Bytes ParsedMachO)
+  (right
+    (parsed-mach-o
+      (read-text-section mach-o)
+      (read-const-section mach-o)
+      (read-text-relocations mach-o)
+      (read-const-relocations mach-o)
+      (read-symbol-table mach-o))))
 
 
 (define (get-offset-symbols
@@ -233,11 +226,9 @@
                            (+ const-offset (bytes-length const))))]))
 
 
-(define (lookup-symbol [symbols : (List SymbolTableEntry)] [symbol-num : Int]) : SymbolTableEntry
-  (case (list-ref symbols symbol-num)
-    [(just v) v]
-    [(nothing) (panic #"Not a valid symbol number")]))
-
+(define (lookup-symbol [symbols : (List SymbolTableEntry)] [symbol-num : Int])
+  : (Maybe SymbolTableEntry)
+  (list-ref symbols symbol-num))
 
 (define (get-relocation-markers
           [parsed-mach-os : (List ParsedMachO)]
@@ -249,53 +240,62 @@
     [(cons (parsed-mach-o text const text-relocations const-relocations symbols) parsed-mach-os)
      (append
        (map
-         (lambda ([entry : RelocationEntry])
+         (lambda ([entry : RelocationEntry]) : RelocationMarker
            (case entry
              [(relocation-entry address symbol-num type)
-              (relocation-marker
-                (+ text-offset address)
-                (symbol-table-entry-name (lookup-symbol symbols symbol-num))
-                (u8->s64 type))]))
+              (case (lookup-symbol symbols symbol-num)
+                [(nothing) (panic #"Not a valid symbol number")]
+                [(just symbol-entry)
+                 (relocation-marker
+                   (+ text-offset address)
+                   (symbol-table-entry-name symbol-entry)
+                   (u8->s64 type))])]))
          text-relocations)
        (append
          (map
-           (lambda ([entry : RelocationEntry])
+           (lambda ([entry : RelocationEntry]) : RelocationMarker
              (case entry
                [(relocation-entry address symbol-num type)
-                (relocation-marker
-                  (+ const-offset address)
-                  (symbol-table-entry-name (lookup-symbol symbols symbol-num))
-                  (u8->s64 type))]))
+                (case (lookup-symbol symbols symbol-num)
+                  [(nothing) (panic #"Not a valid symbol number")]
+                  [(just symbol-entry)
+                   (relocation-marker
+                     (+ const-offset address)
+                     (symbol-table-entry-name symbol-entry)
+                     (u8->s64 type))])]))
            const-relocations)
          (get-relocation-markers parsed-mach-os
                                  (+ text-offset (bytes-length text))
                                  (+ const-offset (bytes-length const)))))]))
 
-(define (find-symbol-entry [symbol : Bytes] [symbols : (List SymbolTableEntry)]) : SymbolTableEntry
+(define (find-symbol-entry [symbol : Bytes] [symbols : (List SymbolTableEntry)])
+  : (Either Bytes SymbolTableEntry)
   (case symbols
-    [(empty) (panic (bytes-append (varargs list #"Couldn't find symbol: " symbol)))]
+    [(empty) (left (bytes-append (varargs list #"Couldn't find symbol: " symbol)))]
     [(cons entry symbols)
      (case entry
        [(symbol-table-entry name _ _ _ _)
         (if (bytes=? symbol name)
-            entry
+            (right entry)
             (find-symbol-entry symbol symbols))])]))
 
 (define (apply-const-relocations
           [rels : (List RelocationMarker)]
           [symbols : (List SymbolTableEntry)]
-          [const-section : Bytes]) : Void
+          [const-section : Bytes]) : (Maybe Bytes)
   (case rels
-    [(empty) (void)]
+    [(empty) (nothing)]
     [(cons (relocation-marker offset symbol #x0E) rels)
-     (begin
-       (bytes-set!/octo-le
-         const-section
-         offset
-         (+ (eight-bytes-le->int (bytes-ref/eight-bytes-le const-section offset))
-            (symbol-table-entry-value
-              (find-symbol-entry symbol symbols))))
-       (apply-const-relocations rels symbols const-section))]
+     (case (find-symbol-entry symbol symbols)
+       [(left msg) (just msg)]
+       [(right entry)
+        (begin
+          (bytes-set!/octo-le
+            const-section
+            offset
+            (+ (eight-bytes-le->int (bytes-ref/eight-bytes-le const-section offset))
+               (symbol-table-entry-value entry)))
+         (apply-const-relocations rels symbols const-section))])]
     [(cons _ rels)
      (apply-const-relocations rels symbols const-section)]))
 
@@ -304,30 +304,34 @@
           [rels : (List RelocationMarker)]
           [symbols : (List SymbolTableEntry)]
           [text-section : Bytes]
-          [text-start-offset : Int]) : Void
+          [text-start-offset : Int]) : (Maybe Bytes)
   (case rels
-    [(empty) (void)]
+    [(empty) (nothing)]
     [(cons (relocation-marker offset symbol #x2D) rels)
-     (begin
-       (bytes-set!/quad-le
-         text-section
-         offset
-         (u32
-           (+ (bytes-ref/quad-le text-section offset)
-              (- (symbol-table-entry-value
-                   (find-symbol-entry symbol symbols))
-                 (+ (+ offset 4) text-start-offset)))))
-       (apply-text-relocations rels symbols text-section text-start-offset))]
+     (case (find-symbol-entry symbol symbols)
+       [(left msg) (just msg)]
+       [(right entry)
+        (begin
+          (bytes-set!/quad-le
+            text-section
+            offset
+            (u32
+              (+ (bytes-ref/quad-le text-section offset)
+                 (- (symbol-table-entry-value entry)
+                    (+ (+ offset 4) text-start-offset)))))
+          (apply-text-relocations rels symbols text-section text-start-offset))])]
     [(cons (relocation-marker offset symbol #x1D) rels)
-     (begin
-       (bytes-set!/quad-le
-         text-section
-         offset
-         (u32
-           (+ (bytes-ref/quad-le text-section offset)
-              (- (symbol-table-entry-value
-                   (find-symbol-entry symbol symbols))
-                 (+ (+ offset 4) text-start-offset)))))
-       (apply-text-relocations rels symbols text-section text-start-offset))]
+     (case (find-symbol-entry symbol symbols)
+       [(left msg) (just msg)]
+       [(right entry)
+        (begin
+          (bytes-set!/quad-le
+            text-section
+            offset
+            (u32
+              (+ (bytes-ref/quad-le text-section offset)
+                 (- (symbol-table-entry-value entry)
+                    (+ (+ offset 4) text-start-offset)))))
+          (apply-text-relocations rels symbols text-section text-start-offset))])]
     [(cons _ rels)
      (apply-text-relocations rels symbols text-section text-start-offset)]))
