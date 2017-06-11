@@ -186,7 +186,7 @@
    (close-input-port port)]
   [(close-output-port [port : OutputPort]) : Void
    (close-output-port port)]
-  [(delete-file [name : Bytes]) : Void
+  [(prim-delete-file [name : Bytes]) : Void
    (delete-file (bytes->path (subbytes name 0 (sub1 (bytes-length name)))))]
   [(set-file-or-directory-permissions [name : Bytes] [permissions : Int]) : Void
    (file-or-directory-permissions (bytes->path (subbytes name 0 (sub1 (bytes-length name))))
