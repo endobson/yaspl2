@@ -77,18 +77,18 @@
 
 (define prim-types
   (hash
-    'U8 (u8-ty)
-    'S32 (s32-ty)
-    'U32 (u32-ty)
-    'Byte (int-ty)
-    'Int (int-ty)
-    'Bytes (bytes-ty)
-    'Boolean (boolean-ty)
-    'InputPort (input-port-ty)
-    'OutputPort (output-port-ty)
-    'Void (void-ty)
-    'Box (box-ty-constructor)
-    'Array (array-ty-constructor)))
+    'U8 (prim-signature (u8-ty))
+    'S32 (prim-signature (s32-ty))
+    'U32 (prim-signature (u32-ty))
+    'Byte (prim-signature (int-ty))
+    'Int (prim-signature (int-ty))
+    'Bytes (prim-signature (bytes-ty))
+    'Boolean (prim-signature (boolean-ty))
+    'InputPort (prim-signature (input-port-ty))
+    'OutputPort (prim-signature (output-port-ty))
+    'Void (prim-signature (void-ty))
+    'Box (prim-signature (box-ty-constructor))
+    'Array (prim-signature (array-ty-constructor))))
 
 
 (define-syntax define-primitives
@@ -103,10 +103,8 @@
              ...))
          (define module-sig
            (module-signature (module-name& '(prim))
-              (hash-union
-                (hash (?@ 'clauses.name clauses.ty) ...)
-                prim-types)
-              (hash)
+              (hash (?@ 'clauses.name clauses.ty) ...)
+              prim-types
               (hash)))))]))
 
 (define-primitives

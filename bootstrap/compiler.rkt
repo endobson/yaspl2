@@ -88,7 +88,7 @@
                           (full-name mod-name (import&-exported-name import)))))]
           [(full-imports& mod-name)
            (match (hash-ref signatures mod-name)
-             [(module-signature _ _ values _)
+             [(module-signature _ values _ _)
               (for ([export (in-hash-keys values)])
                 (hash-set! local-env export
                            (hash-ref global-env

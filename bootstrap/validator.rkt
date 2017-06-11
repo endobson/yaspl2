@@ -158,30 +158,27 @@
                  [(partial-imports& _ types _ _) types]
                  [(full-imports& mod-name)
                   (match (hash-ref module-signatures mod-name)
-                    [(module-signature _ types _ _)
+                    [(module-signature _ _ types _)
                      (for/list ([export (in-hash-keys types)])
                        (import& export export))])]))
              (for ([import (in-list import-names)])
                (define src-mod (imports&-module-name imports))
                (match import
                  [(import& exported-name local-name)
-                  ;; TODO make the prim module-signature work the same way as others
                   (hash-set! mut-type-name-env local-name
-                    (if (equal? src-mod (module-name& '(prim)))
-                        (hash-ref (module-signature-exports (hash-ref module-signatures src-mod))
-                                  exported-name)
-                        (match (hash-ref (module-signature-types (hash-ref module-signatures src-mod))
-                                         exported-name
-                                         (lambda ()
-                                           (raise-user-error
-                                             'validator
-                                             "Module ~s doesn`t have exported type ~a"
-                                             src-mod exported-name)))
-                          [(inductive-signature orig-mod-name ty-name #f variants)
-                           (data-ty orig-mod-name ty-name empty)]
-                          [(inductive-signature orig-mod-name ty-name type-vars variants)
-                            (data-ty-constructor orig-mod-name ty-name
-                                                         (map (λ (_) (*-kind)) type-vars))])))])))
+                    (match (hash-ref (module-signature-types (hash-ref module-signatures src-mod))
+                                     exported-name
+                                     (lambda ()
+                                       (raise-user-error
+                                         'validator
+                                         "Module ~s doesn't have exported type ~a"
+                                         src-mod exported-name)))
+                      [(prim-signature ty) ty]
+                      [(inductive-signature orig-mod-name ty-name #f variants)
+                       (data-ty orig-mod-name ty-name empty)]
+                      [(inductive-signature orig-mod-name ty-name type-vars variants)
+                        (data-ty-constructor orig-mod-name ty-name
+                                                     (map (λ (_) (*-kind)) type-vars))]))])))
            mut-type-name-env)))
 
      (define mut-type-env (make-hash))
@@ -225,7 +222,7 @@
            [(partial-imports& _ _ values _) values]
            [(full-imports& mod-name)
             (match (hash-ref module-signatures mod-name)
-              [(module-signature _ _ values _)
+              [(module-signature _ values _ _)
                (for/list ([export (in-hash-keys values)])
                  (import& export export))])]))
        (define src-mod (imports&-module-name imports))
@@ -316,7 +313,9 @@
              acc)))
 
      (define inductive-signatures
-       (append module-inductive-signatures imported-inductive-signatures))
+       (filter
+         inductive-signature?
+         (append module-inductive-signatures imported-inductive-signatures)))
 
 
      (for ([(def-name def) (in-hash defs)])

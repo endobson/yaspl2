@@ -10,7 +10,7 @@
 (struct imports& (module-name))
 (struct partial-imports& imports& (types values patterns))
 (struct full-imports& imports& ())
-(struct import& (exported-name local-name))
+(struct import& (exported-name local-name) #:transparent)
 (struct definition& (type args body))
 
 (struct block& (definitions body) #:transparent)
