@@ -14,14 +14,14 @@
   (for/list ([file (in-list (file->bytes-lines library-list-file))])
     (build-path src-root (bytes->path file))))
 
-(define modules (load-modules library-files))
+(define-values (modules signatures) (load-modules library-files))
 
 (define output-file
   (string->bytes/utf-8
     (vector-ref (current-command-line-arguments) 0)))
 
 
-(let ([result (run-program modules (module-name& '(compiler-main)) 'main #:stdin #""
+(let ([result (run-program modules signatures (module-name& '(compiler-main)) 'main #:stdin #""
                            #:args (list* output-file #"compiler_main" (map path->bytes library-files)))])
   (write-bytes (program-result-stdout result) (current-output-port))
   (write-bytes (program-result-stderr result) (current-error-port))

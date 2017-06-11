@@ -19,8 +19,8 @@
 (struct pattern-spec (variant-name input-type type-vars field-types) #:transparent)
 
 ;; TODO ensure all exports have sensible bindings
-(define (check-module module)
-  (ensure-no-free-variables module))
+(define (check-module module signatures)
+  (ensure-no-free-variables module signatures))
 
 (define (pattern-binding-variables p)
   (define (recur p acc)
@@ -37,7 +37,7 @@
 
 ;; TODO make this work over types and not conflate type bindings and value bindings
 ;; TODO also support patterns
-(define (ensure-no-free-variables module)
+(define (ensure-no-free-variables module signatures)
   (define unbound (mutable-set))
   (define ((recur/env env) expr)
     (define recur (recur/env env))
@@ -81,16 +81,22 @@
        (recur/block (set-union env (list->set binders)) defs body)]))
 
   (match module
-    [(module& _ (list (partial-imports& _ _ (list (import& _ import-namess) ...) _) ...) _
+    [(module& _ importss  _
        (list (define-type& _ _
                (list (variant& variant-namess (list (variant-field& field-namesss _) ...)) ...)) ...)
        definitions)
 
-
      (define mut-env (mutable-set))
-     (for* ([import-names (in-list import-namess)]
-            [import-name (in-list import-names)])
-       (set-add! mut-env import-name))
+     (for ([imports (in-list importss)])
+       (match imports
+         [(partial-imports& _ _ import-names _)
+          (for ([import-name (in-list import-names)])
+            (set-add! mut-env (import&-local-name import-name)))]
+         [(full-imports& mod-name)
+          (match (hash-ref signatures mod-name)
+            [(module-signature _ exports _ _)
+             (for ([export (in-hash-keys exports)])
+               (set-add! mut-env export))])]))
      (for ([variant-name (in-list (append* variant-namess))]
            [field-names (in-list (append* field-namesss))])
        (set-add! mut-env variant-name)
@@ -146,28 +152,36 @@
                [(define-type& type-name (list (? symbol? type-vars) ...) _)
                 (hash-set! mut-type-name-env type-name
                            (data-ty-constructor module-name type-name (map (λ (_) (*-kind)) type-vars)))]))
-           (for* ([imports (in-list importss)]
-                  [import (in-list (partial-imports&-types imports))])
-             (define src-mod (partial-imports&-module-name imports))
-             (match import
-               [(import& exported-name local-name)
-                ;; TODO make the prim module-signature work the same way as others
-                (hash-set! mut-type-name-env local-name
-                  (if (equal? src-mod (module-name& '(prim)))
-                      (hash-ref (module-signature-exports (hash-ref module-signatures src-mod))
-                                exported-name)
-                      (match (hash-ref (module-signature-types (hash-ref module-signatures src-mod))
-                                       exported-name
-                                       (lambda ()
-                                         (raise-user-error
-                                           'validator
-                                           "Module ~s doesn`t have exported type ~a"
-                                           src-mod exported-name)))
-                        [(inductive-signature orig-mod-name ty-name #f variants)
-                         (data-ty orig-mod-name ty-name empty)]
-                        [(inductive-signature orig-mod-name ty-name type-vars variants)
-                          (data-ty-constructor orig-mod-name ty-name
-                                                       (map (λ (_) (*-kind)) type-vars))])))]))
+           (for ([imports (in-list importss)])
+             (define import-names
+               (match imports
+                 [(partial-imports& _ types _ _) types]
+                 [(full-imports& mod-name)
+                  (match (hash-ref module-signatures mod-name)
+                    [(module-signature _ types _ _)
+                     (for/list ([export (in-hash-keys types)])
+                       (import& export export))])]))
+             (for ([import (in-list import-names)])
+               (define src-mod (imports&-module-name imports))
+               (match import
+                 [(import& exported-name local-name)
+                  ;; TODO make the prim module-signature work the same way as others
+                  (hash-set! mut-type-name-env local-name
+                    (if (equal? src-mod (module-name& '(prim)))
+                        (hash-ref (module-signature-exports (hash-ref module-signatures src-mod))
+                                  exported-name)
+                        (match (hash-ref (module-signature-types (hash-ref module-signatures src-mod))
+                                         exported-name
+                                         (lambda ()
+                                           (raise-user-error
+                                             'validator
+                                             "Module ~s doesn`t have exported type ~a"
+                                             src-mod exported-name)))
+                          [(inductive-signature orig-mod-name ty-name #f variants)
+                           (data-ty orig-mod-name ty-name empty)]
+                          [(inductive-signature orig-mod-name ty-name type-vars variants)
+                            (data-ty-constructor orig-mod-name ty-name
+                                                         (map (λ (_) (*-kind)) type-vars))])))])))
            mut-type-name-env)))
 
      (define mut-type-env (make-hash))
@@ -205,19 +219,27 @@
          [(definition& type _ _)
           (hash-set! mut-type-env def-name (parse-type type))]))
 
-     (for* ([imports (in-list importss)]
-            [import (in-list (partial-imports&-values imports))])
-       (define src-mod (partial-imports&-module-name imports))
-       (match import
-         [(import& exported-name local-name)
-          (hash-set! mut-type-env local-name
-                     (hash-ref (module-signature-exports (hash-ref module-signatures src-mod))
-                               exported-name
-                               (lambda ()
-                                 (raise-user-error
-                                   'validator
-                                   "Error validating ~s: Module ~s doesn`t have exported value ~a"
-                                   module-name src-mod exported-name))))]))
+     (for ([imports (in-list importss)])
+       (define import-names
+         (match imports
+           [(partial-imports& _ _ values _) values]
+           [(full-imports& mod-name)
+            (match (hash-ref module-signatures mod-name)
+              [(module-signature _ _ values _)
+               (for/list ([export (in-hash-keys values)])
+                 (import& export export))])]))
+       (define src-mod (imports&-module-name imports))
+       (for ([import (in-list import-names)])
+         (match import
+           [(import& exported-name local-name)
+            (hash-set! mut-type-env local-name
+                       (hash-ref (module-signature-exports (hash-ref module-signatures src-mod))
+                                 exported-name
+                                 (lambda ()
+                                   (raise-user-error
+                                     'validator
+                                     "Error validating ~s: Module ~s doesn`t have exported value ~a"
+                                     module-name src-mod exported-name))))])))
 
 
 
@@ -251,19 +273,27 @@
                                   (data-ty ty-module-name ty-name (map type-var-ty type-vars))
                                   type-vars
                                   (hash-ref variant-parsed-field-types name)))]))]))
-          (for* ([imports (in-list importss)]
-                 [import (in-list (partial-imports&-patterns imports))])
-            (define src-mod (partial-imports&-module-name imports))
-            (match import
-              [(import& exported-name local-name)
-               (hash-set!
-                 mut-pattern-env
-                 local-name
-                 (hash-ref (module-signature-patterns (hash-ref module-signatures src-mod)) exported-name
-                           (lambda () (raise-user-error
-                                        'import-pattern
-                                        "No pattern '~s' exported by ~s. (Imported by ~s)"
-                                        exported-name src-mod module-name))))]))
+          (for ([imports (in-list importss)])
+            (define import-names
+              (match imports
+                [(partial-imports& _ _ _ patterns) patterns]
+                [(full-imports& mod-name)
+                 (match (hash-ref module-signatures mod-name)
+                   [(module-signature _ _ _ patterns)
+                    (for/list ([export (in-hash-keys patterns)])
+                      (import& export export))])]))
+            (for ([import (in-list import-names)])
+              (define src-mod (imports&-module-name imports))
+              (match import
+                [(import& exported-name local-name)
+                 (hash-set!
+                   mut-pattern-env
+                   local-name
+                   (hash-ref (module-signature-patterns (hash-ref module-signatures src-mod)) exported-name
+                             (lambda () (raise-user-error
+                                          'import-pattern
+                                          "No pattern '~s' exported by ~s. (Imported by ~s)"
+                                          exported-name src-mod module-name))))])))
            mut-pattern-env)))
 
 
@@ -280,7 +310,7 @@
      ;; TODO remove hack to limit imports
      (define imported-inductive-signatures
        (for/fold ([acc empty]) ([module-signature (in-hash-values module-signatures)])
-         (define mods (map partial-imports&-module-name importss))
+         (define mods (map imports&-module-name importss))
          (if (member (module-signature-name module-signature) mods)
              (append (hash-values (module-signature-types module-signature)) acc)
              acc)))

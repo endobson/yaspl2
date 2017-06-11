@@ -7,7 +7,9 @@
 
 (struct exports& (types values patterns))
 (struct export& (in-name out-name))
-(struct partial-imports& (module-name types values patterns))
+(struct imports& (module-name))
+(struct partial-imports& imports& (types values patterns))
+(struct full-imports& imports& ())
 (struct import& (exported-name local-name))
 (struct definition& (type args body))
 

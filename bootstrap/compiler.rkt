@@ -6,6 +6,7 @@
   "primitives.rkt"
   "utils.rkt"
   "topo-sort.rkt"
+  "signature-structs.rkt"
   "simple-match.rkt"
   racket/list
   racket/syntax
@@ -21,9 +22,9 @@
 (struct program-result (exit-code error-info stdout stderr))
 (define-namespace-anchor anchor)
 
-(define (run-program modules module-name main-name #:stdin stdin-bytes
+(define (run-program modules signatures module-name main-name #:stdin stdin-bytes
                      #:args [supplied-args empty])
-  (define-values (definitions env) (compile-modules modules))
+  (define-values (definitions env) (compile-modules modules signatures))
   (define full-main-name (full-name module-name main-name))
   (define main-fun-id (hash-ref env full-main-name #f))
   (unless main-fun-id
@@ -63,7 +64,7 @@
 (define variant-val-sym (datum->syntax #'variant-val 'variant-val))
 (define variant-val-fields-sym (datum->syntax #'variant-val-fields 'variant-val-fields))
 
-(define (compile-modules modules)
+(define (compile-modules modules signatures)
   (define (make-primitive-environment)
     (hash-copy
       (for/hash ([(prim-name prim-val) (in-hash supported-primitives)])
@@ -84,7 +85,15 @@
            (for ([import (in-list values)])
              (hash-set! local-env (import&-local-name import)
                         (hash-ref global-env
-                          (full-name mod-name (import&-exported-name import)))))]))
+                          (full-name mod-name (import&-exported-name import)))))]
+          [(full-imports& mod-name)
+           (match (hash-ref signatures mod-name)
+             [(module-signature _ _ values _)
+              (for ([export (in-hash-keys values)])
+                (hash-set! local-env export
+                           (hash-ref global-env
+                             (full-name mod-name export))))])]))
+
 
       ;; TODO actually support more complicated pattern bindings
       (for ([imports (in-list (module&-imports module))])
@@ -92,8 +101,14 @@
           [(partial-imports& mod-name _ _ patterns)
            (for ([import (in-list patterns)])
              (hash-set! local-pattern-env (import&-local-name import)
-                        (import&-exported-name import)))]))
-
+                        (import&-exported-name import)))]
+          [(full-imports& mod-name)
+           (match (hash-ref signatures mod-name)
+             [(module-signature _ _ _ patterns)
+              (for ([export (in-hash-keys patterns)])
+                (hash-set! local-env export
+                           (hash-ref global-env
+                             (full-name mod-name export))))])]))
 
 
       (define variant-defs

@@ -26,7 +26,7 @@
 
   (define (add-module!/internal mod)
     (define mod-name (module&-name mod))
-    (check-module mod)
+    (check-module mod module-signatures)
     (define mod-signature
       (construct-module-signature mod module-signatures))
     (when (set-member? module-names mod-name)
@@ -44,4 +44,4 @@
   (add-modules!
     (for/list ([file-path (in-list paths)])
       (call-with-input-file* file-path read-module)))
-  (set->list modules))
+  (values (set->list modules) module-signatures))

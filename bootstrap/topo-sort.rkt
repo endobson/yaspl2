@@ -18,7 +18,7 @@
       (for/hash ([module (in-list modules)])
         (define imports
           (list->mutable-set
-            (map partial-imports&-module-name (module&-imports module))))
+            (map imports&-module-name (module&-imports module))))
         ;; Remove primitive module until we support module signatures
         (set-remove! imports (module-name& '(prim)))
         (values (module&-name module) imports))))

@@ -19,13 +19,20 @@
        . ,(app parse-definitions definitions))
      (module& (module-name& name) imports exports types definitions)]))
 
+(define (partial-import? x)
+  (and (list? x)
+       (or (member '#:types x)
+           (member '#:values x)
+           (member '#:patterns x))))
 
 (define (parse-imports imports)
   (define (recur imports)
     (match imports
       [(list) empty]
-      [(list-rest (list (? symbol? module-name) ...) (? list? forms) rest)
-       (cons (parse-import-section (module-name& module-name) forms) (recur rest))]))
+      [(list-rest (list (? symbol? module-name) ...) (? partial-import? forms) rest)
+       (cons (parse-import-section (module-name& module-name) forms) (recur rest))]
+      [(cons (list (? symbol? module-name) ...) rest)
+       (cons (full-imports& (module-name& module-name)) (recur rest))]))
   (define (parse-import-section module-name forms)
     (define (parse-import-elem import-elem)
       (match import-elem
