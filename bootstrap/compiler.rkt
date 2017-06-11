@@ -106,9 +106,7 @@
            (match (hash-ref signatures mod-name)
              [(module-signature _ _ _ patterns)
               (for ([export (in-hash-keys patterns)])
-                (hash-set! local-env export
-                           (hash-ref global-env
-                             (full-name mod-name export))))])]))
+                (hash-set! local-pattern-env export export))])]))
 
 
       (define variant-defs
