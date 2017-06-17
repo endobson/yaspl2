@@ -16,7 +16,14 @@
       [local-flags : Bytes]
       [control-chars : Bytes]
       [input-speed : Bytes]
-      [output-speed : Bytes])))
+      [output-speed : Bytes]))
+
+  (define-type EditLineState
+    (edit-line-state [input-state : InputState]))
+  (define-type InputState
+    (input-state-empty)
+    (input-state-esc)
+    (input-state-esc-bracket)))
 
 (define (ioctl-number
           [modality : Int]
@@ -70,24 +77,82 @@
 (define (main-loop [stdin : InputPort] [stdout : OutputPort]) : (Maybe Bytes)
   (begin
     (write-all-bytes #"> " stdout)
-    (edit-loop stdin stdout)))
+    (edit-loop (edit-line-state (input-state-empty)) stdin stdout)))
 
-(define (edit-loop [stdin : InputPort] [stdout : OutputPort]) : (Maybe Bytes)
+(define (edit-loop [line-state : EditLineState] [stdin : InputPort] [stdout : OutputPort]) : (Maybe Bytes)
+  ;; TODO handle more than 1 byte at a time
   (let ([buffer (make-bytes 1)])
     (let ([amount-read (read-bytes buffer stdin 0 (bytes-length buffer))])
       (if (= amount-read 1)
-          (handle-byte (bytes-ref buffer 0) stdin stdout)
+          (handle-byte line-state (bytes-ref buffer 0) stdin stdout)
           (panic #"Unexpected read amount")))))
 
-(define (handle-byte [byte : Int] [stdin : InputPort] [stdout : OutputPort]) : (Maybe Bytes)
-  (case byte
-    [10 (begin (newline stdout) (main-loop stdin stdout))]
-    [_
-      (let ([buffer (make-bytes 1)])
-        (begin
-          (bytes-set! buffer 0 (u8 byte))
-          (write-all-bytes buffer stdout)
-          (edit-loop stdin stdout)))]))
+(define (handle-byte [line-state : EditLineState] [byte : Int] [stdin : InputPort] [stdout : OutputPort]) : (Maybe Bytes)
+  (case line-state
+    [(edit-line-state (input-state-empty))
+     (case byte
+       [10 (begin (newline stdout) (main-loop stdin stdout))]
+       [127
+        (let ([bytes (make-bytes 3)])
+          (begin
+            (bytes-set! bytes 0 (u8 8))
+            (bytes-set! bytes 1 (u8 32))
+            (bytes-set! bytes 2 (u8 8))
+            ;(bytes-set! bytes 0 (u8 27))
+            ;(bytes-copy! #"[1D" 0 3 bytes 1)
+            (write-all-bytes bytes stdout)
+            (edit-loop (edit-line-state (input-state-empty)) stdin stdout)))]
+       [27
+        (edit-loop (edit-line-state (input-state-esc)) stdin stdout)]
+       [_
+        (let ([buffer (make-bytes 1)])
+          (begin
+            (bytes-set! buffer 0 (u8 byte))
+            (write-all-bytes buffer stdout)
+            (edit-loop (edit-line-state (input-state-empty)) stdin stdout)))])]
+    [(edit-line-state (input-state-esc))
+     (case byte
+       [91
+        (edit-loop (edit-line-state (input-state-esc-bracket)) stdin stdout)]
+       [_
+         (just #"Invalid start of escape sequence")])]
+    [(edit-line-state (input-state-esc-bracket))
+     (case byte
+       [65
+        (let ([bytes (make-bytes 3)])
+          (begin
+            (bytes-set! bytes 0 (u8 27))
+            (bytes-set! bytes 1 (u8 91))
+            (bytes-set! bytes 2 (u8 65))
+            (write-all-bytes bytes stdout)
+            (edit-loop (edit-line-state (input-state-empty)) stdin stdout)))]
+       [66
+        (let ([bytes (make-bytes 3)])
+          (begin
+            (bytes-set! bytes 0 (u8 27))
+            (bytes-set! bytes 1 (u8 91))
+            (bytes-set! bytes 2 (u8 66))
+            (write-all-bytes bytes stdout)
+            (edit-loop (edit-line-state (input-state-empty)) stdin stdout)))]
+       [67
+        (let ([bytes (make-bytes 3)])
+          (begin
+            (bytes-set! bytes 0 (u8 27))
+            (bytes-set! bytes 1 (u8 91))
+            (bytes-set! bytes 2 (u8 67))
+            (write-all-bytes bytes stdout)
+            (edit-loop (edit-line-state (input-state-empty)) stdin stdout)))]
+       [68
+        (let ([bytes (make-bytes 3)])
+          (begin
+            (bytes-set! bytes 0 (u8 27))
+            (bytes-set! bytes 1 (u8 91))
+            (bytes-set! bytes 2 (u8 68))
+            (write-all-bytes bytes stdout)
+            (edit-loop (edit-line-state (input-state-empty)) stdin stdout)))]
+       [_
+         (just #"Unknown escape sequence")])]))
+
 
 
 
