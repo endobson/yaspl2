@@ -13,5 +13,8 @@ yaspl_library(
     srcs = ["shell-main.yaspl"],
     deps = [
       "//libraries:io",
+      "//libraries/data:maybe",
+      "//libraries/data:numbers",
+      "//libraries/data:bytes",
     ],
 )

@@ -2,11 +2,108 @@
 #:import {
   (prim)
   (io)
+  (maybe)
+  (bytes)
+  (numbers)
 }
 (export)
-(types)
+(types
+  (define-type Termios
+    (termios
+      [input-flags : Bytes]
+      [output-flags : Bytes]
+      [control-flags : Bytes]
+      [local-flags : Bytes]
+      [control-chars : Bytes]
+      [input-speed : Bytes]
+      [output-speed : Bytes])))
+
+(define (ioctl-number
+          [modality : Int]
+          [group : Int]
+          [num : Int]
+          [len : Int]) : Int
+  (bitwise-ior
+    modality
+    (bitwise-ior
+      (logical-shift-left (bitwise-and #x1FFF len) 16)
+      (bitwise-ior
+        (logical-shift-left group 8)
+        num))))
+
+
+(define (parse-termios-bytes [bytes : Bytes]) : Termios
+  (termios
+    (subbytes bytes 0 8)
+    (subbytes bytes 8 16)
+    (subbytes bytes 16 24)
+    (subbytes bytes 24 32)
+    (subbytes bytes 32 52)
+    (subbytes bytes 56 64)
+    (subbytes bytes 64 72)))
+
+(define (serialize-termios [termios : Termios]) : Bytes
+  (match-define (termios in out control local chars input-speed output-speed) termios)
+  (let ([bytes (make-bytes 72)])
+    (begin
+      (bytes-copy! in 0 8 bytes 0)
+      (bytes-copy! out 0 8 bytes 8)
+      (bytes-copy! control 0 8 bytes 16)
+      (bytes-copy! local 0 8 bytes 24)
+      (bytes-copy! chars 0 20 bytes 32)
+      (bytes-copy! input-speed 0 8 bytes 56)
+      (bytes-copy! output-speed 0 8 bytes 64)
+      bytes)))
+
+
+(define (read-termios [terminal : InputPort]) : Termios
+  (let ([bytes (make-bytes 72)])
+    (begin
+      (ioctl terminal (ioctl-number #x40000000 116 19 72) bytes)
+      (parse-termios-bytes bytes))))
+
+(define (write-termios [termios : Termios] [terminal : InputPort]) : Void
+  (ioctl terminal (ioctl-number #x80000000 116 20 72) (serialize-termios termios)))
+
+
+
+(define (main-loop [stdin : InputPort] [stdout : OutputPort]) : (Maybe Bytes)
+  (begin
+    (write-all-bytes #"> " stdout)
+    (edit-loop stdin stdout)))
+
+(define (edit-loop [stdin : InputPort] [stdout : OutputPort]) : (Maybe Bytes)
+  (let ([buffer (make-bytes 1)])
+    (let ([amount-read (read-bytes buffer stdin 0 (bytes-length buffer))])
+      (if (= amount-read 1)
+          (handle-byte (bytes-ref buffer 0) stdin stdout)
+          (panic #"Unexpected read amount")))))
+
+(define (handle-byte [byte : Int] [stdin : InputPort] [stdout : OutputPort]) : (Maybe Bytes)
+  (case byte
+    [10 (begin (newline stdout) (main-loop stdin stdout))]
+    [_
+      (let ([buffer (make-bytes 1)])
+        (begin
+          (bytes-set! buffer 0 (u8 byte))
+          (write-all-bytes buffer stdout)
+          (edit-loop stdin stdout)))]))
+
+
+
 
 (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Int
   (begin
-    (write-line #"Hello World" stdout)
-    0))
+    (let ([termios (read-termios stdin)])
+      (case termios
+        [(termios in out control local chars in-speed out-speed)
+         (begin
+           (bytes-set! local 0 (u8 (bitwise-and #xF7 (bytes-ref local 0))))
+           (bytes-set! local 1 (u8 (bitwise-and #xFE (bytes-ref local 1))))
+           (write-termios termios stdin))]))
+    (case (main-loop stdin stdout)
+      [(nothing) 0]
+      [(just msg)
+       (begin
+         (write-line msg stderr)
+         1)])))
