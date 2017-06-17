@@ -14,6 +14,7 @@ yaspl_library(
     deps = [
       "//libraries:io",
       "//libraries/data:maybe",
+      "//libraries/data:list",
       "//libraries/data:numbers",
       "//libraries/data:bytes",
     ],
