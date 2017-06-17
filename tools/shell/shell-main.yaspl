@@ -1,11 +1,10 @@
 #:module (tools shell shell-main)
 #:import {
-  (prim)
+  (bytes)
   (io)
   (list)
   (maybe)
-  (bytes)
-  (numbers)
+  (prim)
 }
 (export)
 (types
@@ -88,6 +87,18 @@
           (handle-byte line-state (bytes-ref buffer 0) stdin stdout)
           (panic #"Unexpected read amount")))))
 
+(define (list->bytes [l : (List U8)]) : Bytes
+  (list->bytes-helper (make-bytes (length l)) 0 l))
+
+(define (list->bytes-helper [bytes : Bytes] [index : Int] [l : (List U8)]) : Bytes
+  (case l
+    [(empty) bytes]
+    [(cons e l)
+     (begin
+       (bytes-set! bytes index e)
+       (list->bytes-helper bytes (+ 1 index) l))]))
+
+
 (define (handle-byte [line-state : EditLineState] [byte : Int] [stdin : InputPort] [stdout : OutputPort]) : (Maybe Bytes)
   (case line-state
     [(edit-line-state (input-state-empty) before after)
@@ -103,21 +114,41 @@
                (write-all-bytes bytes stdout)
                (edit-loop (edit-line-state (input-state-empty) (empty) after) stdin stdout)))]
           [(cons _ before)
-           (let ([bytes (make-bytes 3)])
-             (begin
-               (bytes-set! bytes 0 (u8 8))
-               (bytes-set! bytes 1 (u8 32))
-               (bytes-set! bytes 2 (u8 8))
-               (write-all-bytes bytes stdout)
-               (edit-loop (edit-line-state (input-state-empty) before after) stdin stdout)))])]
+           (begin
+             (write-all-bytes
+               (bytes-append
+                 (varargs list
+                   (let ([bytes (make-bytes 1)])
+                     (begin
+                       (bytes-set! bytes 0 (u8 8))
+                       bytes))
+                   (list->bytes after)
+                   (let ([bytes (make-bytes 1)])
+                     (begin
+                       (bytes-set! bytes 0 (u8 32))
+                       bytes))
+                   (list->bytes (map (lambda ([x : U8]) (u8 8)) after))
+                   (let ([bytes (make-bytes 1)])
+                     (begin
+                       (bytes-set! bytes 0 (u8 8))
+                       bytes))))
+               stdout)
+             (edit-loop (edit-line-state (input-state-empty) before after) stdin stdout))])]
        [27
         (edit-loop (edit-line-state (input-state-esc) before after) stdin stdout)]
        [_
-        (let ([buffer (make-bytes 1)])
-          (begin
-            (bytes-set! buffer 0 (u8 byte))
-            (write-all-bytes buffer stdout)
-            (edit-loop (edit-line-state (input-state-empty) (cons (u8 byte) before) after) stdin stdout)))])]
+        (begin
+          (write-all-bytes
+            (bytes-append
+              (varargs list
+                (let ([bytes (make-bytes 1)])
+                  (begin
+                    (bytes-set! bytes 0 (u8 byte))
+                    bytes))
+                (list->bytes after)
+                (list->bytes (map (lambda ([x : U8]) (u8 8)) after))))
+            stdout)
+          (edit-loop (edit-line-state (input-state-empty) (cons (u8 byte) before) after) stdin stdout))])]
     [(edit-line-state (input-state-esc) before after)
      (case byte
        [91
