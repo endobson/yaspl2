@@ -98,6 +98,10 @@
        (bytes-set! bytes index e)
        (list->bytes-helper bytes (+ 1 index) l))]))
 
+(define (finish-iteration [bytes : Bytes] [stdin : InputPort] [stdout : OutputPort]) : (Maybe Bytes)
+  (begin
+    (write-line bytes stdout)
+    (main-loop stdin stdout)))
 
 (define (handle-byte [line-state : EditLineState] [byte : Int] [stdin : InputPort] [stdout : OutputPort]) : (Maybe Bytes)
   (case line-state
@@ -106,7 +110,7 @@
        [10
         (begin
           (newline stdout)
-          (main-loop stdin stdout))]
+          (finish-iteration (list->bytes (append (reverse before) after)) stdin stdout))]
        [4 (begin (newline stdout) (nothing))]
        [127
         (case before
@@ -114,26 +118,18 @@
            (let ([bytes (make-bytes 1)])
              (begin
                (write-all-bytes #"\x07" stdout)
-               (edit-loop (edit-line-state (input-state-empty) (empty) after) stdin stdout)))]
+               (edit-loop (edit-line-state (input-state-empty) before after) stdin stdout)))]
           [(cons _ before)
            (begin
              (write-all-bytes
                (bytes-append
                  (varargs list
-                   (let ([bytes (make-bytes 1)])
-                     (begin
-                       (bytes-set! bytes 0 (u8 8))
-                       bytes))
+                   #"\x08"
                    (list->bytes after)
-                   (let ([bytes (make-bytes 1)])
-                     (begin
-                       (bytes-set! bytes 0 (u8 32))
-                       bytes))
+                   #" "
                    (list->bytes (map (lambda ([x : U8]) (u8 8)) after))
-                   (let ([bytes (make-bytes 1)])
-                     (begin
-                       (bytes-set! bytes 0 (u8 8))
-                       bytes))))
+                   #"\x08"
+                   ))
                stdout)
              (edit-loop (edit-line-state (input-state-empty) before after) stdin stdout))])]
        [27
@@ -160,51 +156,35 @@
     [(edit-line-state (input-state-esc-bracket) before after)
      (case byte
        [65
-        (let ([bytes (make-bytes 1)])
-          (begin
-            (bytes-set! bytes 0 (u8 7))
-            (write-all-bytes bytes stdout)
-            (edit-loop (edit-line-state (input-state-empty) before after) stdin stdout)))]
+        (begin
+          (write-all-bytes #"\x07"stdout)
+          (edit-loop (edit-line-state (input-state-empty) before after) stdin stdout))]
        [66
-        (let ([bytes (make-bytes 1)])
-          (begin
-            (bytes-set! bytes 0 (u8 7))
-            (write-all-bytes bytes stdout)
-            (edit-loop (edit-line-state (input-state-empty) before after) stdin stdout)))]
+        (begin
+          (write-all-bytes #"\x07" stdout)
+          (edit-loop (edit-line-state (input-state-empty) before after) stdin stdout))]
        [67
         (case after
           [(empty)
-           (let ([bytes (make-bytes 1)])
-             (begin
-               (bytes-set! bytes 0 (u8 7))
-               (write-all-bytes bytes stdout)
-               (edit-loop (edit-line-state (input-state-empty) before after) stdin stdout)))]
+           (begin
+             (write-all-bytes #"\x07" stdout)
+             (edit-loop (edit-line-state (input-state-empty) before after) stdin stdout))]
           [(cons char after)
-           (let ([bytes (make-bytes 3)])
-             (begin
-               (bytes-set! bytes 0 (u8 27))
-               (bytes-set! bytes 1 (u8 91))
-               (bytes-set! bytes 2 (u8 67))
-               (write-all-bytes bytes stdout)
-               (edit-loop (edit-line-state (input-state-empty) (cons char before) after) stdin
-                          stdout)))])]
+           (begin
+             (write-all-bytes #"\x1b[C" stdout)
+             (edit-loop (edit-line-state (input-state-empty) (cons char before) after) stdin
+                        stdout))])]
        [68
         (case before
           [(empty)
-           (let ([bytes (make-bytes 1)])
-             (begin
-               (bytes-set! bytes 0 (u8 7))
-               (write-all-bytes bytes stdout)
-               (edit-loop (edit-line-state (input-state-empty) before after) stdin stdout)))]
+           (begin
+             (write-all-bytes #"\x07" stdout)
+             (edit-loop (edit-line-state (input-state-empty) before after) stdin stdout))]
           [(cons char before)
-           (let ([bytes (make-bytes 3)])
-             (begin
-               (bytes-set! bytes 0 (u8 27))
-               (bytes-set! bytes 1 (u8 91))
-               (bytes-set! bytes 2 (u8 68))
-               (write-all-bytes bytes stdout)
-               (edit-loop (edit-line-state (input-state-empty) before (cons char after)) stdin
-                          stdout)))])]
+           (begin
+             (write-all-bytes #"\x1b[D" stdout)
+             (edit-loop (edit-line-state (input-state-empty) before (cons char after)) stdin
+                        stdout))])]
        [_
          (just #"Unknown escape sequence")])]))
 
