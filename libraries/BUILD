@@ -94,6 +94,8 @@ yaspl_bootstrap_library(
     deps = [
         "//libraries/data:bytes",
         "//libraries/data:either",
+        "//libraries/data:maybe",
+        "//libraries/data:numbers",
     ],
 )
 
