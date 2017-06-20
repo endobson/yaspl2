@@ -1,0 +1,94 @@
+#:module (prim-language register-language-builder)
+#:import {
+  (dict)
+  (list)
+  (prim) {
+    #:types
+      Bytes
+      Int
+    #:values
+      +
+  }
+  (register-language)
+  (tuples)
+}
+(export
+  #:types (Accumulator PendingBasicBlock BlockAccumulator)
+  #:values (accumulator pending-basic-block block-accumulator
+            start-block split-accumulator fresh-name fresh-name*
+            fresh-block-number fresh-block-number* add-terminal
+            add-terminal* new-arg)
+  #:patterns (accumulator pending-basic-block block-accumulator))
+(types
+  (define-type BlockAccumulator
+    (block-accumulator
+      [var-counter : Int]
+      [block-counter : Int]
+      [blocks : (Dict Int BasicBlock)]))
+
+  (define-type Accumulator
+    (accumulator
+      [var-counter : Int]
+      [block-counter : Int]
+      [next-block : PendingBasicBlock]
+      [blocks : (Dict Int BasicBlock)]))
+  (define-type PendingBasicBlock
+    (pending-basic-block
+      [index : Int]
+      [cur-args : (List Var)]
+      [reversed-instructions : (List Instruction)])))
+
+(define (start-block [block-num : Int] [args : (List Var)] [acc : BlockAccumulator]) : Accumulator
+  (match-define (block-accumulator var-counter block-counter blocks) acc)
+  (accumulator var-counter block-counter (pending-basic-block block-num args (empty)) blocks))
+
+(define (split-accumulator [acc : Accumulator]) : (Tuple2 PendingBasicBlock BlockAccumulator)
+  (match-define (accumulator var-counter block-counter pending blocks) acc)
+  (tuple2 pending (block-accumulator var-counter block-counter blocks)))
+
+(define (fresh-name [v : Bytes] [acc : Accumulator]) : (Tuple2 (Tuple2 Bytes Var) Accumulator)
+  (case acc
+    [(accumulator var-counter block-counter next-block blocks)
+     (tuple2
+       (tuple2 v (var v var-counter))
+       (accumulator (+ 1 var-counter) block-counter next-block blocks))]))
+
+(define (fresh-name* [v : Bytes] [acc : BlockAccumulator]) : (Tuple2 (Tuple2 Bytes Var) BlockAccumulator)
+  (case acc
+    [(block-accumulator var-counter block-counter blocks)
+     (tuple2
+       (tuple2 v (var v var-counter))
+       (block-accumulator (+ 1 var-counter) block-counter blocks))]))
+
+(define (new-arg [fresh-arg : (Tuple2 Bytes Var)]) : Var
+  (case fresh-arg
+    [(tuple2 _ v) v]))
+
+(define (fresh-block-number [acc : Accumulator]) : (Tuple2 Int Accumulator)
+  (case acc
+    [(accumulator var-counter block-counter next-block blocks)
+     (tuple2
+       block-counter
+       (accumulator var-counter (+ 1 block-counter) next-block blocks))]))
+
+(define (fresh-block-number* [acc : BlockAccumulator]) : (Tuple2 Int BlockAccumulator)
+  (case acc
+    [(block-accumulator var-counter block-counter blocks)
+     (tuple2
+       block-counter
+       (block-accumulator var-counter (+ 1 block-counter) blocks))]))
+
+(define (add-terminal [a : Accumulator] [term : Terminal]) : BlockAccumulator
+  (case a
+    [(accumulator next-var next-block (pending-basic-block n args rev-instructions) blocks)
+     (block-accumulator next-var next-block
+                        (dict-add blocks n (basic-block args (reverse rev-instructions) term)))]))
+
+(define (add-terminal* [a : BlockAccumulator] [p : PendingBasicBlock] [term : Terminal]) : BlockAccumulator
+  (case a
+    [(block-accumulator next-var next-block blocks)
+     (case p
+       [(pending-basic-block n args rev-instructions)
+        (block-accumulator next-var next-block
+                           (dict-add blocks n (basic-block args (reverse rev-instructions)
+                                                           term)))])]))

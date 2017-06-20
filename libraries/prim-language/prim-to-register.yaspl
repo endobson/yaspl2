@@ -4,37 +4,9 @@
     #:values
       bytes=?
   }
-  (data boolean) {
-    #:values
-      not
-  }
-  (dict) {
-    #:types
-      Dict
-    #:values
-      dict-add
-      dict-add-all
-      dict-keys
-      dict-ref
-      dict-replace
-      dict-replace-all
-      make-dict
-      merge-dicts
-  }
-  (list) {
-    #:types
-      List
-    #:values
-      cons
-      empty
-      filter
-      foldl
-      map
-      reverse
-    #:patterns
-      cons
-      empty
-  }
+  (data boolean)
+  (dict)
+  (list)
   (maybe) {
     #:patterns
       just
@@ -46,7 +18,6 @@
       Bytes
       Int
     #:values
-      +
       =
       panic
   }
@@ -82,15 +53,13 @@
       var-expr
       [while p:while]
   }
+  (prim-language register-language-builder)
   (register-language) {
     #:types
-      BasicBlock
       [FunctionDefinition r:FunctionDefinition]
       Instruction
-      Terminal
       Var
     #:values
-      basic-block
       bin-op-inst
       cond-jump
       eight-byte-mem-op
@@ -105,7 +74,6 @@
       syscall-inst
       [truncate-unsigned-int64->unsigned-int8 r:truncate-unsigned-int64->unsigned-int8]
       unary-op-inst
-      var
       var=?
   }
   (set) {
@@ -131,36 +99,24 @@
   #:patterns ())
 (types
   (define-type Environment
-    (environment [vars : (Dict Bytes Var)] [mutated-vars : (Set Bytes)]))
-  (define-type State
-    (state [var-counter : Int] [block-counter : Int]))
-  (define-type Accumulator
-    (accumulator
-      [next-block : PendingBasicBlock]
-      [blocks : (Dict Int BasicBlock)]))
-  (define-type PendingBasicBlock
-    (pending-basic-block
-      [index : Int]
-      [cur-args : (List Var)]
-      [reversed-instructions : (List Instruction)])))
+    (environment [vars : (Dict Bytes Var)] [mutated-vars : (Set Bytes)])))
 
 (define (convert-function [f : p:FunctionDefinition]) : r:FunctionDefinition
   (match-define (p:function-definition name args body) f)
-  (match-define (tuple2 freshened-args state)
-    (map-state fresh-name args (initial-state)))
+  (match-define acc (block-accumulator 0 0 (make-dict =)))
+  ;; TODO Make this less hacky
+  (match-define (tuple2 freshened-args acc)
+    (map-state fresh-name* args acc))
   (match-define env
     (add-all-args freshened-args (initial-environment (mutated-vars f))))
-  (match-define (tuple2 block-number state) (fresh-block-number state))
-  (match-define (tuple2 (accumulator (pending-basic-block _ _ instructions) blocks)
-                        (tuple2 state environment))
-    (convert-statements body
-                        (start-block block-number (map new-arg freshened-args) (make-dict =))
-                        env
-                        state))
-  (match-define (state next-var next-block) state)
+  (match-define (tuple2 start-block-num acc) (fresh-block-number* acc))
+  (match-define acc (start-block start-block-num (map new-arg freshened-args) acc))
+  (match-define (tuple2 (accumulator next-var next-block (pending-basic-block _ _ instructions) blocks)
+                        environment)
+    (convert-statements body acc env))
   (case instructions
     [(cons _ _) (panic #"Incorrectly terminated function")]
-    [_ (r:function-definition name block-number blocks next-var next-block)]))
+    [_ (r:function-definition name start-block-num blocks next-var next-block)]))
 
 (define (mutated-vars [f : p:FunctionDefinition]) : (Set Bytes)
   (mutated-vars/statements (p:function-definition-body f)))
@@ -177,12 +133,6 @@
     [(p:while _ body) (foldl mutated-vars* body acc)]
     [(p:if-statement _ then else)
      (foldl mutated-vars* else (foldl mutated-vars* then acc))]))
-
-(define (initial-state) : State
-  (state 0 0))
-(define (new-arg [fresh-arg : (Tuple2 Bytes Var)]) : Var
-  (case fresh-arg
-    [(tuple2 _ v) v]))
 
 (define (initial-environment [mutated-vars : (Set Bytes)]) : Environment
   (environment (make-dict bytes=?) mutated-vars))
@@ -205,22 +155,6 @@
     [(environment vars mutated-vars)
      (environment (dict-replace vars name var) mutated-vars)]))
 
-(define (fresh-name [v : Bytes] [s : State]) : (Tuple2 (Tuple2 Bytes Var) State)
-  (case s
-    [(state var-counter block-counter)
-     (tuple2
-       (tuple2 v (var v var-counter))
-       (state (+ 1 var-counter) block-counter))]))
-
-(define (fresh-block-number [s : State]) : (Tuple2 Int State)
-  (case s
-    [(state var-counter block-counter)
-     (tuple2
-       block-counter
-       (state var-counter (+ 1 block-counter)))]))
-
-(define (start-block [block-num : Int] [args : (List Var)] [blocks : (Dict Int BasicBlock)]) : Accumulator
-  (accumulator (pending-basic-block block-num args (empty)) blocks))
 
 (define (a b s) (map-state [f : (a s -> (Tuple2 b s))] [l : (List a)] [s : s]) : (Tuple2 (List b) s)
   (case l
@@ -253,239 +187,218 @@
 (define (convert-statements
           [statements : (List Statement)]
           [acc : Accumulator]
-          [env : Environment]
-          [state : State])
-  : (Tuple2 Accumulator (Tuple2 State Environment))
+          [env : Environment])
+  : (Tuple2 Accumulator Environment)
   (case statements
-    [(empty) (tuple2 acc (tuple2 state env))]
+    [(empty) (tuple2 acc env)]
     [(cons statement statements)
-     (case (convert-statement statement acc env state)
-       [(tuple2 acc (tuple2 state env))
-        (convert-statements statements acc env state)])]))
-
-(define (add-terminal [a : Accumulator] [term : Terminal]) : (Dict Int BasicBlock)
-  (case a
-    [(accumulator (pending-basic-block n args rev-instructions) blocks)
-     (dict-add blocks n (basic-block args (reverse rev-instructions) term))]))
-
+     (case (convert-statement statement acc env)
+       [(tuple2 acc env)
+        (convert-statements statements acc env)])]))
 (define (convert-statement
           [statement : Statement]
           [acc : Accumulator]
-          [env : Environment]
-          [state : State])
-  : (Tuple2 Accumulator (Tuple2 State Environment))
+          [env : Environment])
+  : (Tuple2 Accumulator Environment)
   (case statement
     [(p:return expr)
-     (match-define (tuple2 (tuple2 temp acc) state)
-       (convert-expr #"ret" expr acc env state))
-     (match-define (tuple2 block-num state) (fresh-block-number state))
+     (match-define (tuple2 temp acc)
+       (convert-expr #"ret" expr acc env))
+     (match-define (tuple2 block-num acc) (fresh-block-number acc))
      (tuple2
        (start-block block-num (empty) (add-terminal acc (r:return temp)))
-       (tuple2 state env))]
+       env)]
     [(p:declaration name expr)
-     (match-define (tuple2 (tuple2 temp acc) state)
-       (convert-expr name expr acc env state))
-     (tuple2 acc (tuple2 state (env-add env name temp)))]
+     (match-define (tuple2 temp acc)
+       (convert-expr name expr acc env))
+     (tuple2 acc (env-add env name temp))]
     [(p:if-statement cond then else)
-     (match-define (tuple2 (tuple2 branch-var acc) state)
-       (convert-expr #"cond" cond acc env state))
-     (match-define (tuple2 t-block-num state) (fresh-block-number state))
-     (match-define (tuple2 f-block-num state) (fresh-block-number state))
-     (match-define old-blocks
+     (match-define (tuple2 branch-var acc)
+       (convert-expr #"cond" cond acc env))
+     (match-define (tuple2 t-block-num acc) (fresh-block-number acc))
+     (match-define (tuple2 f-block-num acc) (fresh-block-number acc))
+     (match-define acc
        (add-terminal acc (cond-jump (negated-var-condition branch-var)
                                     f-block-num (empty)
                                     t-block-num (empty))))
 
-     (match-define (tuple2 t-acc (tuple2 state t-env))
-       (convert-statements then (start-block t-block-num (empty) (make-dict =)) env state))
-     (match-define (tuple2 f-acc (tuple2 state f-env))
-       (convert-statements else (start-block f-block-num (empty) (make-dict =)) env state))
+     (match-define (tuple2 acc t-env)
+       (convert-statements then (start-block t-block-num (empty) acc) env))
+     (match-define (tuple2 t-block acc) (split-accumulator acc))
+     (match-define (tuple2 acc f-env)
+       (convert-statements else (start-block f-block-num (empty) acc) env))
+     (match-define (tuple2 f-block acc) (split-accumulator acc))
 
      (match-define mut-vars (get-differing-vars env t-env f-env))
      (match-define t-mut-vars (env-ref* t-env mut-vars))
      (match-define f-mut-vars (env-ref* f-env mut-vars))
 
-     (match-define (tuple2 c-block-num state) (fresh-block-number state))
-     (match-define all-blocks
-       (merge-dicts
-         old-blocks
-         (merge-dicts
-           (add-terminal t-acc (jump c-block-num t-mut-vars))
-           (add-terminal f-acc (jump c-block-num f-mut-vars)))))
+     (match-define (tuple2 c-block-num acc) (fresh-block-number* acc))
 
-     (match-define (tuple2 fresh-mut-args state)
-       (map-state fresh-name mut-vars state))
+     (match-define acc
+       (add-terminal*
+         (add-terminal* acc t-block (jump c-block-num t-mut-vars))
+         f-block (jump c-block-num f-mut-vars)))
+     (match-define (tuple2 fresh-mut-args acc)
+       (map-state fresh-name* mut-vars acc))
 
      (tuple2
-       (start-block c-block-num (map new-arg fresh-mut-args) all-blocks)
-       (tuple2 state (replace-all-args fresh-mut-args env)))]
+       (start-block c-block-num (map new-arg fresh-mut-args) acc)
+       (replace-all-args fresh-mut-args env))]
     [(p:assignment name expr)
-     (match-define (tuple2 (tuple2 temp acc) state)
-       (convert-expr name expr acc env state))
-     (tuple2 acc (tuple2 state (env-replace env name temp)))]
+     (match-define (tuple2 temp acc)
+       (convert-expr name expr acc env))
+     (tuple2 acc (env-replace env name temp))]
     [(p:pointer-assignment pointer expr)
-     (match-define (tuple2 (tuple2 temp-pointer acc) state)
-       (convert-expr #"ptr" pointer acc env state))
-     (match-define (tuple2 (tuple2 temp-expr acc) state)
-       (convert-expr #"val" expr acc env state))
+     (match-define (tuple2 temp-pointer acc)
+       (convert-expr #"ptr" pointer acc env))
+     (match-define (tuple2 temp-expr acc)
+       (convert-expr #"val" expr acc env))
      (tuple2
        (add-instruction acc (pointer-set!-inst (eight-byte-mem-op) temp-pointer temp-expr))
-       (tuple2 state env))]
+       env)]
     [(p:while cond body)
-     (match-define (tuple2 header-block-num state) (fresh-block-number state))
+     (match-define (tuple2 header-block-num acc) (fresh-block-number acc))
      (match-define mut-vars (set->list (mutated-vars/statements body)))
-     (match-define blocks (add-terminal acc (jump header-block-num (env-ref* env mut-vars))))
+     (match-define acc (add-terminal acc (jump header-block-num (env-ref* env mut-vars))))
 
-     (match-define (tuple2 fresh-mut-args state)
-       (map-state fresh-name mut-vars state))
+     (match-define (tuple2 fresh-mut-args acc)
+       (map-state fresh-name* mut-vars acc))
 
-     (match-define header-acc (start-block header-block-num (map new-arg fresh-mut-args) blocks))
+     (match-define acc (start-block header-block-num (map new-arg fresh-mut-args) acc))
      (match-define header-env (replace-all-args fresh-mut-args env))
 
-     (match-define (tuple2 (tuple2 branch-var header-acc) state)
-       (convert-expr #"cond" cond header-acc header-env state))
+     (match-define (tuple2 branch-var acc)
+       (convert-expr #"cond" cond acc header-env))
+     (match-define (tuple2 header-block acc) (split-accumulator acc))
 
-     (match-define (tuple2 body-block-num state) (fresh-block-number state))
-
-     (match-define (tuple2 body-acc (tuple2 state body-env))
+     (match-define (tuple2 body-block-num acc) (fresh-block-number* acc))
+     (match-define (tuple2 acc body-env)
        (convert-statements
          body
-         (start-block body-block-num (empty) (make-dict =))
-         header-env
-         state))
+         (start-block body-block-num (empty) acc)
+         header-env))
+     (match-define (tuple2 body-block acc) (split-accumulator acc))
 
-     (match-define (tuple2 after-block-num state) (fresh-block-number state))
+     (match-define (tuple2 after-block-num acc) (fresh-block-number* acc))
+
+     (match-define acc
+       (add-terminal*
+         (add-terminal* acc header-block (cond-jump (negated-var-condition branch-var)
+                                                     after-block-num (empty)
+                                                     body-block-num (empty)))
+         body-block (jump header-block-num (env-ref* body-env mut-vars))))
 
      (tuple2
-       (start-block
-         after-block-num
-         (empty)
-         (merge-dicts
-           (add-terminal header-acc (cond-jump (negated-var-condition branch-var)
-                                               after-block-num (empty)
-                                               body-block-num (empty)))
-           (add-terminal body-acc (jump header-block-num (env-ref* body-env mut-vars)))))
-       (tuple2 state header-env))]))
+       (start-block after-block-num (empty) acc)
+       header-env)
+     ]))
 
 (define (add-instruction [a : Accumulator] [inst : Instruction]) : Accumulator
   (case a
-    [(accumulator (pending-basic-block n args rev-instructions) blocks)
-     (accumulator (pending-basic-block n args (cons inst rev-instructions)) blocks)]))
+    [(accumulator v b (pending-basic-block n args rev-instructions) blocks)
+     (accumulator v b (pending-basic-block n args (cons inst rev-instructions)) blocks)]))
 
 (define (convert-exprs
           [base-name : Bytes]
           [exprs : (List Expr)]
           [acc : Accumulator]
-          [env : Environment]
-          [state : State])
-  : (Tuple2 (Tuple2 (List Var) Accumulator) State)
+          [env : Environment])
+  : (Tuple2 (List Var) Accumulator)
   (case exprs
-    [(empty) (tuple2 (tuple2 (empty) acc) state)]
+    [(empty) (tuple2 (empty) acc)]
     [(cons expr exprs)
-     (case (convert-expr base-name expr acc env state)
-       [(tuple2 (tuple2 var acc) state)
-        (case (convert-exprs base-name exprs acc env state)
-          [(tuple2 (tuple2 vars acc) state)
-           (tuple2 (tuple2 (cons var vars) acc) state)])])]))
+     (case (convert-expr base-name expr acc env)
+       [(tuple2 var acc)
+        (case (convert-exprs base-name exprs acc env)
+          [(tuple2 vars acc)
+           (tuple2 (cons var vars) acc)])])]))
 
 (define (convert-expr
           [base-name : Bytes]
           [expr : Expr]
           [acc : Accumulator]
-          [env : Environment]
-          [state : State])
-  : (Tuple2 (Tuple2 Var Accumulator) State)
+          [env : Environment])
+  : (Tuple2 Var Accumulator)
   (case expr
     [(var-expr name)
-     (tuple2 (tuple2 (env-ref env name) acc) state)]
+     (tuple2 (env-ref env name) acc)]
     [(int-literal v)
-     (match-define (tuple2 (tuple2 _ name) state) (fresh-name base-name state))
+     (match-define (tuple2 (tuple2 _ name) acc) (fresh-name base-name acc))
      (tuple2
-       (tuple2
-         name
-         (add-instruction acc (r:int-literal name v)))
-       state)]
+       name
+       (add-instruction acc (r:int-literal name v)))]
     [(bin-op-expr op left right)
-     (case (convert-expr #"tmp" left acc env state)
-       [(tuple2 (tuple2 left-res acc) state)
-        (case (convert-expr #"tmp" right acc env state)
-          [(tuple2 (tuple2 right-res acc) state)
-           (case (fresh-name base-name state)
-             [(tuple2 (tuple2 _ name) state)
+     (case (convert-expr #"tmp" left acc env)
+       [(tuple2 left-res acc)
+        (case (convert-expr #"tmp" right acc env)
+          [(tuple2 right-res acc)
+           (case (fresh-name base-name acc)
+             [(tuple2 (tuple2 _ name) acc)
               (tuple2
-                (tuple2
-                  name
-                  (add-instruction acc (bin-op-inst name op left-res right-res)))
-                state)])])])]
+                name
+                (add-instruction acc (bin-op-inst name op left-res right-res))) ])])])]
     [(allocate-array-expr type e)
-     (case (convert-expr #"count" e acc env state)
-       [(tuple2 (tuple2 count-res acc) state)
-        (case (fresh-name #"size" state)
-          [(tuple2 (tuple2 _ size-name) state)
-           (case (fresh-name #"count-mul" state)
-             [(tuple2 (tuple2 _ count-mul-name) state)
-              (case (fresh-name base-name state)
-                [(tuple2 (tuple2 _ name) state)
-                 (tuple2
-                   (tuple2 name
+     (case (convert-expr #"count" e acc env)
+       [(tuple2 count-res acc)
+        (case (fresh-name #"size" acc)
+          [(tuple2 (tuple2 _ size-name) acc)
+           (case (fresh-name #"count-mul" acc)
+             [(tuple2 (tuple2 _ count-mul-name) acc)
+              (case (fresh-name base-name acc)
+                [(tuple2 (tuple2 _ name) acc)
+                 (tuple2 name
+                         (add-instruction
                            (add-instruction
                              (add-instruction
-                               (add-instruction
-                                 acc
-                                 (r:int-literal size-name (type->size type)))
-                               (bin-op-inst count-mul-name (numeric-bin-op (mul)) count-res size-name))
-                             (function-allocate-inst name count-mul-name)))
-                   state)])])])])]
+                               acc
+                               (r:int-literal size-name (type->size type)))
+                             (bin-op-inst count-mul-name (numeric-bin-op (mul)) count-res size-name))
+                           (function-allocate-inst name count-mul-name)))])])])])]
     [(pointer-ref-expr pointer)
-     (case (convert-expr #"ptr" pointer acc env state)
-       [(tuple2 (tuple2 p acc) state)
-        (case (fresh-name base-name state)
-          [(tuple2 (tuple2 _ name) state)
-           (tuple2 (tuple2 name (add-instruction acc (r:pointer-ref-inst name (eight-byte-mem-op) p))) state)])])]
+     (case (convert-expr #"ptr" pointer acc env)
+       [(tuple2 p acc)
+        (case (fresh-name base-name acc)
+          [(tuple2 (tuple2 _ name) acc)
+           (tuple2 name (add-instruction acc (r:pointer-ref-inst name (eight-byte-mem-op) p)))])])]
     [(array-ref-expr type array offset)
-     (case (convert-expr #"ptr" array acc env state)
-       [(tuple2 (tuple2 array acc) state)
-        (case (convert-expr #"off" offset acc env state)
-          [(tuple2 (tuple2 offset acc) state)
-           (case (fresh-name #"size" state)
-             [(tuple2 (tuple2 _ size-name) state)
-              (case (fresh-name #"offset-mul" state)
-                [(tuple2 (tuple2 _ offset-mul-name) state)
-                 (case (fresh-name base-name state)
-                   [(tuple2 (tuple2 _ name) state)
-                    (tuple2
-                      (tuple2 name
+     (case (convert-expr #"ptr" array acc env)
+       [(tuple2 array acc)
+        (case (convert-expr #"off" offset acc env)
+          [(tuple2 offset acc)
+           (case (fresh-name #"size" acc)
+             [(tuple2 (tuple2 _ size-name) acc)
+              (case (fresh-name #"offset-mul" acc)
+                [(tuple2 (tuple2 _ offset-mul-name) acc)
+                 (case (fresh-name base-name acc)
+                   [(tuple2 (tuple2 _ name) acc)
+                    (tuple2 name
+                            (add-instruction
                               (add-instruction
                                 (add-instruction
-                                  (add-instruction
-                                    acc
-                                    (r:int-literal size-name (type->size type)))
-                                  (bin-op-inst offset-mul-name (numeric-bin-op (mul)) offset size-name))
-                                (bin-op-inst name (numeric-bin-op (plus)) array offset-mul-name)))
-                      state)])])])])])]
+                                  acc
+                                  (r:int-literal size-name (type->size type)))
+                                (bin-op-inst offset-mul-name (numeric-bin-op (mul)) offset size-name))
+                              (bin-op-inst name (numeric-bin-op (plus)) array offset-mul-name)))])])])])])]
     [(syscall-expr s args)
-     (case (convert-exprs #"arg" args acc env state)
-       [(tuple2 (tuple2 vars acc) state)
-        (case (fresh-name base-name state)
-          [(tuple2 (tuple2 _ name) state)
-           (tuple2
-             (tuple2 name (add-instruction acc (syscall-inst name s vars)))
-             state)])])]
+     (case (convert-exprs #"arg" args acc env)
+       [(tuple2 vars acc)
+        (case (fresh-name base-name acc)
+          [(tuple2 (tuple2 _ name) acc)
+           (tuple2 name (add-instruction acc (syscall-inst name s vars))) ])])]
     [(cast-expr c expr)
-     (case (convert-expr #"cast" expr acc env state)
-       [(tuple2 (tuple2 var acc) state)
+     (case (convert-expr #"cast" expr acc env)
+       [(tuple2 var acc)
         (case c
           [(p:unsigned-int8->unsigned-int64)
-           (tuple2 (tuple2 var acc) state)]
+           (tuple2 var acc)]
           [(p:truncate-unsigned-int64->unsigned-int8)
-           (case (fresh-name base-name state)
-             [(tuple2 (tuple2 _ name) state)
-              (tuple2
-                (tuple2 name
-                        (add-instruction
-                          acc
-                          (unary-op-inst name (r:truncate-unsigned-int64->unsigned-int8) var)))
-                state)])])])]))
+           (case (fresh-name base-name acc)
+             [(tuple2 (tuple2 _ name) acc)
+              (tuple2 name
+                      (add-instruction
+                        acc
+                        (unary-op-inst name (r:truncate-unsigned-int64->unsigned-int8) var)))])])])]))
 
 ;; TODO support types better
 (define (type->size [t : Type]) : Int

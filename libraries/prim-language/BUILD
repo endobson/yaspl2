@@ -252,6 +252,7 @@ yaspl_library(
     deps = [
         ":prim-language",
         ":register-language",
+        ":register-language-builder",
         "//libraries/data:boolean",
         "//libraries/data:bytes",
         "//libraries/data:dict",
@@ -272,6 +273,17 @@ yaspl_library(
         "//libraries/data:dict",
         "//libraries/data:list",
         "//libraries/data:numbers",
+    ],
+)
+
+yaspl_library(
+    name = "register-language-builder",
+    srcs = ["register-language-builder.yaspl"],
+    deps = [
+        ":register-language",
+        "//libraries/data:dict",
+        "//libraries/data:list",
+        "//libraries/data:tuples",
     ],
 )
 
