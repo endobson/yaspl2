@@ -28,7 +28,6 @@
       Statement
       Type
     #:values
-      [function-definition-body p:function-definition-body]
       mul
       numeric-bin-op
       plus
@@ -98,7 +97,7 @@
   #:patterns ())
 (types
   (define-type Environment
-    (environment [vars : (Dict Bytes Var)] [mutated-vars : (Set Bytes)])))
+    (environment [vars : (Dict Bytes Var)])))
 
 (define (convert-function [f : p:FunctionDefinition]) : r:FunctionDefinition
   (match-define (p:function-definition name args body) f)
@@ -106,8 +105,7 @@
   ;; TODO Make this less hacky
   (match-define (tuple2 freshened-args acc)
     (map-state fresh-name* args acc))
-  (match-define env
-    (add-all-args freshened-args (initial-environment (mutated-vars f))))
+  (match-define env (add-all-args freshened-args (environment (make-dict bytes=?))))
   (match-define (tuple2 start-block-num acc) (fresh-block-number* acc))
   (match-define acc (start-block start-block-num (map new-arg freshened-args) acc))
   (match-define (tuple2 (accumulator next-var next-block (pending-basic-block _ _ instructions) blocks)
@@ -116,9 +114,6 @@
   (case instructions
     [(cons _ _) (panic #"Incorrectly terminated function")]
     [_ (r:function-definition name start-block-num blocks next-var next-block)]))
-
-(define (mutated-vars [f : p:FunctionDefinition]) : (Set Bytes)
-  (mutated-vars/statements (p:function-definition-body f)))
 
 (define (mutated-vars/statements [ss : (List Statement)]) : (Set Bytes)
   (foldl mutated-vars* ss (make-set bytes=?)))
@@ -133,9 +128,6 @@
     [(p:if-statement _ then else)
      (foldl mutated-vars* else (foldl mutated-vars* then acc))]))
 
-(define (initial-environment [mutated-vars : (Set Bytes)]) : Environment
-  (environment (make-dict bytes=?) mutated-vars))
-
 (define (env-ref [env : Environment] [name : Bytes]) : Var
   (case (dict-ref (environment-vars env) name)
     [(nothing) (panic #"unbound variable")]
@@ -146,13 +138,13 @@
 
 (define (env-add [env : Environment] [name : Bytes] [var : Var]) : Environment
   (case env
-    [(environment vars mutated-vars)
-     (environment (dict-add vars name var) mutated-vars)]))
+    [(environment vars)
+     (environment (dict-add vars name var))]))
 
 (define (env-replace [env : Environment] [name : Bytes] [var : Var]) : Environment
   (case env
-    [(environment vars mutated-vars)
-     (environment (dict-replace vars name var) mutated-vars)]))
+    [(environment vars)
+     (environment (dict-replace vars name var))]))
 
 
 (define (a b s) (map-state [f : (a s -> (Tuple2 b s))] [l : (List a)] [s : s]) : (Tuple2 (List b) s)
@@ -167,17 +159,17 @@
 
 (define (add-all-args [args : (List (Tuple2 Bytes Var))] [env : Environment]) : Environment
   (case env
-    [(environment vars mutated-vars)
-     (environment (dict-add-all vars args) mutated-vars)]))
+    [(environment vars)
+     (environment (dict-add-all vars args))]))
 
 (define (replace-all-args [args : (List (Tuple2 Bytes Var))] [env : Environment]) : Environment
   (case env
-    [(environment vars mutated-vars)
-     (environment (dict-replace-all vars args) mutated-vars)]))
+    [(environment vars)
+     (environment (dict-replace-all vars args))]))
 
 (define (get-differing-vars [base-env : Environment] [env1 : Environment] [env2 : Environment])
   : (List Bytes)
-  (match-define (environment vars _) base-env)
+  (match-define (environment vars) base-env)
   (filter
     (lambda ([name : Bytes]) : Boolean
       (not (var=? (env-ref env1 name) (env-ref env2 name))))
