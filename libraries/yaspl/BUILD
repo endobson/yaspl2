@@ -20,9 +20,8 @@ yaspl_library(
     srcs = ["intermediate-to-register.yaspl"],
     deps = [
         "//libraries:intermediate-language",
-        "//libraries/data:dict",
-        "//libraries/data:list",
         "//libraries/data:tuples",
         "//libraries/prim-language:register-language",
+        "//libraries/prim-language:register-language-builder",
     ],
 )
