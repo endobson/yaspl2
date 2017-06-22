@@ -42,6 +42,7 @@
       [comparison-condition l:comparison-condition]
       [cond-jump/false-fall-through l:cond-jump/false-fall-through]
       [empty-unvalidated-block-map l:empty-unvalidated-block-map]
+      [function-call-inst l:function-call-inst]
       [function-definition l:function-definition]
       [int-literal l:int-literal]
       [jump l:jump]
@@ -201,6 +202,21 @@
       (r9)
       (r10)
       (r11))))
+
+(define (function-call-conflicts) : (List Reg)
+  (map
+    fixed-reg
+    (varargs list
+      (rax)
+      (rcx)
+      (rdx)
+      (rdi)
+      (rsi)
+      (r8)
+      (r9)
+      (r10)
+      (r11))))
+
 
 (define (reg->bytes [reg : Reg]) : Bytes
   (case reg
@@ -428,8 +444,28 @@
      (varargs list (l:store-least-significant-byte (temporary-reg ptr) (temporary-reg val)))]
     [(r:pointer-ref-inst output (r:one-byte-mem-op) loc)
      (varargs list (l:load-zero-extended-byte (temporary-reg output) (temporary-reg loc)))]
-    [(r:function-call-inst output s args)
-     (panic #"NYI")]
+    [(r:function-call-inst output f args)
+     (case (zip/left args (varargs list (rdi) (rsi) (rdx) (r10) (r8) (r9)))
+       [(nothing) (panic #"Too long function call args")]
+       [(just linked-args)
+        (append
+          (map
+            (lambda ([t : (Tuple2 r:Var X8664Register)])
+              (case t
+                [(tuple2 v reg)
+                 (l:move (fixed-reg reg) (temporary-reg v))]))
+            linked-args)
+          (varargs list
+            (l:function-call-inst
+              (fixed-reg (rax))
+              (temporary-reg f)
+              (map (lambda ([t : (Tuple2 r:Var X8664Register)])
+                     (case t
+                       [(tuple2 v reg)
+                        (fixed-reg reg)]))
+                   linked-args)
+              (function-call-conflicts))
+            (l:move (temporary-reg output) (fixed-reg (rax)))))])]
     [(r:syscall-inst output s args)
      (case (zip/left args (varargs list (rdi) (rsi) (rdx) (r10) (r8) (r9)))
        [(nothing) (panic #"Too long syscall args")]
