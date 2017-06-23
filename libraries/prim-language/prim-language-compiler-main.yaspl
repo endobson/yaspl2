@@ -1,46 +1,12 @@
 #:module (prim-language-compiler-main)
 #:import {
-  (color-graph) {
-    #:values
-      color-graph
-      initial-state
-  }
-  (dict) {
-    #:types
-      Dict
-    #:values
-      dict-ref
-  }
-  (either) {
-    #:types
-      Either
-    #:values
-      left
-      right
-    #:patterns
-      left
-      right
-  }
-  (io) {
-    #:values
-      call-with-input-file
-      read-all-bytes
-      write-line
-  }
-  (join-list) {
-    #:values
-      join-list
-  }
-  (list) {
-    #:types
-      List
-    #:values
-      array->list
-      list
-    #:patterns
-      cons
-      empty
-  }
+  (bytes)
+  (color-graph)
+  (dict)
+  (either)
+  (io)
+  (join-list)
+  (list)
   (lower-x86-64) {
     #:types
       Reg
@@ -62,7 +28,6 @@
     #:types
       [FunctionDefinition l:FunctionDefinition]
     #:values
-      function-definition-name
       rename-registers/function-definition
   }
   (lowered-register-language-to-x86-64) {
@@ -78,17 +43,12 @@
       just
       nothing
   }
-  (prim) {
-    #:types
-      Array
-      Bytes
-      InputPort
-      Int
-      OutputPort
-    #:values
-      panic
-  }
+  (prim)
   (prim-language) {
+    #:types
+      [FunctionDefinition p:FunctionDefinition]
+    #:values
+      [function-definition-name p:function-definition-name]
     #:patterns
       module
   }
@@ -108,6 +68,7 @@
     #:types
       Var
   }
+  (set)
   (sexp-parser) {
     #:values
       parse-single-sexp
@@ -195,6 +156,37 @@
         [(right assignments)
          (tuple2 f assignments)]))))
 
+(define (compile-functions [fs : (List p:FunctionDefinition)] [acc : (List AssemblyFragment)])
+  : (Either Bytes (List AssemblyFragment))
+  (case fs
+    [(empty) (right acc)]
+    [(cons f fs)
+     (case (compile-function f)
+       [(left v) (left v)]
+       [(right fragment) (compile-functions fs (cons fragment acc))])]))
+
+(define (compile-function [f : p:FunctionDefinition]) : (Either Bytes AssemblyFragment)
+  (case (type-check/function f)
+    [(just v) (left v)]
+    [(nothing)
+     (let ([f (r:simplify-function-definition (convert-function f))])
+       (case (color-function (lower-function f))
+         [(tuple2 lowered assignments)
+          (let ([opt-f
+                 (l:simplify-function-definition
+                   (rename-registers/function-definition
+                     lowered
+                     (lambda ([r : Reg]) : X8664Register
+                       (case r
+                         [(fixed-reg r) r]
+                         [(temporary-reg v)
+                          (case (dict-ref assignments v)
+                            [(nothing) (panic #"No assignment")]
+                            [(just r) r])])))
+                   x86-64-register=?)])
+            (right (function-definition->assembly-fragment opt-f)))]))]))
+
+
 (define (compile-prim-program [file-bytes : Bytes]) : (Either Bytes (List AssemblyFragment))
   (case (parse-single-sexp file-bytes)
     [(left v)
@@ -203,35 +195,15 @@
      (case (parse-module sexp)
        [(left v)
         (left v)]
-       [(right (module name (empty)))
-        (left #"No function to compile")]
-       [(right (module name (cons _ (cons _ _))))
-        (left #"Too many functions to compile")]
-       [(right (module name (cons function (empty))))
-        (case (type-check/function function)
-          [(just v) (left v)]
-          [(nothing)
-           (let ([f (r:simplify-function-definition (convert-function function))])
-             (case (color-function (lower-function f))
-               [(tuple2 lowered assignments)
-                (let ([opt-f
-                       (l:simplify-function-definition
-                         (rename-registers/function-definition
-                           lowered
-                           (lambda ([r : Reg]) : X8664Register
-                             (case r
-                               [(fixed-reg r) r]
-                               [(temporary-reg v)
-                                (case (dict-ref assignments v)
-                                  [(nothing) (panic #"No assignment")]
-                                  [(just r) r])])))
-                         x86-64-register=?)])
-                  (let ([fragment (function-definition->assembly-fragment opt-f)])
-                    (right
-                      (varargs list
-                        (start-function-fragment
-                          (function-definition-name opt-f))
-                        fragment))))]))])])]))
+       [(right (module name functions))
+        (if (set-member?
+              (set-add-all (make-set bytes=?) (map p:function-definition-name functions))
+              #"main")
+            (compile-functions
+              functions
+              (varargs list
+                (start-function-fragment #"main")))
+            (left #"No main function"))])]))
 
 
 (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]): Int
