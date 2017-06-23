@@ -126,6 +126,7 @@ yaspl_library(
     deps = [
         ":syscalls",
         "//libraries/data:list",
+        "//libraries/data:tuples",
     ],
 )
 
@@ -150,11 +151,11 @@ yaspl_library(
         "//libraries:mach-o-writer2_lib",
         "//libraries:sexp-parser",
         "//libraries:x86-64-stack-machine",
+        "//libraries/data:bytes",
         "//libraries/data:dict",
         "//libraries/data:either",
         "//libraries/data:join-list",
         "//libraries/data:list",
-        "//libraries/data:bytes",
         "//libraries/data:maybe",
         "//libraries/data:set",
         "//libraries/data:tuples",
@@ -200,6 +201,7 @@ yaspl_library(
         "//libraries:sexp-parser",
         "//libraries/data:either",
         "//libraries/data:list",
+        "//libraries/data:tuples",
     ],
 )
 
