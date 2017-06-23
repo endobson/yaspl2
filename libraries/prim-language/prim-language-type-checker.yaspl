@@ -51,6 +51,7 @@
     #:types
       Expr
       FunctionDefinition
+      FunctionType
       Module
       Statement
       Type
@@ -67,10 +68,12 @@
       assignment
       bin-op-expr
       boolean-type
+      call-expr
       cast-expr
       comparison-bin-op
       declaration
       function-definition
+      function-type
       if-statement
       int-literal
       int64-type
@@ -108,7 +111,9 @@
   #:patterns ())
 (types
   (define-type Environment
-    (environment [types : (Dict Bytes Type)])))
+    (environment
+      [variables : (Dict Bytes Type)]
+      [functions : (Dict Bytes FunctionType)])))
 
 (define (type-check [module : Module]) : (Maybe Bytes)
   (match-define (module _ functions) module)
@@ -191,6 +196,13 @@
      (case (type-check/syscall-arguments syscall args env)
        [(just v) (left v)]
        [(nothing) (right (int64-type))])]
+    [(call-expr f args)
+     (case (environment-ref-function env f)
+       [(nothing) (left #"Unknown function")]
+       [(just (function-type arg-types result))
+        (case (type-check/function-arguments arg-types args env)
+          [(just v) (left v)]
+          [(nothing) (right result)])])]
     [(int-literal _)
      (right (int64-type))]
     [(pointer-ref-expr p)
@@ -265,21 +277,38 @@
        [_ (just #"Wrong number of arguments to write")])]))
 
 
+(define (type-check/function-arguments [arg-types : (List Type)] [exprs : (List Expr)] [env : Environment])
+  : (Maybe Bytes)
+  (case (tuple2 arg-types exprs)
+    [(tuple2 (empty) (empty)) (nothing)]
+    [(tuple2 (cons _ _) (empty)) (just #"Not enough arguments")]
+    [(tuple2 (empty) (cons _ _)) (just #"Too many arguments")]
+    [(tuple2 (cons arg-type arg-types) (cons expr exprs))
+     (case (type-check/expression expr env arg-type)
+       [(just v) (just v)]
+       [(nothing)
+        (type-check/function-arguments arg-types exprs env)])]))
+
 (define (initial-environment [args : (List Bytes)]) : Environment
   (foldl
     (lambda ([name : Bytes] [env : Environment])
       (environment-add-binding env name (int64-type)))
     args
-    (environment (make-dict bytes=?))))
+    (environment (make-dict bytes=?) (make-dict bytes=?))))
 
 
 (define (environment-add-binding [env : Environment] [name : Bytes] [t : Type]) : Environment
-  (match-define (environment types) env)
-  (environment (dict-add types name t)))
+  (match-define (environment variables functions) env)
+  (environment (dict-add variables name t) functions))
 
 (define (environment-ref-binding [env : Environment] [name : Bytes]) : (Maybe Type)
-  (match-define (environment types) env)
-  (dict-ref types name))
+  (match-define (environment variables functions) env)
+  (dict-ref variables name))
+
+(define (environment-ref-function [env : Environment] [name : Bytes]) : (Maybe FunctionType)
+  (match-define (environment variables functions) env)
+  (dict-ref functions name))
+
 
 (define (type=? [t1 : Type] [t2 : Type]) : Boolean
   (case (tuple2 t1 t2)
