@@ -1,65 +1,10 @@
 #:module (mach-o-writer2)
 #:import {
-  (bytes) {
-    #:types
-      EightBytesLe
-    #:values
-      bytes
-      bytes-append
-      bytes-set!/eight-bytes-le
-      bytes-set!/quad-le
-      bytes<
-      bytes=?
-      int->eight-bytes-le
-      sum
-  }
-  (either) {
-    #:types
-      Either
-    #:values
-      left
-      right
-    #:patterns
-      left
-      right
-  }
-  (io) {
-    #:values
-      call-with-output-file
-      write-all-bytes
-  }
-  (join-list) {
-    #:types
-      JoinList
-    #:values
-      concat-map-jl
-      empty-jl
-      jl->list
-      join-list
-      list->jl
-      map-jl
-      single-jl
-  }
-  (list) {
-    #:types
-      List
-    #:values
-      append
-      append*
-      cons
-      empty
-      filter
-      find-index
-      find/maybe
-      length
-      list
-      map
-      reverse
-      sort
-    #:patterns
-      cons
-      empty
-  }
+  (bytes)
+  (either)
+  (io)
+  (join-list)
+  (list)
   (mach-o) {
     #:types
       SymbolTableEntry
@@ -88,41 +33,8 @@
       version-min
       write-mach-o-header
   }
-  (maybe) {
-    #:types
-      Maybe
-    #:values
-      just
-      nothing
-    #:patterns
-      just
-      nothing
-  }
-  (prim) {
-    #:types
-      Boolean
-      Bytes
-      Int
-      OutputPort
-      U32
-      Void
-    #:values
-      *
-      +
-      -
-      =
-      bitwise-ior
-      bytes-length
-      bytes-ref
-      make-bytes
-      panic
-      quotient
-      remainder
-      u32
-      u8
-      u8->s64
-      void
-  }
+  (maybe)
+  (prim)
   (set)
   (tuples)
   (x86-64-stack-machine)
@@ -156,35 +68,17 @@
     [(local-text-symbol name offset) name]
     [(const-symbol name offset) name]))
 
-(define (assemble-text-segment [fragments : (List AssemblyFragment)]) : Bytes
+(define (assemble-text-segment [commands : (List MCCommand)]) : Bytes
   (bytes-append
-    (jl->list
-      (concat-map-jl
-        (lambda ([fragment : AssemblyFragment]) : (JoinList Bytes)
-          (case fragment
-            [(function-fragment name sections)
-             (concat-map-jl
-               (lambda ([s : Section])
-                 (case s
-                   [(section blocks)
-                    (concat-map-jl
-                      (lambda ([bb : BasicBlock])
-                        (case bb
-                          [(basic-block block-name instructions)
-                           (map-jl
-                             (lambda ([inst : Instruction])
-                               (case (instruction->mc-command inst)
-                                 [(mc-bytes bytes) bytes]
-                                 [(mc-jump t _) (mc-jump-type->bytes t)]
-                                 ;; TODO Make this work with all registers.
-                                 ;; (Currently hard coded to rip and rax).
-                                 [(mc-leaq/rel _ _ _) (varargs bytes #x48 #x8D #x05 0 0 0 0)]))
-                            instructions)]))
-                      (list->jl blocks))]))
-               (list->jl sections))]
-            [_
-             (empty-jl)]))
-        (list->jl fragments)))))
+    (map
+      (lambda ([command : MCCommand])
+        (case command
+          [(mc-bytes bytes) bytes]
+          [(mc-jump t _) (mc-jump-type->bytes t)]
+          ;; TODO Make this work with all registers.
+          ;; (Currently hard coded to rip and rax).
+          [(mc-leaq/rel _ _ _) (varargs bytes #x48 #x8D #x05 0 0 0 0)]))
+      commands)))
 
 (define (compute-text-segment-relocations [fragments : (List AssemblyFragment)] [offset : Int]
                                           [symbols : (List Symbol)])
@@ -371,34 +265,17 @@
        (cons (local-text-symbol block-name text-offset) acc))]))
 
 
-(define (collect-instruction-symbols [fragments : (List AssemblyFragment)]) : (List Bytes)
-  (jl->list
-    (concat-map-jl
-      (lambda ([fragment : AssemblyFragment]) : (JoinList Bytes)
-        (case fragment
-          [(function-fragment name sections)
-           (concat-map-jl
-             (lambda ([s : Section])
-               (concat-map-jl
-                 (lambda ([bb : BasicBlock])
-                   (case bb
-                     [(basic-block block-name instructions)
-                      (concat-map-jl
-                        (lambda ([inst : Instruction]) : (JoinList Bytes)
-                          (case (instruction->mc-command inst)
-                            [(mc-bytes bytes) (empty-jl)]
-                            [(mc-jump _ label) (single-jl label)]
-                            [(mc-leaq/rel label _ _) (single-jl label)]))
-                        instructions)]))
-                 (list->jl (section-blocks s))))
-             (list->jl sections))]
-          [(address-fragment name value)
-           (empty-jl)]
-          [(bytes-fragment name value)
-           (empty-jl)]))
-      (list->jl fragments))))
+(define (collect-instruction-symbols [commands : (List MCCommand)]) : (List Bytes)
+  (filter-map
+    (lambda ([command : MCCommand]) : (Maybe Bytes)
+      (case command
+        [(mc-bytes bytes) (nothing)]
+        [(mc-jump _ label) (just label)]
+        [(mc-leaq/rel label _ _) (just label)]))
+    commands))
 
-(define (collect-symbols [fragments : (List AssemblyFragment)] [text-size : Int]) : (List Symbol)
+(define (collect-symbols [fragments : (List AssemblyFragment)] [commands : (List MCCommand)] [text-size : Int])
+  : (List Symbol)
   (match-define defined-symbols
     (collect-defined-symbols fragments 0 text-size (empty)))
   (match-define undefined-symbols
@@ -408,7 +285,7 @@
              (set-remove-all
                (set-add-all
                  (make-set bytes=?)
-                 (collect-instruction-symbols fragments))
+                 (collect-instruction-symbols commands))
                (map defined-symbol-name defined-symbols)))
            bytes<)))
   (append
@@ -731,11 +608,33 @@
 
         (right (void))))))
 
+(define (fragments->mc-commands [fragments : (List AssemblyFragment)]) : (List MCCommand)
+  (jl->list
+    (concat-map-jl
+      (lambda ([fragment : AssemblyFragment]) : (JoinList MCCommand)
+        (case fragment
+          [(function-fragment name sections)
+           (concat-map-jl
+             (lambda ([s : Section])
+               (case s
+                 [(section blocks)
+                  (concat-map-jl
+                    (lambda ([bb : BasicBlock])
+                      (case bb
+                        [(basic-block block-name instructions)
+                         (map-jl instruction->mc-command instructions)]))
+                    (list->jl blocks))]))
+             (list->jl sections))]
+          [_
+           (empty-jl)]))
+      (list->jl fragments))))
+
 
 (define (write-mach-o-library/fragments [output-file-name : Bytes] [fragments : (List AssemblyFragment)])
   : (Either Bytes Void)
-  (match-define text-segment-bytes (assemble-text-segment fragments))
-  (match-define symbols (collect-symbols fragments (bytes-length text-segment-bytes)))
+  (match-define mc-commands (fragments->mc-commands fragments))
+  (match-define text-segment-bytes (assemble-text-segment mc-commands))
+  (match-define symbols (collect-symbols fragments mc-commands (bytes-length text-segment-bytes)))
   (match-define exported-symbols
     (filter (lambda ([s : Symbol])
               (case s
