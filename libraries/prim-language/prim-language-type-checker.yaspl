@@ -1,96 +1,16 @@
 #:module (prim-language-type-checker)
 #:import {
-  (bytes) {
-    #:values
-      bytes=?
-  }
-  (dict) {
-    #:types
-      Dict
-    #:values
-      dict-add
-      dict-ref
-      make-dict
-  }
-  (either) {
-    #:types
-      Either
-    #:values
-      left
-      right
-    #:patterns
-      left
-      right
-  }
-  (list) {
-    #:types
-      List
-    #:values
-      find/maybe
-      foldl
-    #:patterns
-      cons
-      empty
-  }
-  (maybe) {
-    #:types
-      Maybe
-    #:values
-      just
-      nothing
-    #:patterns
-      just
-      nothing
-  }
+  (bytes)
+  (dict)
+  (either)
+  (list)
+  (maybe)
   (prim) {
     #:types
       Boolean
       Bytes
   }
-  (prim-language) {
-    #:types
-      Expr
-      FunctionDefinition
-      FunctionType
-      Module
-      Statement
-      Type
-    #:values
-      array-type
-      boolean-type
-      int64-type
-      int8-type
-      pointer-type
-    #:patterns
-      allocate-array-expr
-      array-ref-expr
-      array-type
-      assignment
-      bin-op-expr
-      boolean-type
-      call-expr
-      cast-expr
-      comparison-bin-op
-      declaration
-      function-definition
-      function-type
-      if-statement
-      int-literal
-      int64-type
-      int8-type
-      logical-bin-op
-      module
-      numeric-bin-op
-      pointer-assignment
-      pointer-ref-expr
-      pointer-type
-      return
-      syscall-expr
-      truncate-unsigned-int64->unsigned-int8
-      unsigned-int8->unsigned-int64
-      var-expr
-      while
-  }
+  (prim-language)
   (syscalls) {
     #:types
       Syscall
@@ -102,7 +22,7 @@
 }
 (export
   #:types ()
-  #:values (type-check type-check/function)
+  #:values (type-check)
   #:patterns ())
 (types
   (define-type Environment
@@ -113,13 +33,29 @@
 
 (define (type-check [module : Module]) : (Maybe Bytes)
   (match-define (module _ functions) module)
-  (find/maybe type-check/function functions))
+  (case (compute-function-types functions (make-dict bytes=?))
+    [(left v) (just v)]
+    [(right function-types)
+     (find/maybe
+       (lambda ([f : FunctionDefinition])
+         (type-check/function f function-types))
+       functions)]))
 
-(define (type-check/function [f : FunctionDefinition]) : (Maybe Bytes)
+(define (compute-function-types [fs : (List FunctionDefinition)] [acc : (Dict Bytes FunctionType)])
+  : (Either Bytes (Dict Bytes FunctionType))
+  (case fs
+    [(empty) (right acc)]
+    [(cons f fs)
+     (case (dict-maybe-add acc (function-definition-name f) (function-definition->function-type f))
+       [(nothing) (left #"Duplicate function name")]
+       [(just acc) (compute-function-types fs acc)])]))
+
+
+(define (type-check/function [f : FunctionDefinition] [fun-types : (Dict Bytes FunctionType)]) : (Maybe Bytes)
   (match-define (function-definition _ args return-type body) f)
   (type-check/statements
     body
-    (initial-environment args return-type)))
+    (initial-environment args fun-types return-type)))
 
 (define (type-check/statements [statements : (List Statement)] [env : Environment]) : (Maybe Bytes)
   (case statements
@@ -285,14 +221,17 @@
        [(nothing)
         (type-check/function-arguments arg-types exprs env)])]))
 
-(define (initial-environment [args : (List (Tuple2 Bytes Type))] [return-type : Type]) : Environment
+(define (initial-environment
+          [args : (List (Tuple2 Bytes Type))]
+          [fun-types : (Dict Bytes FunctionType)]
+          [return-type : Type]) : Environment
   (foldl
     (lambda ([arg : (Tuple2 Bytes Type)] [env : Environment])
       (case arg
         [(tuple2 name type)
          (environment-add-binding env name type)]))
     args
-    (environment (make-dict bytes=?) (make-dict bytes=?) return-type)))
+    (environment (make-dict bytes=?) fun-types return-type)))
 
 
 (define (environment-add-binding [env : Environment] [name : Bytes] [t : Type]) : Environment

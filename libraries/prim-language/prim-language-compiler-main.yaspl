@@ -38,19 +38,19 @@
     #:values
       write-mach-o-library/fragments
   }
-  (maybe) {
-    #:patterns
-      just
-      nothing
-  }
+  (maybe)
   (prim)
   (prim-language) {
     #:types
       [FunctionDefinition p:FunctionDefinition]
+      [Module p:Module]
     #:values
+      [function-definition->function-type p:function-definition->function-type]
       [function-definition-name p:function-definition-name]
     #:patterns
-      module
+      [function-type p:function-type]
+      [int64-type p:int64-type]
+      [module p:module]
   }
   (prim-language-parser) {
     #:values
@@ -58,7 +58,7 @@
   }
   (prim-language-type-checker) {
     #:values
-      type-check/function
+      type-check
   }
   (prim-to-register) {
     #:values
@@ -68,7 +68,6 @@
     #:types
       Var
   }
-  (set)
   (sexp-parser) {
     #:values
       parse-single-sexp
@@ -166,26 +165,22 @@
        [(right fragment) (compile-functions fs (cons fragment acc))])]))
 
 (define (compile-function [f : p:FunctionDefinition]) : (Either Bytes AssemblyFragment)
-  (case (type-check/function f)
-    [(just v) (left v)]
-    [(nothing)
-     (let ([f (r:simplify-function-definition (convert-function f))])
-       (case (color-function (lower-function f))
-         [(tuple2 lowered assignments)
-          (let ([opt-f
-                 (l:simplify-function-definition
-                   (rename-registers/function-definition
-                     lowered
-                     (lambda ([r : Reg]) : X8664Register
-                       (case r
-                         [(fixed-reg r) r]
-                         [(temporary-reg v)
-                          (case (dict-ref assignments v)
-                            [(nothing) (panic #"No assignment")]
-                            [(just r) r])])))
-                   x86-64-register=?)])
-            (right (function-definition->assembly-fragment opt-f)))]))]))
-
+  (let ([f (r:simplify-function-definition (convert-function f))])
+    (case (color-function (lower-function f))
+      [(tuple2 lowered assignments)
+       (let ([opt-f
+              (l:simplify-function-definition
+                (rename-registers/function-definition
+                  lowered
+                  (lambda ([r : Reg]) : X8664Register
+                    (case r
+                      [(fixed-reg r) r]
+                      [(temporary-reg v)
+                       (case (dict-ref assignments v)
+                         [(nothing) (panic #"No assignment")]
+                         [(just r) r])])))
+                x86-64-register=?)])
+         (right (function-definition->assembly-fragment opt-f)))])))
 
 (define (compile-prim-program [file-bytes : Bytes]) : (Either Bytes (List AssemblyFragment))
   (case (parse-single-sexp file-bytes)
@@ -195,16 +190,31 @@
      (case (parse-module sexp)
        [(left v)
         (left v)]
-       [(right (module name functions))
-        (if (set-member?
-              (set-add-all (make-set bytes=?) (map p:function-definition-name functions))
-              #"main")
-            (compile-functions
-              functions
-              (varargs list
-                (start-function-fragment #"main")))
-            (left #"No main function"))])]))
+       [(right module)
+        (case (type-check module)
+          [(just v) (left v)]
+          [(nothing)
+           (case (check-main-function module)
+             [(just v) (left v)]
+             [(nothing)
+              (case module
+                [(p:module name functions)
+                 (compile-functions
+                   functions
+                   (varargs list
+                     (start-function-fragment #"main")))])])])])]))
 
+(define (check-main-function [module : p:Module]) : (Maybe Bytes)
+  (case module
+    [(p:module name functions)
+     (case (findf (lambda ([f : p:FunctionDefinition])
+                     (bytes=? #"main" (p:function-definition-name f))) functions)
+       [(nothing) (just #"No main function")]
+       [(just f)
+        (case (p:function-definition->function-type f)
+          [(p:function-type (cons (p:int64-type) (empty)) (p:int64-type))
+           (nothing)]
+          [_ (just #"Main function has wrong type")])])]))
 
 (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]): Int
   (case (parse-args (array->list args))
