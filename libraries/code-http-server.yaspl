@@ -1,31 +1,9 @@
 #:module (code-http-server)
 #:import {
-  (bytes) {
-    #:values
-      bytes=?
-      starts-with?
-      subbytes
-  }
-  (depth-first-search) {
-    #:values
-      depth-first-search
-  }
-  (dict) {
-    #:types
-      Dict
-    #:values
-      dict-add
-      dict-map
-      dict-ref
-      dict-update
-      dict-values
-      make-dict
-  }
-  (either) {
-    #:patterns
-      left
-      right
-  }
+  (bytes)
+  (depth-first-search)
+  (dict)
+  (either)
   (http-server) {
     #:types
       HttpRequest
@@ -54,52 +32,10 @@
       single-jl
       snoc-jl
   }
-  (list) {
-    #:types
-      List
-    #:values
-      array->list
-      build-list
-      cons
-      empty
-      foldl
-      length
-      list
-      list-ref
-      map
-    #:patterns
-      cons
-      empty
-  }
-  (maybe) {
-    #:types
-      Maybe
-    #:values
-      just
-      nothing
-    #:patterns
-      just
-      nothing
-  }
-  (numbers) {
-    #:values
-      decimal-bytes->integer
-  }
-  (prim) {
-    #:types
-      Array
-      Bytes
-      InputPort
-      Int
-      OutputPort
-    #:values
-      *
-      +
-      <
-      =
-      bytes-length
-      panic
-  }
+  (list)
+  (maybe)
+  (numbers)
+  (prim)
   (print-stack-function) {
     #:values
       command->bytes
@@ -156,18 +92,7 @@
       tuple2
       tuple3
   }
-  (x86-64-stack-machine) {
-    #:types
-      AssemblyFragment
-    #:values
-      assembly-commands->bytes
-      convert-objects
-      fragment->commands
-    #:patterns
-      address-fragment
-      bytes-fragment
-      function-fragment
-  }
+  (x86-64-stack-machine)
   (xml) {
     #:types
       Attribute
@@ -219,10 +144,13 @@
     [(trivial-closure-tlo name _)
      (nothing)]))
 
-(define (fragment->node [fragment : AssemblyFragment]) : Node
+(define (text-fragment->node [fragment : TextFragment]) : Node
   (case fragment
     [(function-fragment name _)
-     (div (link (single-jl name) (text-node (single-jl name))))]
+     (div (link (single-jl name) (text-node (single-jl name))))]))
+
+(define (const-fragment->node [fragment : ConstFragment]) : Node
+  (case fragment
     [(address-fragment name _)
      (div (link (single-jl name) (text-node (single-jl name))))]
     [(bytes-fragment name _)
@@ -242,31 +170,34 @@
      (find-function name objects)]))
 
 
-(define (find-fragment [name : Bytes] [fragments : (List AssemblyFragment)]) : (Maybe AssemblyFragment)
+(define (find-fragment [name : Bytes] [fragments : AssemblyFragments])
+  : (Maybe (Either TextFragment ConstFragment))
   (case fragments
-    [(empty) (nothing)]
-    [(cons frag fragments)
-     (case frag
-       [(function-fragment name2 _)
-        (if (bytes=? name name2)
-            (just frag)
-            (find-fragment name fragments))]
-       [(address-fragment name2 _)
-        (if (bytes=? name name2)
-            (just frag)
-            (find-fragment name fragments))]
-       [(bytes-fragment name2 _)
-        (if (bytes=? name name2)
-            (just frag)
-            (find-fragment name fragments))])]))
+    [(assembly-fragments text const)
+     (case (find-text-fragment name text)
+       [(just v) (just (left v))]
+       [(nothing)
+        (case (find-const-fragment name const)
+          [(just v) (just (right v))]
+          [(nothing) (nothing)])])]))
 
-(define (A B) (map/maybe [f : (A -> (Maybe B))] [l : (List A)]) : (List B)
-  (case l
-    [(empty) (empty)]
-    [(cons e l)
-     (case (f e)
-       [(nothing) (map/maybe f l)]
-       [(just e) (cons e (map/maybe f l))])]))
+(define (find-text-fragment [name : Bytes] [fragments : (List TextFragment)]) : (Maybe TextFragment)
+  (findf
+    (lambda ([frag : TextFragment])
+      (case frag
+        [(function-fragment name2 _)
+         (bytes=? name name2)]))
+    fragments))
+
+(define (find-const-fragment [name : Bytes] [fragments : (List ConstFragment)]) : (Maybe ConstFragment)
+  (findf
+    (lambda ([frag : ConstFragment])
+      (case frag
+        [(address-fragment name2 _)
+         (bytes=? name name2)]
+        [(bytes-fragment name2 _)
+         (bytes=? name name2)]))
+    fragments))
 
 (define (not-found) : HttpResponse
   (http-response 404 #"Not Found" #"text/plain" #"Not Found"))
@@ -277,13 +208,18 @@
   (http-response 200 #"OK" #"image/svg+xml" (document->xml-bytes node)))
 
 (define (serve-assembly-response
-          [fragments : (List AssemblyFragment)]
+          [fragments : AssemblyFragments]
           [name : Bytes]) : HttpResponse
   (if (= (bytes-length name) 0)
       (xhtml-ok-response
         (html
           (head)
-          (body (map fragment->node fragments))))
+          (body
+            (case fragments
+              [(assembly-fragments text const)
+               (append
+                 (map text-fragment->node text)
+                 (map const-fragment->node const))]))))
       (case (find-fragment name fragments)
         [(nothing) (not-found)]
         [(just fragment)
@@ -293,7 +229,10 @@
              (body
                (cons
                  (pre (code (text-node (assembly-commands->bytes
-                                         (jl->list (fragment->commands fragment))))))
+                                         (jl->list
+                                           (case fragment
+                                             [(left text) (text-fragment->commands text)]
+                                             [(right const) (const-fragment->commands const)]))))))
                  (empty)))))])))
 
 (define (serve-stack-response
@@ -303,7 +242,7 @@
       (xhtml-ok-response
         (html
           (head)
-          (body (map/maybe top-level-object->node objects))))
+          (body (filter-map top-level-object->node objects))))
       (case (find-function name objects)
         [(nothing) (not-found)]
         [(just function)
@@ -451,7 +390,7 @@
       (xhtml-ok-response
         (html
           (head)
-          (body (map/maybe top-level-object->node objects))))
+          (body (filter-map top-level-object->node objects))))
       (case (find-function name objects)
         [(nothing) (not-found)]
         [(just (stack-function _ _ basic-blocks))
@@ -506,7 +445,7 @@
 
 (define (make-request-handler
           [objects : (List TopLevelObject)]
-          [fragments : (List AssemblyFragment)]) : (HttpRequest -> HttpResponse)
+          [fragments : AssemblyFragments]) : (HttpRequest -> HttpResponse)
   (lambda ([request : HttpRequest])
     (case request
       [(http-request path headers)

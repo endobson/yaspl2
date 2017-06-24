@@ -142,17 +142,17 @@
     [(mc-leaq/rel name _ _) 7]))
 
 
-(define (compute-const-segment-relocations [fragments : (List AssemblyFragment)])
+(define (compute-const-segment-relocations [fragments : (List ConstFragment)])
   : (List ConstSegmentRelocation)
   (compute-const-segment-relocations-helper
     0
     (jl->list
       (concat-map-jl
-        (lambda ([fragment : AssemblyFragment]) : (JoinList (Either Int (Tuple2 Bytes Bytes)))
+        (lambda ([fragment : ConstFragment]) : (JoinList (Either Int (Tuple2 Bytes Bytes)))
           (case fragment
             [(address-fragment name value)
              (varargs join-list (right (tuple2 name value)) (left 8))]
-            [_ (empty-jl)]))
+            [(bytes-fragment _ _) (empty-jl)]))
         (list->jl fragments)))))
 
 (define (compute-const-segment-relocations-helper [offset : Int]
@@ -166,11 +166,11 @@
      (cons (const-segment-relocation offset name value)
            (compute-const-segment-relocations-helper offset pieces))]))
 
-(define (assemble-const-segment [fragments : (List AssemblyFragment)]) : Bytes
+(define (assemble-const-segment [fragments : (List ConstFragment)]) : Bytes
   (bytes-append
     (jl->list
       (concat-map-jl
-        (lambda ([fragment : AssemblyFragment]) : (JoinList Bytes)
+        (lambda ([fragment : ConstFragment]) : (JoinList Bytes)
           (case fragment
             [(address-fragment name value)
              (single-jl (varargs bytes 0 0 0 0 0 0 0 0))]
@@ -178,37 +178,52 @@
              (let ([length-buf (make-bytes 8)])
                (begin
                  (bytes-set!/eight-bytes-le length-buf 0 (int->eight-bytes-le (bytes-length value)))
-                 (varargs join-list length-buf value)))]
-            [_ (empty-jl)]))
+                 (varargs join-list length-buf value)))]))
         (list->jl fragments)))))
 
-(define (collect-defined-symbols
-          [fragments : (List AssemblyFragment)]
+(define (collect-defined-symbols [fragments : AssemblyFragments] [text-size : Int])
+  : (List DefinedSymbol)
+  (match-define (assembly-fragments text const) fragments)
+  (collect-defined-text-symbols text 0
+    (collect-defined-const-symbols const text-size (empty))))
+
+(define (collect-defined-text-symbols
+          [fragments : (List TextFragment)]
           [text-offset : Int]
-          [const-offset : Int]
           [acc : (List DefinedSymbol)])
   : (List DefinedSymbol)
   (case fragments
-    [(empty) (reverse acc)]
+    [(empty) acc]
     [(cons fragment fragments)
      (case fragment
        [(function-fragment name sections)
         (collect-defined-symbols/blocks*
           (append* (map section-blocks sections))
-          fragments text-offset const-offset acc)]
+          fragments text-offset acc)])]))
+
+(define (collect-defined-const-symbols
+          [fragments : (List ConstFragment)]
+          [const-offset : Int]
+          [acc : (List DefinedSymbol)])
+  : (List DefinedSymbol)
+  (case fragments
+    [(empty) acc]
+    [(cons fragment fragments)
+     (case fragment
        [(address-fragment name value)
-        (collect-defined-symbols fragments text-offset (+ const-offset 8)
-                                 (cons (const-symbol name const-offset) acc))]
+        (collect-defined-const-symbols
+          fragments (+ const-offset 8)
+          (cons (const-symbol name const-offset) acc))]
        [(bytes-fragment name value)
-        (collect-defined-symbols fragments text-offset (+ const-offset (+ 8 (bytes-length value)))
-                                 (cons (const-symbol name const-offset) acc))])]))
+        (collect-defined-const-symbols
+          fragments (+ const-offset (+ 8 (bytes-length value)))
+          (cons (const-symbol name const-offset) acc))])]))
 
 ;; The first block in a function is global as that is the function entry point.
 (define (collect-defined-symbols/blocks*
           [blocks : (List BasicBlock)]
-          [fragments : (List AssemblyFragment)]
+          [fragments : (List TextFragment)]
           [text-offset : Int]
-          [const-offset : Int]
           [acc : (List DefinedSymbol)])
   : (List DefinedSymbol)
   (case blocks
@@ -218,25 +233,22 @@
      (collect-defined-symbols/blocks
        blocks fragments
        (+ text-offset (sum (map instruction-length (jl->list instructions))))
-       const-offset
        (cons (global-text-symbol block-name text-offset) acc))]))
 
 
 (define (collect-defined-symbols/blocks
           [blocks : (List BasicBlock)]
-          [fragments : (List AssemblyFragment)]
+          [fragments : (List TextFragment)]
           [text-offset : Int]
-          [const-offset : Int]
           [acc : (List DefinedSymbol)])
   : (List DefinedSymbol)
   (case blocks
     [(empty)
-     (collect-defined-symbols fragments text-offset const-offset acc)]
+     (collect-defined-text-symbols fragments text-offset acc)]
     [(cons (basic-block block-name instructions) blocks)
      (collect-defined-symbols/blocks
        blocks fragments
        (+ text-offset (sum (map instruction-length (jl->list instructions))))
-       const-offset
        (cons (local-text-symbol block-name text-offset) acc))]))
 
 
@@ -249,10 +261,9 @@
         [(mc-leaq/rel label _ _) (just label)]))
     commands))
 
-(define (collect-symbols [fragments : (List AssemblyFragment)] [commands : (List MCCommand)] [text-size : Int])
+(define (collect-symbols [fragments : AssemblyFragments] [commands : (List MCCommand)] [text-size : Int])
   : (List Symbol)
-  (match-define defined-symbols
-    (collect-defined-symbols fragments 0 text-size (empty)))
+  (match-define defined-symbols (collect-defined-symbols fragments text-size))
   (match-define undefined-symbols
     (map undefined-symbol
          (sort
@@ -583,10 +594,10 @@
 
         (right (void))))))
 
-(define (fragments->mc-commands [fragments : (List AssemblyFragment)]) : (List MCCommand)
+(define (fragments->mc-commands [fragments : (List TextFragment)]) : (List MCCommand)
   (jl->list
     (concat-map-jl
-      (lambda ([fragment : AssemblyFragment]) : (JoinList MCCommand)
+      (lambda ([fragment : TextFragment]) : (JoinList MCCommand)
         (case fragment
           [(function-fragment name sections)
            (concat-map-jl
@@ -599,15 +610,14 @@
                         [(basic-block block-name instructions)
                          (map-jl instruction->mc-command instructions)]))
                     (list->jl blocks))]))
-             (list->jl sections))]
-          [_
-           (empty-jl)]))
+             (list->jl sections))]))
       (list->jl fragments))))
 
 
-(define (write-mach-o-library/fragments [output-file-name : Bytes] [fragments : (List AssemblyFragment)])
+(define (write-mach-o-library/fragments [output-file-name : Bytes] [fragments : AssemblyFragments])
   : (Either Bytes Void)
-  (match-define mc-commands (fragments->mc-commands fragments))
+  (match-define (assembly-fragments text-fragments const-fragments) fragments)
+  (match-define mc-commands (fragments->mc-commands text-fragments))
   (match-define text-segment-bytes (assemble-text-segment mc-commands))
   (match-define symbols (collect-symbols fragments mc-commands (bytes-length text-segment-bytes)))
   (match-define exported-symbols
@@ -618,9 +628,9 @@
   (match-define (tuple2 local-text-segment-relocations global-text-segment-relocations)
     (compute-text-segment-relocations mc-commands (empty) (empty) 0 symbols))
   (match-define text-segment-num-relocations (length global-text-segment-relocations))
-  (match-define const-segment-bytes (assemble-const-segment fragments))
+  (match-define const-segment-bytes (assemble-const-segment const-fragments))
   (match-define const-segment-relocations
-    (compute-const-segment-relocations fragments))
+    (compute-const-segment-relocations const-fragments))
   (match-define const-segment-num-relocations (length const-segment-relocations))
   (match-define segment-size
     (+ (bytes-length text-segment-bytes) (bytes-length const-segment-bytes)))

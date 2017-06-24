@@ -10,8 +10,9 @@
   (stack-machine)
 }
 (export
-  #:types (AssemblyFragment Section BasicBlock Instruction Register MCCommand)
-  #:values (write-fragments convert-objects fragment->commands assembly-commands->bytes
+  #:types (Section BasicBlock Instruction Register MCCommand AssemblyFragments
+           TextFragment ConstFragment)
+  #:values (write-fragments convert-objects assembly-commands->bytes
             instruction->mc-command instruction->assembly-bytes function-fragment rax rdi
             rsi rdx rcx r8 r9 imm-s32 rmi-imm movq reg addq subq orq andq al dil sil dl cl r8b r9b
             r10b r11b bpl
@@ -19,14 +20,23 @@
             syscall call rsp mem rip leaq/rel r15 pushq je jl jg jle jge r10 jb scale-1 scaled leaq
             address-fragment call/indirect r11 ud2 shrq movb rep-stosb cld rbp nop r14
             rep-movsb repne-scasb popq scale-8 decq notq repne-scasq
-            section-blocks basic-block section test mc-jump-type->bytes)
+            section-blocks basic-block section test mc-jump-type->bytes assembly-fragments
+            text-fragment->commands const-fragment->commands)
   #:patterns (function-fragment address-fragment bytes-fragment mc-bytes mc-jump
-              mcj-jb mcj-je mcj-jne mcj-jnz mcj-jmp mcj-call))
+              mcj-jb mcj-je mcj-jne mcj-jnz mcj-jmp mcj-call assembly-fragments))
 (types
-  (define-type AssemblyFragment
-    (function-fragment [name : Bytes] [sections : (List Section)])
+  (define-type AssemblyFragments
+    (assembly-fragments
+      [text-fragments : (List TextFragment)]
+      [const-fragments : (List ConstFragment)]))
+
+  (define-type TextFragment
+    (function-fragment [name : Bytes] [sections : (List Section)]))
+  (define-type ConstFragment
     (address-fragment [name : Bytes] [value : Bytes])
     (bytes-fragment [name : Bytes] [value : Bytes]))
+
+
   (define-type Section
     (section [blocks : (List BasicBlock)]))
   (define-type BasicBlock
@@ -1163,16 +1173,24 @@
 
 
 
-(define (convert-objects [objects : (List TopLevelObject)]) : (List AssemblyFragment)
-  (map (lambda ([object : TopLevelObject])
+(define (convert-objects [objects : (List TopLevelObject)]) : AssemblyFragments
+  (assembly-fragments
+    (filter-map
+      (lambda ([object : TopLevelObject]) : (Maybe TextFragment)
          (case object
-           [(function-tlo fun) (convert-function fun)]
-           [(bytes-tlo name value) (bytes-fragment name value)]
-           [(trivial-closure-tlo name fun-name)
-            (address-fragment name fun-name)]))
-    objects))
+           [(function-tlo fun) (just (convert-function fun))]
+           [(bytes-tlo name value) (nothing)]
+           [(trivial-closure-tlo name fun-name) (nothing)]))
+      objects)
+    (filter-map
+      (lambda ([object : TopLevelObject]) : (Maybe ConstFragment)
+         (case object
+           [(function-tlo fun) (nothing)]
+           [(bytes-tlo name value) (just (bytes-fragment name value))]
+           [(trivial-closure-tlo name fun-name) (just (address-fragment name fun-name))]))
+      objects)))
 
-(define (convert-function [fun : StackFunction]) : AssemblyFragment
+(define (convert-function [fun : StackFunction]) : TextFragment
   (case fun
     [(stack-function name num-args blocks)
      (function-fragment name
@@ -1207,23 +1225,26 @@
                      (empty-jl))))))
            (convert-basic-blocks name 0 blocks)))]))
 
-(define (write-fragments [fragments : (List AssemblyFragment)] [output : OutputPort]) : Void
+(define (write-fragments [fragments : AssemblyFragments] [output : OutputPort]) : Void
   (write-assembly-commands (jl->list (fragments->commands fragments)) output))
 
-(define (fragments->commands [fragments : (List AssemblyFragment)]) : (JoinList AssemblyCommand)
+(define (fragments->commands [fragments : AssemblyFragments]) : (JoinList AssemblyCommand)
   (case fragments
-    [(empty) (empty-jl)]
-    [(cons fragment fragments)
+    [(assembly-fragments text-fragments const-fragments)
+     ;; TODO move the section directives here instead of per fragment
      (append-jl
-       (fragment->commands fragment)
-       (fragments->commands fragments))]))
+       (concat-map-jl text-fragment->commands (list->jl text-fragments))
+       (concat-map-jl const-fragment->commands (list->jl const-fragments)))]))
 
-(define (fragment->commands [frag : AssemblyFragment]) : (JoinList AssemblyCommand)
+(define (text-fragment->commands [frag : TextFragment]) : (JoinList AssemblyCommand)
   (case frag
     [(function-fragment _ sections)
      (cons-jl
        (directive-cmd (section-directive #"__TEXT" #"__text"))
-       (sections->commands sections))]
+       (sections->commands sections))]))
+
+(define (const-fragment->commands [frag : ConstFragment]) : (JoinList AssemblyCommand)
+  (case frag
     [(address-fragment name value)
      (varargs join-list
        (directive-cmd (section-directive #"__TEXT" #"__const"))
@@ -1237,6 +1258,7 @@
        (directive-cmd (label-directive name))
        (directive-cmd (quad-directive/integer (bytes-length value)))
        (directive-cmd (ascii-directive value)))]))
+
 
 
 (define (sections->commands [sections : (List Section)]) : (JoinList AssemblyCommand)

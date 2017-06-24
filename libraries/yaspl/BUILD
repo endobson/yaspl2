@@ -12,6 +12,7 @@ yaspl_bootstrap_library(
         "//libraries/data:bytes",
         "//libraries/data:join-list",
         "//libraries/data:list",
+        "//libraries/data:tuples",
     ],
 )
 
