@@ -85,7 +85,7 @@
           [local-acc : (List TextSegmentRelocation)]
           [global-acc : (List TextSegmentRelocation)]
           [offset : Int]
-          [symbols : (List Symbol)])
+          [local-symbols : (Set Bytes)])
   : (Tuple2 (List TextSegmentRelocation) (List TextSegmentRelocation))
   (case commands
     [(empty)
@@ -94,43 +94,33 @@
      (case command
        [(mc-bytes bytes)
         (compute-text-segment-relocations
-          commands local-acc global-acc (+ (bytes-length bytes) offset) symbols)]
+          commands local-acc global-acc (+ (bytes-length bytes) offset) local-symbols)]
        [(mc-jump (mcj-jmp) name)
-        (let ([local (memf (lambda ([x : Symbol])
-                             (case x
-                               [(defined-symbol (local-text-symbol n _))
-                                (bytes=? n name)]
-                               [_ #f]))
-                           symbols)])
+        (let ([local (set-member? local-symbols name)])
           (let ([reloc (text-segment-relocation (+ 1 offset) name)])
             (compute-text-segment-relocations
               commands
               (if local (cons reloc local-acc) local-acc)
               (if local global-acc (cons reloc global-acc))
-              (+ 5 offset) symbols)))]
+              (+ 5 offset) local-symbols)))]
        [(mc-jump (mcj-call) name)
         (compute-text-segment-relocations
           commands local-acc
           (cons (text-segment-relocation (+ 1 offset) name) global-acc)
-          (+ 5 offset) symbols)]
+          (+ 5 offset) local-symbols)]
        [(mc-jump _ name)
-        (let ([local (memf (lambda ([x : Symbol])
-                             (case x
-                               [(defined-symbol (local-text-symbol n _))
-                                (bytes=? n name)]
-                               [_ #f]))
-                           symbols)])
+        (let ([local (set-member? local-symbols name)])
           (let ([reloc (text-segment-relocation (+ 2 offset) name)])
             (compute-text-segment-relocations
               commands
               (if local (cons reloc local-acc) local-acc)
               (if local global-acc (cons reloc global-acc))
-              (+ 6 offset) symbols)))]
+              (+ 6 offset) local-symbols)))]
        [(mc-leaq/rel name _ _)
         (compute-text-segment-relocations
           commands local-acc
           (cons (text-segment-relocation/2 (+ 3 offset) name) global-acc)
-          (+ 7 offset) symbols)])]))
+          (+ 7 offset) local-symbols)])]))
 
 
 (define (instruction-length [inst : Instruction]) : Int
@@ -278,14 +268,6 @@
   (append
     (map defined-symbol (sort defined-symbols defined-symbol<))
     (map undefined-symbol (sort undefined-symbols bytes<))))
-
-
-(define (a) (memf [f : (a -> Boolean)] [l : (List a)]) : Boolean
-  (case l
-    [(empty) #f]
-    [(cons a l)
-     (if (f a) #t (memf f l))]))
-
 
 (define (apply-local-text-relocations [relocs : (List TextSegmentRelocation)] [symbols : (List Symbol)]
                                       [text : Bytes]) : Void
@@ -621,8 +603,19 @@
               (case s
                [(defined-symbol (local-text-symbol _ _)) #f]
                [_ #t])) symbols))
+  (match-define local-text-symbols
+    (set-add-all
+      (make-set bytes=?)
+      (filter-map
+        (lambda ([s : Symbol]) : (Maybe Bytes)
+          (case s
+            [(defined-symbol (local-text-symbol v _)) (just v)]
+            [_ (nothing)]))
+        symbols)))
+
   (match-define (tuple2 local-text-segment-relocations global-text-segment-relocations)
-    (compute-text-segment-relocations mc-commands (empty) (empty) 0 symbols))
+    (compute-text-segment-relocations mc-commands (empty) (empty) 0
+                                      local-text-symbols))
   (match-define text-segment-num-relocations (length global-text-segment-relocations))
   (match-define const-segment-bytes (assemble-const-segment const-fragments))
   (match-define const-segment-relocations
