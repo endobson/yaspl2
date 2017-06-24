@@ -197,6 +197,7 @@ genrule(
     cmd = "ld -arch x86_64 " +
           "-macosx_version_min 10.11 " +
           "-static " +
+          "-no_uuid " +
           "-sectcreate __DATA __data /dev/null " +
           "$(location bootstrap_compiler.o) -o $(location bootstrap_compiler)",
     executable = 1,
@@ -224,6 +225,7 @@ genrule(
     cmd = "ld -arch x86_64 " +
           "-macosx_version_min 10.11 " +
           "-static " +
+          "-no_uuid " +
           "-sectcreate __DATA __data /dev/null " +
           "$(location bootstrap_library_compiler.o) -o $(location bootstrap_library_compiler)",
     executable = 1,
@@ -251,6 +253,7 @@ genrule(
     cmd = "ld -arch x86_64 " +
           "-macosx_version_min 10.11 " +
           "-static " +
+          "-no_uuid " +
           "-sectcreate __DATA __data /dev/null " +
           "$(location bootstrap_main_stub.o) -o $(location bootstrap_main_stub)",
     executable = 1,
@@ -278,6 +281,7 @@ genrule(
     cmd = "ld -arch x86_64 " +
           "-macosx_version_min 10.11 " +
           "-static " +
+          "-no_uuid " +
           "-sectcreate __DATA __data /dev/null " +
           "$(location bootstrap_linker.o) -o $(location bootstrap_linker)",
     executable = 1,
