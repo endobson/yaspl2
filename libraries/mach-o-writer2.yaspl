@@ -1,6 +1,7 @@
 #:module (mach-o-writer2)
 #:import {
   (bytes)
+  (data boolean)
   (either)
   (io)
   (join-list)
@@ -45,8 +46,8 @@
   #:patterns ())
 (types
   (define-type TextSegmentRelocation
-    (text-segment-relocation [offset : Int] [symbol : Bytes])
-    (text-segment-relocation/2 [offset : Int] [symbol : Bytes]))
+    (text-segment-relocation [local : Boolean] [offset : Int] [symbol : Bytes])
+    (text-segment-relocation/2 [local : Boolean] [offset : Int] [symbol : Bytes]))
   (define-type ConstSegmentRelocation
     (const-segment-relocation [offset : Int] [symbol : Bytes] [value : Bytes]))
   (define-type Symbol
@@ -82,44 +83,42 @@
 
 (define (compute-text-segment-relocations
           [commands : (List MCCommand)]
-          [local-acc : (List TextSegmentRelocation)]
-          [global-acc : (List TextSegmentRelocation)]
+          [acc : (List TextSegmentRelocation)]
           [offset : Int]
           [local-symbols : (Set Bytes)])
-  : (Tuple2 (List TextSegmentRelocation) (List TextSegmentRelocation))
+  : (List TextSegmentRelocation)
   (case commands
-    [(empty)
-     (tuple2 local-acc global-acc)]
+    [(empty) acc]
     [(cons command commands)
      (case command
        [(mc-bytes bytes)
         (compute-text-segment-relocations
-          commands local-acc global-acc (+ (bytes-length bytes) offset) local-symbols)]
+          commands acc (+ (bytes-length bytes) offset) local-symbols)]
        [(mc-jump (mcj-jmp) name)
-        (let ([local (set-member? local-symbols name)])
-          (let ([reloc (text-segment-relocation (+ 1 offset) name)])
-            (compute-text-segment-relocations
-              commands
-              (if local (cons reloc local-acc) local-acc)
-              (if local global-acc (cons reloc global-acc))
-              (+ 5 offset) local-symbols)))]
+        (compute-text-segment-relocations
+          commands
+          (cons
+            (text-segment-relocation (set-member? local-symbols name) (+ 1 offset) name)
+            acc)
+          (+ 5 offset) local-symbols)]
        [(mc-jump (mcj-call) name)
         (compute-text-segment-relocations
-          commands local-acc
-          (cons (text-segment-relocation (+ 1 offset) name) global-acc)
+          commands
+          (cons
+            (text-segment-relocation (set-member? local-symbols name) (+ 1 offset) name)
+            acc)
           (+ 5 offset) local-symbols)]
        [(mc-jump _ name)
-        (let ([local (set-member? local-symbols name)])
-          (let ([reloc (text-segment-relocation (+ 2 offset) name)])
-            (compute-text-segment-relocations
-              commands
-              (if local (cons reloc local-acc) local-acc)
-              (if local global-acc (cons reloc global-acc))
-              (+ 6 offset) local-symbols)))]
+        (compute-text-segment-relocations
+          commands
+          (cons
+            (text-segment-relocation (set-member? local-symbols name) (+ 2 offset) name)
+            acc)
+          (+ 6 offset) local-symbols)]
        [(mc-leaq/rel name _ _)
         (compute-text-segment-relocations
-          commands local-acc
-          (cons (text-segment-relocation/2 (+ 3 offset) name) global-acc)
+          commands
+          (cons (text-segment-relocation/2 #f (+ 3 offset) name) acc)
           (+ 7 offset) local-symbols)])]))
 
 
@@ -273,25 +272,29 @@
                                       [text : Bytes]) : Void
   (case relocs
     [(empty) (void)]
-    [(cons (text-segment-relocation offset symbol) relocs)
+    [(cons (text-segment-relocation local offset symbol) relocs)
      (begin
-       (case (find/maybe (lambda ([x : Symbol]) : (Maybe Int)
-                           (case x
-                             [(defined-symbol (local-text-symbol name offset))
-                              (if (bytes=? symbol name)
-                                  (just offset)
-                                  (nothing))]
-                             [_ (nothing)])) symbols)
-         [(nothing)
-          (panic #"Bad local relocation")]
-         [(just symbol-offset)
-          (bytes-set!/quad-le
-            text
-            offset
-            (u32 (- (- symbol-offset offset) 4)))])
+       (if local
+           (case (find/maybe (lambda ([x : Symbol]) : (Maybe Int)
+                               (case x
+                                 [(defined-symbol (local-text-symbol name offset))
+                                  (if (bytes=? symbol name)
+                                      (just offset)
+                                      (nothing))]
+                                 [_ (nothing)])) symbols)
+             [(nothing)
+              (panic #"Bad local relocation")]
+             [(just symbol-offset)
+              (bytes-set!/quad-le
+                text
+                offset
+                (u32 (- (- symbol-offset offset) 4)))])
+           (void))
        (apply-local-text-relocations relocs symbols text))]
-    [(cons (text-segment-relocation/2 offset symbol) _)
-     (panic #"Text-segment-relocation/2 not yet implemented")]))
+    [(cons (text-segment-relocation/2 local offset symbol) relocs)
+     (if local
+         (panic #"Local Text-segment-relocation/2 not yet implemented")
+         (apply-local-text-relocations relocs symbols text))]))
 
 
 (define (round-up [v : Int] [mod : Int]) : Int
@@ -349,25 +352,31 @@
           [output : OutputPort]) : Void
   (case relocations
     [(empty) (void)]
-    [(cons (text-segment-relocation offset symbol) relocations)
+    [(cons (text-segment-relocation local offset symbol) relocations)
      (begin
-       (write-quad-le (u32 offset) output)
-       (case (find-index (lambda ([x : Bytes]) (bytes=? symbol x))
-                         symbols)
-         [(nothing)
-          (panic #"Bad symbol")]
-         [(just index)
-          (write-quad-le (u32 (bitwise-ior index #x2D000000)) output)])
+       (if local
+           (void)
+           (begin
+             (write-quad-le (u32 offset) output)
+             (case (find-index (lambda ([x : Bytes]) (bytes=? symbol x))
+                               symbols)
+               [(nothing)
+                (panic #"Bad symbol")]
+               [(just index)
+                (write-quad-le (u32 (bitwise-ior index #x2D000000)) output)])))
        (write-text-segment-relocations relocations symbols output))]
-    [(cons (text-segment-relocation/2 offset symbol) relocations)
+    [(cons (text-segment-relocation/2 local offset symbol) relocations)
      (begin
-       (write-quad-le (u32 offset) output)
-       (case (find-index (lambda ([x : Bytes]) (bytes=? symbol x))
-                         symbols)
-         [(nothing)
-          (panic #"Bad symbol")]
-         [(just index)
-          (write-quad-le (u32 (bitwise-ior index #x1D000000)) output)])
+       (if local
+           (void)
+           (begin
+             (write-quad-le (u32 offset) output)
+             (case (find-index (lambda ([x : Bytes]) (bytes=? symbol x))
+                               symbols)
+               [(nothing)
+                (panic #"Bad symbol")]
+               [(just index)
+                (write-quad-le (u32 (bitwise-ior index #x1D000000)) output)])))
        (write-text-segment-relocations relocations symbols output))]))
 
 (define (write-const-segment-relocations
@@ -613,10 +622,15 @@
             [_ (nothing)]))
         symbols)))
 
-  (match-define (tuple2 local-text-segment-relocations global-text-segment-relocations)
-    (compute-text-segment-relocations mc-commands (empty) (empty) 0
-                                      local-text-symbols))
-  (match-define text-segment-num-relocations (length global-text-segment-relocations))
+  (match-define text-segment-relocations
+    (compute-text-segment-relocations mc-commands (empty) 0 local-text-symbols))
+  (match-define text-segment-num-global-relocations
+    (length (filter
+              (lambda ([reloc : TextSegmentRelocation])
+                (case reloc
+                  [(text-segment-relocation local _ _) (not local)]
+                  [(text-segment-relocation/2 local _ _) (not local)]))
+              text-segment-relocations)))
   (match-define const-segment-bytes (assemble-const-segment const-fragments))
   (match-define const-segment-relocations
     (compute-const-segment-relocations const-fragments))
@@ -627,7 +641,7 @@
   (call-with-output-file output-file-name
     (lambda ([output : OutputPort])
       (begin
-        (apply-local-text-relocations local-text-segment-relocations symbols
+        (apply-local-text-relocations text-segment-relocations symbols
                                       text-segment-bytes)
         (write-mach-o-header
           (mach-o-header
@@ -648,24 +662,24 @@
                                (bytes-length text-segment-bytes)
                                352
                                reloc-base
-                               text-segment-num-relocations
+                               text-segment-num-global-relocations
                                (u32 #x80000400))
                     (section64 #"__TEXT" #"__const"
                                (bytes-length text-segment-bytes)
                                (bytes-length const-segment-bytes)
                                (+ 352 (bytes-length text-segment-bytes))
                                (+ reloc-base
-                                  (* 8 text-segment-num-relocations))
+                                  (* 8 text-segment-num-global-relocations))
                                const-segment-num-relocations
                                (u32 0)))))
               (lc-symbol-table
                 (symbol-table
                   (+ reloc-base
-                     (* 8 (+ text-segment-num-relocations
+                     (* 8 (+ text-segment-num-global-relocations
                              const-segment-num-relocations)))
                   (length exported-symbols)
                   (+ (+ reloc-base
-                        (* 8 (+ text-segment-num-relocations
+                        (* 8 (+ text-segment-num-global-relocations
                                 const-segment-num-relocations)))
                      (* (length exported-symbols) #x10))
                   (round-up
@@ -678,7 +692,7 @@
               (lc-data-in-code
                 (linkedit-data
                   (u32 (+ reloc-base
-                          (* 8 (+ text-segment-num-relocations
+                          (* 8 (+ text-segment-num-global-relocations
                                   const-segment-num-relocations))))
                   (u32 0)))))
           output)
@@ -694,7 +708,7 @@
               (+ (bytes-length text-segment-bytes)
                  (bytes-length const-segment-bytes)))) output)
         (write-text-segment-relocations
-          global-text-segment-relocations (map symbol-name exported-symbols) output)
+          text-segment-relocations (map symbol-name exported-symbols) output)
         (write-const-segment-relocations
           const-segment-relocations (map symbol-name exported-symbols) output)
         (write-symbol-table exported-symbols 2 output)

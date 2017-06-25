@@ -410,6 +410,7 @@ yaspl_bootstrap_library(
         ":mach-o-writer_lib",
         ":mach-o_lib",
         ":x86-64-stack-machine",
+        "//libraries/data:boolean",
         "//libraries/data:bytes",
         "//libraries/data:either",
         "//libraries/data:join-list",
