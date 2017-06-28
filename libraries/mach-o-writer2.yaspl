@@ -45,34 +45,31 @@
   #:values (write-mach-o-library/fragments write-mach-o-executable)
   #:patterns ())
 (types
-  ;; These two relocations are treated exactly the same, but are still distinquished in the object
-  ;; file.
   (define-type TextSegmentRelocation
     (text-segment-relocation
       [kind : TextSegmentRelocationKind] [local : Boolean] [offset : Int] [symbol : Bytes]))
+  ;; These two relocation types are treated exactly the same, but are still distinquished in the
+  ;; object file.
   (define-type TextSegmentRelocationKind
     (branch-relocation)
     (signed-relocation))
   (define-type ConstSegmentRelocation
     (const-segment-relocation [offset : Int] [symbol : Bytes] [value : Bytes]))
   (define-type Symbol
-    (defined-symbol [sym : DefinedSymbol])
-    (undefined-symbol [name : Bytes]))
+    (symbol-defined [sym : DefinedSymbol])
+    (symbol-undefined [name : Bytes]))
   (define-type DefinedSymbol
-    (global-text-symbol [name : Bytes] [offset : Int])
-    (local-text-symbol [name : Bytes] [offset : Int])
-    (const-symbol [name : Bytes] [offset : Int])))
+    (defined-symbol [kind : DefinedSymbolKind] [name : Bytes] [offset : Int]))
+
+  (define-type DefinedSymbolKind
+    (global-text-symbol)
+    (local-text-symbol)
+    (const-symbol)))
 
 (define (symbol-name [v : Symbol]) : Bytes
   (case v
-    [(defined-symbol sym) (defined-symbol-name sym)]
-    [(undefined-symbol name) name]))
-
-(define (defined-symbol-name [v : DefinedSymbol]) : Bytes
-  (case v
-    [(global-text-symbol name offset) name]
-    [(local-text-symbol name offset) name]
-    [(const-symbol name offset) name]))
+    [(symbol-defined sym) (defined-symbol-name sym)]
+    [(symbol-undefined name) name]))
 
 (define (assemble-text-segment [commands : (List MCCommand)]) : Bytes
   (bytes-append
@@ -90,7 +87,7 @@
           [commands : (List MCCommand)]
           [acc : (List TextSegmentRelocation)]
           [offset : Int]
-          [local-symbols : (Set Bytes)])
+          [defined-symbols : (Set Bytes)])
   : (List TextSegmentRelocation)
   (case commands
     [(empty) acc]
@@ -98,33 +95,35 @@
      (case command
        [(mc-bytes bytes)
         (compute-text-segment-relocations
-          commands acc (+ (bytes-length bytes) offset) local-symbols)]
+          commands acc (+ (bytes-length bytes) offset) defined-symbols)]
        [(mc-jump (mcj-jmp) name)
         (compute-text-segment-relocations
           commands
           (cons
-            (text-segment-relocation (branch-relocation) (set-member? local-symbols name) (+ 1 offset) name)
+            (text-segment-relocation (branch-relocation) (set-member? defined-symbols name) (+ 1 offset) name)
             acc)
-          (+ 5 offset) local-symbols)]
+          (+ 5 offset) defined-symbols)]
        [(mc-jump (mcj-call) name)
         (compute-text-segment-relocations
           commands
           (cons
-            (text-segment-relocation (branch-relocation) (set-member? local-symbols name) (+ 1 offset) name)
+            (text-segment-relocation (branch-relocation) (set-member? defined-symbols name) (+ 1 offset) name)
             acc)
-          (+ 5 offset) local-symbols)]
+          (+ 5 offset) defined-symbols)]
        [(mc-jump _ name)
         (compute-text-segment-relocations
           commands
           (cons
-            (text-segment-relocation (branch-relocation) (set-member? local-symbols name) (+ 2 offset) name)
+            (text-segment-relocation (branch-relocation) (set-member? defined-symbols name) (+ 2 offset) name)
             acc)
-          (+ 6 offset) local-symbols)]
+          (+ 6 offset) defined-symbols)]
        [(mc-leaq/rel name _ _)
         (compute-text-segment-relocations
           commands
-          (cons (text-segment-relocation (signed-relocation) #f (+ 3 offset) name) acc)
-          (+ 7 offset) local-symbols)])]))
+          (cons
+            (text-segment-relocation (signed-relocation) (set-member? defined-symbols name) (+ 3 offset) name)
+                acc)
+          (+ 7 offset) defined-symbols)])]))
 
 
 (define (instruction-length [inst : Instruction]) : Int
@@ -207,11 +206,11 @@
        [(address-fragment name value)
         (collect-defined-const-symbols
           fragments (+ const-offset 8)
-          (cons (const-symbol name const-offset) acc))]
+          (cons (defined-symbol (const-symbol) name const-offset) acc))]
        [(bytes-fragment name value)
         (collect-defined-const-symbols
           fragments (+ const-offset (+ 8 (bytes-length value)))
-          (cons (const-symbol name const-offset) acc))])]))
+          (cons (defined-symbol (const-symbol) name const-offset) acc))])]))
 
 ;; The first block in a function is global as that is the function entry point.
 (define (collect-defined-symbols/blocks*
@@ -227,7 +226,7 @@
      (collect-defined-symbols/blocks
        blocks fragments
        (+ text-offset (sum (map instruction-length (jl->list instructions))))
-       (cons (global-text-symbol block-name text-offset) acc))]))
+       (cons (defined-symbol (global-text-symbol) block-name text-offset) acc))]))
 
 
 (define (collect-defined-symbols/blocks
@@ -243,7 +242,7 @@
      (collect-defined-symbols/blocks
        blocks fragments
        (+ text-offset (sum (map instruction-length (jl->list instructions))))
-       (cons (local-text-symbol block-name text-offset) acc))]))
+       (cons (defined-symbol (local-text-symbol) block-name text-offset) acc))]))
 
 
 (define (collect-instruction-symbols [commands : (List MCCommand)]) : (List Bytes)
@@ -270,8 +269,8 @@
           referenced-symbols)
         (map defined-symbol-name defined-symbols))))
   (append
-    (map defined-symbol (sort defined-symbols defined-symbol<))
-    (map undefined-symbol (sort undefined-symbols bytes<))))
+    (map symbol-defined (sort defined-symbols defined-symbol<))
+    (map symbol-undefined (sort undefined-symbols bytes<))))
 
 (define (apply-local-text-relocations [relocs : (List TextSegmentRelocation)] [symbols : (List Symbol)]
                                       [text : Bytes]) : Void
@@ -282,7 +281,7 @@
        (if local
            (case (find/maybe (lambda ([x : Symbol]) : (Maybe Int)
                                (case x
-                                 [(defined-symbol (local-text-symbol name offset))
+                                 [(symbol-defined (defined-symbol _ name offset))
                                   (if (bytes=? symbol name)
                                       (just offset)
                                       (nothing))]
@@ -398,25 +397,25 @@
      (begin
        (write-quad-le (u32 sym-offset) output)
        (case symbol
-         [(undefined-symbol _)
+         [(symbol-undefined _)
           (begin
             (write-quad-le (u32 #x00000001) output)
             (write-eight-bytes-le (int->eight-bytes-le #x0000000000000000) output))]
-         [(defined-symbol (global-text-symbol name offset))
+         [(symbol-defined (defined-symbol (global-text-symbol) name offset))
           (begin
             ;; TODO fix lowercase l => private
             (if (= (bytes-ref name 0) 108)
                 (write-quad-le (u32 #x0020011f) output)
                 (write-quad-le (u32 #x0020010f) output))
             (write-eight-bytes-le (int->eight-bytes-le offset) output))]
-         [(defined-symbol (local-text-symbol name offset))
+         [(symbol-defined (defined-symbol (local-text-symbol) name offset))
           (begin
             ;; TODO fix lowercase l => private
             (if (= (bytes-ref name 0) 108)
                 (write-quad-le (u32 #x0020011f) output)
                 (write-quad-le (u32 #x0020010f) output))
             (write-eight-bytes-le (int->eight-bytes-le offset) output))]
-         [(defined-symbol (const-symbol name offset))
+         [(symbol-defined (defined-symbol (const-symbol) name offset))
           (begin
             ;; TODO fix lowercase l => private
             (if (= (bytes-ref name 0) 108)
@@ -597,20 +596,22 @@
   (match-define exported-symbols
     (filter (lambda ([s : Symbol])
               (case s
-               [(defined-symbol (local-text-symbol _ _)) #f]
+               [(symbol-defined (defined-symbol (local-text-symbol) _ _)) #f]
                [_ #t])) symbols))
-  (match-define local-text-symbols
+  ;; TODO figure out how to correctly not relocate const symbols twice.
+  (match-define defined-symbols
     (set-add-all
       (make-set bytes=?)
       (filter-map
         (lambda ([s : Symbol]) : (Maybe Bytes)
           (case s
-            [(defined-symbol (local-text-symbol v _)) (just v)]
+            [(symbol-defined (defined-symbol (const-symbol) _ _)) (nothing)]
+            [(symbol-defined s) (just (defined-symbol-name s))]
             [_ (nothing)]))
         symbols)))
 
   (match-define text-segment-relocations
-    (compute-text-segment-relocations mc-commands (empty) 0 local-text-symbols))
+    (compute-text-segment-relocations mc-commands (empty) 0 defined-symbols))
   (match-define text-segment-num-global-relocations
     (length (filter
               (lambda ([reloc : TextSegmentRelocation])
