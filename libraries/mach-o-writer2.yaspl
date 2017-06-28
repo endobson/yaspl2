@@ -45,9 +45,14 @@
   #:values (write-mach-o-library/fragments write-mach-o-executable)
   #:patterns ())
 (types
+  ;; These two relocations are treated exactly the same, but are still distinquished in the object
+  ;; file.
   (define-type TextSegmentRelocation
-    (text-segment-relocation [local : Boolean] [offset : Int] [symbol : Bytes])
-    (text-segment-relocation/2 [local : Boolean] [offset : Int] [symbol : Bytes]))
+    (text-segment-relocation
+      [kind : TextSegmentRelocationKind] [local : Boolean] [offset : Int] [symbol : Bytes]))
+  (define-type TextSegmentRelocationKind
+    (branch-relocation)
+    (signed-relocation))
   (define-type ConstSegmentRelocation
     (const-segment-relocation [offset : Int] [symbol : Bytes] [value : Bytes]))
   (define-type Symbol
@@ -98,27 +103,27 @@
         (compute-text-segment-relocations
           commands
           (cons
-            (text-segment-relocation (set-member? local-symbols name) (+ 1 offset) name)
+            (text-segment-relocation (branch-relocation) (set-member? local-symbols name) (+ 1 offset) name)
             acc)
           (+ 5 offset) local-symbols)]
        [(mc-jump (mcj-call) name)
         (compute-text-segment-relocations
           commands
           (cons
-            (text-segment-relocation (set-member? local-symbols name) (+ 1 offset) name)
+            (text-segment-relocation (branch-relocation) (set-member? local-symbols name) (+ 1 offset) name)
             acc)
           (+ 5 offset) local-symbols)]
        [(mc-jump _ name)
         (compute-text-segment-relocations
           commands
           (cons
-            (text-segment-relocation (set-member? local-symbols name) (+ 2 offset) name)
+            (text-segment-relocation (branch-relocation) (set-member? local-symbols name) (+ 2 offset) name)
             acc)
           (+ 6 offset) local-symbols)]
        [(mc-leaq/rel name _ _)
         (compute-text-segment-relocations
           commands
-          (cons (text-segment-relocation/2 #f (+ 3 offset) name) acc)
+          (cons (text-segment-relocation (signed-relocation) #f (+ 3 offset) name) acc)
           (+ 7 offset) local-symbols)])]))
 
 
@@ -272,7 +277,7 @@
                                       [text : Bytes]) : Void
   (case relocs
     [(empty) (void)]
-    [(cons (text-segment-relocation local offset symbol) relocs)
+    [(cons (text-segment-relocation _ local offset symbol) relocs)
      (begin
        (if local
            (case (find/maybe (lambda ([x : Symbol]) : (Maybe Int)
@@ -290,11 +295,7 @@
                 offset
                 (u32 (- (- symbol-offset offset) 4)))])
            (void))
-       (apply-local-text-relocations relocs symbols text))]
-    [(cons (text-segment-relocation/2 local offset symbol) relocs)
-     (if local
-         (panic #"Local Text-segment-relocation/2 not yet implemented")
-         (apply-local-text-relocations relocs symbols text))]))
+       (apply-local-text-relocations relocs symbols text))]))
 
 
 (define (round-up [v : Int] [mod : Int]) : Int
@@ -352,7 +353,7 @@
           [output : OutputPort]) : Void
   (case relocations
     [(empty) (void)]
-    [(cons (text-segment-relocation local offset symbol) relocations)
+    [(cons (text-segment-relocation reloc-type local offset symbol) relocations)
      (begin
        (if local
            (void)
@@ -363,20 +364,11 @@
                [(nothing)
                 (panic #"Bad symbol")]
                [(just index)
-                (write-quad-le (u32 (bitwise-ior index #x2D000000)) output)])))
-       (write-text-segment-relocations relocations symbols output))]
-    [(cons (text-segment-relocation/2 local offset symbol) relocations)
-     (begin
-       (if local
-           (void)
-           (begin
-             (write-quad-le (u32 offset) output)
-             (case (find-index (lambda ([x : Bytes]) (bytes=? symbol x))
-                               symbols)
-               [(nothing)
-                (panic #"Bad symbol")]
-               [(just index)
-                (write-quad-le (u32 (bitwise-ior index #x1D000000)) output)])))
+                (let ([reloc-byte
+                        (case reloc-type
+                          [(branch-relocation) #x2D000000]
+                          [(signed-relocation) #x1D000000])])
+                (write-quad-le (u32 (bitwise-ior index reloc-byte)) output))])))
        (write-text-segment-relocations relocations symbols output))]))
 
 (define (write-const-segment-relocations
@@ -628,8 +620,7 @@
     (length (filter
               (lambda ([reloc : TextSegmentRelocation])
                 (case reloc
-                  [(text-segment-relocation local _ _) (not local)]
-                  [(text-segment-relocation/2 local _ _) (not local)]))
+                  [(text-segment-relocation _ local _ _) (not local)]))
               text-segment-relocations)))
   (match-define const-segment-bytes (assemble-const-segment const-fragments))
   (match-define const-segment-relocations
