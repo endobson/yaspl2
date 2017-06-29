@@ -1,5 +1,6 @@
 #:module (mach-o-writer2)
 #:import {
+  (assembler)
   (bytes)
   (either)
   (io)
@@ -44,16 +45,8 @@
   #:values (write-mach-o-library/fragments write-mach-o-executable)
   #:patterns ())
 (types
-  (define-type TextSegmentRelocation
-    (text-segment-relocation
-      [kind : TextSegmentRelocationKind] [offset : Int] [symbol : Bytes]))
-  ;; These two relocation types are treated exactly the same, but are still distinquished in the
-  ;; object file.
-  (define-type TextSegmentRelocationKind
-    (branch-relocation)
-    (signed-relocation))
-  (define-type ConstSegmentRelocation
-    (const-segment-relocation [offset : Int] [symbol : Bytes] [value : Bytes]))
+  (define-type ConstSectionRelocation
+    (const-section-relocation [offset : Int] [symbol : Bytes] [value : Bytes]))
   (define-type Symbol
     (symbol-defined [sym : DefinedSymbol])
     (symbol-undefined [name : Bytes]))
@@ -70,53 +63,17 @@
     [(symbol-defined sym) (defined-symbol-name sym)]
     [(symbol-undefined name) name]))
 
-(define (assemble-text-segment [commands : (List MCCommand)]) : Bytes
-  (bytes-append
-    (map
-      (lambda ([command : MCCommand])
-        (case command
-          [(mc-bytes bytes) bytes]
-          [(mc-jump t _) (mc-jump-type->bytes t)]
-          ;; TODO Make this work with all registers.
-          ;; (Currently hard coded to rip and rax).
-          [(mc-leaq/rel _ _ _) (varargs bytes #x48 #x8D #x05 0 0 0 0)]))
-      commands)))
-
-(define (compute-text-segment-relocations
-          [commands : (List MCCommand)]
-          [acc : (List TextSegmentRelocation)]
-          [offset : Int])
-  : (List TextSegmentRelocation)
-  (case commands
-    [(empty) acc]
-    [(cons command commands)
-     (case command
-       [(mc-bytes bytes)
-        (compute-text-segment-relocations commands acc (+ (bytes-length bytes) offset))]
-       [(mc-jump (mcj-jmp) name)
-        (match-define reloc (text-segment-relocation (branch-relocation) (+ 1 offset) name))
-        (compute-text-segment-relocations commands (cons reloc acc) (+ 5 offset))]
-       [(mc-jump (mcj-call) name)
-        (match-define reloc (text-segment-relocation (branch-relocation) (+ 1 offset) name))
-        (compute-text-segment-relocations commands (cons reloc acc) (+ 5 offset))]
-       [(mc-jump _ name)
-        (match-define reloc (text-segment-relocation (branch-relocation) (+ 2 offset) name))
-        (compute-text-segment-relocations commands (cons reloc acc) (+ 6 offset))]
-       [(mc-leaq/rel name _ _)
-        (match-define reloc (text-segment-relocation (signed-relocation) (+ 3 offset) name))
-        (compute-text-segment-relocations commands (cons reloc acc) (+ 7 offset))])]))
-
-(define (partition-text-segment-relocations
-          [relocations : (List TextSegmentRelocation)]
-          [local-acc : (List TextSegmentRelocation)]
-          [global-acc : (List TextSegmentRelocation)]
+(define (partition-text-section-relocations
+          [relocations : (List Relocation)]
+          [local-acc : (List Relocation)]
+          [global-acc : (List Relocation)]
           [defined-symbols : (Set Bytes)])
-  : (Tuple2 (List TextSegmentRelocation) (List TextSegmentRelocation))
+  : (Tuple2 (List Relocation) (List Relocation))
   (case relocations
     [(empty) (tuple2 local-acc global-acc)]
     [(cons reloc relocations)
-     (match-define local (set-member? defined-symbols (text-segment-relocation-symbol reloc)))
-     (partition-text-segment-relocations
+     (match-define local (set-member? defined-symbols (relocation-symbol reloc)))
+     (partition-text-section-relocations
        relocations
        (if local (cons reloc local-acc) local-acc)
        (if local global-acc (cons reloc global-acc))
@@ -132,9 +89,9 @@
     [(mc-leaq/rel name _ _) 7]))
 
 
-(define (compute-const-segment-relocations [fragments : (List ConstFragment)])
-  : (List ConstSegmentRelocation)
-  (compute-const-segment-relocations-helper
+(define (compute-const-section-relocations [fragments : (List ConstFragment)])
+  : (List ConstSectionRelocation)
+  (compute-const-section-relocations-helper
     0
     (jl->list
       (concat-map-jl
@@ -145,18 +102,18 @@
             [(bytes-fragment _ _) (empty-jl)]))
         (list->jl fragments)))))
 
-(define (compute-const-segment-relocations-helper [offset : Int]
+(define (compute-const-section-relocations-helper [offset : Int]
                                                   [pieces : (List (Either Int (Tuple2 Bytes Bytes)))])
-  : (List ConstSegmentRelocation)
+  : (List ConstSectionRelocation)
   (case pieces
     [(empty) (empty)]
     [(cons (left v) pieces)
-     (compute-const-segment-relocations-helper (+ v offset) pieces)]
+     (compute-const-section-relocations-helper (+ v offset) pieces)]
     [(cons (right (tuple2 name value)) pieces)
-     (cons (const-segment-relocation offset name value)
-           (compute-const-segment-relocations-helper offset pieces))]))
+     (cons (const-section-relocation offset name value)
+           (compute-const-section-relocations-helper offset pieces))]))
 
-(define (assemble-const-segment [fragments : (List ConstFragment)]) : Bytes
+(define (assemble-const-section [fragments : (List ConstFragment)]) : Bytes
   (bytes-append
     (jl->list
       (concat-map-jl
@@ -269,11 +226,11 @@
     (map symbol-defined (sort defined-symbols defined-symbol<))
     (map symbol-undefined (sort undefined-symbols bytes<))))
 
-(define (apply-local-text-relocations [relocs : (List TextSegmentRelocation)] [symbols : (List Symbol)]
+(define (apply-local-text-relocations [relocs : (List Relocation)] [symbols : (List Symbol)]
                                       [text : Bytes]) : Void
   (case relocs
     [(empty) (void)]
-    [(cons (text-segment-relocation _ offset symbol) relocs)
+    [(cons (relocation _ offset symbol) relocs)
      (begin
         (case (find/maybe (lambda ([x : Symbol]) : (Maybe Int)
                             (case x
@@ -341,13 +298,13 @@
        (write-eight-bytes-le (int->eight-bytes-le value) output)
        (write-symbol-entries symbols (+ string-offset (+ 1 (bytes-length name))) output))]))
 
-(define (write-text-segment-relocations
-          [relocations : (List TextSegmentRelocation)]
+(define (write-text-section-relocations
+          [relocations : (List Relocation)]
           [symbols : (List Bytes)]
           [output : OutputPort]) : Void
   (case relocations
     [(empty) (void)]
-    [(cons (text-segment-relocation reloc-type offset symbol) relocations)
+    [(cons (relocation reloc-type offset symbol) relocations)
      (begin
        (write-quad-le (u32 offset) output)
        (case (find-index (lambda ([x : Bytes]) (bytes=? symbol x))
@@ -360,15 +317,15 @@
                     [(branch-relocation) #x2D000000]
                     [(signed-relocation) #x1D000000])])
           (write-quad-le (u32 (bitwise-ior index reloc-byte)) output))])
-       (write-text-segment-relocations relocations symbols output))]))
+       (write-text-section-relocations relocations symbols output))]))
 
-(define (write-const-segment-relocations
-          [relocations : (List ConstSegmentRelocation)]
+(define (write-const-section-relocations
+          [relocations : (List ConstSectionRelocation)]
           [symbols : (List Bytes)]
           [output : OutputPort]) : Void
   (case relocations
     [(empty) (void)]
-    [(cons (const-segment-relocation offset symbol value) relocations)
+    [(cons (const-section-relocation offset symbol value) relocations)
      (begin
        (write-quad-le (u32 offset) output)
        (case (find-index (lambda ([x : Bytes]) (bytes=? value x))
@@ -377,7 +334,7 @@
           (panic #"Bad symbol")]
          [(just index)
           (write-quad-le (u32 (bitwise-ior index #x0e000000)) output)])
-       (write-const-segment-relocations relocations symbols output))]))
+       (write-const-section-relocations relocations symbols output))]))
 
 (define (write-symbol-table
           [symbols : (List Symbol)]
@@ -423,9 +380,9 @@
     [(nothing) (panic #"Couldn't find symbol")]
     [(just v) (symbol-table-entry-value v)]))
 
-(define (empty/text-segment-relocation) : (List TextSegmentRelocation)
+(define (empty/text-section-relocation) : (List Relocation)
   (empty))
-(define (empty/const-segment-relocation) : (List ConstSegmentRelocation)
+(define (empty/const-section-relocation) : (List ConstSectionRelocation)
   (empty))
 
 (define (write-mach-o-executable
@@ -435,10 +392,10 @@
           [output-file-name : Bytes])
   : (Either Bytes Void)
   (match-define page-zero-size #x0000000100000000)
-  (match-define text-segment-relocations (empty/text-segment-relocation))
-  (match-define text-segment-num-relocations (length text-segment-relocations))
-  (match-define const-segment-relocations (empty/const-segment-relocation))
-  (match-define const-segment-num-relocations (length const-segment-relocations))
+  (match-define text-section-relocations (empty/text-section-relocation))
+  (match-define text-section-num-relocations (length text-section-relocations))
+  (match-define const-section-relocations (empty/const-section-relocation))
+  (match-define const-section-num-relocations (length const-section-relocations))
   (match-define text-segment-size
     (+ (bytes-length text-section) (bytes-length const-section)))
   (match-define text-segment-num-pages
@@ -486,14 +443,14 @@
                                (bytes-length text-section)
                                (- text-section-start page-zero-size)
                                0
-                               text-segment-num-relocations
+                               text-section-num-relocations
                                (u32 #x80000400))
                     (section64 #"__TEXT" #"__const"
                                const-section-start
                                (bytes-length const-section)
                                (- const-section-start page-zero-size)
                                0
-                               const-segment-num-relocations
+                               const-section-num-relocations
                                (u32 0)))))
               (lc-load-segment64
                 (load-segment64 #"__DATA"
@@ -512,7 +469,7 @@
                                #x0000000000000000
                                (* text-segment-num-pages #x1000)
                                0
-                               text-segment-num-relocations
+                               text-section-num-relocations
                                (u32 0)))))
               (lc-load-segment64
                 (load-segment64 #"__LINKEDIT"
@@ -583,8 +540,9 @@
   : (Either Bytes Void)
   (match-define (assembly-fragments text-fragments const-fragments) fragments)
   (match-define mc-commands (fragments->mc-commands text-fragments))
-  (match-define text-segment-bytes (assemble-text-segment mc-commands))
-  (match-define symbols (collect-symbols fragments mc-commands (bytes-length text-segment-bytes)))
+  (match-define (assembled-text-section text-section-bytes text-section-relocations)
+    (assemble-text-section text-fragments))
+  (match-define symbols (collect-symbols fragments mc-commands (bytes-length text-section-bytes)))
   (match-define exported-symbols
     (filter (lambda ([s : Symbol])
               (case s
@@ -601,25 +559,22 @@
             [_ (nothing)]))
         symbols)))
 
-
-  (match-define text-segment-relocations
-    (compute-text-segment-relocations mc-commands (empty) 0))
-  (match-define (tuple2 local-text-segment-relocations global-text-segment-relocations)
-    (partition-text-segment-relocations text-segment-relocations (empty) (empty) defined-text-symbols))
-  (match-define text-segment-num-global-relocations
-    (length global-text-segment-relocations))
-  (match-define const-segment-bytes (assemble-const-segment const-fragments))
-  (match-define const-segment-relocations
-    (compute-const-segment-relocations const-fragments))
-  (match-define const-segment-num-relocations (length const-segment-relocations))
+  (match-define (tuple2 local-text-section-relocations global-text-section-relocations)
+    (partition-text-section-relocations text-section-relocations (empty) (empty) defined-text-symbols))
+  (match-define text-section-num-global-relocations
+    (length global-text-section-relocations))
+  (match-define const-section-bytes (assemble-const-section const-fragments))
+  (match-define const-section-relocations
+    (compute-const-section-relocations const-fragments))
+  (match-define const-section-num-relocations (length const-section-relocations))
   (match-define segment-size
-    (+ (bytes-length text-segment-bytes) (bytes-length const-segment-bytes)))
+    (+ (bytes-length text-section-bytes) (bytes-length const-section-bytes)))
   (match-define reloc-base (+ 352 (round-up segment-size 8)))
   (call-with-output-file output-file-name
     (lambda ([output : OutputPort])
       (begin
-        (apply-local-text-relocations local-text-segment-relocations symbols
-                                      text-segment-bytes)
+        (apply-local-text-relocations local-text-section-relocations symbols
+                                      text-section-bytes)
         (write-mach-o-header
           (mach-o-header
             (mach-o-library-file)
@@ -636,28 +591,28 @@
                   (varargs list
                     (section64 #"__TEXT" #"__text"
                                #x00
-                               (bytes-length text-segment-bytes)
+                               (bytes-length text-section-bytes)
                                352
                                reloc-base
-                               text-segment-num-global-relocations
+                               text-section-num-global-relocations
                                (u32 #x80000400))
                     (section64 #"__TEXT" #"__const"
-                               (bytes-length text-segment-bytes)
-                               (bytes-length const-segment-bytes)
-                               (+ 352 (bytes-length text-segment-bytes))
+                               (bytes-length text-section-bytes)
+                               (bytes-length const-section-bytes)
+                               (+ 352 (bytes-length text-section-bytes))
                                (+ reloc-base
-                                  (* 8 text-segment-num-global-relocations))
-                               const-segment-num-relocations
+                                  (* 8 text-section-num-global-relocations))
+                               const-section-num-relocations
                                (u32 0)))))
               (lc-symbol-table
                 (symbol-table
                   (+ reloc-base
-                     (* 8 (+ text-segment-num-global-relocations
-                             const-segment-num-relocations)))
+                     (* 8 (+ text-section-num-global-relocations
+                             const-section-num-relocations)))
                   (length exported-symbols)
                   (+ (+ reloc-base
-                        (* 8 (+ text-segment-num-global-relocations
-                                const-segment-num-relocations)))
+                        (* 8 (+ text-section-num-global-relocations
+                                const-section-num-relocations)))
                      (* (length exported-symbols) #x10))
                   (round-up
                     (+ (+ 2 (length exported-symbols))
@@ -669,25 +624,25 @@
               (lc-data-in-code
                 (linkedit-data
                   (u32 (+ reloc-base
-                          (* 8 (+ text-segment-num-global-relocations
-                                  const-segment-num-relocations))))
+                          (* 8 (+ text-section-num-global-relocations
+                                  const-section-num-relocations))))
                   (u32 0)))))
           output)
         (write-all-bytes (make-bytes 32) output)
-        (write-all-bytes text-segment-bytes output)
-        (write-all-bytes const-segment-bytes output)
+        (write-all-bytes text-section-bytes output)
+        (write-all-bytes const-section-bytes output)
         (write-all-bytes
           (make-bytes
             (-
-              (round-up (+ (bytes-length text-segment-bytes)
-                           (bytes-length const-segment-bytes))
+              (round-up (+ (bytes-length text-section-bytes)
+                           (bytes-length const-section-bytes))
                         8)
-              (+ (bytes-length text-segment-bytes)
-                 (bytes-length const-segment-bytes)))) output)
-        (write-text-segment-relocations
-          global-text-segment-relocations (map symbol-name exported-symbols) output)
-        (write-const-segment-relocations
-          const-segment-relocations (map symbol-name exported-symbols) output)
+              (+ (bytes-length text-section-bytes)
+                 (bytes-length const-section-bytes)))) output)
+        (write-text-section-relocations
+          global-text-section-relocations (map symbol-name exported-symbols) output)
+        (write-const-section-relocations
+          const-section-relocations (map symbol-name exported-symbols) output)
         (write-symbol-table exported-symbols 2 output)
         (write-all-bytes (varargs bytes 32 0) output)
         (write-all-symbols (map symbol-name exported-symbols) output)

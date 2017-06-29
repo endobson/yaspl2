@@ -78,6 +78,17 @@ yaspl_binary(
     deps = [":print-stack-function_lib"],
 )
 
+yaspl_bootstrap_library(
+    name = "assembler",
+    srcs = ["assembler.yaspl"],
+    deps = [
+        ":x86-64-stack-machine",
+        "//libraries/data:bytes",
+        "//libraries/data:join-list",
+        "//libraries/data:list",
+    ],
+)
+
 yaspl_library(
     name = "buffered-port",
     srcs = ["buffered-port.yaspl"],
@@ -406,6 +417,7 @@ yaspl_bootstrap_library(
     name = "mach-o-writer2_lib",
     srcs = ["mach-o-writer2.yaspl"],
     deps = [
+        ":assembler",
         ":io",
         ":mach-o-writer_lib",
         ":mach-o_lib",

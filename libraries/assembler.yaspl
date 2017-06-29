@@ -1,0 +1,93 @@
+#:module (assembler)
+#:import {
+  (bytes)
+  (join-list)
+  (list)
+  (prim)
+  (x86-64-stack-machine)
+}
+(export
+  #:types (Relocation)
+  #:values (branch-relocation signed-relocation relocation-symbol assemble-text-section)
+  #:patterns (branch-relocation signed-relocation))
+(types
+  (define-type AssembledTextSection
+    (assembled-text-section
+      [content : Bytes]
+      [relocations : (List Relocation)]))
+  (define-type Relocation
+    (relocation
+      [kind : RelocationKind] [offset : Int] [symbol : Bytes]))
+  ;; These two relocation types are treated exactly the same, but are still distinquished in the
+  ;; object file.
+  (define-type RelocationKind
+    (branch-relocation)
+    (signed-relocation)))
+
+
+(define (assemble-text-commands [commands : (List MCCommand)]) : Bytes
+  (bytes-append
+    (map
+      (lambda ([command : MCCommand])
+        (case command
+          [(mc-bytes bytes) bytes]
+          [(mc-jump t _) (mc-jump-type->bytes t)]
+          ;; TODO Make this work with all registers.
+          ;; (Currently hard coded to rip and rax).
+          [(mc-leaq/rel _ _ _) (varargs bytes #x48 #x8D #x05 0 0 0 0)]))
+      commands)))
+
+(define (fragments->mc-commands [fragments : (List TextFragment)]) : (List MCCommand)
+  (jl->list
+    (concat-map-jl
+      (lambda ([fragment : TextFragment]) : (JoinList MCCommand)
+        (case fragment
+          [(function-fragment name sections)
+           (concat-map-jl
+             (lambda ([s : Section])
+               (case s
+                 [(section blocks)
+                  (concat-map-jl
+                    (lambda ([bb : BasicBlock])
+                      (case bb
+                        [(basic-block block-name instructions)
+                         (map-jl instruction->mc-command instructions)]))
+                    (list->jl blocks))]))
+             (list->jl sections))]))
+      (list->jl fragments))))
+
+(define (compute-text-section-relocations [commands : (List MCCommand)])
+  : (List Relocation)
+  (compute-text-section-relocations* commands (empty) 0))
+
+(define (compute-text-section-relocations*
+          [commands : (List MCCommand)]
+          [acc : (List Relocation)]
+          [offset : Int])
+  : (List Relocation)
+  (case commands
+    [(empty) acc]
+    [(cons command commands)
+     (case command
+       [(mc-bytes bytes)
+        (compute-text-section-relocations* commands acc (+ (bytes-length bytes) offset))]
+       [(mc-jump (mcj-jmp) name)
+        (match-define reloc (relocation (branch-relocation) (+ 1 offset) name))
+        (compute-text-section-relocations* commands (cons reloc acc) (+ 5 offset))]
+       [(mc-jump (mcj-call) name)
+        (match-define reloc (relocation (branch-relocation) (+ 1 offset) name))
+        (compute-text-section-relocations* commands (cons reloc acc) (+ 5 offset))]
+       [(mc-jump _ name)
+        (match-define reloc (relocation (branch-relocation) (+ 2 offset) name))
+        (compute-text-section-relocations* commands (cons reloc acc) (+ 6 offset))]
+       [(mc-leaq/rel name _ _)
+        (match-define reloc (relocation (signed-relocation) (+ 3 offset) name))
+        (compute-text-section-relocations* commands (cons reloc acc) (+ 7 offset))])]))
+
+
+
+(define (assemble-text-section [text-fragments : (List TextFragment)]) : AssembledTextSection
+  (match-define commands (fragments->mc-commands text-fragments))
+  (assembled-text-section
+    (assemble-text-commands commands)
+    (compute-text-section-relocations commands)))
