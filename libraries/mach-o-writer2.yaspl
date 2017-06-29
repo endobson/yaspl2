@@ -84,50 +84,44 @@
 
 (define (compute-text-segment-relocations
           [commands : (List MCCommand)]
-          [local-acc : (List TextSegmentRelocation)]
-          [global-acc : (List TextSegmentRelocation)]
-          [offset : Int]
-          [defined-symbols : (Set Bytes)])
-  : (Tuple2 (List TextSegmentRelocation) (List TextSegmentRelocation))
+          [acc : (List TextSegmentRelocation)]
+          [offset : Int])
+  : (List TextSegmentRelocation)
   (case commands
-    [(empty) (tuple2 local-acc global-acc)]
+    [(empty) acc]
     [(cons command commands)
      (case command
        [(mc-bytes bytes)
-        (compute-text-segment-relocations
-          commands local-acc global-acc (+ (bytes-length bytes) offset) defined-symbols)]
+        (compute-text-segment-relocations commands acc (+ (bytes-length bytes) offset))]
        [(mc-jump (mcj-jmp) name)
-        (match-define local (set-member? defined-symbols name))
         (match-define reloc (text-segment-relocation (branch-relocation) (+ 1 offset) name))
-        (compute-text-segment-relocations
-          commands
-          (if local (cons reloc local-acc) local-acc)
-          (if local global-acc (cons reloc global-acc))
-          (+ 5 offset) defined-symbols)]
+        (compute-text-segment-relocations commands (cons reloc acc) (+ 5 offset))]
        [(mc-jump (mcj-call) name)
-        (match-define local (set-member? defined-symbols name))
         (match-define reloc (text-segment-relocation (branch-relocation) (+ 1 offset) name))
-        (compute-text-segment-relocations
-          commands
-          (if local (cons reloc local-acc) local-acc)
-          (if local global-acc (cons reloc global-acc))
-          (+ 5 offset) defined-symbols)]
+        (compute-text-segment-relocations commands (cons reloc acc) (+ 5 offset))]
        [(mc-jump _ name)
-        (match-define local (set-member? defined-symbols name))
         (match-define reloc (text-segment-relocation (branch-relocation) (+ 2 offset) name))
-        (compute-text-segment-relocations
-          commands
-          (if local (cons reloc local-acc) local-acc)
-          (if local global-acc (cons reloc global-acc))
-          (+ 6 offset) defined-symbols)]
+        (compute-text-segment-relocations commands (cons reloc acc) (+ 6 offset))]
        [(mc-leaq/rel name _ _)
-        (match-define local (set-member? defined-symbols name))
         (match-define reloc (text-segment-relocation (signed-relocation) (+ 3 offset) name))
-        (compute-text-segment-relocations
-          commands
-          (if local (cons reloc local-acc) local-acc)
-          (if local global-acc (cons reloc global-acc))
-          (+ 7 offset) defined-symbols)])]))
+        (compute-text-segment-relocations commands (cons reloc acc) (+ 7 offset))])]))
+
+(define (partition-text-segment-relocations
+          [relocations : (List TextSegmentRelocation)]
+          [local-acc : (List TextSegmentRelocation)]
+          [global-acc : (List TextSegmentRelocation)]
+          [defined-symbols : (Set Bytes)])
+  : (Tuple2 (List TextSegmentRelocation) (List TextSegmentRelocation))
+  (case relocations
+    [(empty) (tuple2 local-acc global-acc)]
+    [(cons reloc relocations)
+     (match-define local (set-member? defined-symbols (text-segment-relocation-symbol reloc)))
+     (partition-text-segment-relocations
+       relocations
+       (if local (cons reloc local-acc) local-acc)
+       (if local global-acc (cons reloc global-acc))
+       defined-symbols)]))
+
 
 (define (instruction-length [inst : Instruction]) : Int
   (case (instruction->mc-command inst)
@@ -607,8 +601,11 @@
             [_ (nothing)]))
         symbols)))
 
+
+  (match-define text-segment-relocations
+    (compute-text-segment-relocations mc-commands (empty) 0))
   (match-define (tuple2 local-text-segment-relocations global-text-segment-relocations)
-    (compute-text-segment-relocations mc-commands (empty) (empty) 0 defined-text-symbols))
+    (partition-text-segment-relocations text-segment-relocations (empty) (empty) defined-text-symbols))
   (match-define text-segment-num-global-relocations
     (length global-text-segment-relocations))
   (match-define const-segment-bytes (assemble-const-segment const-fragments))
