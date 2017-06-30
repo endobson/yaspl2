@@ -45,10 +45,7 @@
   #:types ()
   #:values (write-mach-o-library/fragments write-mach-o-executable)
   #:patterns ())
-(types
-  (define-type Symbol
-    (symbol-defined [sym : DefinedSymbol])
-    (symbol-undefined [name : Bytes])))
+(types)
 
 (define (compute-const-section-relocations [fragments : (List ConstFragment)])
   : (List Relocation)
@@ -108,14 +105,10 @@
           (cons (defined-symbol (const-symbol) name const-offset) acc))])]))
 
 
-
-(define (defined-symbol< [x : DefinedSymbol] [y : DefinedSymbol]) : Boolean
-  (bytes< (defined-symbol-name x) (defined-symbol-name y)))
-
 (define (collect-symbols [const-fragments : (List ConstFragment)]
                          [text-defined-symbols : (List DefinedSymbol)]
                          [text-referenced-symbols : (List Bytes)] [text-size : Int])
-  : (List Symbol)
+  : (List SymbolTableEntry)
   (match-define const-defined-symbols (collect-defined-const-symbols const-fragments text-size (empty)))
   (match-define defined-symbols (append text-defined-symbols const-defined-symbols))
   (match-define undefined-symbols
@@ -126,8 +119,19 @@
           text-referenced-symbols)
         (map defined-symbol-name defined-symbols))))
   (append
-    (map symbol-defined (sort defined-symbols defined-symbol<))
-    (map symbol-undefined (sort undefined-symbols bytes<))))
+    (map
+      (lambda ([s : DefinedSymbol])
+        (case s
+          [(defined-symbol (text-symbol) name offset)
+           (symbol-table-entry name (u8 #x0f) (u8 #x01) (u8 #x20) offset)]
+          [(defined-symbol (const-symbol) name offset)
+           (symbol-table-entry name (u8 #x0f) (u8 #x02) (u8 #x20) offset)]))
+      (sort defined-symbols defined-symbol<))
+    (map
+      (lambda ([s : Bytes])
+        (symbol-table-entry s (u8 #x01) (u8 #x00) (u8 #x00) 0))
+      (sort undefined-symbols bytes<))))
+
 
 (define (round-up [v : Int] [mod : Int]) : Int
   (let ([rem (remainder v mod)])
@@ -147,14 +151,6 @@
       (bytes-set!/eight-bytes-le bytes 0 v)
       (write-all-bytes bytes output))))
 
-(define (symbol->symbol-table-entry [s : Symbol]) : SymbolTableEntry
-  (case s
-    [(symbol-undefined name)
-     (symbol-table-entry name (u8 #x01) (u8 #x00) (u8 #x00) 0)]
-    [(symbol-defined (defined-symbol (text-symbol) name offset))
-     (symbol-table-entry name (u8 #x0f) (u8 #x01) (u8 #x20) offset)]
-    [(symbol-defined (defined-symbol (const-symbol) name offset))
-     (symbol-table-entry name (u8 #x0f) (u8 #x02) (u8 #x20) offset)]))
 
 (define (write-symbol-strings [symbols : (List SymbolTableEntry)] [output : OutputPort]) : Void
   (case symbols
@@ -348,11 +344,9 @@
                                         text-defined-symbols)
     (assemble-text-section text-fragments))
   (match-define exported-symbols
-    (map
-      symbol->symbol-table-entry
-      (collect-symbols const-fragments text-defined-symbols
-                       (map relocation-symbol text-section-relocations)
-                       (bytes-length text-section-bytes))))
+    (collect-symbols const-fragments text-defined-symbols
+                     (map relocation-symbol text-section-relocations)
+                     (bytes-length text-section-bytes)))
 
   (match-define text-section-num-relocations (length text-section-relocations))
   (match-define const-section-bytes (assemble-const-section const-fragments))
