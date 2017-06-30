@@ -49,45 +49,12 @@
     (const-section-relocation [offset : Int] [symbol : Bytes] [value : Bytes]))
   (define-type Symbol
     (symbol-defined [sym : DefinedSymbol])
-    (symbol-undefined [name : Bytes]))
-  (define-type DefinedSymbol
-    (defined-symbol [kind : DefinedSymbolKind] [name : Bytes] [offset : Int]))
-
-  (define-type DefinedSymbolKind
-    (global-text-symbol)
-    (local-text-symbol)
-    (const-symbol)))
+    (symbol-undefined [name : Bytes])))
 
 (define (symbol-name [v : Symbol]) : Bytes
   (case v
     [(symbol-defined sym) (defined-symbol-name sym)]
     [(symbol-undefined name) name]))
-
-(define (partition-text-section-relocations
-          [relocations : (List Relocation)]
-          [local-acc : (List Relocation)]
-          [global-acc : (List Relocation)]
-          [defined-symbols : (Set Bytes)])
-  : (Tuple2 (List Relocation) (List Relocation))
-  (case relocations
-    [(empty) (tuple2 local-acc global-acc)]
-    [(cons reloc relocations)
-     (match-define local (set-member? defined-symbols (relocation-symbol reloc)))
-     (partition-text-section-relocations
-       relocations
-       (if local (cons reloc local-acc) local-acc)
-       (if local global-acc (cons reloc global-acc))
-       defined-symbols)]))
-
-
-(define (instruction-length [inst : Instruction]) : Int
-  (case (instruction->mc-command inst)
-    [(mc-bytes bytes) (bytes-length bytes)]
-    [(mc-jump (mcj-jmp) name) 5]
-    [(mc-jump (mcj-call) name) 5]
-    [(mc-jump _ name) 6]
-    [(mc-leaq/rel name _ _) 7]))
-
 
 (define (compute-const-section-relocations [fragments : (List ConstFragment)])
   : (List ConstSectionRelocation)
@@ -131,22 +98,9 @@
 (define (collect-defined-symbols [fragments : AssemblyFragments] [text-size : Int])
   : (List DefinedSymbol)
   (match-define (assembly-fragments text const) fragments)
-  (collect-defined-text-symbols text 0
+  (append
+    (collect-defined-text-symbols text)
     (collect-defined-const-symbols const text-size (empty))))
-
-(define (collect-defined-text-symbols
-          [fragments : (List TextFragment)]
-          [text-offset : Int]
-          [acc : (List DefinedSymbol)])
-  : (List DefinedSymbol)
-  (case fragments
-    [(empty) acc]
-    [(cons fragment fragments)
-     (case fragment
-       [(function-fragment name sections)
-        (collect-defined-symbols/blocks*
-          (append* (map section-blocks sections))
-          fragments text-offset acc)])]))
 
 (define (collect-defined-const-symbols
           [fragments : (List ConstFragment)]
@@ -165,38 +119,6 @@
         (collect-defined-const-symbols
           fragments (+ const-offset (+ 8 (bytes-length value)))
           (cons (defined-symbol (const-symbol) name const-offset) acc))])]))
-
-;; The first block in a function is global as that is the function entry point.
-(define (collect-defined-symbols/blocks*
-          [blocks : (List BasicBlock)]
-          [fragments : (List TextFragment)]
-          [text-offset : Int]
-          [acc : (List DefinedSymbol)])
-  : (List DefinedSymbol)
-  (case blocks
-    [(empty)
-     (panic #"Empty function")]
-    [(cons (basic-block block-name instructions) blocks)
-     (collect-defined-symbols/blocks
-       blocks fragments
-       (+ text-offset (sum (map instruction-length (jl->list instructions))))
-       (cons (defined-symbol (global-text-symbol) block-name text-offset) acc))]))
-
-
-(define (collect-defined-symbols/blocks
-          [blocks : (List BasicBlock)]
-          [fragments : (List TextFragment)]
-          [text-offset : Int]
-          [acc : (List DefinedSymbol)])
-  : (List DefinedSymbol)
-  (case blocks
-    [(empty)
-     (collect-defined-text-symbols fragments text-offset acc)]
-    [(cons (basic-block block-name instructions) blocks)
-     (collect-defined-symbols/blocks
-       blocks fragments
-       (+ text-offset (sum (map instruction-length (jl->list instructions))))
-       (cons (defined-symbol (local-text-symbol) block-name text-offset) acc))]))
 
 
 (define (collect-instruction-symbols [commands : (List MCCommand)]) : (List Bytes)
@@ -225,29 +147,6 @@
   (append
     (map symbol-defined (sort defined-symbols defined-symbol<))
     (map symbol-undefined (sort undefined-symbols bytes<))))
-
-(define (apply-local-text-relocations [relocs : (List Relocation)] [symbols : (List Symbol)]
-                                      [text : Bytes]) : Void
-  (case relocs
-    [(empty) (void)]
-    [(cons (relocation _ offset symbol) relocs)
-     (begin
-        (case (find/maybe (lambda ([x : Symbol]) : (Maybe Int)
-                            (case x
-                              [(symbol-defined (defined-symbol _ name offset))
-                               (if (bytes=? symbol name)
-                                   (just offset)
-                                   (nothing))]
-                              [_ (nothing)])) symbols)
-          [(nothing)
-           (panic #"Bad local relocation")]
-          [(just symbol-offset)
-           (bytes-set!/quad-le
-             text
-             offset
-             (u32 (- (- symbol-offset offset) 4)))])
-       (apply-local-text-relocations relocs symbols text))]))
-
 
 (define (round-up [v : Int] [mod : Int]) : Int
   (let ([rem (remainder v mod)])
@@ -548,21 +447,8 @@
               (case s
                [(symbol-defined (defined-symbol (local-text-symbol) _ _)) #f]
                [_ #t])) symbols))
-  (match-define defined-text-symbols
-    (set-add-all
-      (make-set bytes=?)
-      (filter-map
-        (lambda ([s : Symbol]) : (Maybe Bytes)
-          (case s
-            [(symbol-defined (defined-symbol (local-text-symbol) name _)) (just name)]
-            [(symbol-defined (defined-symbol (global-text-symbol) name _)) (just name)]
-            [_ (nothing)]))
-        symbols)))
 
-  (match-define (tuple2 local-text-section-relocations global-text-section-relocations)
-    (partition-text-section-relocations text-section-relocations (empty) (empty) defined-text-symbols))
-  (match-define text-section-num-global-relocations
-    (length global-text-section-relocations))
+  (match-define text-section-num-relocations (length text-section-relocations))
   (match-define const-section-bytes (assemble-const-section const-fragments))
   (match-define const-section-relocations
     (compute-const-section-relocations const-fragments))
@@ -573,8 +459,6 @@
   (call-with-output-file output-file-name
     (lambda ([output : OutputPort])
       (begin
-        (apply-local-text-relocations local-text-section-relocations symbols
-                                      text-section-bytes)
         (write-mach-o-header
           (mach-o-header
             (mach-o-library-file)
@@ -594,24 +478,24 @@
                                (bytes-length text-section-bytes)
                                352
                                reloc-base
-                               text-section-num-global-relocations
+                               text-section-num-relocations
                                (u32 #x80000400))
                     (section64 #"__TEXT" #"__const"
                                (bytes-length text-section-bytes)
                                (bytes-length const-section-bytes)
                                (+ 352 (bytes-length text-section-bytes))
                                (+ reloc-base
-                                  (* 8 text-section-num-global-relocations))
+                                  (* 8 text-section-num-relocations))
                                const-section-num-relocations
                                (u32 0)))))
               (lc-symbol-table
                 (symbol-table
                   (+ reloc-base
-                     (* 8 (+ text-section-num-global-relocations
+                     (* 8 (+ text-section-num-relocations
                              const-section-num-relocations)))
                   (length exported-symbols)
                   (+ (+ reloc-base
-                        (* 8 (+ text-section-num-global-relocations
+                        (* 8 (+ text-section-num-relocations
                                 const-section-num-relocations)))
                      (* (length exported-symbols) #x10))
                   (round-up
@@ -624,7 +508,7 @@
               (lc-data-in-code
                 (linkedit-data
                   (u32 (+ reloc-base
-                          (* 8 (+ text-section-num-global-relocations
+                          (* 8 (+ text-section-num-relocations
                                   const-section-num-relocations))))
                   (u32 0)))))
           output)
@@ -640,7 +524,7 @@
               (+ (bytes-length text-section-bytes)
                  (bytes-length const-section-bytes)))) output)
         (write-text-section-relocations
-          global-text-section-relocations (map symbol-name exported-symbols) output)
+          text-section-relocations (map symbol-name exported-symbols) output)
         (write-const-section-relocations
           const-section-relocations (map symbol-name exported-symbols) output)
         (write-symbol-table exported-symbols 2 output)

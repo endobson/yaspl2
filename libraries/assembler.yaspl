@@ -3,12 +3,17 @@
   (bytes)
   (join-list)
   (list)
+  (maybe)
   (prim)
+  (set)
+  (tuples)
   (x86-64-stack-machine)
 }
 (export
-  #:types (Relocation)
-  #:values (branch-relocation signed-relocation relocation-symbol assemble-text-section)
+  #:types (Relocation DefinedSymbol DefinedSymbolKind)
+  #:values (branch-relocation signed-relocation relocation-symbol assemble-text-section
+            defined-symbol global-text-symbol local-text-symbol const-symbol
+            defined-symbol-name collect-defined-text-symbols)
   #:patterns (branch-relocation signed-relocation))
 (types
   (define-type AssembledTextSection
@@ -18,11 +23,19 @@
   (define-type Relocation
     (relocation
       [kind : RelocationKind] [offset : Int] [symbol : Bytes]))
+
   ;; These two relocation types are treated exactly the same, but are still distinquished in the
   ;; object file.
   (define-type RelocationKind
     (branch-relocation)
-    (signed-relocation)))
+    (signed-relocation))
+
+  (define-type DefinedSymbol
+    (defined-symbol [kind : DefinedSymbolKind] [name : Bytes] [offset : Int]))
+  (define-type DefinedSymbolKind
+    (global-text-symbol)
+    (local-text-symbol)
+    (const-symbol)))
 
 
 (define (assemble-text-commands [commands : (List MCCommand)]) : Bytes
@@ -85,9 +98,121 @@
         (compute-text-section-relocations* commands (cons reloc acc) (+ 7 offset))])]))
 
 
+(define (collect-defined-text-symbols [fragments : (List TextFragment)])
+  : (List DefinedSymbol)
+  (collect-defined-text-symbols* fragments 0 (empty)))
+
+
+(define (collect-defined-text-symbols*
+          [fragments : (List TextFragment)]
+          [text-offset : Int]
+          [acc : (List DefinedSymbol)])
+  : (List DefinedSymbol)
+  (case fragments
+    [(empty) acc]
+    [(cons fragment fragments)
+     (case fragment
+       [(function-fragment name sections)
+        (collect-defined-symbols/blocks*
+          (append* (map section-blocks sections))
+          fragments text-offset acc)])]))
+
+;; The first block in a function is global as that is the function entry point.
+(define (collect-defined-symbols/blocks*
+          [blocks : (List BasicBlock)]
+          [fragments : (List TextFragment)]
+          [text-offset : Int]
+          [acc : (List DefinedSymbol)])
+  : (List DefinedSymbol)
+  (case blocks
+    [(empty)
+     (panic #"Empty function")]
+    [(cons (basic-block block-name instructions) blocks)
+     (collect-defined-symbols/blocks
+       blocks fragments
+       (+ text-offset (sum (map instruction-length (jl->list instructions))))
+       (cons (defined-symbol (global-text-symbol) block-name text-offset) acc))]))
+
+
+(define (collect-defined-symbols/blocks
+          [blocks : (List BasicBlock)]
+          [fragments : (List TextFragment)]
+          [text-offset : Int]
+          [acc : (List DefinedSymbol)])
+  : (List DefinedSymbol)
+  (case blocks
+    [(empty)
+     (collect-defined-text-symbols* fragments text-offset acc)]
+    [(cons (basic-block block-name instructions) blocks)
+     (collect-defined-symbols/blocks
+       blocks fragments
+       (+ text-offset (sum (map instruction-length (jl->list instructions))))
+       (cons (defined-symbol (local-text-symbol) block-name text-offset) acc))]))
+
+(define (instruction-length [inst : Instruction]) : Int
+  (case (instruction->mc-command inst)
+    [(mc-bytes bytes) (bytes-length bytes)]
+    [(mc-jump (mcj-jmp) name) 5]
+    [(mc-jump (mcj-call) name) 5]
+    [(mc-jump _ name) 6]
+    [(mc-leaq/rel name _ _) 7]))
+
+(define (partition-text-section-relocations
+          [relocations : (List Relocation)]
+          [local-acc : (List Relocation)]
+          [global-acc : (List Relocation)]
+          [defined-symbols : (Set Bytes)])
+  : (Tuple2 (List Relocation) (List Relocation))
+  (case relocations
+    [(empty) (tuple2 local-acc global-acc)]
+    [(cons reloc relocations)
+     (match-define local (set-member? defined-symbols (relocation-symbol reloc)))
+     (partition-text-section-relocations
+       relocations
+       (if local (cons reloc local-acc) local-acc)
+       (if local global-acc (cons reloc global-acc))
+       defined-symbols)]))
+
+(define (apply-local-text-relocations
+          [relocs : (List Relocation)]
+          [symbols : (List DefinedSymbol)]
+          [text : Bytes]) : Void
+  (case relocs
+    [(empty) (void)]
+    [(cons (relocation _ offset symbol) relocs)
+     (begin
+        (case (find/maybe (lambda ([x : DefinedSymbol]) : (Maybe Int)
+                            (case x
+                              [(defined-symbol _ name offset)
+                               (if (bytes=? symbol name)
+                                   (just offset)
+                                   (nothing))])) symbols)
+          [(nothing)
+           (panic #"Bad local relocation")]
+          [(just symbol-offset)
+           (bytes-set!/quad-le
+             text
+             offset
+             (u32 (- (- symbol-offset offset) 4)))])
+       (apply-local-text-relocations relocs symbols text))]))
+
 
 (define (assemble-text-section [text-fragments : (List TextFragment)]) : AssembledTextSection
   (match-define commands (fragments->mc-commands text-fragments))
-  (assembled-text-section
-    (assemble-text-commands commands)
-    (compute-text-section-relocations commands)))
+  (match-define text-section-relocations (compute-text-section-relocations commands))
+  (match-define defined-text-symbols
+    (collect-defined-text-symbols text-fragments))
+  (match-define defined-text-symbol-names
+    (set-add-all
+      (make-set bytes=?)
+      (map
+        defined-symbol-name
+        (collect-defined-text-symbols text-fragments))))
+  (match-define text-bytes
+    (assemble-text-commands commands))
+  (match-define (tuple2 local-text-section-relocations global-text-section-relocations)
+    (partition-text-section-relocations text-section-relocations (empty) (empty)
+                                        defined-text-symbol-names))
+  (begin
+    (apply-local-text-relocations local-text-section-relocations defined-text-symbols text-bytes)
+    (assembled-text-section text-bytes global-text-section-relocations)))
