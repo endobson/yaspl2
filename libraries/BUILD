@@ -83,6 +83,7 @@ yaspl_bootstrap_library(
     srcs = ["assembler.yaspl"],
     deps = [
         ":x86-64-stack-machine",
+        "//libraries/data:boolean",
         "//libraries/data:bytes",
         "//libraries/data:join-list",
         "//libraries/data:list",

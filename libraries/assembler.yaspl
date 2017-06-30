@@ -1,6 +1,7 @@
 #:module (assembler)
 #:import {
   (bytes)
+  (data boolean)
   (join-list)
   (list)
   (maybe)
@@ -12,14 +13,15 @@
 (export
   #:types (Relocation DefinedSymbol DefinedSymbolKind)
   #:values (branch-relocation signed-relocation relocation-symbol assemble-text-section
-            defined-symbol global-text-symbol local-text-symbol const-symbol
-            defined-symbol-name collect-defined-text-symbols)
+            defined-symbol text-symbol const-symbol defined-symbol-name)
   #:patterns (branch-relocation signed-relocation))
 (types
   (define-type AssembledTextSection
     (assembled-text-section
       [content : Bytes]
-      [relocations : (List Relocation)]))
+      [relocations : (List Relocation)]
+      [defined-symbols : (List DefinedSymbol)]
+      [referenced-symbols : (List Bytes)]))
   (define-type Relocation
     (relocation
       [kind : RelocationKind] [offset : Int] [symbol : Bytes]))
@@ -33,8 +35,7 @@
   (define-type DefinedSymbol
     (defined-symbol [kind : DefinedSymbolKind] [name : Bytes] [offset : Int]))
   (define-type DefinedSymbolKind
-    (global-text-symbol)
-    (local-text-symbol)
+    (text-symbol)
     (const-symbol)))
 
 
@@ -98,6 +99,15 @@
         (compute-text-section-relocations* commands (cons reloc acc) (+ 7 offset))])]))
 
 
+(define (collect-global-symbols [fragments : (List TextFragment)]) : (Set Bytes)
+  (set-add-all
+    (make-set bytes=?)
+    (map
+      (lambda ([f : TextFragment])
+        (case f
+          [(function-fragment name _) name]))
+      fragments)))
+
 (define (collect-defined-text-symbols [fragments : (List TextFragment)])
   : (List DefinedSymbol)
   (collect-defined-text-symbols* fragments 0 (empty)))
@@ -131,7 +141,7 @@
      (collect-defined-symbols/blocks
        blocks fragments
        (+ text-offset (sum (map instruction-length (jl->list instructions))))
-       (cons (defined-symbol (global-text-symbol) block-name text-offset) acc))]))
+       (cons (defined-symbol (text-symbol) block-name text-offset) acc))]))
 
 
 (define (collect-defined-symbols/blocks
@@ -147,7 +157,7 @@
      (collect-defined-symbols/blocks
        blocks fragments
        (+ text-offset (sum (map instruction-length (jl->list instructions))))
-       (cons (defined-symbol (local-text-symbol) block-name text-offset) acc))]))
+       (cons (defined-symbol (text-symbol) block-name text-offset) acc))]))
 
 (define (instruction-length [inst : Instruction]) : Int
   (case (instruction->mc-command inst)
@@ -196,6 +206,14 @@
              (u32 (- (- symbol-offset offset) 4)))])
        (apply-local-text-relocations relocs symbols text))]))
 
+(define (collect-instruction-symbols [commands : (List MCCommand)]) : (List Bytes)
+  (filter-map
+    (lambda ([command : MCCommand]) : (Maybe Bytes)
+      (case command
+        [(mc-bytes bytes) (nothing)]
+        [(mc-jump _ label) (just label)]
+        [(mc-leaq/rel label _ _) (just label)]))
+    commands))
 
 (define (assemble-text-section [text-fragments : (List TextFragment)]) : AssembledTextSection
   (match-define commands (fragments->mc-commands text-fragments))
@@ -213,6 +231,35 @@
   (match-define (tuple2 local-text-section-relocations global-text-section-relocations)
     (partition-text-section-relocations text-section-relocations (empty) (empty)
                                         defined-text-symbol-names))
+  (match-define global-symbols (collect-global-symbols text-fragments))
+  (match-define local-symbols
+    (set-add-all
+      (make-set bytes=?)
+      (filter-map
+        (lambda ([d : DefinedSymbol]) : (Maybe Bytes)
+          (case d
+            [(defined-symbol _ name _)
+             (if (set-member? global-symbols name)
+                 (nothing)
+                 (just name))]))
+        defined-text-symbols)))
+
+  (match-define global-defined-text-symbols
+    (filter
+      (lambda ([d : DefinedSymbol])
+        (case d
+          [(defined-symbol _ name _) (set-member? global-symbols name)]))
+      defined-text-symbols))
+  (match-define referenced-symbols
+    (filter
+      (lambda ([s : Bytes])
+        (not (set-member? local-symbols s)))
+      (collect-instruction-symbols commands)))
+
   (begin
     (apply-local-text-relocations local-text-section-relocations defined-text-symbols text-bytes)
-    (assembled-text-section text-bytes global-text-section-relocations)))
+    (assembled-text-section
+      text-bytes
+      global-text-section-relocations
+      global-defined-text-symbols
+      referenced-symbols)))

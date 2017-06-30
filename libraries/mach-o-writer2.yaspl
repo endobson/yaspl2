@@ -91,13 +91,6 @@
                  (varargs join-list length-buf value)))]))
         (list->jl fragments)))))
 
-(define (collect-defined-symbols [fragments : AssemblyFragments] [text-size : Int])
-  : (List DefinedSymbol)
-  (match-define (assembly-fragments text const) fragments)
-  (append
-    (collect-defined-text-symbols text)
-    (collect-defined-const-symbols const text-size (empty))))
-
 (define (collect-defined-const-symbols
           [fragments : (List ConstFragment)]
           [const-offset : Int]
@@ -117,28 +110,22 @@
           (cons (defined-symbol (const-symbol) name const-offset) acc))])]))
 
 
-(define (collect-instruction-symbols [commands : (List MCCommand)]) : (List Bytes)
-  (filter-map
-    (lambda ([command : MCCommand]) : (Maybe Bytes)
-      (case command
-        [(mc-bytes bytes) (nothing)]
-        [(mc-jump _ label) (just label)]
-        [(mc-leaq/rel label _ _) (just label)]))
-    commands))
 
 (define (defined-symbol< [x : DefinedSymbol] [y : DefinedSymbol]) : Boolean
   (bytes< (defined-symbol-name x) (defined-symbol-name y)))
 
-(define (collect-symbols [fragments : AssemblyFragments] [commands : (List MCCommand)] [text-size : Int])
+(define (collect-symbols [const-fragments : (List ConstFragment)]
+                         [text-defined-symbols : (List DefinedSymbol)]
+                         [text-referenced-symbols : (List Bytes)] [text-size : Int])
   : (List Symbol)
-  (match-define defined-symbols (collect-defined-symbols fragments text-size))
-  (match-define referenced-symbols (collect-instruction-symbols commands))
+  (match-define const-defined-symbols (collect-defined-const-symbols const-fragments text-size (empty)))
+  (match-define defined-symbols (append text-defined-symbols const-defined-symbols))
   (match-define undefined-symbols
     (set->list
       (set-remove-all
         (set-add-all
           (make-set bytes=?)
-          referenced-symbols)
+          text-referenced-symbols)
         (map defined-symbol-name defined-symbols))))
   (append
     (map symbol-defined (sort defined-symbols defined-symbol<))
@@ -166,9 +153,7 @@
   (case s
     [(symbol-undefined name)
      (symbol-table-entry name (u8 #x01) (u8 #x00) (u8 #x00) 0)]
-    [(symbol-defined (defined-symbol (global-text-symbol) name offset))
-     (symbol-table-entry name (u8 #x0f) (u8 #x01) (u8 #x20) offset)]
-    [(symbol-defined (defined-symbol (local-text-symbol) name offset))
+    [(symbol-defined (defined-symbol (text-symbol) name offset))
      (symbol-table-entry name (u8 #x0f) (u8 #x01) (u8 #x20) offset)]
     [(symbol-defined (defined-symbol (const-symbol) name offset))
      (symbol-table-entry name (u8 #x0f) (u8 #x02) (u8 #x20) offset)]))
@@ -376,40 +361,17 @@
 
         (right (void))))))
 
-(define (fragments->mc-commands [fragments : (List TextFragment)]) : (List MCCommand)
-  (jl->list
-    (concat-map-jl
-      (lambda ([fragment : TextFragment]) : (JoinList MCCommand)
-        (case fragment
-          [(function-fragment name sections)
-           (concat-map-jl
-             (lambda ([s : Section])
-               (case s
-                 [(section blocks)
-                  (concat-map-jl
-                    (lambda ([bb : BasicBlock])
-                      (case bb
-                        [(basic-block block-name instructions)
-                         (map-jl instruction->mc-command instructions)]))
-                    (list->jl blocks))]))
-             (list->jl sections))]))
-      (list->jl fragments))))
-
-
 (define (write-mach-o-library/fragments [output-file-name : Bytes] [fragments : AssemblyFragments])
   : (Either Bytes Void)
   (match-define (assembly-fragments text-fragments const-fragments) fragments)
-  (match-define mc-commands (fragments->mc-commands text-fragments))
-  (match-define (assembled-text-section text-section-bytes text-section-relocations)
+  (match-define (assembled-text-section text-section-bytes text-section-relocations
+                                        text-defined-symbols text-referenced-symbols)
     (assemble-text-section text-fragments))
-  (match-define symbols (collect-symbols fragments mc-commands (bytes-length text-section-bytes)))
   (match-define exported-symbols
     (map
       symbol->symbol-table-entry
-      (filter (lambda ([s : Symbol])
-                (case s
-                 [(symbol-defined (defined-symbol (local-text-symbol) _ _)) #f]
-                 [_ #t])) symbols)))
+      (collect-symbols const-fragments text-defined-symbols text-referenced-symbols
+                       (bytes-length text-section-bytes))))
 
   (match-define text-section-num-relocations (length text-section-relocations))
   (match-define const-section-bytes (assemble-const-section const-fragments))
