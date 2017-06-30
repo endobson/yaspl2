@@ -10,6 +10,7 @@
     #:types
       SymbolTableEntry
     #:values
+      symbol-table-entry
       symbol-table-entry-name
       symbol-table-entry-value
     #:patterns
@@ -50,11 +51,6 @@
   (define-type Symbol
     (symbol-defined [sym : DefinedSymbol])
     (symbol-undefined [name : Bytes])))
-
-(define (symbol-name [v : Symbol]) : Bytes
-  (case v
-    [(symbol-defined sym) (defined-symbol-name sym)]
-    [(symbol-undefined name) name]))
 
 (define (compute-const-section-relocations [fragments : (List ConstFragment)])
   : (List ConstSectionRelocation)
@@ -166,14 +162,16 @@
       (bytes-set!/eight-bytes-le bytes 0 v)
       (write-all-bytes bytes output))))
 
-(define (write-all-symbols [symbols : (List Bytes)] [output : OutputPort]) : Void
-  (case symbols
-    [(empty) (void)]
-    [(cons symbol symbols)
-     (begin
-       (write-all-bytes symbol output)
-       (write-all-bytes (make-bytes 1) output)
-       (write-all-symbols symbols output))]))
+(define (symbol->symbol-table-entry [s : Symbol]) : SymbolTableEntry
+  (case s
+    [(symbol-undefined name)
+     (symbol-table-entry name (u8 #x01) (u8 #x00) (u8 #x00) 0)]
+    [(symbol-defined (defined-symbol (global-text-symbol) name offset))
+     (symbol-table-entry name (u8 #x0f) (u8 #x01) (u8 #x20) offset)]
+    [(symbol-defined (defined-symbol (local-text-symbol) name offset))
+     (symbol-table-entry name (u8 #x0f) (u8 #x01) (u8 #x20) offset)]
+    [(symbol-defined (defined-symbol (const-symbol) name offset))
+     (symbol-table-entry name (u8 #x0f) (u8 #x02) (u8 #x20) offset)]))
 
 (define (write-symbol-strings [symbols : (List SymbolTableEntry)] [output : OutputPort]) : Void
   (case symbols
@@ -234,34 +232,6 @@
          [(just index)
           (write-quad-le (u32 (bitwise-ior index #x0e000000)) output)])
        (write-const-section-relocations relocations symbols output))]))
-
-(define (write-symbol-table
-          [symbols : (List Symbol)]
-          [sym-offset : Int]
-          [output : OutputPort]) : Void
-  (case symbols
-    [(empty) (void)]
-    [(cons symbol symbols)
-     (begin
-       (write-quad-le (u32 sym-offset) output)
-       (case symbol
-         [(symbol-undefined _)
-          (begin
-            (write-quad-le (u32 #x00000001) output)
-            (write-eight-bytes-le (int->eight-bytes-le #x0000000000000000) output))]
-         [(symbol-defined (defined-symbol (global-text-symbol) name offset))
-          (begin
-            (write-quad-le (u32 #x0020010f) output)
-            (write-eight-bytes-le (int->eight-bytes-le offset) output))]
-         [(symbol-defined (defined-symbol (local-text-symbol) name offset))
-          (begin
-            (write-quad-le (u32 #x0020010f) output)
-            (write-eight-bytes-le (int->eight-bytes-le offset) output))]
-         [(symbol-defined (defined-symbol (const-symbol) name offset))
-          (begin
-            (write-quad-le (u32 #x0020020f) output)
-            (write-eight-bytes-le (int->eight-bytes-le offset) output))])
-       (write-symbol-table symbols (+ (+ (bytes-length (symbol-name symbol)) 1) sym-offset) output))]))
 
 (define (find-start-address [symbols : (List SymbolTableEntry)]) : Int
   (case (findf (lambda ([entry : SymbolTableEntry])
@@ -434,10 +404,12 @@
     (assemble-text-section text-fragments))
   (match-define symbols (collect-symbols fragments mc-commands (bytes-length text-section-bytes)))
   (match-define exported-symbols
-    (filter (lambda ([s : Symbol])
-              (case s
-               [(symbol-defined (defined-symbol (local-text-symbol) _ _)) #f]
-               [_ #t])) symbols))
+    (map
+      symbol->symbol-table-entry
+      (filter (lambda ([s : Symbol])
+                (case s
+                 [(symbol-defined (defined-symbol (local-text-symbol) _ _)) #f]
+                 [_ #t])) symbols)))
 
   (match-define text-section-num-relocations (length text-section-relocations))
   (match-define const-section-bytes (assemble-const-section const-fragments))
@@ -492,7 +464,7 @@
                   (round-up
                     (+ (+ 2 (length exported-symbols))
                        (sum (map bytes-length
-                                 (map symbol-name exported-symbols))))
+                                 (map symbol-table-entry-name exported-symbols))))
                     8)))
               (lc-version-min-macosx
                 (version-min (u8 10) (u8 11) (u8 0) (u8 10) (u8 11) (u8 0)))
@@ -515,22 +487,22 @@
               (+ (bytes-length text-section-bytes)
                  (bytes-length const-section-bytes)))) output)
         (write-text-section-relocations
-          text-section-relocations (map symbol-name exported-symbols) output)
+          text-section-relocations (map symbol-table-entry-name exported-symbols) output)
         (write-const-section-relocations
-          const-section-relocations (map symbol-name exported-symbols) output)
-        (write-symbol-table exported-symbols 2 output)
+          const-section-relocations (map symbol-table-entry-name exported-symbols) output)
+        (write-symbol-entries exported-symbols 2 output)
         (write-all-bytes (varargs bytes 32 0) output)
-        (write-all-symbols (map symbol-name exported-symbols) output)
+        (write-symbol-strings exported-symbols output)
         (write-all-bytes
           (make-bytes
             (-
               (round-up
                 (+ (+ 2 (length exported-symbols))
                    (sum (map bytes-length
-                             (map symbol-name exported-symbols))))
+                             (map symbol-table-entry-name exported-symbols))))
                 8)
               (+ (+ 2 (length exported-symbols))
                  (sum (map bytes-length
-                           (map symbol-name exported-symbols))))))
+                           (map symbol-table-entry-name exported-symbols))))))
           output)
         (right (void))))))
