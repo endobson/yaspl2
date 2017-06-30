@@ -4,7 +4,6 @@
   (bytes)
   (either)
   (io)
-  (join-list)
   (list)
   (mach-o) {
     #:types
@@ -38,7 +37,6 @@
   (maybe)
   (prim)
   (set)
-  (tuples)
   (x86-64-stack-machine)
 }
 (export
@@ -47,83 +45,19 @@
   #:patterns ())
 (types)
 
-(define (compute-const-section-relocations [fragments : (List ConstFragment)])
-  : (List Relocation)
-  (compute-const-section-relocations-helper
-    0
-    (jl->list
-      (concat-map-jl
-        (lambda ([fragment : ConstFragment]) : (JoinList (Either Int Bytes))
-          (case fragment
-            [(address-fragment _ value)
-             (varargs join-list (right value) (left 8))]
-            [(bytes-fragment _ _) (empty-jl)]))
-        (list->jl fragments)))))
-
-(define (compute-const-section-relocations-helper [offset : Int]
-                                                  [pieces : (List (Either Int Bytes))])
-  : (List Relocation)
-  (case pieces
-    [(empty) (empty)]
-    [(cons (left v) pieces)
-     (compute-const-section-relocations-helper (+ v offset) pieces)]
-    [(cons (right value) pieces)
-     (cons (relocation (unsigned-relocation) offset value)
-           (compute-const-section-relocations-helper offset pieces))]))
-
-(define (assemble-const-section [fragments : (List ConstFragment)]) : Bytes
-  (bytes-append
-    (jl->list
-      (concat-map-jl
-        (lambda ([fragment : ConstFragment]) : (JoinList Bytes)
-          (case fragment
-            [(address-fragment name value)
-             (single-jl (varargs bytes 0 0 0 0 0 0 0 0))]
-            [(bytes-fragment name value)
-             (let ([length-buf (make-bytes 8)])
-               (begin
-                 (bytes-set!/eight-bytes-le length-buf 0 (int->eight-bytes-le (bytes-length value)))
-                 (varargs join-list length-buf value)))]))
-        (list->jl fragments)))))
-
-
-(define (collect-defined-const-symbols [fragments : (List ConstFragment)])
-  : (List DefinedSymbol)
-  (collect-defined-const-symbols* fragments 0 (empty)))
-
-(define (collect-defined-const-symbols*
-          [fragments : (List ConstFragment)]
-          [const-offset : Int]
-          [acc : (List DefinedSymbol)])
-  : (List DefinedSymbol)
-  (case fragments
-    [(empty) acc]
-    [(cons fragment fragments)
-     (case fragment
-       [(address-fragment name value)
-        (collect-defined-const-symbols*
-          fragments (+ const-offset 8)
-          (cons (defined-symbol name const-offset) acc))]
-       [(bytes-fragment name value)
-        (collect-defined-const-symbols*
-          fragments (+ const-offset (+ 8 (bytes-length value)))
-          (cons (defined-symbol name const-offset) acc))])]))
-
-
-(define (collect-symbols [const-fragments : (List ConstFragment)]
-                         [text-defined-symbols : (List DefinedSymbol)]
-                         [text-referenced-symbols : (List Bytes)] [text-size : Int])
+(define (construct-symbol-table-entries
+          [text-section : AssembledSection]
+          [const-section : AssembledSection])
   : (List SymbolTableEntry)
-  (match-define const-defined-symbols (collect-defined-const-symbols const-fragments))
+  (match-define (assembled-section text-bytes text-relocations text-defined-symbols) text-section)
+  (match-define (assembled-section _ const-relocations const-defined-symbols) const-section)
   (match-define undefined-symbols
     (set->list
       (set-remove-all
-        (set-remove-all
-          (set-add-all
-            (make-set bytes=?)
-            text-referenced-symbols)
-          (map defined-symbol-name text-defined-symbols))
-        (map defined-symbol-name const-defined-symbols))))
+        (set-add-all
+          (make-set bytes=?)
+          (map relocation-symbol (append text-relocations const-relocations)))
+        (map defined-symbol-name (append text-defined-symbols const-defined-symbols)))))
   (append
     (append
       (map
@@ -136,7 +70,7 @@
         (lambda ([s : DefinedSymbol])
           (case s
             [(defined-symbol name offset)
-             (symbol-table-entry name (u8 #x0f) (u8 #x02) (u8 #x20) (+ text-size offset))]))
+             (symbol-table-entry name (u8 #x0f) (u8 #x02) (u8 #x20) (+ (bytes-length text-bytes) offset))]))
         (sort const-defined-symbols defined-symbol<)))
     (map
       (lambda ([s : Bytes])
@@ -351,18 +285,15 @@
 (define (write-mach-o-library/fragments [output-file-name : Bytes] [fragments : AssemblyFragments])
   : (Either Bytes Void)
   (match-define (assembly-fragments text-fragments const-fragments) fragments)
-  (match-define (assembled-text-section text-section-bytes text-section-relocations
-                                        text-defined-symbols)
-    (assemble-text-section text-fragments))
-  (match-define exported-symbols
-    (collect-symbols const-fragments text-defined-symbols
-                     (map relocation-symbol text-section-relocations)
-                     (bytes-length text-section-bytes)))
+  (match-define text-section (assemble-text-section text-fragments))
+  (match-define (assembled-section text-section-bytes text-section-relocations _)
+    text-section)
+  (match-define const-section (assemble-const-section const-fragments))
+  (match-define (assembled-section const-section-bytes const-section-relocations _)
+    const-section)
+  (match-define exported-symbols (construct-symbol-table-entries text-section const-section))
 
   (match-define text-section-num-relocations (length text-section-relocations))
-  (match-define const-section-bytes (assemble-const-section const-fragments))
-  (match-define const-section-relocations
-    (compute-const-section-relocations const-fragments))
   (match-define const-section-num-relocations (length const-section-relocations))
   (match-define segment-size
     (+ (bytes-length text-section-bytes) (bytes-length const-section-bytes)))

@@ -1,7 +1,7 @@
 #:module (assembler)
 #:import {
   (bytes)
-  (data boolean)
+  (either)
   (join-list)
   (list)
   (maybe)
@@ -11,15 +11,14 @@
   (x86-64-stack-machine)
 }
 (export
-  #:types (Relocation DefinedSymbol)
-  #:values (branch-relocation signed-relocation unsigned-relocation
-            relocation relocation-symbol
-            assemble-text-section defined-symbol<
-            defined-symbol defined-symbol-name)
+  #:types (AssembledSection Relocation DefinedSymbol)
+  #:values (assemble-text-section assemble-const-section
+            relocation-symbol
+            defined-symbol< defined-symbol-name)
   #:patterns (branch-relocation signed-relocation))
 (types
-  (define-type AssembledTextSection
-    (assembled-text-section
+  (define-type AssembledSection
+    (assembled-section
       [content : Bytes]
       [relocations : (List Relocation)]
       [defined-symbols : (List DefinedSymbol)]))
@@ -190,7 +189,7 @@
              (u32 (- (- symbol-offset offset) 4)))])
        (apply-local-text-relocations relocs symbols text))]))
 
-(define (assemble-text-section [text-fragments : (List TextFragment)]) : AssembledTextSection
+(define (assemble-text-section [text-fragments : (List TextFragment)]) : AssembledSection
   (match-define commands (fragments->mc-commands text-fragments))
   (match-define text-section-relocations (compute-text-section-relocations commands))
   (match-define defined-text-symbols
@@ -216,7 +215,75 @@
 
   (begin
     (apply-local-text-relocations local-text-section-relocations defined-text-symbols text-bytes)
-    (assembled-text-section
+    (assembled-section
       text-bytes
       global-text-section-relocations
       global-defined-text-symbols)))
+
+(define (compute-const-section-relocations [fragments : (List ConstFragment)])
+  : (List Relocation)
+  (compute-const-section-relocations-helper
+    0
+    (jl->list
+      (concat-map-jl
+        (lambda ([fragment : ConstFragment]) : (JoinList (Either Int Bytes))
+          (case fragment
+            [(address-fragment _ value)
+             (varargs join-list (right value) (left 8))]
+            [(bytes-fragment _ _) (empty-jl)]))
+        (list->jl fragments)))))
+
+(define (compute-const-section-relocations-helper [offset : Int]
+                                                  [pieces : (List (Either Int Bytes))])
+  : (List Relocation)
+  (case pieces
+    [(empty) (empty)]
+    [(cons (left v) pieces)
+     (compute-const-section-relocations-helper (+ v offset) pieces)]
+    [(cons (right value) pieces)
+     (cons (relocation (unsigned-relocation) offset value)
+           (compute-const-section-relocations-helper offset pieces))]))
+
+(define (assemble-const-section-bytes [fragments : (List ConstFragment)]) : Bytes
+  (bytes-append
+    (jl->list
+      (concat-map-jl
+        (lambda ([fragment : ConstFragment]) : (JoinList Bytes)
+          (case fragment
+            [(address-fragment name value)
+             (single-jl (varargs bytes 0 0 0 0 0 0 0 0))]
+            [(bytes-fragment name value)
+             (let ([length-buf (make-bytes 8)])
+               (begin
+                 (bytes-set!/eight-bytes-le length-buf 0 (int->eight-bytes-le (bytes-length value)))
+                 (varargs join-list length-buf value)))]))
+        (list->jl fragments)))))
+
+
+(define (collect-defined-const-symbols [fragments : (List ConstFragment)])
+  : (List DefinedSymbol)
+  (collect-defined-const-symbols* fragments 0 (empty)))
+
+(define (collect-defined-const-symbols*
+          [fragments : (List ConstFragment)]
+          [const-offset : Int]
+          [acc : (List DefinedSymbol)])
+  : (List DefinedSymbol)
+  (case fragments
+    [(empty) acc]
+    [(cons fragment fragments)
+     (case fragment
+       [(address-fragment name value)
+        (collect-defined-const-symbols*
+          fragments (+ const-offset 8)
+          (cons (defined-symbol name const-offset) acc))]
+       [(bytes-fragment name value)
+        (collect-defined-const-symbols*
+          fragments (+ const-offset (+ 8 (bytes-length value)))
+          (cons (defined-symbol name const-offset) acc))])]))
+
+(define (assemble-const-section [fragments : (List ConstFragment)]) : AssembledSection
+  (assembled-section
+    (assemble-const-section-bytes fragments)
+    (compute-const-section-relocations fragments)
+    (collect-defined-const-symbols fragments)))
