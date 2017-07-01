@@ -39,6 +39,7 @@
     #:values
       [basic-block l:basic-block]
       [bin-op-inst l:bin-op-inst]
+      [closure-call l:closure-call]
       [comparison-condition l:comparison-condition]
       [cond-jump/false-fall-through l:cond-jump/false-fall-through]
       [empty-unvalidated-block-map l:empty-unvalidated-block-map]
@@ -93,6 +94,7 @@
     #:patterns
       [basic-block r:basic-block]
       [bin-op-inst r:bin-op-inst]
+      [closure-call r:closure-call]
       [comparison-condition r:comparison-condition]
       [cond-jump r:cond-jump]
       [eight-byte-mem-op r:eight-byte-mem-op]
@@ -193,21 +195,8 @@
         (rbp)
         (rsp)))))
 
-(define (syscall-conflicts) : (List Reg)
-  (map
-    fixed-reg
-    (varargs list
-      (rax)
-      (rcx)
-      (rdx)
-      (rdi)
-      (rsi)
-      (r8)
-      (r9)
-      (r10)
-      (r11))))
-
-(define (function-call-conflicts) : (List Reg)
+;; Conflicts for all kinds of calls.
+(define (call-conflicts) : (List Reg)
   (map
     fixed-reg
     (varargs list
@@ -464,19 +453,20 @@
           (append
             (case f
               [(r:indirect-function-call f) (empty)]
+              [(r:closure-call c)
+               (varargs list (l:move (fixed-reg (r11)) (temporary-reg c)))]
               [(r:syscall s) (varargs list (l:int-literal (fixed-reg (rax)) (syscall-number s)))])
             (varargs list
               (l:function-call-inst
                 (fixed-reg (rax))
                 (case f
                   [(r:indirect-function-call f) (l:indirect-function-call (temporary-reg f))]
-                  [(r:syscall _) (l:syscall)])
+                  [(r:closure-call _) (l:closure-call (fixed-reg (r11)))]
+                  [(r:syscall _) (l:syscall (fixed-reg (rax)))])
                 (map (lambda ([t : (Tuple2 r:Var X8664Register)])
                        (case t
                          [(tuple2 v reg)
                           (fixed-reg reg)]))
                      linked-args)
-                (case f
-                  [(r:indirect-function-call f) (function-call-conflicts)]
-                  [(r:syscall s) (syscall-conflicts)]))
+                (call-conflicts))
               (l:move (temporary-reg output) (fixed-reg (rax))))))])]))
