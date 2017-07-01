@@ -5,14 +5,23 @@
   (list)
   (maybe)
   (prim)
+  (prim-language) {
+    #:values
+      numeric-bin-op
+      plus
+  }
   (prim-language register-language-builder)
   (register-language) {
     #:types
       Var
     #:values
+      [bin-op-inst r:bin-op-inst]
       closure-call
+      eight-byte-mem-op
       [function-call-inst r:function-call-inst]
+      [heap-allocate-inst r:heap-allocate-inst]
       [int-literal r:int-literal]
+      [pointer-set!-inst r:pointer-set!-inst]
       var
   }
   (tuples)
@@ -64,7 +73,41 @@
                 (add-instruction
                   acc
                   (r:function-call-inst result-var (closure-call closure-var) arg-vars)))])])])]
+    [(make-array-expr args)
+     (case (fresh-var acc #"size")
+       [(tuple2 size-var acc)
+        (case (fresh-var acc #"arr")
+          [(tuple2 array-var acc)
+           (match-define acc
+             (add-instruction
+               (add-instruction
+                 (add-instruction acc (r:int-literal size-var (* (+ 1 (length args)) 8)))
+                 (r:heap-allocate-inst array-var size-var))
+               (r:pointer-set!-inst (eight-byte-mem-op) array-var size-var)))
+           (match-define acc (fill-array array-var args env acc))
+           (tuple2 array-var acc)])])]
     [_ (panic #"NYI")]))
+
+(define (fill-array [last-index : Var] [exprs : (List Expression)]
+                    [env : Environment] [acc : Accumulator]) : Accumulator
+  (case exprs
+    [(empty) acc]
+    [(cons expr exprs)
+     (case (convert-expr expr env acc)
+       [(tuple2 value-var acc)
+        (case (fresh-var acc #"delta")
+          [(tuple2 delta-var acc)
+           (case (fresh-var acc #"arr")
+             [(tuple2 new-index acc)
+              (fill-array
+                new-index
+                exprs
+                env
+                (add-instruction
+                  (add-instruction
+                    (add-instruction acc (r:int-literal delta-var 8))
+                    (r:bin-op-inst new-index (numeric-bin-op (plus)) last-index delta-var))
+                  (r:pointer-set!-inst (eight-byte-mem-op) new-index value-var)))])])])]))
 
 (define (convert-begin [expr : Expression] [exprs : (List Expression)] [env : Environment] [acc : Accumulator])
   : (Tuple2 Var Accumulator)

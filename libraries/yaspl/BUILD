@@ -25,6 +25,7 @@ yaspl_library(
         "//libraries/data:list",
         "//libraries/data:maybe",
         "//libraries/data:tuples",
+        "//libraries/prim-language",
         "//libraries/prim-language:register-language",
         "//libraries/prim-language:register-language-builder",
     ],
