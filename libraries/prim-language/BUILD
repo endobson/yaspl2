@@ -347,6 +347,18 @@ yaspl_library(
 load(":prim-language.bzl", "prim_binary", "binary_test")
 
 prim_binary(
+    name = "call1",
+    srcs = ["call1.prim"],
+)
+
+binary_test(
+    name = "call1_test",
+    binary = ":call1",
+    binary_args = ["arg1"],
+    exit_code = 42,
+)
+
+prim_binary(
     name = "cast1",
     srcs = ["cast1.prim"],
 )
