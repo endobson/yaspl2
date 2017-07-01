@@ -10,6 +10,8 @@
     #:types
       Var
     #:values
+      closure-call
+      [function-call-inst r:function-call-inst]
       [int-literal r:int-literal]
       var
   }
@@ -27,9 +29,6 @@
   (case (dict-ref (environment-vars env) name)
     [(nothing) (panic #"unbound variable")]
     [(just v) v]))
-
-(define (env-ref* [env : Environment] [names : (List Bytes)]) : (List Var)
-  (map (lambda ([name : Bytes]) (env-ref env name)) names))
 
 (define (env-set [env : Environment] [name : Bytes] [var : Var]) : Environment
   (case env
@@ -53,6 +52,18 @@
     [(let-expr name e body)
      (match-define (tuple2 v acc) (convert-expr e env acc))
      (convert-expr e (env-set env name v) acc)]
+    [(call-closure-expr op args)
+     (case (convert-expr op env acc)
+       [(tuple2 closure-var acc)
+        (case (convert-exprs args env acc)
+          [(tuple2 arg-vars acc)
+           (case (fresh-var acc #"res")
+             [(tuple2 result-var acc)
+              (tuple2
+                result-var
+                (add-instruction
+                  acc
+                  (r:function-call-inst result-var (closure-call closure-var) arg-vars)))])])])]
     [_ (panic #"NYI")]))
 
 (define (convert-begin [expr : Expression] [exprs : (List Expression)] [env : Environment] [acc : Accumulator])
@@ -63,6 +74,17 @@
      (tuple2 v acc)]
     [(cons expr exprs)
      (convert-begin expr exprs env acc)]))
+
+(define (convert-exprs [exprs : (List Expression)] [env : Environment] [acc : Accumulator])
+  : (Tuple2 (List Var) Accumulator)
+  (case exprs
+    [(empty)
+     (tuple2 (empty) acc)]
+    [(cons expr exprs)
+     (match-define (tuple2 v acc) (convert-expr expr env acc))
+     (match-define (tuple2 vars acc) (convert-exprs exprs env acc))
+     (tuple2 (cons v vars) acc)]))
+
 
 (define (fresh-var [acc : Accumulator] [base-name : Bytes]) : (Tuple2 Var Accumulator)
   (match-define (accumulator next-var next-block current-block blocks) acc)
