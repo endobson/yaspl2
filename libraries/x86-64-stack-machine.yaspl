@@ -13,17 +13,17 @@
   #:types (Section BasicBlock Instruction Register MCCommand AssemblyFragments
            TextFragment ConstFragment)
   #:values (write-fragments convert-objects assembly-commands->bytes
-            instruction->mc-command instruction->assembly-bytes function-fragment rax rdi
+            instruction->mc-commands instruction->assembly-bytes function-fragment rax rdi
             rsi rdx rcx r8 r9 imm-s32 rmi-imm movq reg addq subq orq andq al dil sil dl cl r8b r9b
             r10b r11b bpl
             cmpq sete movzbq setne setle setge setl setg imulq jne imm jmp ret
             syscall call rsp mem rip leaq/rel r15 pushq je jl jg jle jge r10 jb scale-1 scaled leaq
             address-fragment call/indirect r11 ud2 shrq movb rep-stosb cld rbp nop r14
             rep-movsb repne-scasb popq scale-8 decq notq repne-scasq
-            section-blocks basic-block section test mc-jump-type->bytes assembly-fragments
+            section-blocks basic-block section test assembly-fragments
             text-fragment->commands const-fragment->commands)
-  #:patterns (function-fragment address-fragment bytes-fragment mc-bytes mc-jump
-              mcj-jb mcj-je mcj-jne mcj-jnz mcj-jmp mcj-call assembly-fragments))
+  #:patterns (function-fragment address-fragment bytes-fragment mc-bytes
+              assembly-fragments))
 (types
   (define-type AssemblyFragments
     (assembly-fragments
@@ -36,28 +36,15 @@
     (address-fragment [name : Bytes] [value : Bytes])
     (bytes-fragment [name : Bytes] [value : Bytes]))
 
-
   (define-type Section
     (section [blocks : (List BasicBlock)]))
   (define-type BasicBlock
     (basic-block [name : Bytes] [instructions : (JoinList Instruction)]))
 
-  (define-type MCJumpType
-    (mcj-call)
-    (mcj-jb)
-    (mcj-jl)
-    (mcj-jg)
-    (mcj-jge)
-    (mcj-jle)
-    (mcj-je)
-    (mcj-jmp)
-    (mcj-jne)
-    (mcj-jnz))
-
   (define-type MCCommand
     (mc-bytes [bytes : Bytes])
-    (mc-jump [type : MCJumpType] [symbol : Bytes])
-    (mc-leaq/rel [symbol : Bytes] [reg1 : Register] [reg2 : Register]))
+    (mc-branch-relocation [symbol : Bytes])
+    (mc-signed-relocation [symbol : Bytes]))
 
   (define-type AssemblyCommand
     (directive-cmd [directive : AssemblerDirective])
@@ -268,24 +255,32 @@
                           (cons-jl #"\\\\" (escape-bytes src (+ 1 cur) (+ 1 cur))))
                         (escape-bytes src start (+ 1 cur)))))))))
 
-(define (instruction->mc-command [inst : Instruction]) : MCCommand
+(define (mc-bytes* [bytes : Bytes]) : (JoinList MCCommand)
+  (single-jl (mc-bytes bytes)))
+(define (mc-branch* [op-code : Bytes] [symbol : Bytes]) : (JoinList MCCommand)
+  (varargs join-list
+    (mc-bytes op-code)
+    (mc-branch-relocation symbol)
+    (mc-bytes (varargs bytes #x00 #x00 #x00 #x00))))
+
+(define (instruction->mc-commands [inst : Instruction]) : (JoinList MCCommand)
   (case inst
     [(addq (rmi-register reg1) reg2)
-     (mc-bytes (single-byte-op/RM #x01 #t reg1 reg2))]
+     (mc-bytes* (single-byte-op/RM #x01 #t reg1 reg2))]
     [(addq (rmi-imm (imm-s32 imm)) reg)
-     (mc-bytes (single-byte-op/IM #x81 0 #t imm reg))]
+     (mc-bytes* (single-byte-op/IM #x81 0 #t imm reg))]
     [(addq (rmi-imm _) reg)
      (panic #"addq of non-s32 immediate not supported")]
     [(addq (rmi-direct-memory reg1) reg2)
-     (mc-bytes (single-byte-op/MR/mem #x03 #t reg1 reg2))]
+     (mc-bytes* (single-byte-op/MR/mem #x03 #t reg1 reg2))]
     [(addq (rmi-displaced-memory reg1 offset) reg2)
      (panic #"addq of displaced-memory not supported")]
     [(addq (rmi-scaled-memory reg1 scale reg2 offset) reg3)
-     (mc-bytes (single-byte-op/MR/scaled-mem #x03 #t reg1 scale reg2 offset reg3))]
+     (mc-bytes* (single-byte-op/MR/scaled-mem #x03 #t reg1 scale reg2 offset reg3))]
     [(andq (rmi-register reg1) reg2)
-     (mc-bytes (single-byte-op/RM #x21 #t reg1 reg2))]
+     (mc-bytes* (single-byte-op/RM #x21 #t reg1 reg2))]
     [(andq (rmi-imm (imm-s32 imm)) reg)
-     (mc-bytes (single-byte-op/IM #x81 4 #t imm reg))]
+     (mc-bytes* (single-byte-op/IM #x81 4 #t imm reg))]
     [(andq (rmi-imm _) reg)
      (panic #"andq of non-s32 immediate not supported")]
     [(andq (rmi-direct-memory _) _)
@@ -295,95 +290,95 @@
     [(andq (rmi-scaled-memory _ _ _ _) _)
      (panic #"andq of scaled memory not yet supported")]
     [(call label)
-     (mc-jump (mcj-call) label)]
+     (mc-branch* (varargs bytes #xE8) label)]
     [(call/indirect reg)
-     (mc-bytes (single-byte-op/M #xFF 2 #f reg))]
-    [(cld) (mc-bytes (varargs bytes #xFC))]
+     (mc-bytes* (single-byte-op/M #xFF 2 #f reg))]
+    [(cld) (mc-bytes* (varargs bytes #xFC))]
     [(cmpq (rmi-imm (imm-s32 imm)) (rmi-register reg))
-     (mc-bytes (single-byte-op/IM #x81 7 #t imm reg))]
+     (mc-bytes* (single-byte-op/IM #x81 7 #t imm reg))]
     [(cmpq (rmi-imm (imm-s32 imm)) (rmi-direct-memory reg))
-     (mc-bytes (single-byte-op/IM/mem #x81 7 #t imm reg))]
+     (mc-bytes* (single-byte-op/IM/mem #x81 7 #t imm reg))]
     [(cmpq (rmi-register reg1) (rmi-register reg2))
-     (mc-bytes (single-byte-op/MR #x3B #t reg1 reg2))]
+     (mc-bytes* (single-byte-op/MR #x3B #t reg1 reg2))]
     [(cmpq _ (rmi-imm imm))
      (panic #"cmpq with immediate second argument is not allowed")]
     [(cmpq _ _)
      (panic #"cmpq variant not supported")]
     [(decq reg)
-     (mc-bytes (single-byte-op/M #xFF 1 #t reg))]
+     (mc-bytes* (single-byte-op/M #xFF 1 #t reg))]
     [(idivq reg)
-     (mc-bytes (single-byte-op/M #xF7 7 #t reg))]
+     (mc-bytes* (single-byte-op/M #xF7 7 #t reg))]
     [(imulq reg1 reg2)
-     (mc-bytes (double-byte-op/MR #xAF #t reg1 reg2))]
+     (mc-bytes* (double-byte-op/MR #xAF #t reg1 reg2))]
     [(incq reg)
-     (mc-bytes (single-byte-op/M #xFF 0 #t reg))]
+     (mc-bytes* (single-byte-op/M #xFF 0 #t reg))]
     [(jb label)
-     (mc-jump (mcj-jb) label)]
+     (mc-branch* (varargs bytes #x0F #x82) label)]
     [(je label)
-     (mc-jump (mcj-je) label)]
+     (mc-branch* (varargs bytes #x0F #x84) label)]
     [(jl label)
-     (mc-jump (mcj-jl) label)]
+     (mc-branch* (varargs bytes #x0F #x8C) label)]
     [(jg label)
-     (mc-jump (mcj-jg) label)]
+     (mc-branch* (varargs bytes #x0F #x8F) label)]
     [(jle label)
-     (mc-jump (mcj-jle) label)]
+     (mc-branch* (varargs bytes #x0F #x8E) label)]
     [(jge label)
-     (mc-jump (mcj-jge) label)]
+     (mc-branch* (varargs bytes #x0F #x8D) label)]
     [(jmp label)
-     (mc-jump (mcj-jmp) label)]
+     (mc-branch* (varargs bytes #xE9) label)]
     [(jmp/indirect reg)
-     (mc-bytes (single-byte-op/M #xFF 4 #f reg))]
+     (mc-bytes* (single-byte-op/M #xFF 4 #f reg))]
     [(jne label)
-     (mc-jump (mcj-jne) label)]
+     (mc-branch* (varargs bytes #x0F #x85) label)]
     [(jnz label)
-     (mc-jump (mcj-jnz) label)]
-    [(lahf) (mc-bytes (varargs bytes #x9F))]
+     (mc-branch* (varargs bytes #x0F #x85) label)]
+    [(lahf) (mc-bytes* (varargs bytes #x9F))]
     [(leaq (rmi-direct-memory _) _)
      (panic #"leaq of direct memory not yet supported")]
     [(leaq (rmi-displaced-memory reg1 offset) reg2)
-     (mc-bytes (single-byte-op/MR/displaced-mem #x8D #t reg1 offset reg2))]
+     (mc-bytes* (single-byte-op/MR/displaced-mem #x8D #t reg1 offset reg2))]
     [(leaq (rmi-scaled-memory reg1 scale reg2 offset) reg3)
-     (mc-bytes (single-byte-op/MR/scaled-mem #x8D #t reg1 scale reg2 offset reg3))]
+     (mc-bytes* (single-byte-op/MR/scaled-mem #x8D #t reg1 scale reg2 offset reg3))]
     [(leaq (rmi-register _) _)
      (panic #"leaq of register is non sensical")]
     [(leaq (rmi-imm _) _)
      (panic #"leaq of immediate is non sensical")]
     [(movb (rmi-register reg1) (rmi-scaled-memory reg2 scale reg3 offset))
-     (mc-bytes (single-byte-op/RM/scaled-mem #x88 #f reg1 reg2 scale reg3 offset))]
+     (mc-bytes* (single-byte-op/RM/scaled-mem #x88 #f reg1 reg2 scale reg3 offset))]
     [(movb _ (rmi-imm _))
      (panic #"movb to immediate is nonsensical")]
     [(movb _ _)
      (panic #"movb variant is not yet supported")]
     [(movq (rmi-imm (imm-s32 imm)) (rmi-register reg))
-     (mc-bytes (single-byte-op/IM #xC7 0 #t imm reg))]
+     (mc-bytes* (single-byte-op/IM #xC7 0 #t imm reg))]
     [(movq (rmi-imm (imm-s32 imm)) (rmi-direct-memory reg))
-     (mc-bytes (single-byte-op/IM/mem #xC7 0 #t imm reg))]
+     (mc-bytes* (single-byte-op/IM/mem #xC7 0 #t imm reg))]
     [(movq (rmi-imm (imm-s32 imm)) (rmi-displaced-memory reg offset))
-     (mc-bytes (single-byte-op/IM/displaced-mem #xC7 0 #t imm reg offset))]
+     (mc-bytes* (single-byte-op/IM/displaced-mem #xC7 0 #t imm reg offset))]
     [(movq (rmi-imm _) (rmi-displaced-memory _ _))
      (panic #"movq of non-s32 to displaced memory not yet supported")]
     [(movq (rmi-imm (imm-s64 imm)) (rmi-register reg))
-     (mc-bytes (single-byte-op-s64/IO #xB8 #t imm reg))]
+     (mc-bytes* (single-byte-op-s64/IO #xB8 #t imm reg))]
     [(movq (rmi-register reg1) (rmi-register reg2))
-     (mc-bytes (single-byte-op/MR #x8B #t reg1 reg2))]
+     (mc-bytes* (single-byte-op/MR #x8B #t reg1 reg2))]
     [(movq (rmi-scaled-memory reg1 scale reg2 offset) (rmi-register reg3))
-     (mc-bytes (single-byte-op/MR/scaled-mem #x8B #t reg1 scale reg2 offset reg3))]
+     (mc-bytes* (single-byte-op/MR/scaled-mem #x8B #t reg1 scale reg2 offset reg3))]
     [(movq (rmi-register reg1) (rmi-direct-memory reg2))
-     (mc-bytes (single-byte-op/RM/mem #x89 #t reg1 reg2))]
+     (mc-bytes* (single-byte-op/RM/mem #x89 #t reg1 reg2))]
     [(movq (rmi-register reg1) (rmi-displaced-memory reg2 offset))
-     (mc-bytes (single-byte-op/RM/displaced-mem #x89 #t reg1 reg2 offset))]
+     (mc-bytes* (single-byte-op/RM/displaced-mem #x89 #t reg1 reg2 offset))]
     [(movq (rmi-register reg1) (rmi-scaled-memory reg2 scale reg3 offset))
-     (mc-bytes (single-byte-op/RM/scaled-mem #x89 #t reg1 reg2 scale reg3 offset))]
+     (mc-bytes* (single-byte-op/RM/scaled-mem #x89 #t reg1 reg2 scale reg3 offset))]
     [(movq (rmi-direct-memory reg1) (rmi-register reg2))
-     (mc-bytes (single-byte-op/MR/mem #x8B #t reg1 reg2))]
+     (mc-bytes* (single-byte-op/MR/mem #x8B #t reg1 reg2))]
     [(movq (rmi-displaced-memory reg1 offset) (rmi-register reg2))
-     (mc-bytes (single-byte-op/MR/displaced-mem #x8B #t reg1 offset reg2))]
+     (mc-bytes* (single-byte-op/MR/displaced-mem #x8B #t reg1 offset reg2))]
     [(movq _ (rmi-imm _))
      (panic #"movq to immediate is nonsensical")]
     [(movq _ _)
      (panic #"movq variant is not yet supported")]
     [(movzbq (rmi-register reg1) reg2)
-     (mc-bytes (double-byte-op/MR #xB6 #t reg1 reg2))]
+     (mc-bytes* (double-byte-op/MR #xB6 #t reg1 reg2))]
     [(movzbq (rmi-imm _) _)
      (panic #"movzbq of immediate is not allowed")]
     [(movzbq (rmi-direct-memory _) _)
@@ -391,94 +386,87 @@
     [(movzbq (rmi-displaced-memory _ _) _)
      (panic #"movzbq of displaced memory not yet supported")]
     [(movzbq (rmi-scaled-memory reg1 scale reg2 offset) reg3)
-     (mc-bytes (double-byte-op/MR/scaled-mem #xB6 #t reg1 scale reg2 offset reg3))]
-    [(nop) (mc-bytes (varargs bytes #x90))]
+     (mc-bytes* (double-byte-op/MR/scaled-mem #xB6 #t reg1 scale reg2 offset reg3))]
+    [(nop) (mc-bytes* (varargs bytes #x90))]
     [(notq reg)
-     (mc-bytes (single-byte-op/M #xF7 2 #t reg))]
+     (mc-bytes* (single-byte-op/M #xF7 2 #t reg))]
     [(orq reg1 reg2)
-     (mc-bytes (single-byte-op/MR #x0B #t reg1 reg2))]
+     (mc-bytes* (single-byte-op/MR #x0B #t reg1 reg2))]
     ;; pop defaults to 64 bits so we don't need REX.W bit to indicate that
     [(popq (rmi-register reg))
-     (mc-bytes (single-byte-op/O #x58 reg))]
+     (mc-bytes* (single-byte-op/O #x58 reg))]
     [(popq (rmi-direct-memory reg))
-     (mc-bytes (single-byte-op/M/mem #x8F 0 #f reg))]
+     (mc-bytes* (single-byte-op/M/mem #x8F 0 #f reg))]
     [(popq (rmi-displaced-memory reg offset))
-     (mc-bytes (single-byte-op/M/displaced-mem #x8F 0 #f reg offset))]
+     (mc-bytes* (single-byte-op/M/displaced-mem #x8F 0 #f reg offset))]
     [(popq (rmi-imm _))
      (panic #"popq of immediate is nonsensical")]
     [(popq (rmi-scaled-memory _ _ _ _))
      (panic #"popq of scaled memory not yet supported")]
     ;; push defaults to 64 bits so we don't need REX.W bit to indicate that
     [(pushq (rmi-register reg))
-     (mc-bytes (single-byte-op/O #x50 reg))]
+     (mc-bytes* (single-byte-op/O #x50 reg))]
     [(pushq (rmi-direct-memory reg))
-     (mc-bytes (single-byte-op/M/mem #xFF 6 #f reg))]
+     (mc-bytes* (single-byte-op/M/mem #xFF 6 #f reg))]
     [(pushq (rmi-displaced-memory reg offset))
-     (mc-bytes (single-byte-op/M/displaced-mem #xFF 6 #f reg offset))]
+     (mc-bytes* (single-byte-op/M/displaced-mem #xFF 6 #f reg offset))]
     [(pushq (rmi-scaled-memory reg1 scale reg2 offset))
-     (mc-bytes (single-byte-op/M/scaled-mem #xFF 6 #f reg1 scale reg2 offset))]
+     (mc-bytes* (single-byte-op/M/scaled-mem #xFF 6 #f reg1 scale reg2 offset))]
     [(pushq (rmi-imm (imm-s32 imm)))
-     (mc-bytes (single-byte-op/I #x68 #f imm))]
+     (mc-bytes* (single-byte-op/I #x68 #f imm))]
     [(pushq (rmi-imm _))
      (panic #"pushq of non-s32 immediates not yet supported")]
-    [(rep-movsb) (mc-bytes (varargs bytes #xF3 #x48 #xA4))]
-    [(rep-movsq) (mc-bytes (varargs bytes #xF3 #x48 #xA5))]
-    [(rep-stosb) (mc-bytes (varargs bytes #xF3 #x48 #xAA))]
-    [(rep-stosq) (mc-bytes (varargs bytes #xF3 #x48 #xAB))]
-    [(repe-cmpsb) (mc-bytes (varargs bytes #xF3 #x48 #xA6))]
-    [(repne-scasb) (mc-bytes (varargs bytes #xF2 #x48 #xAE))]
-    [(repne-scasq) (mc-bytes (varargs bytes #xF2 #x48 #xAF))]
-    [(ret) (mc-bytes (varargs bytes #xC3))]
+    [(rep-movsb) (mc-bytes* (varargs bytes #xF3 #x48 #xA4))]
+    [(rep-movsq) (mc-bytes* (varargs bytes #xF3 #x48 #xA5))]
+    [(rep-stosb) (mc-bytes* (varargs bytes #xF3 #x48 #xAA))]
+    [(rep-stosq) (mc-bytes* (varargs bytes #xF3 #x48 #xAB))]
+    [(repe-cmpsb) (mc-bytes* (varargs bytes #xF3 #x48 #xA6))]
+    [(repne-scasb) (mc-bytes* (varargs bytes #xF2 #x48 #xAE))]
+    [(repne-scasq) (mc-bytes* (varargs bytes #xF2 #x48 #xAF))]
+    [(ret) (mc-bytes* (varargs bytes #xC3))]
     [(sete reg)
-     (mc-bytes (double-byte-op/M #x94 0 #f reg))]
+     (mc-bytes* (double-byte-op/M #x94 0 #f reg))]
     [(setg reg)
-     (mc-bytes (double-byte-op/M #x9F 0 #f reg))]
+     (mc-bytes* (double-byte-op/M #x9F 0 #f reg))]
     [(setge reg)
-     (mc-bytes (double-byte-op/M #x9D 0 #f reg))]
+     (mc-bytes* (double-byte-op/M #x9D 0 #f reg))]
     [(setl reg)
-     (mc-bytes (double-byte-op/M #x9C 0 #f reg))]
+     (mc-bytes* (double-byte-op/M #x9C 0 #f reg))]
     [(setle reg)
-     (mc-bytes (double-byte-op/M #x9E 0 #f reg))]
+     (mc-bytes* (double-byte-op/M #x9E 0 #f reg))]
     [(setne reg)
-     (mc-bytes (double-byte-op/M #x95 0 #f reg))]
+     (mc-bytes* (double-byte-op/M #x95 0 #f reg))]
     [(shlq reg)
-     (mc-bytes (single-byte-op/M #xD3 4 #t reg))]
+     (mc-bytes* (single-byte-op/M #xD3 4 #t reg))]
     [(shrq reg)
-     (mc-bytes (single-byte-op/M #xD3 5 #t reg))]
-    [(std) (mc-bytes (varargs bytes #xFD))]
+     (mc-bytes* (single-byte-op/M #xD3 5 #t reg))]
+    [(std) (mc-bytes* (varargs bytes #xFD))]
     [(subq (rmi-register reg1) reg2)
-     (mc-bytes (single-byte-op/RM #x29 #t reg1 reg2))]
+     (mc-bytes* (single-byte-op/RM #x29 #t reg1 reg2))]
     [(subq (rmi-imm (imm-s32 imm)) reg)
-     (mc-bytes (single-byte-op/IM #x81 5 #t imm reg))]
+     (mc-bytes* (single-byte-op/IM #x81 5 #t imm reg))]
     [(subq (rmi-imm _) reg)
      (panic #"subq of non-s32 immediate not supported")]
     [(subq (rmi-direct-memory reg1) reg2)
-     (mc-bytes (single-byte-op/MR/mem #x2B #t reg1 reg2))]
+     (mc-bytes* (single-byte-op/MR/mem #x2B #t reg1 reg2))]
     [(subq (rmi-displaced-memory _ _) _)
      (panic #"subq of displaced memory not yet supported")]
     [(subq (rmi-scaled-memory _ _ _ _) _)
      (panic #"subq of scaled memory not yet supported")]
-    [(syscall) (mc-bytes (varargs bytes #x0F #x05))]
+    [(syscall) (mc-bytes* (varargs bytes #x0F #x05))]
     [(test (rmi-register reg1) (rmi-register reg2))
-     (mc-bytes (single-byte-op/RM #x85 #t reg1 reg2))]
+     (mc-bytes* (single-byte-op/RM #x85 #t reg1 reg2))]
     [(test _ _)
      (panic #"test of non registers not yet supported")]
-    [(ud2) (mc-bytes (varargs bytes #x0F #x0B))]
+    [(ud2) (mc-bytes* (varargs bytes #x0F #x0B))]
     [(leaq/rel label reg1 reg2)
-     (mc-leaq/rel label reg1 reg2)]))
+     ;; TODO Make this work with all registers.
+     ;; (Currently hard coded to rip and rax).
+     (varargs join-list
+       (mc-bytes (varargs bytes #x48 #x8D #x05))
+       (mc-signed-relocation label)
+       (mc-bytes (varargs bytes 0 0 0 0)))]))
 
-(define (mc-jump-type->bytes [t : MCJumpType]) : Bytes
-  (case t
-    [(mcj-jb) (varargs bytes #x0F #x82 0 0 0 0)]
-    [(mcj-je) (varargs bytes #x0F #x84 0 0 0 0)]
-    [(mcj-jl) (varargs bytes #x0F #x8C 0 0 0 0)]
-    [(mcj-jg) (varargs bytes #x0F #x8F 0 0 0 0)]
-    [(mcj-jle) (varargs bytes #x0F #x8E 0 0 0 0)]
-    [(mcj-jge) (varargs bytes #x0F #x8D 0 0 0 0)]
-    [(mcj-jne) (varargs bytes #x0F #x85 0 0 0 0)]
-    [(mcj-jnz) (varargs bytes #x0F #x85 0 0 0 0)]
-    [(mcj-jmp) (varargs bytes #xE9 0 0 0 0)]
-    [(mcj-call) (varargs bytes #xE8 0 0 0 0)]))
 
 
 ;; TODO refine types of opcodes to be the right number of bits.

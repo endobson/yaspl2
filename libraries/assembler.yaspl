@@ -42,13 +42,11 @@
 (define (assemble-text-commands [commands : (List MCCommand)]) : Bytes
   (bytes-append
     (map
-      (lambda ([command : MCCommand])
+      (lambda ([command : MCCommand]) : Bytes
         (case command
           [(mc-bytes bytes) bytes]
-          [(mc-jump t _) (mc-jump-type->bytes t)]
-          ;; TODO Make this work with all registers.
-          ;; (Currently hard coded to rip and rax).
-          [(mc-leaq/rel _ _ _) (varargs bytes #x48 #x8D #x05 0 0 0 0)]))
+          [(mc-branch-relocation symbol) #""]
+          [(mc-signed-relocation symbol) #""]))
       commands)))
 
 (define (fragments->mc-commands [fragments : (List TextFragment)]) : (List MCCommand)
@@ -65,7 +63,7 @@
                     (lambda ([bb : BasicBlock])
                       (case bb
                         [(basic-block block-name instructions)
-                         (map-jl instruction->mc-command instructions)]))
+                         (concat-map-jl instruction->mc-commands instructions)]))
                     (list->jl blocks))]))
              (list->jl sections))]))
       (list->jl fragments))))
@@ -85,18 +83,16 @@
      (case command
        [(mc-bytes bytes)
         (compute-text-section-relocations* commands acc (+ (bytes-length bytes) offset))]
-       [(mc-jump (mcj-jmp) name)
-        (match-define reloc (relocation (branch-relocation) (+ 1 offset) name))
-        (compute-text-section-relocations* commands (cons reloc acc) (+ 5 offset))]
-       [(mc-jump (mcj-call) name)
-        (match-define reloc (relocation (branch-relocation) (+ 1 offset) name))
-        (compute-text-section-relocations* commands (cons reloc acc) (+ 5 offset))]
-       [(mc-jump _ name)
-        (match-define reloc (relocation (branch-relocation) (+ 2 offset) name))
-        (compute-text-section-relocations* commands (cons reloc acc) (+ 6 offset))]
-       [(mc-leaq/rel name _ _)
-        (match-define reloc (relocation (signed-relocation) (+ 3 offset) name))
-        (compute-text-section-relocations* commands (cons reloc acc) (+ 7 offset))])]))
+       [(mc-branch-relocation name)
+        (compute-text-section-relocations*
+          commands
+          (cons (relocation (branch-relocation) offset name) acc)
+          offset)]
+       [(mc-signed-relocation name)
+        (compute-text-section-relocations*
+          commands
+          (cons (relocation (signed-relocation) offset name) acc)
+          offset)])]))
 
 
 (define (collect-global-symbols [fragments : (List TextFragment)]) : (Set Bytes)
@@ -142,13 +138,14 @@
        (+ text-offset (sum (map instruction-length (jl->list instructions))))
        (cons (defined-symbol block-name text-offset) acc))]))
 
-(define (instruction-length [inst : Instruction]) : Int
-  (case (instruction->mc-command inst)
+(define (command-length [command : MCCommand]) : Int
+  (case command
     [(mc-bytes bytes) (bytes-length bytes)]
-    [(mc-jump (mcj-jmp) name) 5]
-    [(mc-jump (mcj-call) name) 5]
-    [(mc-jump _ name) 6]
-    [(mc-leaq/rel name _ _) 7]))
+    [(mc-branch-relocation symbol) 0]
+    [(mc-signed-relocation symbol) 0]))
+
+(define (instruction-length [inst : Instruction]) : Int
+  (foldl + (map command-length (jl->list (instruction->mc-commands inst))) 0))
 
 (define (partition-text-section-relocations
           [relocations : (List Relocation)]
