@@ -17,12 +17,14 @@
     #:values
       [bin-op-inst r:bin-op-inst]
       closure-call
+      [cond-jump r:cond-jump]
       eight-byte-mem-op
       [function-call-inst r:function-call-inst]
       [heap-allocate-inst r:heap-allocate-inst]
       [int-literal r:int-literal]
+      [jump r:jump]
+      negated-var-condition
       [pointer-set!-inst r:pointer-set!-inst]
-      var
   }
   (tuples)
 }
@@ -86,6 +88,34 @@
                (r:pointer-set!-inst (eight-byte-mem-op) array-var size-var)))
            (match-define acc (fill-array array-var args env acc))
            (tuple2 array-var acc)])])]
+    [(if-expr cond then else)
+     (match-define (tuple2 branch-var acc)
+       (convert-expr cond env acc))
+     (match-define (tuple2 t-block-num acc) (fresh-block-number acc))
+     (match-define (tuple2 f-block-num acc) (fresh-block-number acc))
+     (match-define acc
+       (add-terminal acc (r:cond-jump (negated-var-condition branch-var)
+                                      f-block-num (empty)
+                                      t-block-num (empty))))
+
+     (match-define (tuple2 t-value acc)
+       (convert-expr then env (start-block t-block-num (empty) acc)))
+     (match-define (tuple2 t-block acc) (split-accumulator acc))
+     (match-define (tuple2 f-value acc)
+       (convert-expr else env (start-block f-block-num (empty) acc)))
+     (match-define (tuple2 f-block acc) (split-accumulator acc))
+
+     (match-define (tuple2 c-block-num acc) (fresh-block-number* acc))
+
+     (match-define acc
+       (add-terminal*
+         (add-terminal* acc t-block (r:jump c-block-num (varargs list t-value)))
+         f-block (r:jump c-block-num (varargs list f-value))))
+     (match-define (tuple2 join-var acc) (fresh-var* acc #"join"))
+
+     (tuple2
+       join-var
+       (start-block c-block-num (varargs list join-var) acc))]
     [_ (panic #"NYI")]))
 
 (define (fill-array [last-index : Var] [exprs : (List Expression)]
@@ -128,9 +158,10 @@
      (match-define (tuple2 vars acc) (convert-exprs exprs env acc))
      (tuple2 (cons v vars) acc)]))
 
-
 (define (fresh-var [acc : Accumulator] [base-name : Bytes]) : (Tuple2 Var Accumulator)
-  (match-define (accumulator next-var next-block current-block blocks) acc)
-  (tuple2
-    (var base-name next-var)
-    (accumulator (+ 1 next-var) next-block current-block blocks)))
+  (case (fresh-name base-name acc)
+    [(tuple2 (tuple2 _ v) acc) (tuple2 v acc)]))
+
+(define (fresh-var* [acc : BlockAccumulator] [base-name : Bytes]) : (Tuple2 Var BlockAccumulator)
+  (case (fresh-name* base-name acc)
+    [(tuple2 (tuple2 _ v) acc) (tuple2 v acc)]))
