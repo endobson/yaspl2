@@ -21,7 +21,8 @@
 (types
   (define-type (BlockState Reg)
     (block-state [instruction-states : (List (PointState Reg))]
-                 [terminal-live-in : (Set Reg)]))
+                 [terminal-live-in : (Set Reg)]
+                 [terminal-defined : (Set Reg)]))
   (define-type (PointState Reg)
     (point-state [live-in : (Set Reg)]
                  [defined : (Set Reg)]
@@ -88,7 +89,7 @@
 
 
 (define (Reg) (print-block-state [i : Int] [block : (BlockState Reg)] [reg->bytes : (Reg -> Bytes)]) : Bytes
-  (match-define (block-state instructions terminal) block)
+  (match-define (block-state instructions terminal-live terminal-def) block)
   (match-define print-live-set
     (lambda ([live : (Set Reg)]) : (JoinList Bytes)
       (list->jl (interleave (map reg->bytes (set->list live)) #", "))))
@@ -112,8 +113,10 @@
         (single-jl #"block: ")
         (single-jl (integer->decimal-bytes i))
         (single-jl #"\n")
+        (single-jl #"def: ")
+        (list->jl (interleave (map reg->bytes (set->list terminal-def)) #", "))
         (concat-jl (map print-point-state instructions))
-        (print-live-set terminal)
+        (print-live-set terminal-live)
         (single-jl #"\n")))))
 
 (define (Reg) (fully-propagate-live-variables/blocks
@@ -166,13 +169,14 @@
 
 (define (Reg) (propagate-live-variables/block [state : (BlockState Reg)] [new-live-in : (Set Reg)])
   : (Maybe (BlockState Reg))
-  (match-define (block-state instructions old-live-in) state)
-  (if (= (set-count (set-difference new-live-in old-live-in)) 0)
+  (match-define (block-state instructions old-live-in defined) state)
+  (if (= (set-count (set-difference (set-difference new-live-in defined) old-live-in)) 0)
       (nothing)
       (just
         (block-state
           (propagate-live-variables/instructions (reverse instructions) (empty) new-live-in)
-          new-live-in))))
+          new-live-in
+          defined))))
 
 (define (Reg) (propagate-live-variables/instructions
                 [rev-instructions : (List (PointState Reg))]
@@ -194,6 +198,7 @@
   : (BlockState Reg)
   (match-define (basic-block instructions terminal) block)
   (match-define terminal-live-in (initial-live-in/terminal terminal reg=?))
+  (match-define terminal-defined (initial-defined/terminal terminal reg=?))
   (block-state
     (propagate-live-variables/instructions
       (reverse
@@ -201,7 +206,8 @@
                (initial-point-state/instruction inst reg=?)) instructions))
       (empty)
       terminal-live-in)
-    terminal-live-in))
+    terminal-live-in
+    terminal-defined))
 
 (define (Reg) (initial-point-state/instruction
                 [i : (Instruction Reg)]
@@ -310,16 +316,34 @@
        [(reg-condition reg) (set-add (make-set reg=?) reg)]
        [(negated-reg-condition reg) (set-add (make-set reg=?) reg)]
        [(comparison-condition _ reg1 reg2)
-        (set-add (set-add (make-set reg=?) reg1) reg2)])]))
+        (set-add (set-add (make-set reg=?) reg1) reg2)]
+       [(memory-compare-condition _ size reg1 reg2)
+        (set-add (set-add (set-add (make-set reg=?) size) reg1) reg2)])]))
+
+
+(define (Reg) (initial-defined/terminal [t : (Terminal Reg)] [reg=? : (Reg Reg -> Boolean)]) : (Set Reg)
+  (case t
+    [(return reg) (make-set reg=?)]
+    [(halt) (make-set reg=?)]
+    [(jump index) (make-set reg=?)]
+    [(fall-through index) (make-set reg=?)]
+    [(cond-jump/false-fall-through condition true false)
+     (case condition
+       [(reg-condition reg) (make-set reg=?)]
+       [(negated-reg-condition reg) (make-set reg=?)]
+       [(comparison-condition _ reg1 reg2)
+        (make-set reg=?)]
+       [(memory-compare-condition _ size reg1 reg2)
+        (set-add (set-add (set-add (make-set reg=?) size) reg1) reg2)])]))
 
 
 (define (Reg) (block-live-in [b : (BlockState Reg)]) : (Set Reg)
   (case b
-    [(block-state (cons (point-state live _ _) _) _) live]
-    [(block-state (empty) live) live]))
+    [(block-state (cons (point-state live _ _) _) _ _) live]
+    [(block-state (empty) live _) live]))
 
 (define (Reg) (block->live-out-states [b : (BlockState Reg)]) : (List (LiveOutState Reg))
-  (match-define (block-state live-ins final-live-in) b)
+  (match-define (block-state live-ins final-live-in _) b)
   (block->live-out-states* (reverse live-ins) final-live-in (empty)))
 
 (define (Reg) (block->live-out-states* [live-in-states : (List (PointState Reg))]
@@ -392,7 +416,7 @@
     (lambda ([block-num : Int] [state : (BlockState Reg)] [acc : (Graph Reg VertexData EdgeData)])
       : (Graph Reg VertexData EdgeData)
       (case state
-        [(block-state instructions _)
+        [(block-state instructions _ _)
          (foldl
            (lambda ([p : (PointState Reg)] [g : (Graph Reg VertexData EdgeData)])
              (add-live-variables-to-graph/point-state p g reg->bytes))
