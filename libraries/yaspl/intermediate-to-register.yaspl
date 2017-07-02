@@ -7,6 +7,7 @@
   (prim)
   (prim-language) {
     #:values
+      not-equal
       numeric-bin-op
       plus
   }
@@ -17,13 +18,17 @@
     #:values
       [bin-op-inst r:bin-op-inst]
       closure-call
+      comparison-condition
       [cond-jump r:cond-jump]
       eight-byte-mem-op
       [function-call-inst r:function-call-inst]
+      [halt r:halt]
       [heap-allocate-inst r:heap-allocate-inst]
       [int-literal r:int-literal]
       [jump r:jump]
+      memory-compare-condition
       negated-var-condition
+      [pointer-ref-inst r:pointer-ref-inst]
       [pointer-set!-inst r:pointer-set!-inst]
       [symbol-address-inst r:symbol-address-inst]
   }
@@ -43,8 +48,9 @@
     [(just v) v]))
 
 (define (env-global-ref [env : Environment] [name : Bytes]) : Bytes
-  (panic #"env-global-erf is not yet implemented"))
-
+  (panic #"env-global-ref is not yet implemented"))
+(define (env-pattern-tag-ref [env : Environment] [name : Bytes]) : Int
+  (panic #"env-pattern-tag-ref is not yet implemented"))
 
 (define (env-set [env : Environment] [name : Bytes] [var : Var]) : Environment
   (case env
@@ -136,7 +142,93 @@
            (r:pointer-set!-inst (eight-byte-mem-op) closure-var symbol-var))))
      (match-define acc (fill-array closure-var exprs env acc))
      (tuple2 closure-var acc)]
-    [(case-expr _ _) (panic #"NYI")]))
+    [(case-expr expr clauses)
+     (match-define (tuple2 value-var acc) (convert-expr expr env acc))
+     (match-define (tuple2 join-block acc) (fresh-block-number acc))
+     (match-define acc (convert-clauses clauses value-var join-block env acc))
+     (match-define (tuple2 join-var acc) (fresh-var* acc #"join"))
+     (tuple2
+       join-var
+       (start-block join-block (varargs list join-var) acc))]))
+
+
+(define (convert-clauses [clauses : (List CaseClause)] [value : Var] [join-block : Int]
+                         [env : Environment] [acc : Accumulator]) : BlockAccumulator
+  (case clauses
+    [(empty) (add-terminal acc (r:halt))]
+    [(cons (case-clause pattern expr) clauses)
+     (match-define (tuple2 fail-block acc) (fresh-block-number acc))
+
+     (match-define (tuple2 inner-env acc) (convert-pattern pattern value fail-block env acc))
+     (match-define (tuple2 value-var acc) (convert-expr expr inner-env acc))
+     (match-define acc
+       (start-block fail-block (empty) (add-terminal acc (r:jump join-block (varargs list value-var)))))
+     (convert-clauses clauses value join-block env acc)]))
+
+(define (convert-pattern [pattern : Pattern] [value : Var] [fail-block : Int]
+                         [env : Environment] [acc : Accumulator]) : (Tuple2 Environment Accumulator)
+  (case pattern
+    [(ignore-pattern) (tuple2 env acc)]
+    [(variable-pattern var)
+     (tuple2 (env-set env var value) acc)]
+    [(int-pattern exp)
+     (match-define (tuple2 exp-var acc) (fresh-var acc #"intpat"))
+     (match-define acc (add-instruction acc (r:int-literal exp-var exp)))
+     (match-define (tuple2 continue-block acc) (fresh-block-number acc))
+     (tuple2
+       env
+       (start-block
+         continue-block
+         (empty)
+         (add-terminal acc (r:cond-jump (comparison-condition (not-equal) exp-var value)
+                                        fail-block (empty) continue-block (empty)))))]
+    [(bytes-pattern name)
+     (match-define (tuple2 bytes-var acc) (fresh-var acc #"bytes"))
+     (match-define (tuple2 size-var acc) (fresh-var acc #"size"))
+     (match-define symbol (env-global-ref env name))
+     (match-define acc (add-instruction acc (r:symbol-address-inst bytes-var symbol)))
+     (match-define acc (add-instruction acc (r:pointer-ref-inst size-var (eight-byte-mem-op) bytes-var)))
+     (match-define (tuple2 continue-block acc) (fresh-block-number acc))
+     (tuple2
+       env
+       (start-block
+         continue-block
+         (empty)
+         (add-terminal acc (r:cond-jump (memory-compare-condition #t size-var bytes-var value)
+                                        fail-block (empty) continue-block (empty)))))]
+    [(abstraction-pattern name patterns)
+     (match-define tag (env-pattern-tag-ref env name))
+     (match-define (tuple2 expected-tag acc) (fresh-var acc #"exp-tag"))
+     (match-define (tuple2 actual-tag acc) (fresh-var acc #"actual-tag"))
+     (match-define acc (add-instruction acc (r:int-literal expected-tag tag)))
+     (match-define acc (add-instruction acc (r:pointer-ref-inst actual-tag (eight-byte-mem-op) value)))
+     (match-define (tuple2 continue-block acc) (fresh-block-number acc))
+     (match-define acc
+       (start-block
+         continue-block
+         (empty)
+         (add-terminal acc (r:cond-jump (comparison-condition (not-equal) expected-tag actual-tag)
+                                        fail-block (empty) continue-block (empty)))))
+     (convert-sub-patterns patterns value fail-block env acc)]))
+
+(define (convert-sub-patterns
+          [patterns : (List Pattern)] [previous-ptr : Var] [fail-block : Int]
+          [env : Environment] [acc : Accumulator]) : (Tuple2 Environment Accumulator)
+  (case patterns
+    [(empty) (tuple2 env acc)]
+    [(cons pattern patterns)
+     (match-define (tuple2 delta acc) (fresh-var acc #"delta"))
+     (match-define (tuple2 new-ptr acc) (fresh-var acc #"ptr"))
+     (match-define (tuple2 new-value acc) (fresh-var acc #"val"))
+     (match-define acc
+       (add-instructions acc
+         (varargs list
+           (r:int-literal delta 8)
+           (r:bin-op-inst new-ptr (numeric-bin-op (plus)) previous-ptr delta)
+           (r:pointer-ref-inst new-value (eight-byte-mem-op) new-ptr))))
+     (match-define (tuple2 env acc) (convert-pattern pattern new-value fail-block env acc))
+     (convert-sub-patterns patterns new-ptr fail-block env acc)]))
+
 
 (define (fill-array [last-index : Var] [exprs : (List Expression)]
                     [env : Environment] [acc : Accumulator]) : Accumulator
