@@ -5,6 +5,21 @@ package(
 )
 
 yaspl_bootstrap_library(
+    name = "module-environment",
+    srcs = ["module-environment.yaspl"],
+    deps = [
+        "//libraries:intermediate-language",
+        "//libraries:module-name",
+        "//libraries:module-signature",
+        "//libraries:resolved-imports-language",
+        "//libraries/data:bytes",
+        "//libraries/data:dict",
+        "//libraries/data:list",
+        "//libraries/data:maybe",
+    ],
+)
+
+yaspl_bootstrap_library(
     name = "x86-64-runtime",
     srcs = ["x86-64-runtime.yaspl"],
     deps = [

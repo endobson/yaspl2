@@ -146,10 +146,9 @@ yaspl_bootstrap_library(
     name = "environment",
     srcs = ["environment.yaspl"],
     deps = [
-        "//libraries/data:bytes",
         "//libraries/data:dict",
-        "//libraries/data:list",
         "//libraries/data:maybe",
+        "//libraries/yaspl:module-environment",
     ],
 )
 
@@ -709,7 +708,6 @@ yaspl_bootstrap_library(
         ":intermediate-to-module-signature",
         ":module-name",
         ":module-signature",
-        ":resolved-imports-language",
         ":stack-machine",
         "//libraries/data:bytes",
         "//libraries/data:dict",
@@ -717,6 +715,7 @@ yaspl_bootstrap_library(
         "//libraries/data:list",
         "//libraries/data:maybe",
         "//libraries/data:tuples",
+        "//libraries/yaspl:module-environment",
     ],
 )
 
