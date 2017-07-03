@@ -143,16 +143,6 @@ yaspl_bootstrap_library(
 )
 
 yaspl_bootstrap_library(
-    name = "environment",
-    srcs = ["environment.yaspl"],
-    deps = [
-        "//libraries/data:dict",
-        "//libraries/data:maybe",
-        "//libraries/yaspl:module-environment",
-    ],
-)
-
-yaspl_bootstrap_library(
     name = "linker-main",
     srcs = ["linker-main.yaspl"],
     deps = [
@@ -688,10 +678,10 @@ yaspl_bootstrap_library(
     name = "intermediate-to-module-signature",
     srcs = ["intermediate-to-module-signature.yaspl"],
     deps = [
-        ":environment",
         ":intermediate-language",
         ":module-signature",
         ":types",
+        "//libraries/yaspl:module-environment",
         "//libraries/data:bytes",
         "//libraries/data:dict",
         "//libraries/data:list",
@@ -703,7 +693,6 @@ yaspl_bootstrap_library(
     name = "intermediate-to-stack",
     srcs = ["intermediate-to-stack.yaspl"],
     deps = [
-        ":environment",
         ":intermediate-language",
         ":intermediate-to-module-signature",
         ":module-name",
