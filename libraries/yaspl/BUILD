@@ -35,7 +35,9 @@ yaspl_library(
     name = "intermediate-to-register",
     srcs = ["intermediate-to-register.yaspl"],
     deps = [
+        ":module-environment",
         "//libraries:intermediate-language",
+        "//libraries/data:bytes",
         "//libraries/data:dict",
         "//libraries/data:list",
         "//libraries/data:maybe",

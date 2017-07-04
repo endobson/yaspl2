@@ -1,5 +1,6 @@
 #:module (yaspl intermediate-to-register)
 #:import {
+  (bytes)
   (dict)
   (intermediate-language)
   (list)
@@ -14,6 +15,7 @@
   (prim-language register-language-builder)
   (register-language) {
     #:types
+      [FunctionDefinition r:FunctionDefinition]
       Var
     #:values
       [bin-op-inst r:bin-op-inst]
@@ -22,6 +24,7 @@
       [cond-jump r:cond-jump]
       eight-byte-mem-op
       [function-call-inst r:function-call-inst]
+      [function-definition r:function-definition]
       [halt r:halt]
       [heap-allocate-inst r:heap-allocate-inst]
       [int-literal r:int-literal]
@@ -30,33 +33,71 @@
       negated-var-condition
       [pointer-ref-inst r:pointer-ref-inst]
       [pointer-set!-inst r:pointer-set!-inst]
+      [return r:return]
       [symbol-address-inst r:symbol-address-inst]
   }
   (tuples)
+  (yaspl module-environment)
 }
 (export
   #:types ()
-  #:values (convert-expr)
+  #:values (compile-module)
   #:patterns ())
 (types
   (define-type Environment
     (environment
       [vars : (Dict Bytes Var)]
-      [globals : (Dict Bytes Bytes)]
-      [tags : (Dict Bytes Int)])))
+      [module-env : ModuleEnvironment])))
+
+
+(define (compile-module [mod : Module]) : Void
+  (match-define env (make-module-environment mod))
+  (match-define funcs
+    (map
+      (lambda ([f : FunctionDefinition])
+        (convert-function f env))
+      (module-definitions mod)))
+  (void))
+
 
 (define (env-ref [env : Environment] [name : Bytes]) : (Maybe Var)
   (dict-ref (environment-vars env) name))
 
 (define (env-global-ref [env : Environment] [name : Bytes]) : (Maybe Bytes)
-  (dict-ref (environment-globals env) name))
+  (module-environment-global-ref (environment-module-env env) name))
 (define (env-pattern-tag-ref [env : Environment] [name : Bytes]) : (Maybe Int)
-  (dict-ref (environment-tags env) name))
+  (module-environment-tag-ref (environment-module-env env) name))
 
 (define (env-set [env : Environment] [name : Bytes] [var : Var]) : Environment
   (case env
-    [(environment vars globals tags)
-     (environment (dict-set vars name var) globals tags)]))
+    [(environment vars module-env)
+     (environment (dict-set vars name var) module-env)]))
+
+(define (convert-function [f : FunctionDefinition] [env : ModuleEnvironment]) : r:FunctionDefinition
+  (match-define (function-definition name _ args free-vars body) f)
+  (match-define acc (block-accumulator 0 0 (make-dict =)))
+  (match-define (tuple2 start-block-num acc) (fresh-block-number* acc))
+
+  (match-define (tuple2 freshened-args acc)
+    (map-state fresh-name* args acc))
+  (match-define (tuple2 freshened-free-vars acc)
+    (map-state fresh-name* free-vars acc))
+
+  (match-define acc (start-block start-block-num (map new-arg freshened-args) acc))
+  (match-define env (environment (make-dict bytes=?) env))
+  (match-define env
+    (foldl
+      (lambda ([t : (Tuple2 Bytes Var)] [env : Environment])
+        (case t
+          [(tuple2 name var) (env-set env name var)]))
+      freshened-args
+      env))
+  ;; TODO handle free-vars
+
+  (match-define (tuple2 result acc) (convert-expr body env acc))
+  (match-define (block-accumulator next-var next-block blocks) (add-terminal acc (r:return result)))
+
+  (r:function-definition name start-block-num blocks next-var next-block))
 
 (define (convert-expr [e : Expression] [env : Environment] [acc : Accumulator]) : (Tuple2 Var Accumulator)
   (case e
@@ -292,3 +333,13 @@
 (define (fresh-var* [acc : BlockAccumulator] [base-name : Bytes]) : (Tuple2 Var BlockAccumulator)
   (case (fresh-name* base-name acc)
     [(tuple2 (tuple2 _ v) acc) (tuple2 v acc)]))
+
+(define (a b s) (map-state [f : (a s -> (Tuple2 b s))] [l : (List a)] [s : s]) : (Tuple2 (List b) s)
+  (case l
+    [(empty) (tuple2 (empty) s)]
+    [(cons e l)
+     (case (f e s)
+       [(tuple2 v s)
+        (case (map-state f l s)
+          [(tuple2 vs s)
+           (tuple2 (cons v vs) s)])])]))
