@@ -53,6 +53,7 @@
       [FunctionDefinition r:FunctionDefinition]
       [Instruction r:Instruction]
       [Terminal r:Terminal]
+      [CallingConvention r:CallingConvention]
       [Var r:Var]
     #:values
       var->bytes
@@ -62,6 +63,8 @@
       [bin-op-inst r:bin-op-inst]
       [closure-call r:closure-call]
       [comparison-condition r:comparison-condition]
+      [closure-convention r:closure-convention]
+      [plain-function-convention r:plain-function-convention]
       [cond-jump r:cond-jump]
       [eight-byte-mem-op r:eight-byte-mem-op]
       [function-allocate-inst r:function-allocate-inst]
@@ -233,7 +236,7 @@
     [(tuple2 (temporary-reg _) (fixed-reg _)) #f]))
 
 (define (lower-function [fun : r:FunctionDefinition]) : (l:FunctionDefinition Reg)
-  (match-define (r:function-definition name entry-block-num blocks _ next-block) fun)
+  (match-define (r:function-definition name convention blocks _ next-block) fun)
   (match-define lowered-entry-block next-block)
   (match-define next-block (+ 1 next-block))
 
@@ -246,7 +249,7 @@
       (tuple2 next-block (empty-blocks lowered-entry-block))))
   (match-define new-blocks
     (l:unvalidated-block-map-add-block
-      new-blocks lowered-entry-block (make-entry-block entry-block-num blocks)))
+      new-blocks lowered-entry-block (make-entry-block convention blocks)))
 
   (case (l:validate-block-map new-blocks)
     [(left msg) (panic msg)]
@@ -254,22 +257,51 @@
      (l:function-definition name 0 validated-new-blocks)]))
 
 
-(define (make-entry-block [entry-block-num : Int] [blocks : (Dict Int r:BasicBlock)])
+(define (make-entry-block [convention : r:CallingConvention] [blocks : (Dict Int r:BasicBlock)])
   : (l:BasicBlock Reg)
-  (case (dict-ref blocks entry-block-num)
-    [(nothing) (panic #"No entry block")]
-    [(just (r:basic-block args _ _))
-     (l:basic-block
-       (case (zip/left args (varargs list (rdi) (rsi) (rdx) (rcx) (r8) (r9)))
-         [(nothing) (panic #"Too long initial args")]
-         [(just linked-args)
-          (map
-            (lambda ([t : (Tuple2 r:Var X8664Register)])
-              (case t
-                [(tuple2 v reg)
-                 (l:move (temporary-reg v) (fixed-reg reg))]))
-            linked-args)])
-       ((lambda () : (l:Terminal Reg) (l:jump entry-block-num))))]))
+  (match-define arg-registers (varargs list (rdi) (rsi) (rdx) (rcx) (r8) (r9)))
+  (case convention
+    [(r:plain-function-convention num-args entry-block-num)
+     (case (dict-ref blocks entry-block-num)
+       [(nothing) (panic #"No entry block")]
+       [(just (r:basic-block args _ _))
+        (l:basic-block
+          (case (zip args (take num-args arg-registers))
+            [(nothing) (panic #"Too long initial args")]
+            [(just linked-args)
+             (map
+               (lambda ([t : (Tuple2 r:Var X8664Register)])
+                 (case t
+                   [(tuple2 v reg)
+                    (l:move (temporary-reg v) (fixed-reg reg))]))
+               linked-args)])
+          ((lambda () : (l:Terminal Reg) (l:jump entry-block-num))))])]
+    [(r:closure-convention num-args entry-block-num num-free-vars)
+     (case (dict-ref blocks entry-block-num)
+       [(nothing) (panic #"No entry block")]
+       [(just (r:basic-block args _ _))
+        (l:basic-block
+          (append
+            (case (zip (take num-args args) (take num-args arg-registers))
+              [(nothing) (panic #"Too long initial args")]
+              [(just linked-args)
+               (map
+                 (lambda ([t : (Tuple2 r:Var X8664Register)])
+                   (case t
+                     [(tuple2 v reg)
+                      (l:move (temporary-reg v) (fixed-reg reg))]))
+                 linked-args)])
+            (case (zip (drop num-args args)
+                       (build-list num-free-vars (lambda ([x : Int]) (* 8 (+ x 1)))))
+              [(nothing) (panic #"Wrong number of free vars")]
+              [(just free-vars+offsets)
+               (map
+                 (lambda ([t : (Tuple2 r:Var Int)])
+                   (case t
+                     [(tuple2 v offset)
+                      (l:load-8byte (temporary-reg v) (fixed-reg (r11)) offset)]))
+                 free-vars+offsets)]))
+          ((lambda () : (l:Terminal Reg) (l:jump entry-block-num))))])]))
 
 (define (lower-block [index : Int]  [b : r:BasicBlock]
                      [blocks : (Dict Int r:BasicBlock)]
