@@ -9,8 +9,6 @@
   (prim-language) {
     #:values
       not-equal
-      numeric-bin-op
-      plus
   }
   (prim-language register-language-builder)
   (register-language) {
@@ -18,7 +16,6 @@
       [FunctionDefinition r:FunctionDefinition]
       Var
     #:values
-      [bin-op-inst r:bin-op-inst]
       closure-call
       comparison-condition
       [cond-jump r:cond-jump]
@@ -147,7 +144,7 @@
                  (add-instruction acc (r:int-literal size-var (* (+ 1 (length args)) 8)))
                  (r:heap-allocate-inst array-var size-var))
                (r:pointer-set!-inst (eight-byte-mem-op) array-var 0 size-var)))
-           (match-define acc (fill-array array-var args env acc))
+           (match-define acc (fill-array array-var 8 args env acc))
            (tuple2 array-var acc)])])]
     [(if-expr cond then else)
      (match-define (tuple2 branch-var acc)
@@ -192,7 +189,7 @@
               (r:heap-allocate-inst closure-var size-var)
               (r:symbol-address-inst symbol-var symbol)
               (r:pointer-set!-inst (eight-byte-mem-op) closure-var 0 symbol-var))))
-        (match-define acc (fill-array closure-var exprs env acc))
+        (match-define acc (fill-array closure-var 8 exprs env acc))
         (tuple2 closure-var acc)])]
     [(case-expr expr clauses)
      (match-define (tuple2 value-var acc) (convert-expr expr env acc))
@@ -267,47 +264,37 @@
             (empty)
             (add-terminal acc (r:cond-jump (comparison-condition (not-equal) expected-tag actual-tag)
                                            fail-block (empty) continue-block (empty)))))
-        (convert-sub-patterns patterns value fail-block env acc)])]))
+        (convert-sub-patterns patterns value 8 fail-block env acc)])]))
 
 (define (convert-sub-patterns
-          [patterns : (List Pattern)] [previous-ptr : Var] [fail-block : Int]
+          [patterns : (List Pattern)] [ptr : Var] [offset : Int] [fail-block : Int]
           [env : Environment] [acc : Accumulator]) : (Tuple2 Environment Accumulator)
   (case patterns
     [(empty) (tuple2 env acc)]
     [(cons pattern patterns)
-     (match-define (tuple2 delta acc) (fresh-var acc #"delta"))
-     (match-define (tuple2 new-ptr acc) (fresh-var acc #"ptr"))
      (match-define (tuple2 new-value acc) (fresh-var acc #"val"))
      (match-define acc
-       (add-instructions acc
-         (varargs list
-           (r:int-literal delta 8)
-           (r:bin-op-inst new-ptr (numeric-bin-op (plus)) previous-ptr delta)
-           (r:pointer-ref-inst new-value (eight-byte-mem-op) new-ptr 0))))
+       (add-instruction acc
+         (r:pointer-ref-inst new-value (eight-byte-mem-op) ptr offset)))
      (match-define (tuple2 env acc) (convert-pattern pattern new-value fail-block env acc))
-     (convert-sub-patterns patterns new-ptr fail-block env acc)]))
+     (convert-sub-patterns patterns ptr (+ offset 8) fail-block env acc)]))
 
 
-(define (fill-array [last-index : Var] [exprs : (List Expression)]
+(define (fill-array [base : Var] [offset : Int] [exprs : (List Expression)]
                     [env : Environment] [acc : Accumulator]) : Accumulator
   (case exprs
     [(empty) acc]
     [(cons expr exprs)
      (case (convert-expr expr env acc)
        [(tuple2 value-var acc)
-        (case (fresh-var acc #"delta")
-          [(tuple2 delta-var acc)
-           (case (fresh-var acc #"arr")
-             [(tuple2 new-index acc)
-              (fill-array
-                new-index
-                exprs
-                env
-                (add-instruction
-                  (add-instruction
-                    (add-instruction acc (r:int-literal delta-var 8))
-                    (r:bin-op-inst new-index (numeric-bin-op (plus)) last-index delta-var))
-                  (r:pointer-set!-inst (eight-byte-mem-op) new-index 0 value-var)))])])])]))
+        (fill-array
+          base
+          (+ offset 8)
+          exprs
+          env
+          (add-instruction
+            acc
+            (r:pointer-set!-inst (eight-byte-mem-op) base offset value-var)))])]))
 
 (define (convert-begin [expr : Expression] [exprs : (List Expression)] [env : Environment] [acc : Accumulator])
   : (Tuple2 Var Accumulator)
