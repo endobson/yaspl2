@@ -348,7 +348,6 @@ yaspl_bootstrap_library(
         ":sexp-parser",
         ":source-language",
         ":source-to-intermediate-language",
-        ":stack-machine-optimizer",
         ":validator",
         "//libraries/data:bytes",
         "//libraries/data:dict",
@@ -358,6 +357,7 @@ yaspl_bootstrap_library(
         "//libraries/data:maybe",
         "//libraries/data:tuples",
         "//libraries/yaspl:intermediate-to-register",
+        "//libraries/yaspl:top-level-object-optimizer",
         "//libraries/yaspl:top-level-objects",
     ],
 )
@@ -432,12 +432,12 @@ yaspl_bootstrap_library(
         ":io",
         ":mach-o-writer2_lib",
         ":prim-implementation",
-        ":stack-machine-optimizer",
         ":x86-64-stack-machine",
         "//libraries/data:bytes",
         "//libraries/data:dict",
         "//libraries/data:either",
         "//libraries/data:list",
+        "//libraries/yaspl:top-level-object-optimizer",
         "//libraries/yaspl:top-level-objects",
         "//libraries/yaspl:x86-64-runtime",
     ],
@@ -584,7 +584,6 @@ yaspl_bootstrap_library(
         "//libraries/data:maybe",
         "//libraries/data:set",
         "//libraries/data:tuples",
-        "//libraries/yaspl:top-level-objects",
     ],
 )
 
