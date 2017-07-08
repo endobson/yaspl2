@@ -197,6 +197,15 @@ def yaspl_test(name, main_module, srcs=[], deps=[], size="medium"):
   )
 
 
+def _relative_label(label_string, suffix):
+  if label_string.startswith("//"):
+    label = Label(label_string)
+    return "//" + label.package + ":" + label.name + suffix
+  elif label_string.startswith(":"):
+    return label_string + suffix
+  else:
+    fail("Label is not valid: " + label_string)
+
 def yaspl_bootstrap_library(name, srcs, deps=[]):
   yaspl_library(
     name=name,
@@ -207,7 +216,7 @@ def yaspl_bootstrap_library(name, srcs, deps=[]):
   yaspl_srcs(
     name=name + ".src",
     srcs=srcs,
-    deps=[dep + ".src" for dep in deps],
+    deps=[_relative_label(dep, ".src") for dep in deps],
   )
 
   source_file_suffix = ".src_dep"
@@ -217,7 +226,7 @@ def yaspl_bootstrap_library(name, srcs, deps=[]):
     native.filegroup(
       name=src + source_file_suffix,
       srcs=[src],
-      data=[dep + source_group_suffix for dep in deps],
+      data=[_relative_label(dep, source_group_suffix) for dep in deps],
     )
 
   native.filegroup(
