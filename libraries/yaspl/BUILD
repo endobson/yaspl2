@@ -5,6 +5,23 @@ package(
 )
 
 yaspl_bootstrap_library(
+    name = "intermediate-to-register",
+    srcs = ["intermediate-to-register.yaspl"],
+    deps = [
+        ":module-environment",
+        "//libraries:intermediate-language",
+        "//libraries/data:bytes",
+        "//libraries/data:dict",
+        "//libraries/data:list",
+        "//libraries/data:maybe",
+        "//libraries/data:tuples",
+        "//libraries/prim-language",
+        "//libraries/prim-language:register-language",
+        "//libraries/prim-language:register-language-builder",
+    ],
+)
+
+yaspl_bootstrap_library(
     name = "module-environment",
     srcs = ["module-environment.yaspl"],
     deps = [
@@ -20,6 +37,14 @@ yaspl_bootstrap_library(
 )
 
 yaspl_bootstrap_library(
+    name = "top-level-objects",
+    srcs = ["top-level-objects.yaspl"],
+    deps = [
+        "//libraries:stack-machine",
+    ],
+)
+
+yaspl_bootstrap_library(
     name = "x86-64-runtime",
     srcs = ["x86-64-runtime.yaspl"],
     deps = [
@@ -28,22 +53,5 @@ yaspl_bootstrap_library(
         "//libraries/data:join-list",
         "//libraries/data:list",
         "//libraries/data:tuples",
-    ],
-)
-
-yaspl_bootstrap_library(
-    name = "intermediate-to-register",
-    srcs = ["intermediate-to-register.yaspl"],
-    deps = [
-        ":module-environment",
-        "//libraries:intermediate-language",
-        "//libraries/data:bytes",
-        "//libraries/data:dict",
-        "//libraries/data:list",
-        "//libraries/data:maybe",
-        "//libraries/data:tuples",
-        "//libraries/prim-language",
-        "//libraries/prim-language:register-language",
-        "//libraries/prim-language:register-language-builder",
     ],
 )
