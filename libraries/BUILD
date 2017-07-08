@@ -357,6 +357,7 @@ yaspl_bootstrap_library(
         "//libraries/data:list",
         "//libraries/data:maybe",
         "//libraries/data:tuples",
+        "//libraries/yaspl:intermediate-to-register",
     ],
 )
 
@@ -681,11 +682,11 @@ yaspl_bootstrap_library(
         ":intermediate-language",
         ":module-signature",
         ":types",
-        "//libraries/yaspl:module-environment",
         "//libraries/data:bytes",
         "//libraries/data:dict",
         "//libraries/data:list",
         "//libraries/data:maybe",
+        "//libraries/yaspl:module-environment",
     ],
 )
 

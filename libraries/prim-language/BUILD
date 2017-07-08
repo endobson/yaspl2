@@ -1,4 +1,4 @@
-load("//libraries:yaspl.bzl", "yaspl_library", "yaspl_test", "yaspl_binary")
+load("//libraries:yaspl.bzl", "yaspl_library", "yaspl_test", "yaspl_binary", "yaspl_bootstrap_library")
 
 package(
     default_visibility = ["//visibility:public"],
@@ -120,7 +120,7 @@ yaspl_library(
     ],
 )
 
-yaspl_library(
+yaspl_bootstrap_library(
     name = "prim-language",
     srcs = ["prim-language.yaspl"],
     deps = [
@@ -266,7 +266,7 @@ yaspl_library(
     ],
 )
 
-yaspl_library(
+yaspl_bootstrap_library(
     name = "register-language",
     srcs = ["register-language.yaspl"],
     deps = [
@@ -279,7 +279,7 @@ yaspl_library(
     ],
 )
 
-yaspl_library(
+yaspl_bootstrap_library(
     name = "register-language-builder",
     srcs = ["register-language-builder.yaspl"],
     deps = [
@@ -336,7 +336,7 @@ yaspl_library(
     ],
 )
 
-yaspl_library(
+yaspl_bootstrap_library(
     name = "syscalls",
     srcs = ["syscalls.yaspl"],
     deps = [

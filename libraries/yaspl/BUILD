@@ -1,4 +1,4 @@
-load("//libraries:yaspl.bzl", "yaspl_bootstrap_library", "yaspl_library")
+load("//libraries:yaspl.bzl", "yaspl_bootstrap_library")
 
 package(
     default_visibility = ["//visibility:public"],
@@ -31,7 +31,7 @@ yaspl_bootstrap_library(
     ],
 )
 
-yaspl_library(
+yaspl_bootstrap_library(
     name = "intermediate-to-register",
     srcs = ["intermediate-to-register.yaspl"],
     deps = [
