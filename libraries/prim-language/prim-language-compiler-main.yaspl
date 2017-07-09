@@ -1,39 +1,10 @@
 #:module (prim-language-compiler-main)
 #:import {
   (bytes)
-  (color-graph)
-  (dict)
   (either)
   (io)
   (join-list)
   (list)
-  (lower-x86-64) {
-    #:types
-      Reg
-      X8664Register
-    #:values
-      lower-function
-      reg=?
-      x86-64-register=?
-    #:patterns
-      fixed-reg
-      temporary-reg
-  }
-  (lowered-live-variables) {
-    #:values
-      blocks->live-out-states
-      live-variables
-  }
-  (lowered-register-language) {
-    #:types
-      [FunctionDefinition l:FunctionDefinition]
-    #:values
-      rename-registers/function-definition
-  }
-  (lowered-register-language-to-x86-64) {
-    #:values
-      function-definition->assembly-fragment
-  }
   (mach-o-writer2) {
     #:values
       write-mach-o-library/fragments
@@ -64,53 +35,13 @@
     #:values
       convert-function
   }
-  (register-language) {
-    #:types
-      Var
-  }
+  (register-language-compiler)
   (sexp-parser) {
     #:values
       parse-single-sexp
   }
-  (simplify-lowered-register-language) {
-    #:values
-      [simplify-function-definition l:simplify-function-definition]
-  }
-  (simplify-register-language) {
-    #:values
-      [simplify-function-definition r:simplify-function-definition]
-  }
-  (spill-lowered-register-language) {
-    #:values
-      spill-variables
-  }
-  (tuples) {
-    #:types
-      Tuple2
-    #:values
-      tuple2
-    #:patterns
-      tuple2
-  }
-  (yaspl x86-64-assembly) {
-    #:types
-      TextFragment
-    #:values
-      assembly-fragments
-      basic-block
-      call
-      function-fragment
-      imm
-      jmp
-      mem
-      movq
-      rax
-      rdi
-      reg
-      rsp
-      section
-      syscall
-  }
+  (tuples)
+  (yaspl x86-64-assembly)
 }
 (export)
 (types)
@@ -151,42 +82,14 @@
     [(cons _ (cons file-name (cons out-file-name (empty))))
      (right (tuple2 file-name out-file-name))]))
 
-(define (color-function [f : (l:FunctionDefinition Reg)])
-  : (Tuple2 (l:FunctionDefinition Reg) (Dict Var X8664Register))
-  (let ([live (live-variables f reg=?)])
-    (let ([live-outs (blocks->live-out-states live)])
-      (case (color-graph (initial-state live-outs))
-        [(left vs)
-         (color-function (spill-variables f vs))]
-        [(right assignments)
-         (tuple2 f assignments)]))))
-
 (define (compile-functions [fs : (List p:FunctionDefinition)] [acc : (List TextFragment)])
   : (Either Bytes (List TextFragment))
   (case fs
     [(empty) (right acc)]
     [(cons f fs)
-     (case (compile-function f)
+     (case (compile-function (convert-function f))
        [(left v) (left v)]
        [(right fragment) (compile-functions fs (cons fragment acc))])]))
-
-(define (compile-function [f : p:FunctionDefinition]) : (Either Bytes TextFragment)
-  (let ([f (r:simplify-function-definition (convert-function f))])
-    (case (color-function (lower-function f))
-      [(tuple2 lowered assignments)
-       (let ([opt-f
-              (l:simplify-function-definition
-                (rename-registers/function-definition
-                  lowered
-                  (lambda ([r : Reg]) : X8664Register
-                    (case r
-                      [(fixed-reg r) r]
-                      [(temporary-reg v)
-                       (case (dict-ref assignments v)
-                         [(nothing) (panic #"No assignment")]
-                         [(just r) r])])))
-                x86-64-register=?)])
-         (right (function-definition->assembly-fragment opt-f)))])))
 
 (define (compile-prim-program [file-bytes : Bytes]) : (Either Bytes (List TextFragment))
   (case (parse-single-sexp file-bytes)

@@ -1,0 +1,86 @@
+#:module (register-language-compiler)
+#:import {
+  (color-graph)
+  (dict)
+  (either)
+  (lower-x86-64) {
+    #:types
+      Reg
+      X8664Register
+    #:values
+      lower-function
+      reg=?
+      x86-64-register=?
+    #:patterns
+      fixed-reg
+      temporary-reg
+  }
+  (lowered-live-variables) {
+    #:values
+      blocks->live-out-states
+      live-variables
+  }
+  (lowered-register-language) {
+    #:types
+      [FunctionDefinition l:FunctionDefinition]
+    #:values
+      rename-registers/function-definition
+  }
+  (lowered-register-language-to-x86-64) {
+    #:values
+      function-definition->assembly-fragment
+  }
+  (maybe)
+  (prim)
+  (register-language) {
+    #:types
+      [FunctionDefinition r:FunctionDefinition]
+      Var
+  }
+  (simplify-lowered-register-language) {
+    #:values
+      [simplify-function-definition l:simplify-function-definition]
+  }
+  (simplify-register-language) {
+    #:values
+      [simplify-function-definition r:simplify-function-definition]
+  }
+  (spill-lowered-register-language) {
+    #:values
+      spill-variables
+  }
+  (tuples)
+  (yaspl x86-64-assembly)
+}
+(export
+  #:types ()
+  #:values (compile-function)
+  #:patterns ())
+(types)
+
+(define (compile-function [f : r:FunctionDefinition]) : (Either Bytes TextFragment)
+  (match-define (tuple2 lowered assignments)
+    (color-function (lower-function (r:simplify-function-definition f))))
+  (let ([opt-f
+         (l:simplify-function-definition
+           (rename-registers/function-definition
+             lowered
+             (lambda ([r : Reg]) : X8664Register
+               (case r
+                 [(fixed-reg r) r]
+                 [(temporary-reg v)
+                  (case (dict-ref assignments v)
+                    [(nothing) (panic #"No assignment")]
+                    [(just r) r])])))
+           x86-64-register=?)])
+    (right (function-definition->assembly-fragment opt-f))))
+
+(define (color-function [f : (l:FunctionDefinition Reg)])
+  : (Tuple2 (l:FunctionDefinition Reg) (Dict Var X8664Register))
+  (let ([live (live-variables f reg=?)])
+    (let ([live-outs (blocks->live-out-states live)])
+      (case (color-graph (initial-state live-outs))
+        [(left vs)
+         (color-function (spill-variables f vs))]
+        [(right assignments)
+         (tuple2 f assignments)]))))
