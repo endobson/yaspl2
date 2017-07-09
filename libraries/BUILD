@@ -349,7 +349,10 @@ yaspl_bootstrap_library(
         ":io",
         ":module-name",
         ":module-signature",
+        "//libraries/yaspl:module-environment",
         ":prim-implementation",
+        ":intermediate-language",
+        ":intermediate-to-module-signature",
         ":resolved-imports-language",
         ":sexp-parser",
         ":source-language",
@@ -705,7 +708,6 @@ yaspl_bootstrap_library(
     srcs = ["intermediate-to-stack.yaspl"],
     deps = [
         ":intermediate-language",
-        ":intermediate-to-module-signature",
         ":module-name",
         ":stack-machine",
         "//libraries/data:bytes",
