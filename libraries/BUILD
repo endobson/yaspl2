@@ -707,7 +707,6 @@ yaspl_bootstrap_library(
         ":intermediate-language",
         ":intermediate-to-module-signature",
         ":module-name",
-        ":module-signature",
         ":stack-machine",
         "//libraries/data:bytes",
         "//libraries/data:dict",

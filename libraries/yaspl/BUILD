@@ -49,15 +49,6 @@ yaspl_bootstrap_library(
 )
 
 yaspl_bootstrap_library(
-    name = "top-level-objects",
-    srcs = ["top-level-objects.yaspl"],
-    deps = [
-        "//libraries:stack-machine",
-        "//libraries/prim-language:register-language",
-    ],
-)
-
-yaspl_bootstrap_library(
     name = "top-level-objects-to-x86-64",
     srcs = ["top-level-objects-to-x86-64.yaspl"],
     deps = [
@@ -68,6 +59,17 @@ yaspl_bootstrap_library(
         "//libraries/data:list",
         "//libraries/data:tuples",
         "//libraries/prim-language:register-language-compiler",
+    ],
+)
+
+yaspl_bootstrap_library(
+    name = "top-level-objects",
+    srcs = ["top-level-objects.yaspl"],
+    deps = [
+        "//libraries:stack-machine",
+        "//libraries/prim-language:register-language",
+        "//libraries:module-signature",
+        "//libraries/data:list",
     ],
 )
 
