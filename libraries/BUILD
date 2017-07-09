@@ -140,6 +140,7 @@ yaspl_bootstrap_library(
         "//libraries/data:either",
         "//libraries/data:list",
         "//libraries/yaspl:x86-64-assembly",
+        "//libraries/yaspl:x86-64-assembly-printer",
         "//libraries/yaspl:x86-64-runtime",
     ],
 )
@@ -220,6 +221,7 @@ yaspl_library(
         "//libraries/data:tuples",
         "//libraries/yaspl:top-level-objects",
         "//libraries/yaspl:x86-64-assembly",
+        "//libraries/yaspl:x86-64-assembly-printer",
     ],
 )
 

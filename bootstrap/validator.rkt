@@ -757,6 +757,8 @@
         ind-sig))
     ;; TODO avoid this issue
     (unless (= (length ind-sigs) 1)
+      (for ([ind-sig (in-list (binding-env-inductive-signatures env))])
+        (eprintf "~a~n" ind-sig))
       (error 'lookup-other-variants "Bad variant ~s: ~s ~s" variant-name input-type ind-sigs))
     (define abstract-values
       (for/hash ([variant-sig (in-list (inductive-signature-variants (first ind-sigs)))])

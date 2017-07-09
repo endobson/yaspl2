@@ -59,6 +59,17 @@ yaspl_bootstrap_library(
     name = "x86-64-assembly",
     srcs = ["x86-64-assembly.yaspl"],
     deps = [
+        "//libraries/data:bytes",
+        "//libraries/data:join-list",
+        "//libraries/data:list",
+    ],
+)
+
+yaspl_bootstrap_library(
+    name = "x86-64-assembly-printer",
+    srcs = ["x86-64-assembly-printer.yaspl"],
+    deps = [
+        ":x86-64-assembly",
         "//libraries:io",
         "//libraries/data:bytes",
         "//libraries/data:join-list",

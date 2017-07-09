@@ -1,0 +1,410 @@
+#:module (yaspl x86-64-assembly-printer)
+#:import {
+  (bytes)
+  (io)
+  (join-list)
+  (list)
+  (numbers)
+  (prim)
+  (yaspl x86-64-assembly)
+}
+(export
+  #:types (AssemblyCommand AssemblerDirective)
+  #:values (write-fragments const-fragment->commands text-fragment->commands assembly-commands->bytes)
+  #:patterns ())
+(types
+  (define-type AssemblyCommand
+    (directive-cmd [directive : AssemblerDirective])
+    (instruction-cmd [instruction : Instruction]))
+  (define-type AssemblerDirective
+    (section-directive [segment-name : Bytes] [section-name : Bytes])
+    (global-directive [label : Bytes])
+    (label-directive [name : Bytes])
+    (quad-directive/label [label : Bytes])
+    (quad-directive/integer [value : Int])
+    (ascii-directive [value : Bytes])))
+
+(define (register->bytes [reg : Register]) : Bytes
+  (case reg
+    ;; 8 bit
+    [(al) #"%al"]
+    [(ah) #"%ah"]
+    [(bl) #"%bl"]
+    [(bh) #"%bh"]
+    [(cl) #"%cl"]
+    [(ch) #"%ch"]
+    [(dl) #"%dl"]
+    [(dh) #"%dh"]
+    [(dil) #"%dli"]
+    [(sil) #"%sil"]
+    [(bpl) #"%bpl"]
+    [(spl) #"%spl"]
+    [(r8b) #"%r8b"]
+    [(r9b) #"%r9b"]
+    [(r10b) #"%r10b"]
+    [(r11b) #"%r11b"]
+    [(r12b) #"%r12b"]
+    [(r13b) #"%r13b"]
+    [(r14b) #"%r14b"]
+    [(r15b) #"%r15b"]
+    ;; 16 bit
+    [(ax) #"%ax"]
+    [(bx) #"%bx"]
+    [(cx) #"%cx"]
+    [(dx) #"%dx"]
+    [(di) #"%di"]
+    [(si) #"%si"]
+    [(bp) #"%bp"]
+    [(sp) #"%sp"]
+    [(r8w) #"%r8w"]
+    [(r9w) #"%r9w"]
+    [(r10w) #"%r10w"]
+    [(r11w) #"%r11w"]
+    [(r12w) #"%r12w"]
+    [(r13w) #"%r13w"]
+    [(r14w) #"%r14w"]
+    [(r15w) #"%r15w"]
+    ;; 32 bit
+    [(eax) #"%eax"]
+    [(ebx) #"%ebx"]
+    [(ecx) #"%ecx"]
+    [(edx) #"%edx"]
+    [(edi) #"%edi"]
+    [(esi) #"%esi"]
+    [(ebp) #"%ebp"]
+    [(esp) #"%esp"]
+    [(r8d) #"%r8d"]
+    [(r9d) #"%r9d"]
+    [(r10d) #"%r10d"]
+    [(r11d) #"%r11d"]
+    [(r12d) #"%r12d"]
+    [(r13d) #"%r13d"]
+    [(r14d) #"%r14d"]
+    [(r15d) #"%r15d"]
+    ;; 64 bit
+    [(rax) #"%rax"]
+    [(rbx) #"%rbx"]
+    [(rcx) #"%rcx"]
+    [(rdx) #"%rdx"]
+    [(rdi) #"%rdi"]
+    [(rsi) #"%rsi"]
+    [(rbp) #"%rbp"]
+    [(rsp) #"%rsp"]
+    [(r8) #"%r8"]
+    [(r9) #"%r9"]
+    [(r10) #"%r10"]
+    [(r11) #"%r11"]
+    [(r12) #"%r12"]
+    [(r13) #"%r13"]
+    [(r14) #"%r14"]
+    [(r15) #"%r15"]))
+
+(define (rmi->bytes [rmi : RegMemImm]) : Bytes
+  (case rmi
+    [(rmi-register r) (register->bytes r)]
+    [(rmi-direct-memory reg)
+     (bytes-append (varargs list #"(" (register->bytes reg) #")"))]
+    [(rmi-displaced-memory reg offset)
+     (bytes-append (varargs list (integer->decimal-bytes (s32->s64 offset)) #"(" (register->bytes reg) #")"))]
+    [(rmi-scaled-memory reg scale index offset)
+     (bytes-append
+       (varargs list
+         (integer->decimal-bytes (s32->s64 offset))
+         #"("
+         (register->bytes reg)
+         #", "
+         (register->bytes index)
+         #", "
+         (integer->decimal-bytes
+           (case scale
+             [(scale-1) 1]
+             [(scale-2) 2]
+             [(scale-4) 4]
+             [(scale-8) 8]))
+         #")"))]
+    [(rmi-imm (imm-s32 v))
+     (bytes-append (varargs list #"$" (integer->decimal-bytes (s32->s64 v))))]
+    [(rmi-imm (imm-s64 v))
+     (bytes-append (varargs list #"$" (integer->decimal-bytes (eight-bytes-le->int v))))]))
+
+
+
+;; Generates a text version of the assembly commands.
+(define (assembly-commands->bytes [cmds : (List AssemblyCommand)]) : (JoinList Bytes)
+  (case cmds
+    [(empty) (empty-jl)]
+    [(cons cmd cmds)
+     (append-jl
+       (assembly-command->bytes cmd)
+       (cons-jl
+         #"\n"
+         (assembly-commands->bytes cmds)))]))
+
+(define (assembly-command->bytes [cmd : AssemblyCommand]) : (JoinList Bytes)
+  (case cmd
+    [(directive-cmd directive) (assembler-directive->bytes directive)]
+    [(instruction-cmd instruction) (instruction->assembly-bytes instruction)]))
+
+(define (assembler-directive->bytes [dir : AssemblerDirective]) : (JoinList Bytes)
+  (case dir
+    [(section-directive seg sect)
+     (varargs join-list #".section " seg #"," sect)]
+    [(global-directive label)
+     (varargs join-list #".global \"" label #"\"")]
+    [(label-directive name)
+     (varargs join-list #"\"" name #"\"" #":")]
+    [(quad-directive/label label)
+     (varargs join-list #".quad \"" label #"\"")]
+    [(quad-directive/integer value)
+     (varargs join-list #".quad " (integer->decimal-bytes value))]
+    [(ascii-directive value)
+     (varargs append-jl*
+       (single-jl #".ascii \"")
+       (escape-bytes value 0 0)
+       (single-jl #"\""))]))
+
+(define (escape-bytes [src : Bytes] [start : Int] [cur : Int]) : (JoinList Bytes)
+  (if (= cur (bytes-length src))
+      (single-jl (subbytes src start cur))
+      (let ([byte (bytes-ref src cur)])
+        (if (= byte 10) ;; newline
+            (cons-jl
+              (subbytes src start cur)
+              (cons-jl #"\\n" (escape-bytes src (+ 1 cur) (+ 1 cur))))
+            (if (= byte 13) ;; carriage return
+                (cons-jl
+                  (subbytes src start cur)
+                  (cons-jl #"\\r" (escape-bytes src (+ 1 cur) (+ 1 cur))))
+                (if (= byte 34) ;; double quote
+                    (cons-jl
+                      (subbytes src start cur)
+                      (cons-jl #"\\\"" (escape-bytes src (+ 1 cur) (+ 1 cur))))
+                    (if (= byte 92) ;; backslash
+                        (cons-jl
+                          (subbytes src start cur)
+                          (cons-jl #"\\\\" (escape-bytes src (+ 1 cur) (+ 1 cur))))
+                        (escape-bytes src start (+ 1 cur)))))))))
+
+
+(define (instruction->assembly-bytes [inst : Instruction]) : (JoinList Bytes)
+  (case inst
+    [(addq rmi reg)
+     (varargs join-list
+        #"addq "
+        (rmi->bytes rmi)
+        #", "
+        (register->bytes reg))]
+    [(andq rmi reg)
+     (varargs join-list
+        #"andq "
+        (rmi->bytes rmi)
+        #", "
+        (register->bytes reg))]
+    [(call label)
+     (varargs join-list #"call " label)]
+    [(call/indirect rmi)
+     (varargs join-list #"callq *" (rmi->bytes rmi))]
+    [(cld)
+     (single-jl #"cld")]
+    [(cmpq rmi1 rmi2)
+     (varargs join-list
+        #"cmpq "
+        (rmi->bytes rmi1)
+        #", "
+        (rmi->bytes rmi2))]
+    [(decq reg)
+     (varargs join-list #"decq " (register->bytes reg))]
+    [(idivq reg)
+     (varargs join-list #"idivq " (register->bytes reg))]
+    [(imulq reg1 reg2)
+     (varargs join-list
+       #"imulq "
+       (register->bytes reg1)
+        #", "
+       (register->bytes reg2))]
+    [(incq reg)
+     (varargs join-list #"incq " (register->bytes reg))]
+    [(jb label)
+     (varargs join-list #"jb " label)]
+    [(je label)
+     (varargs join-list #"je " label)]
+    [(jl label)
+     (varargs join-list #"jl " label)]
+    [(jg label)
+     (varargs join-list #"jg " label)]
+    [(jle label)
+     (varargs join-list #"jle " label)]
+    [(jge label)
+     (varargs join-list #"jge " label)]
+    [(jmp label)
+     (varargs join-list #"jmp " label)]
+    [(jmp/indirect reg)
+     (varargs join-list #"jmp *" (register->bytes reg))]
+    [(jne label)
+     (varargs join-list #"jne " label)]
+    [(jnz label)
+     (varargs join-list #"jnz " label)]
+    [(lahf)
+     (single-jl #"lahf")]
+    [(leaq rmi reg)
+     (varargs join-list
+        #"leaq "
+        (rmi->bytes rmi)
+        #", "
+        (register->bytes reg))]
+    [(leaq/rip-rel label reg)
+     (varargs join-list
+        #"leaq "
+        label
+        #"(%rip),"
+        (register->bytes reg))]
+    [(movb rmi1 rmi2)
+     (varargs join-list
+        #"movb "
+        (rmi->bytes rmi1)
+        #", "
+        (rmi->bytes rmi2))]
+    [(movq rmi1 rmi2)
+     (varargs join-list
+        #"movq "
+        (rmi->bytes rmi1)
+        #", "
+        (rmi->bytes rmi2))]
+    [(movzbq rmi reg)
+     (varargs join-list
+        #"movzbq "
+        (rmi->bytes rmi)
+        #", "
+        (register->bytes reg))]
+    [(nop)
+     (single-jl #"nop")]
+    [(notq reg)
+     (varargs join-list #"notq " (register->bytes reg))]
+    [(orq reg1 reg2)
+     (varargs join-list
+        #"orq "
+        (register->bytes reg1)
+        #", "
+        (register->bytes reg2))]
+    [(popq rmi)
+     (varargs join-list #"popq " (rmi->bytes rmi))]
+    [(pushq rmi)
+     (varargs join-list #"pushq " (rmi->bytes rmi))]
+    [(rep-stosb)
+     (single-jl #"rep stosb")]
+    [(rep-stosq)
+     (single-jl #"rep stosq")]
+    [(rep-movsb)
+     (single-jl #"rep movsb")]
+    [(rep-movsq)
+     (single-jl #"rep movsq")]
+    [(repe-cmpsb)
+     (single-jl #"repe cmpsb")]
+    [(repne-scasb)
+     (single-jl #"repne scasb")]
+    [(repne-scasq)
+     (single-jl #"repne scasq")]
+    [(ret)
+     (single-jl #"ret")]
+    [(sete reg)
+     (varargs join-list #"sete " (register->bytes reg))]
+    [(setg reg)
+     (varargs join-list #"setg " (register->bytes reg))]
+    [(setge reg)
+     (varargs join-list #"setge " (register->bytes reg))]
+    [(setl reg)
+     (varargs join-list #"setl " (register->bytes reg))]
+    [(setle reg)
+     (varargs join-list #"setle " (register->bytes reg))]
+    [(setne reg)
+     (varargs join-list #"setne " (register->bytes reg))]
+    [(shlq reg)
+     (varargs join-list #"shlq %cl, " (register->bytes reg))]
+    [(shrq reg)
+     (varargs join-list #"shrq %cl, " (register->bytes reg))]
+    [(std)
+     (single-jl #"std")]
+    [(subq rmi reg)
+     (varargs join-list
+        #"subq "
+        (rmi->bytes rmi)
+        #", "
+        (register->bytes reg))]
+    [(syscall)
+     (single-jl #"syscall")]
+    [(test rmi1 rmi2)
+     (varargs join-list #"test " (rmi->bytes rmi1) #" " (rmi->bytes rmi2))]
+    [(ud2)
+     (single-jl #"ud2")]))
+
+(define (write-assembly-commands [cmds : (List AssemblyCommand)] [output : OutputPort]) : Void
+  (write-lines (map assembly-command->bytes cmds) output))
+
+(define (line->bytes [line : (JoinList Bytes)]) : Bytes
+  (case (jl->list line)
+    [(empty) #""]
+    [(cons entry (empty)) entry]
+    [entries (bytes-append entries)]))
+
+(define (write-lines [lines : (List (JoinList Bytes))] [output : OutputPort]) : Void
+  (for-each
+    (lambda ([line : (JoinList Bytes)])
+      (begin
+        (write-line (line->bytes line) output)))
+    lines))
+
+(define (write-fragments [fragments : AssemblyFragments] [output : OutputPort]) : Void
+  (write-assembly-commands (jl->list (fragments->commands fragments)) output))
+
+(define (fragments->commands [fragments : AssemblyFragments]) : (JoinList AssemblyCommand)
+  (case fragments
+    [(assembly-fragments text-fragments const-fragments)
+     ;; TODO move the section directives here instead of per fragment
+     (append-jl
+       (concat-map-jl text-fragment->commands (list->jl text-fragments))
+       (concat-map-jl const-fragment->commands (list->jl const-fragments)))]))
+
+(define (text-fragment->commands [frag : TextFragment]) : (JoinList AssemblyCommand)
+  (case frag
+    [(function-fragment _ sections)
+     (cons-jl
+       (directive-cmd (section-directive #"__TEXT" #"__text"))
+       (sections->commands sections))]))
+
+(define (const-fragment->commands [frag : ConstFragment]) : (JoinList AssemblyCommand)
+  (case frag
+    [(address-fragment name value)
+     (varargs join-list
+       (directive-cmd (section-directive #"__TEXT" #"__const"))
+       (directive-cmd (global-directive name))
+       (directive-cmd (label-directive name))
+       (directive-cmd (quad-directive/label value)))]
+    [(bytes-fragment name value)
+     (varargs join-list
+       (directive-cmd (section-directive #"__TEXT" #"__const"))
+       (directive-cmd (global-directive name))
+       (directive-cmd (label-directive name))
+       (directive-cmd (quad-directive/integer (bytes-length value)))
+       (directive-cmd (ascii-directive value)))]))
+
+
+
+(define (sections->commands [sections : (List Section)]) : (JoinList AssemblyCommand)
+  (case sections
+    [(empty) (empty-jl)]
+    [(cons (section blocks) sections)
+     (append-jl
+       (basic-blocks->commands blocks)
+       (sections->commands sections))]))
+
+(define (basic-blocks->commands [blocks : (List BasicBlock)]) : (JoinList AssemblyCommand)
+  (case blocks
+    [(empty) (empty-jl)]
+    [(cons (basic-block name instructions) blocks)
+     (cons-jl
+       (directive-cmd (global-directive name))
+       (cons-jl
+         (directive-cmd (label-directive name))
+         (append-jl
+           (map-jl instruction-cmd instructions)
+           (basic-blocks->commands blocks))))]))
