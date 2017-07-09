@@ -67,10 +67,10 @@ yaspl_bootstrap_library(
     name = "top-level-objects",
     srcs = ["top-level-objects.yaspl"],
     deps = [
-        "//libraries:stack-machine",
-        "//libraries/prim-language:register-language",
         "//libraries:module-signature",
+        "//libraries:stack-machine",
         "//libraries/data:list",
+        "//libraries/prim-language:register-language",
     ],
 )
 
