@@ -110,13 +110,13 @@ yaspl_library(
         ":lowered-register-language",
         ":prim-language",
         ":register-language",
-        "//libraries:x86-64-stack-machine",
         "//libraries/data:bytes",
         "//libraries/data:dict",
         "//libraries/data:join-list",
         "//libraries/data:list",
         "//libraries/data:maybe",
         "//libraries/data:numbers",
+        "//libraries/yaspl:x86-64-assembly",
     ],
 )
 
@@ -150,7 +150,6 @@ yaspl_library(
         "//libraries:io",
         "//libraries:mach-o-writer2_lib",
         "//libraries:sexp-parser",
-        "//libraries:x86-64-stack-machine",
         "//libraries/data:bytes",
         "//libraries/data:dict",
         "//libraries/data:either",
@@ -158,6 +157,7 @@ yaspl_library(
         "//libraries/data:list",
         "//libraries/data:maybe",
         "//libraries/data:tuples",
+        "//libraries/yaspl:x86-64-assembly",
     ],
 )
 
@@ -181,13 +181,13 @@ yaspl_library(
         "//libraries:io",
         "//libraries:mach-o-writer2_lib",
         "//libraries:sexp-parser",
-        "//libraries:x86-64-stack-machine",
         "//libraries/data:bytes",
         "//libraries/data:dict",
         "//libraries/data:either",
         "//libraries/data:join-list",
         "//libraries/data:list",
         "//libraries/data:maybe",
+        "//libraries/yaspl:x86-64-assembly",
     ],
 )
 

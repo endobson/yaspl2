@@ -82,7 +82,6 @@ yaspl_bootstrap_library(
     name = "assembler",
     srcs = ["assembler.yaspl"],
     deps = [
-        ":x86-64-stack-machine",
         "//libraries/data:bytes",
         "//libraries/data:either",
         "//libraries/data:join-list",
@@ -90,6 +89,7 @@ yaspl_bootstrap_library(
         "//libraries/data:maybe",
         "//libraries/data:set",
         "//libraries/data:tuples",
+        "//libraries/yaspl:x86-64-assembly",
     ],
 )
 
@@ -138,6 +138,7 @@ yaspl_bootstrap_library(
         "//libraries/data:bytes",
         "//libraries/data:either",
         "//libraries/data:list",
+        "//libraries/yaspl:x86-64-assembly",
         "//libraries/yaspl:x86-64-runtime",
     ],
 )
@@ -217,6 +218,7 @@ yaspl_library(
         "//libraries/data:numbers",
         "//libraries/data:tuples",
         "//libraries/yaspl:top-level-objects",
+        "//libraries/yaspl:x86-64-assembly",
     ],
 )
 
@@ -416,12 +418,12 @@ yaspl_bootstrap_library(
         ":io",
         ":mach-o-writer_lib",
         ":mach-o_lib",
-        ":x86-64-stack-machine",
         "//libraries/data:bytes",
         "//libraries/data:either",
         "//libraries/data:list",
         "//libraries/data:maybe",
         "//libraries/data:set",
+        "//libraries/yaspl:x86-64-assembly",
     ],
 )
 
@@ -439,6 +441,7 @@ yaspl_bootstrap_library(
         "//libraries/data:list",
         "//libraries/yaspl:top-level-object-optimizer",
         "//libraries/yaspl:top-level-objects",
+        "//libraries/yaspl:x86-64-assembly",
         "//libraries/yaspl:x86-64-runtime",
     ],
 )
@@ -958,7 +961,6 @@ yaspl_bootstrap_library(
     name = "x86-64-stack-machine",
     srcs = ["x86-64-stack-machine.yaspl"],
     deps = [
-        ":io",
         ":stack-machine",
         "//libraries/data:bytes",
         "//libraries/data:join-list",
@@ -966,6 +968,7 @@ yaspl_bootstrap_library(
         "//libraries/data:maybe",
         "//libraries/data:numbers",
         "//libraries/yaspl:top-level-objects",
+        "//libraries/yaspl:x86-64-assembly",
     ],
 )
 
