@@ -1,10 +1,10 @@
-load("//libraries:yaspl.bzl", "yaspl_library", "yaspl_test")
+load("//libraries:yaspl.bzl", "yaspl_bootstrap_library", "yaspl_test")
 
 package(
     default_visibility = ["//visibility:public"],
 )
 
-yaspl_library(
+yaspl_bootstrap_library(
     name = "depth-first-search",
     srcs = ["depth-first-search.yaspl"],
     deps = [
@@ -26,7 +26,7 @@ yaspl_test(
     ],
 )
 
-yaspl_library(
+yaspl_bootstrap_library(
     name = "find-chains",
     srcs = ["find-chains.yaspl"],
     deps = [

@@ -44,6 +44,7 @@ yaspl_bootstrap_library(
         "//libraries:stack-machine-optimizer",
         "//libraries/data:dict",
         "//libraries/data:list",
+        "//libraries/prim-language:simplify-register-language",
     ],
 )
 
@@ -52,6 +53,7 @@ yaspl_bootstrap_library(
     srcs = ["top-level-objects.yaspl"],
     deps = [
         "//libraries:stack-machine",
+        "//libraries/prim-language:register-language",
     ],
 )
 
@@ -65,6 +67,7 @@ yaspl_bootstrap_library(
         "//libraries/data:either",
         "//libraries/data:list",
         "//libraries/data:tuples",
+        "//libraries/prim-language:register-language-compiler",
     ],
 )
 

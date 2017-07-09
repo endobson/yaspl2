@@ -220,7 +220,7 @@ yaspl_test(
     ],
 )
 
-yaspl_library(
+yaspl_bootstrap_library(
     name = "undirected-graph",
     srcs = ["undirected-graph.yaspl"],
     deps = [

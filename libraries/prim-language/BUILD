@@ -16,7 +16,7 @@ yaspl_binary(
     deps = [":prim-language-compiler-main"],
 )
 
-yaspl_library(
+yaspl_bootstrap_library(
     name = "color-graph",
     srcs = ["color-graph.yaspl"],
     deps = [
@@ -50,7 +50,7 @@ yaspl_test(
     ],
 )
 
-yaspl_library(
+yaspl_bootstrap_library(
     name = "lower-x86-64",
     srcs = ["lower-x86-64.yaspl"],
     deps = [
@@ -67,7 +67,7 @@ yaspl_library(
     ],
 )
 
-yaspl_library(
+yaspl_bootstrap_library(
     name = "lowered-register-language",
     srcs = ["lowered-register-language.yaspl"],
     deps = [
@@ -84,7 +84,7 @@ yaspl_library(
     ],
 )
 
-yaspl_library(
+yaspl_bootstrap_library(
     name = "lowered-live-variables",
     srcs = ["lowered-live-variables.yaspl"],
     deps = [
@@ -102,7 +102,7 @@ yaspl_library(
     ],
 )
 
-yaspl_library(
+yaspl_bootstrap_library(
     name = "lowered-register-language-to-x86-64",
     srcs = ["lowered-register-language-to-x86-64.yaspl"],
     deps = [
@@ -281,7 +281,7 @@ yaspl_bootstrap_library(
     ],
 )
 
-yaspl_library(
+yaspl_bootstrap_library(
     name = "register-language-compiler",
     srcs = ["register-language-compiler.yaspl"],
     deps = [
@@ -302,7 +302,7 @@ yaspl_library(
     ],
 )
 
-yaspl_library(
+yaspl_bootstrap_library(
     name = "simplify-lowered-register-language",
     srcs = ["simplify-lowered-register-language.yaspl"],
     deps = [
@@ -317,7 +317,7 @@ yaspl_library(
     ],
 )
 
-yaspl_library(
+yaspl_bootstrap_library(
     name = "simplify-register-language",
     srcs = ["simplify-register-language.yaspl"],
     deps = [
@@ -331,7 +331,7 @@ yaspl_library(
     ],
 )
 
-yaspl_library(
+yaspl_bootstrap_library(
     name = "spill-lowered-register-language",
     srcs = ["spill-lowered-register-language.yaspl"],
     deps = [

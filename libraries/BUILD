@@ -218,6 +218,7 @@ yaspl_library(
         "//libraries/data:maybe",
         "//libraries/data:numbers",
         "//libraries/data:tuples",
+        "//libraries/prim-language:register-language",
         "//libraries/yaspl:top-level-objects",
         "//libraries/yaspl:top-level-objects-to-x86-64",
         "//libraries/yaspl:x86-64-assembly",
@@ -274,7 +275,7 @@ yaspl_library(
     ],
 )
 
-yaspl_library(
+yaspl_bootstrap_library(
     name = "graphviz",
     srcs = ["graphviz.yaspl"],
     deps = [
