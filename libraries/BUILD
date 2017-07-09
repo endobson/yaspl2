@@ -90,6 +90,7 @@ yaspl_bootstrap_library(
         "//libraries/data:set",
         "//libraries/data:tuples",
         "//libraries/yaspl:x86-64-assembly",
+        "//libraries/yaspl:x86-64-instruction-assembler",
     ],
 )
 

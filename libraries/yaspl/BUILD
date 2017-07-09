@@ -56,6 +56,18 @@ yaspl_bootstrap_library(
 )
 
 yaspl_bootstrap_library(
+    name = "x86-64-assembly",
+    srcs = ["x86-64-assembly.yaspl"],
+    deps = [
+        "//libraries:io",
+        "//libraries/data:bytes",
+        "//libraries/data:join-list",
+        "//libraries/data:list",
+        "//libraries/data:numbers",
+    ],
+)
+
+yaspl_bootstrap_library(
     name = "x86-64-runtime",
     srcs = ["x86-64-runtime.yaspl"],
     deps = [
@@ -68,14 +80,13 @@ yaspl_bootstrap_library(
 )
 
 yaspl_bootstrap_library(
-    name = "x86-64-assembly",
-    srcs = ["x86-64-assembly.yaspl"],
+    name = "x86-64-instruction-assembler",
+    srcs = ["x86-64-instruction-assembler.yaspl"],
     deps = [
-        "//libraries:io",
+        ":x86-64-assembly",
         "//libraries/data:bytes",
         "//libraries/data:join-list",
         "//libraries/data:list",
         "//libraries/data:maybe",
-        "//libraries/data:numbers",
     ],
 )
