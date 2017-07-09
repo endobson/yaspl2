@@ -1,34 +1,13 @@
 #:module (xml)
 #:import {
-  (bytes) {
-    #:values
-      bytes-append
-  }
-  (join-list) {
-    #:types
-      JoinList
-    #:values
-      append-jl*
-      concat-jl
-      cons-jl
-      jl->list
-      join-list
-      single-jl
-  }
-  (list) {
-    #:types
-      List
-    #:values
-      map
-  }
-  (prim) {
-    #:types
-      Bytes
-  }
+  (bytes)
+  (join-list)
+  (list)
+  (prim)
 }
 (export
   #:types (Node Attribute)
-  #:values (element-node text-node attribute document->xml-bytes)
+  #:values (element-node text-node/escape attribute/escape document->xml-bytes)
   #:patterns ())
 (types
   (define-type Node
@@ -56,6 +35,43 @@
         (varargs join-list #"</" tag #">"))]
     [(text-node contents)
      contents]))
+
+
+;; This should be a U8
+(define (bytes-concat-map [v : Bytes] [f : (Int -> Bytes)]) : (JoinList Bytes)
+  (bytes-concat-map* v 0 f))
+(define (bytes-concat-map* [v : Bytes] [index : Int] [f : (Int -> Bytes)]) : (JoinList Bytes)
+  (if (< index (bytes-length v))
+      (cons-jl (f (bytes-ref v index)) (bytes-concat-map* v (+ 1 index) f))
+      (empty-jl)))
+(define (bytes-contains [b : Bytes] [v : Int]) : Boolean
+  (bytes-contains* b 0 v))
+(define (bytes-contains* [b : Bytes] [index : Int] [v : Int]) : Boolean
+  (if (< index (bytes-length b))
+      (if (= (bytes-ref b index) v) #t (bytes-contains* b (+ 1 index) v))
+      #f))
+
+(define (escape-xml-text [name : Bytes]) : (JoinList Bytes)
+  (if (or (or (bytes-contains name 38)
+              (bytes-contains name 60))
+          (bytes-contains name 62))
+      (bytes-concat-map name
+        (lambda ([v : Int])
+          (if (= v 38) ;; &
+              #"&amp;"
+              (if (= v 60) ;; <
+                  #"&lt;"
+                  (if (= v 62) ;; >
+                      #"&gt;"
+                      (varargs bytes v))))))
+      (single-jl name)))
+
+(define (text-node/escape [contents : (JoinList Bytes)]) : Node
+  (text-node (concat-map-jl escape-xml-text contents)))
+
+(define (attribute/escape [name : Bytes] [value : (JoinList Bytes)]) : Attribute
+  (attribute name (concat-map-jl escape-xml-text value)))
+
 
 ;; TODO move the space somewhere else
 (define (attribute->xml-bytes [v : Attribute]) : (JoinList Bytes)
