@@ -56,6 +56,19 @@ yaspl_bootstrap_library(
 )
 
 yaspl_bootstrap_library(
+    name = "top-level-objects-to-x86-64",
+    srcs = ["top-level-objects-to-x86-64.yaspl"],
+    deps = [
+        ":top-level-objects",
+        ":x86-64-assembly",
+        "//libraries:x86-64-stack-machine",
+        "//libraries/data:either",
+        "//libraries/data:list",
+        "//libraries/data:tuples",
+    ],
+)
+
+yaspl_bootstrap_library(
     name = "x86-64-assembly",
     srcs = ["x86-64-assembly.yaspl"],
     deps = [
