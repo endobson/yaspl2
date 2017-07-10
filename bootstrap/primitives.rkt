@@ -188,6 +188,8 @@
    (close-output-port port)]
   [(prim-delete-file [name : Bytes]) : Void
    (delete-file (bytes->path (subbytes name 0 (sub1 (bytes-length name)))))]
+  [(prim-make-directory [name : Bytes]) : Void
+   (make-directory (bytes->path (subbytes name 0 (sub1 (bytes-length name)))))]
   [(set-file-or-directory-permissions [name : Bytes] [permissions : Int]) : Void
    (file-or-directory-permissions (bytes->path (subbytes name 0 (sub1 (bytes-length name))))
                                   permissions)]
