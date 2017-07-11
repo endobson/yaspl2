@@ -47,6 +47,7 @@ def _lib_impl(ctx):
   return [
     yaspl_provider(
       signature = ctx.outputs.signature,
+      source_file = ctx.files.srcs[0],
       dep_infos = dep_infos
     )
   ]
