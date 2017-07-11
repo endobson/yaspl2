@@ -13,21 +13,14 @@ yaspl_binary(
     deps = [":aspect-linter-main"],
 )
 
-yaspl_library(
-    name = "rewrite-imports-main",
-    srcs = ["rewrite-imports.yaspl"],
-    deps = [
-        "//libraries:compiler_lib",
-        "//libraries:io",
-        "//libraries:module-name",
-        "//libraries:sexp-parser",
-        "//libraries:source-language",
-        "//libraries/data:bytes",
-        "//libraries/data:either",
-        "//libraries/data:list",
-        "//libraries/data:tuples",
-    ],
+yaspl_binary(
+    name = "ir-printer",
+    main_module = "ir_printer_main",
+    visibility = ["//visibility:public"],
+    deps = [":ir-printer-main"]
 )
+
+
 
 yaspl_library(
     name = "aspect-linter-main",
@@ -36,6 +29,17 @@ yaspl_library(
         ":linter_lib",
         "//libraries:io",
         "//libraries/data:either",
+        "//libraries/data:list",
+    ],
+)
+
+
+yaspl_library(
+    name = "ir-printer-main",
+    srcs = ["ir-printer-main.yaspl"],
+    deps = [
+        "//libraries:io",
+        "//libraries/data:bytes",
         "//libraries/data:list",
     ],
 )
@@ -57,5 +61,21 @@ yaspl_library(
         "//libraries/data:indexed-set",
         "//libraries/data:list",
         "//libraries/data:set",
+    ],
+)
+
+yaspl_library(
+    name = "rewrite-imports-main",
+    srcs = ["rewrite-imports.yaspl"],
+    deps = [
+        "//libraries:compiler_lib",
+        "//libraries:io",
+        "//libraries:module-name",
+        "//libraries:sexp-parser",
+        "//libraries:source-language",
+        "//libraries/data:bytes",
+        "//libraries/data:either",
+        "//libraries/data:list",
+        "//libraries/data:tuples",
     ],
 )
