@@ -1,3 +1,6 @@
+yaspl_provider = provider()
+yaspl_src_provider = provider()
+
 def _transitive_srcs(ctx):
   transitive_srcs = _dependent_srcs(ctx)
   transitive_srcs += ctx.files.srcs
@@ -6,19 +9,19 @@ def _transitive_srcs(ctx):
 def _dependent_srcs(ctx):
   dependent_srcs = set(order="compile")
   for dep in ctx.attr.deps:
-    dependent_srcs += dep.yaspl_transitive_srcs
+    dependent_srcs += dep[yaspl_src_provider].files
   return dependent_srcs
 
 def _transitive_objects(ctx):
   transitive_objects = set(order="compile")
   for dep in ctx.attr.deps:
-    transitive_objects += dep.yaspl_transitive_objects
+    transitive_objects += dep[yaspl_provider].transitive_objects
   return transitive_objects
 
 def _dependent_dep_infos(ctx):
   dependent_dep_infos = set(order="compile")
   for dep in ctx.attr.deps:
-    dependent_dep_infos += dep.yaspl_transitive_deps
+    dependent_dep_infos += dep[yaspl_provider].transitive_deps
   return dependent_dep_infos
 
 
@@ -28,7 +31,7 @@ def _lib_impl(ctx):
     fail("Only one source is supported", "srcs")
   src_path = ctx.files.srcs[0].path
 
-  direct_signatures = [dep.yaspl_signature for dep in ctx.attr.deps]
+  direct_signatures = [dep[yaspl_provider].signature for dep in ctx.attr.deps]
   direct_signature_paths = [sig.path for sig in direct_signatures]
 
   ctx.action(
@@ -48,11 +51,13 @@ def _lib_impl(ctx):
   dependent_dep_infos = _dependent_dep_infos(ctx)
   dependent_objects = [dep.object for dep in dependent_dep_infos]
 
-  return struct(
-    yaspl_transitive_objects = dependent_objects + [ctx.outputs.object],
-    yaspl_signature = ctx.outputs.signature,
-    yaspl_transitive_deps = list(dependent_dep_infos + [dep_info]),
-  )
+  return [
+    yaspl_provider(
+      signature = ctx.outputs.signature,
+      transitive_objects = dependent_objects + [ctx.outputs.object],
+      transitive_deps = list(dependent_dep_infos + [dep_info])
+    )
+  ]
 
 def _src_impl(ctx):
   transitive_srcs = _transitive_srcs(ctx)
@@ -63,10 +68,9 @@ def _src_impl(ctx):
     content = "\n".join(transitive_src_paths)
   )
 
-  return struct(
-    yaspl_transitive_srcs = transitive_srcs
-  )
-
+  return [
+    yaspl_src_provider(files = transitive_srcs)
+  ]
 
 def _bin_impl(ctx):
   ctx.action(
@@ -129,7 +133,7 @@ yaspl_library = rule(
       non_empty=True
     ),
     "deps": attr.label_list(
-       providers = ["yaspl_transitive_deps"],
+       providers = [yaspl_provider],
     ),
     "_library_compiler": _bootstrap_library_compiler
   }
@@ -175,7 +179,7 @@ yaspl_srcs = rule(
       allow_files=_yaspl_src_file_type,
     ),
     "deps": attr.label_list(
-      providers = ["yaspl_transitive_srcs"],
+      providers = [yaspl_src_provider],
     )
   }
 )
