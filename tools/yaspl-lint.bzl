@@ -6,21 +6,21 @@ def _yaspl_lint_impl(target, ctx):
   if ctx.rule.kind != "yaspl_library":
     return struct()
 
+  input_signatures = target[yaspl_provider].input_signatures
+  input_signature_paths = [sig.path for sig in input_signatures]
+
   src_file = target[yaspl_provider].source_file
   output = ctx.new_file(ctx.label.name + ".lint")
   ctx.action(
-    inputs = [src_file] + [dep[yaspl_provider].signature for dep in ctx.rule.attr.deps],
+    inputs = [src_file] + input_signatures,
     outputs = [output],
     executable = ctx.executable._linter,
-    arguments = [src_file.path, output.path] +
-                [dep[yaspl_provider].signature.path for dep in ctx.rule.attr.deps]
+    arguments = [src_file.path, output.path] + input_signature_paths,
   )
 
-  return struct(
-    output_groups = {
-      "lint": [output]
-    }
-  )
+  return [
+    OutputGroupInfo(lint = [output])
+  ]
 
 yaspl_lint = aspect(
   implementation = _yaspl_lint_impl,

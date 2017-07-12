@@ -19,21 +19,22 @@ def _lib_impl(ctx):
     fail("Only one source is supported", "srcs")
   src_path = ctx.files.srcs[0].path
 
-  direct_signatures = [dep[yaspl_provider].signature for dep in ctx.attr.deps]
-  direct_signature_paths = [sig.path for sig in direct_signatures]
+  input_signatures = [dep[yaspl_provider].signature for dep in ctx.attr.deps]
+  input_signature_paths = [sig.path for sig in input_signatures]
 
   ctx.action(
-    inputs = direct_signatures + ctx.files.srcs + [ctx.executable._library_compiler],
+    inputs = input_signatures + ctx.files.srcs + [ctx.executable._library_compiler],
     outputs = [ctx.outputs.object, ctx.outputs.signature],
     mnemonic = "YasplCompile",
     executable = ctx.executable._library_compiler,
-    arguments = [ctx.outputs.object.path, ctx.outputs.signature.path, src_path] + direct_signature_paths
+    arguments = [ctx.outputs.object.path, ctx.outputs.signature.path, src_path] + input_signature_paths
   )
 
   return [
     yaspl_provider(
-      signature = ctx.outputs.signature,
       source_file = ctx.files.srcs[0],
+      input_signatures = input_signatures,
+      signature = ctx.outputs.signature,
       transitive_objects = _dependent_objects(ctx) + [ctx.outputs.object]
     )
   ]
