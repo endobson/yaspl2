@@ -17,10 +17,8 @@ yaspl_binary(
     name = "ir-printer",
     main_module = "ir_printer_main",
     visibility = ["//visibility:public"],
-    deps = [":ir-printer-main"]
+    deps = [":ir-printer-main"],
 )
-
-
 
 yaspl_library(
     name = "aspect-linter-main",
@@ -33,14 +31,22 @@ yaspl_library(
     ],
 )
 
-
 yaspl_library(
     name = "ir-printer-main",
     srcs = ["ir-printer-main.yaspl"],
     deps = [
+        "//libraries:compiler_lib",
         "//libraries:io",
+        "//libraries:module-signature",
+        "//libraries:module-signature-serialization",
         "//libraries/data:bytes",
+        "//libraries/data:either",
+        "//libraries/data:join-list",
         "//libraries/data:list",
+        "//libraries/data:tuples",
+        "//libraries/yaspl:top-level-objects-to-x86-64",
+        "//libraries/yaspl:x86-64-assembly",
+        "//libraries/yaspl:x86-64-assembly-printer",
     ],
 )
 

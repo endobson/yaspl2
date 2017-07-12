@@ -1,12 +1,32 @@
 #:module (ir-printer-main)
 #:import {
   (bytes)
+  (compiler)
+  (either)
   (io)
+  (join-list)
   (list)
+  (module-signature)
+  (module-signature-serialization)
   (prim)
+  (tuples)
+  (yaspl top-level-objects-to-x86-64)
+  (yaspl x86-64-assembly)
+  (yaspl x86-64-assembly-printer)
 }
 (export)
 (types)
+
+(define (parse-signature-files [files : (List Bytes)]) : (Either Bytes (List ModuleSignature))
+  (case files
+    [(empty) (right (empty))]
+    [(cons name files)
+     (case (deserialize-module-signature (call-with-input-file name read-all-bytes))
+       [(left v) (left v)]
+       [(right sig)
+        (case (parse-signature-files files)
+          [(left v) (left v)]
+          [(right sigs) (right (cons sig sigs))])])]))
 
 (define (handle-failure-result [msg : Bytes] [stderr : OutputPort]) : Int
   (begin
@@ -21,11 +41,29 @@
      (handle-failure-result #"No module file provided." stderr)]
     [(cons _ (cons _ (empty)))
      (handle-failure-result #"No output directory provided." stderr)]
-    [(cons _ (cons module-file (cons output-directory signature-files)))
-     (begin
-       (make-directory output-directory)
-       (call-with-output-file (bytes-append (varargs list output-directory #"/" #"foo"))
-         (lambda ([port : OutputPort]) (void)))
-       (call-with-output-file (bytes-append (varargs list output-directory #"/" #"bar"))
-         (lambda ([port : OutputPort]) (void)))
-       0)]))
+    [(cons _ (cons main-module-file (cons output-directory signature-files)))
+     (case (parse-module-file main-module-file)
+       [(left v) (handle-failure-result v stderr)]
+       [(right main-module)
+        (case (parse-signature-files signature-files)
+          [(left v) (handle-failure-result v stderr)]
+          [(right signatures)
+           (case (compile-main-module main-module signatures)
+             [(left v) (handle-failure-result v stderr)]
+             [(right (tuple2 objects _))
+              (match-define (assembly-fragments text-fragments _) (convert-objects objects))
+              (begin
+                (make-directory output-directory)
+                (for-each
+                  (lambda ([t : TextFragment])
+                    (case t
+                      [(function-fragment name _)
+                       (call-with-output-file
+                         (bytes-append (varargs list output-directory #"/" name))
+                         (lambda ([port : OutputPort])
+                           (let ([bytes (bytes-append
+                                          (jl->list (assembly-commands->bytes
+                                            (jl->list (text-fragment->commands t)))))])
+                             (write-all-bytes bytes port))))]))
+                    text-fragments)
+                0)])])])]))
