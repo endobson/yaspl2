@@ -237,5 +237,6 @@ yaspl_bootstrap_library(
     deps = [
         ":dict",
         ":maybe",
+        ":set",
     ],
 )

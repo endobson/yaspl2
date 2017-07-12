@@ -9,6 +9,7 @@
   (prim)
   (set)
   (set-multi-dict)
+  (unique-dict)
 }
 
 (export
@@ -25,10 +26,12 @@
   (function-definition
     name
     extras
-    (add-unambiguous-fall-through
-      (remove-unused-blocks
-        (collapse-trivial-blocks
-          (remove-redundant-moves reg=? blocks))))))
+    (remove-unused-blocks
+      (collapse-single-fallthroughs
+        (add-unambiguous-fall-through
+          (remove-unused-blocks
+            (collapse-trivial-blocks
+              (remove-redundant-moves reg=? blocks))))))))
 
 ;; TODO support collapsing trivial fall-through blocks
 (define (Reg) (collapse-trivial-blocks [blocks : (BlockMap Reg)])
@@ -151,17 +154,58 @@
     [_ #t]))
 
 (define (Reg) (add-unambiguous-fall-through [blocks : (BlockMap Reg)])
+   : (BlockMap Reg)
+   (case (validate-block-map
+           (unvalidated-block-map-map
+             (block-map->unvalidated-block-map blocks)
+             (lambda ([int : Int] [b : (BasicBlock Reg)]) : (BasicBlock Reg)
+               (case b
+                 [(basic-block insts (jump target))
+                  (if (= 1 (set-count (set-multi-dict-ref/empty
+                                        (block-map-predecessors blocks) target)))
+                      (basic-block insts (fall-through target))
+                      b)]
+                 [_ b]))))
+     [(left msg) (panic msg)]
+     [(right v) v]))
+
+(define (Reg) (construct-combined-block [prefix : (List (Instruction Reg))] [block : Int]
+                                        [blocks : (BlockMap Reg)]) : (BasicBlock Reg)
+  (case (dict-ref (block-map-blocks blocks) block)
+    [(nothing) (panic #"Block not found")]
+    [(just (basic-block next-insts term))
+     (case term
+       [(fall-through t)
+        (if (= 1 (set-count (set-multi-dict-ref/empty (block-map-predecessors blocks) t)))
+            (construct-combined-block (append prefix next-insts) t blocks)
+            (basic-block (append prefix next-insts) term))]
+       [_
+        (basic-block (append prefix next-insts) term)])]))
+
+
+(define (Reg) (remove-single-fallthrough-targets [blocks : (BlockMap Reg)])
+  : (UnvalidatedBlockMap Reg)
+  (foldl
+    (lambda ([block : Int] [acc : (UnvalidatedBlockMap Reg)]) : (UnvalidatedBlockMap Reg)
+      (if (= 1 (set-count (set-multi-dict-ref/empty (block-map-predecessors blocks) block)))
+          (case (unique-dict-reverse-ref (block-map-fall-through blocks) block)
+            [(nothing) (panic #"Missing block")]
+            [(just block-num)
+             (case (dict-ref (block-map-blocks blocks) block-num)
+               [(nothing) (panic #"Missing block")]
+               [(just (basic-block inst (fall-through _)))
+                (unvalidated-block-map-remove-block acc block)]
+               [_ acc])])
+          acc))
+    (set->list (unique-dict-reverse-keys (block-map-fall-through blocks)))
+    (block-map->unvalidated-block-map blocks)))
+
+(define (Reg) (collapse-single-fallthroughs [blocks : (BlockMap Reg)])
   : (BlockMap Reg)
   (case (validate-block-map
           (unvalidated-block-map-map
-            (block-map->unvalidated-block-map blocks)
+            (remove-single-fallthrough-targets blocks)
             (lambda ([int : Int] [b : (BasicBlock Reg)]) : (BasicBlock Reg)
-              (case b
-                [(basic-block insts (jump target))
-                 (if (= 1 (set-count (set-multi-dict-ref/empty
-                                       (block-map-predecessors blocks) target)))
-                     (basic-block insts (fall-through target))
-                     b)]
-                [_ b]))))
+              (construct-combined-block (empty) int blocks))))
     [(left msg) (panic msg)]
     [(right v) v]))

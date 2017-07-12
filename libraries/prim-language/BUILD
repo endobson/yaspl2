@@ -313,6 +313,7 @@ yaspl_bootstrap_library(
         "//libraries/data:either",
         "//libraries/data:list",
         "//libraries/data:maybe",
+        "//libraries/data:unique-dict",
         "//libraries/data:set",
         "//libraries/data:set-multi-dict",
     ],
