@@ -2,11 +2,15 @@
 #:import {
   (bytes)
   (dict)
+  (either)
   (join-list)
   (list)
   (lower-x86-64) {
     #:types
       X8664Register
+    #:values
+      rbp
+      rsp
     #:patterns
       r10
       r11
@@ -46,6 +50,7 @@
     #:patterns
       truncate-unsigned-int64->unsigned-int8
   }
+  (set)
   (yaspl x86-64-assembly) {
     #:types
       [BasicBlock a:BasicBlock]
@@ -118,25 +123,54 @@
 }
 (export
   #:types ()
-  #:values (function-definition->assembly-fragment)
+  #:values (assign-registers function-definition->assembly-fragment)
   #:patterns ())
 (types)
 
-(define (function-definition->assembly-fragment
-          [f : (FunctionDefinition X8664Register)]) : TextFragment
+(define (Reg) (assign-registers [f : (FunctionDefinition Reg)] [assignment : (Reg -> X8664Register)])
+  : (AssignedRegistersFunctionDefinition X8664Register)
   (match-define (function-definition name extra-temporaries blocks) f)
+
+  (assigned-registers-function-definition
+    name
+    (add-entry-block
+      (varargs list
+        (push (rbp))
+        (move (rbp) (rsp))
+        (subtract-immediate (rsp) (* extra-temporaries 8)))
+      (rename-registers/block-map blocks assignment))))
+
+(define (Reg) (add-entry-block [insts : (List (Instruction Reg))] [blocks : (BlockMap Reg)]) :
+  (BlockMap Reg)
+  (case (add-entry-block* insts blocks)
+    [(left v) (panic v)]
+    [(right v) v]))
+
+(define (Reg) (add-entry-block* [insts : (List (Instruction Reg))] [blocks : (BlockMap Reg)]) :
+  (Either Bytes (BlockMap Reg))
+  (let ([new-entry-block
+          (+ 1
+            (foldl
+              (lambda ([x : Int] [y : Int]) (if (< x y) y x))
+              (set->list (dict-keys (block-map-blocks blocks)))
+              (block-map-entry-block blocks)))])
+    (validate-block-map
+      (unvalidated-block-map-add-block
+        (unvalidated-block-map-set-entry
+          (block-map->unvalidated-block-map blocks)
+          new-entry-block)
+        new-entry-block
+        (basic-block insts (jump (block-map-entry-block blocks)))))))
+
+(define (function-definition->assembly-fragment
+          [f : (AssignedRegistersFunctionDefinition X8664Register)]) : TextFragment
+  (match-define (assigned-registers-function-definition name blocks) f)
   (match-define block-prefix (bytes-append (varargs list name #"_")))
   (match-define block-chains (block-map-block-chains blocks))
+  ;; TODO Don't require a basic block with the name of the function
   (function-fragment name
     (cons
-      ;; Preamble section (Should actually be a part of the first chain's section.)
-      (a:section
-        (varargs list
-          (a:basic-block name
-            (varargs join-list
-              (pushq (reg (a:rbp)))
-              (movq (reg (a:rsp)) (reg (a:rbp)))
-              (subq (rmi-imm (imm-s32 (s32 (* extra-temporaries 8)))) (a:rsp))))))
+      (a:section (varargs list (a:basic-block name (empty-jl))))
       (map
         (lambda ([chain : (List Int)])
           (a:section

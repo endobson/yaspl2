@@ -1,59 +1,11 @@
 #:module (lowered-register-language)
 #:import {
-  (dict) {
-    #:types
-      Dict
-    #:values
-      dict-add
-      dict-fold
-      dict-has-key?
-      dict-keys
-      dict-ref
-      dict-remove
-      dict-value-map
-      make-dict
-  }
-  (either) {
-    #:types
-      Either
-    #:values
-      left
-      right
-  }
-  (find-chains) {
-    #:values
-      find-chains
-  }
-  (list) {
-    #:types
-      List
-    #:values
-      empty
-      findf
-      foldl
-      list
-      map
-      sort
-  }
-  (maybe) {
-    #:types
-      Maybe
-    #:values
-      just
-      nothing
-    #:patterns
-      just
-      nothing
-  }
-  (prim) {
-    #:types
-      Boolean
-      Bytes
-      Int
-    #:values
-      =
-      panic
-  }
+  (dict)
+  (either)
+  (find-chains)
+  (list)
+  (maybe)
+  (prim)
   (prim-language) {
     #:types
       BinOp
@@ -63,47 +15,27 @@
     #:types
       UnaryOp
   }
-  (set) {
-    #:types
-      Set
-    #:values
-      make-set
-      set->list
-      set-add-all
-  }
-  (set-multi-dict) {
-    #:types
-      SetMultiDict
-    #:values
-      make-set-multi-dict
-      set-multi-dict-add
-      set-multi-dict-empty?
-      set-multi-dict-ref/empty
-      set-multi-dict-remove
-  }
-  (unique-dict) {
-    #:types
-      UniqueDict
-    #:values
-      make-unique-dict
-      unique-dict-add
-      unique-dict-remove
-  }
+  (set)
+  (set-multi-dict)
+  (unique-dict)
 }
 (export
   #:types (FunctionDefinition BasicBlock Instruction Terminal BlockMap UnvalidatedBlockMap Condition
-           FunctionKind)
+           FunctionKind AssignedRegistersFunctionDefinition)
   #:values (function-definition return jump cond-jump/false-fall-through move basic-block
-            bin-op-inst int-literal basic-block-terminal rename-registers/function-definition
+            bin-op-inst int-literal basic-block-terminal
+            rename-registers/block-map
+            assigned-registers-function-definition assigned-registers-function-definition-name
             function-definition-name terminal-next-blocks empty-unvalidated-block-map block-map-blocks
-            unvalidated-block-map-map unvalidated-block-map-add-block unvalidated-block-map-remove-block
-            block-map->unvalidated-block-map unvalidated-block-map-filter validate-block-map
+            unvalidated-block-map-map unvalidated-block-map-set-entry unvalidated-block-map-add-block
+            unvalidated-block-map-remove-block block-map->unvalidated-block-map
+            unvalidated-block-map-filter validate-block-map
             fall-through block-map-block-chains block-map-predecessors block-map-fall-through
             negated-reg-condition reg-condition comparison-condition
             block-map-entry-block store-8byte load-8byte push pop load-zero-extended-byte
             store-least-significant-byte unary-op-inst load-temporary store-temporary
             function-call-inst syscall indirect-function-call closure-call symbol-address
-            halt compare-memory memory-compare-condition)
+            halt compare-memory memory-compare-condition subtract-immediate)
   #:patterns (int-literal symbol-address load-temporary store-temporary push pop
               load-zero-extended-byte store-least-significant-byte load-8byte store-8byte
               compare-memory move function-call-inst unary-op-inst bin-op-inst
@@ -117,6 +49,10 @@
     (function-definition
       [name : Bytes]
       [num-extra-temporary : Int]
+      [blocks : (BlockMap Reg)]))
+  (define-type (AssignedRegistersFunctionDefinition Reg)
+    (assigned-registers-function-definition
+      [name : Bytes]
       [blocks : (BlockMap Reg)]))
   (define-type (BasicBlock Reg)
     (basic-block [instructions : (List (Instruction Reg))] [terminal : (Terminal Reg)]))
@@ -175,22 +111,17 @@
     (fall-through [block : Int])
     (cond-jump/false-fall-through [cond : (Condition Reg)] [true : Int] [false : Int])))
 
-(define (RegA RegB) (rename-registers/function-definition
-                      [f : (FunctionDefinition RegA)]
-                      [rename : (RegA -> RegB)]) : (FunctionDefinition RegB)
-  (match-define (function-definition name extras
-                   (block-map entry-block blocks pred fall-through)) f)
-  (function-definition
-    name
-    extras
-    (block-map
-      entry-block
-      (dict-value-map
-        blocks
-        (lambda ([b : (BasicBlock RegA)]) (rename-registers/block b rename)))
-      pred
-      fall-through)))
-
+(define (RegA RegB) (rename-registers/block-map
+                      [b : (BlockMap RegA)]
+                      [rename : (RegA -> RegB)]) : (BlockMap RegB)
+  (match-define (block-map entry-block blocks pred fall-through) b)
+  (block-map
+    entry-block
+    (dict-value-map
+      blocks
+      (lambda ([b : (BasicBlock RegA)]) (rename-registers/block b rename)))
+    pred
+    fall-through))
 
 (define (RegA RegB) (rename-registers/block
                       [b : (BasicBlock RegA)]
@@ -277,6 +208,7 @@
           (left #"No entry block"))
       (left #"Some blocks are missing")))
 
+
 (define (Reg) (block-map->unvalidated-block-map [bm : (BlockMap Reg)]) : (UnvalidatedBlockMap Reg)
   (match-define (block-map entry-block blocks pred fall-through) bm)
   (unvalidated-block-map entry-block blocks pred fall-through (make-set-multi-dict = =)))
@@ -285,6 +217,10 @@
   (unvalidated-block-map entry-block (make-dict =) (make-set-multi-dict = =) (make-unique-dict = =)
                          (make-set-multi-dict = =)))
 
+(define (Reg) (unvalidated-block-map-set-entry [uv : (UnvalidatedBlockMap Reg)] [entry-block : Int])
+  : (UnvalidatedBlockMap Reg)
+  (match-define (unvalidated-block-map _ blocks pred fall-through missing) uv)
+  (unvalidated-block-map entry-block blocks pred fall-through missing))
 
 (define (Reg) (unvalidated-block-map-add-block
                 [uv : (UnvalidatedBlockMap Reg)]

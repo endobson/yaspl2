@@ -112,6 +112,8 @@ yaspl_bootstrap_library(
         ":register-language",
         "//libraries/data:bytes",
         "//libraries/data:dict",
+        "//libraries/data:set",
+        "//libraries/data:either",
         "//libraries/data:join-list",
         "//libraries/data:list",
         "//libraries/data:maybe",
