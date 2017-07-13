@@ -6,10 +6,28 @@
   (io)
   (join-list)
   (list)
+  (lower-x86-64) {
+    #:values
+      reg->bytes
+  }
   (module-signature)
   (module-signature-serialization)
   (prim)
+  (print-lowered-register-language) {
+    #:values
+      [print-function l:print-function]
+  }
+  (print-register-language) {
+    #:values
+      [print-function r:print-function]
+  }
+  (register-language) {
+    #:patterns
+      [function-definition r:function-definition]
+  }
+  (register-language-compiler)
   (tuples)
+  (yaspl top-level-objects)
   (yaspl top-level-objects-to-x86-64)
   (yaspl x86-64-assembly)
   (yaspl x86-64-assembly-printer)
@@ -55,15 +73,31 @@
               (begin
                 (make-directory output-directory)
                 (for-each
-                  (lambda ([t : TextFragment])
-                    (case t
-                      [(function-fragment name _)
-                       (call-with-output-file
-                         (bytes-append (varargs list output-directory #"/" name))
-                         (lambda ([port : OutputPort])
-                           (let ([bytes (bytes-append
-                                          (jl->list (assembly-commands->bytes
-                                            (jl->list (text-fragment->commands t)))))])
-                             (write-all-bytes bytes port))))]))
-                    text-fragments)
+                  (lambda ([o : TopLevelObject]) : Void
+                    (case o
+                      [(register-function-tlo fun)
+                       (case fun
+                         [(r:function-definition name _ _ _ _)
+                          (begin
+                            (call-with-output-file
+                              (bytes-append (varargs list output-directory #"/" name #".reg"))
+                              (lambda ([port : OutputPort])
+                                (write-all-bytes (r:print-function fun) port)))
+                            (case (compile-function fun)
+                              [(left v) (panic v)]
+                              [(right (tuple2 lowered text))
+                               (begin
+                                 (call-with-output-file
+                                   (bytes-append (varargs list output-directory #"/" name #".lower"))
+                                   (lambda ([port : OutputPort])
+                                     (write-all-bytes (l:print-function lowered reg->bytes) port)))
+                                 (call-with-output-file
+                                   (bytes-append (varargs list output-directory #"/" name #".assem"))
+                                   (lambda ([port : OutputPort])
+                                     (let ([bytes (bytes-append
+                                                    (jl->list (assembly-commands->bytes
+                                                      (jl->list (text-fragment->commands text)))))])
+                                       (write-all-bytes bytes port)))))]))])]
+                      [_ (void)]))
+                  objects)
                 0)])])])]))
