@@ -113,9 +113,10 @@
         (single-jl #"block: ")
         (single-jl (integer->decimal-bytes i))
         (single-jl #"\n")
-        (single-jl #"def: ")
-        (list->jl (interleave (map reg->bytes (set->list terminal-def)) #", "))
         (concat-jl (map print-point-state instructions))
+        (single-jl #"term-def: ")
+        (list->jl (interleave (map reg->bytes (set->list terminal-def)) #", "))
+        (single-jl #"live: ")
         (print-live-set terminal-live)
         (single-jl #"\n")))))
 
@@ -167,16 +168,17 @@
                  [(nothing) ((lambda () : (Set Int) (panic #"Unknown block")))]
                  [(just block-nums) block-nums])))])])]))
 
-(define (Reg) (propagate-live-variables/block [state : (BlockState Reg)] [new-live-in : (Set Reg)])
+(define (Reg) (propagate-live-variables/block [state : (BlockState Reg)] [incoming-live-in : (Set Reg)])
   : (Maybe (BlockState Reg))
   (match-define (block-state instructions old-live-in defined) state)
-  (if (= (set-count (set-difference (set-difference new-live-in defined) old-live-in)) 0)
+  (if (= (set-count (set-difference (set-difference incoming-live-in defined) old-live-in)) 0)
       (nothing)
       (just
-        (block-state
-          (propagate-live-variables/instructions (reverse instructions) (empty) new-live-in)
-          new-live-in
-          defined))))
+        (let ([new-live-in (set-union incoming-live-in old-live-in)])
+          (block-state
+            (propagate-live-variables/instructions (reverse instructions) (empty) new-live-in)
+            new-live-in
+            defined)))))
 
 (define (Reg) (propagate-live-variables/instructions
                 [rev-instructions : (List (PointState Reg))]
@@ -365,7 +367,8 @@
   (match-define (point-state live def move) p)
   (foldl
     (lambda ([r : Reg] [g : (Graph Reg VertexData EdgeData)])
-      (graph-add-vertex-if-absent g r (vertex-data (reg->bytes r))))
+      (graph-add-vertex-if-absent
+        g r (vertex-data (bytes-append (varargs list #"\"" (reg->bytes r) #"\"")))))
     (set->list live)
     g))
 
@@ -470,7 +473,8 @@
           blocks
           (foldl
             (lambda ([r : Reg] [g : (Graph Reg VertexData EdgeData)])
-              (graph-add-vertex-if-absent g r (vertex-data (reg->bytes r))))
+              (graph-add-vertex-if-absent
+                g r (vertex-data (bytes-append (varargs list #"\"" (reg->bytes r) #"\"")))))
             (set->list fixed-regs)
             ((lambda () : (Graph Reg VertexData EdgeData) (empty-graph reg=?))))
           reg->bytes)))))

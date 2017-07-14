@@ -45,6 +45,7 @@ yaspl_library(
         "//libraries/data:list",
         "//libraries/data:tuples",
         "//libraries/prim-language:lower-x86-64",
+        "//libraries/prim-language:lowered-live-variables",
         "//libraries/prim-language:print-lowered-register-language",
         "//libraries/prim-language:print-register-language",
         "//libraries/prim-language:register-language",

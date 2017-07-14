@@ -7,10 +7,15 @@
   (join-list)
   (list)
   (lower-x86-64) {
+    #:types
+      Reg
     #:values
       reg->bytes
+      reg=?
+      all-fixed-registers
   }
   (module-signature)
+  (lowered-live-variables)
   (module-signature-serialization)
   (prim)
   (print-lowered-register-language) {
@@ -76,28 +81,47 @@
                   (lambda ([o : TopLevelObject]) : Void
                     (case o
                       [(register-function-tlo fun)
-                       (case fun
-                         [(r:function-definition name _ _ _ _)
-                          (begin
-                            (call-with-output-file
-                              (bytes-append (varargs list output-directory #"/" name #".reg"))
-                              (lambda ([port : OutputPort])
-                                (write-all-bytes (r:print-function fun) port)))
-                            (case (compile-function fun)
-                              [(left v) (panic v)]
-                              [(right (tuple2 lowered text))
-                               (begin
-                                 (call-with-output-file
-                                   (bytes-append (varargs list output-directory #"/" name #".lower"))
-                                   (lambda ([port : OutputPort])
-                                     (write-all-bytes (l:print-function lowered reg->bytes) port)))
-                                 (call-with-output-file
-                                   (bytes-append (varargs list output-directory #"/" name #".assem"))
-                                   (lambda ([port : OutputPort])
-                                     (let ([bytes (bytes-append
-                                                    (jl->list (assembly-commands->bytes
-                                                      (jl->list (text-fragment->commands text)))))])
-                                       (write-all-bytes bytes port)))))]))])]
+                       (match-define (r:function-definition name _ _ _ _) fun)
+                       (begin
+                         (call-with-output-file
+                           (bytes-append (varargs list output-directory #"/" name #".reg"))
+                           (lambda ([port : OutputPort])
+                             (write-all-bytes (r:print-function fun) port)))
+                         (case (compile-function fun)
+                           [(left v) (panic v)]
+                           [(right (tuple2 lowered text))
+                            (match-define live (live-variables lowered reg=?))
+                            (begin
+                              (call-with-output-file
+                                (bytes-append (varargs list output-directory #"/" name #".lower"))
+                                (lambda ([port : OutputPort])
+                                  (write-all-bytes (l:print-function lowered reg->bytes) port)))
+                              (call-with-output-file
+                                (bytes-append (varargs list output-directory #"/" name #".assem"))
+                                (lambda ([port : OutputPort])
+                                  (let ([bytes (bytes-append
+                                                 (jl->list (assembly-commands->bytes
+                                                   (jl->list (text-fragment->commands text)))))])
+                                    (write-all-bytes bytes port))))
+                              (call-with-output-file
+                                (bytes-append (varargs list output-directory #"/" name #".block-live"))
+                                (lambda ([port : OutputPort])
+                                  (write-all-bytes
+                                    (print-blocks live reg->bytes)
+                                    port)))
+                              (call-with-output-file
+                                (bytes-append (varargs list output-directory #"/" name #".live-out"))
+                                (lambda ([port : OutputPort])
+                                  (for-each
+                                    (lambda ([ls : (LiveOutState Reg)])
+                                      (write-line (live-out-state->bytes ls reg->bytes) port))
+                                    (blocks->live-out-states live))))
+                              (call-with-output-file
+                                (bytes-append (varargs list output-directory #"/" name #".graph"))
+                                (lambda ([port : OutputPort])
+                                  (write-all-bytes
+                                    (print-graph live reg=? reg->bytes (all-fixed-registers))
+                                    port))))]))]
                       [_ (void)]))
                   objects)
                 0)])])])]))
