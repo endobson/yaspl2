@@ -231,11 +231,15 @@
   (case (set-split vertices)
     [(nothing) (tuple2 coalesced state)]
     [(just (tuple2 v vertices))
-     (case (find-coalescable-neighbor v state)
+     (case (find-fixed-coalescable-neighbor v state)
+       [(just reg)
+        (coalesce-loop vertices #t (coalesce-fixed state v reg))]
        [(nothing)
-        (coalesce-loop vertices coalesced state)]
-       [(just v2)
-        (coalesce-loop vertices #t (coalesce state v v2))])]))
+        (case (find-temporary-coalescable-neighbor v state)
+          [(just v2)
+           (coalesce-loop vertices #t (coalesce state v v2))]
+          [(nothing)
+           (coalesce-loop vertices coalesced state)])])]))
 
 (define (maybe-freeze [state : State]) : (Maybe State)
   (case (arg-min (lambda ([v : Var]) (num-interfering-neighbors state v)) (move-related-vertices state))
@@ -249,10 +253,23 @@
     [(just v)
      (spill-vertex state v)]))
 
-(define (find-coalescable-neighbor [v : Var] [state : State]) : (Maybe Var)
+(define (find-temporary-coalescable-neighbor [v : Var] [state : State]) : (Maybe Var)
   (case (set-split (set-filter (move-neighbors state v)
                                (lambda ([v2 : Var])
                                  (is-coalescable-edge state v v2))))
+    [(nothing) (nothing)]
+    [(just (tuple2 v _)) (just v)]))
+
+
+(define (fixed-neighbors [v : Var] [state : State]) : (Set X8664Register)
+  (case (dict-ref (state-fixed-neighbors state) v)
+    [(nothing) (panic #"Bad vertex")]
+    [(just v) v]))
+
+(define (find-fixed-coalescable-neighbor [v : Var] [state : State]) : (Maybe X8664Register)
+  (case (set-split (set-filter (fixed-neighbors v state)
+                               (lambda ([reg : X8664Register])
+                                 (is-coalescable-fixed-edge state v reg))))
     [(nothing) (nothing)]
     [(just (tuple2 v _)) (just v)]))
 
@@ -492,6 +509,69 @@
        [(right g)
         (state g fixed-constraints fixed-neighbors (cons (assign-same v1 v2) assignments))])]))
 
+;; This merges v1 into reg.
+(define (coalesce-fixed [s : State] [v1 : Var] [reg : X8664Register]) : State
+  (match-define (state g fixed-constraints fixed-neighbors assignments) s)
+  (case (graph-vertex-edges g v1)
+    [(nothing) (panic #"Bad vertex")]
+    [(just edges)
+     (match-define g
+       (dict-fold
+         edges
+         (lambda ([v : Var] [e : EdgeData] [g : (Graph Var Void EdgeData)]) : (Graph Var Void EdgeData)
+           (graph-remove-edge g v1 v))
+         g))
+
+     (match-define fixed-constraints
+       (dict-remove
+         (dict-fold
+           edges
+           (lambda ([v : Var] [e : EdgeData] [fixed-constraints : (Dict Var (Set X8664Register))])
+               : (Dict Var (Set X8664Register))
+             (case e
+               [(interference-edge)
+                (dict-update-existing fixed-constraints v (lambda ([s : (Set X8664Register)])
+                                                            (set-add s reg)))]
+               [(move-edge) fixed-constraints]))
+           fixed-constraints)
+         v1))
+
+     (match-define fixed-neighbors
+       (dict-remove
+         (dict-fold
+           edges
+           (lambda ([v : Var] [e : EdgeData] [fixed-neighbors : (Dict Var (Set X8664Register))])
+               : (Dict Var (Set X8664Register))
+             (case e
+               [(move-edge)
+                (dict-update-existing fixed-neighbors v (lambda ([s : (Set X8664Register)])
+                                                          (set-add s reg)))]
+               [(interference-edge) fixed-neighbors]))
+           fixed-neighbors)
+         v1))
+
+     (case (graph-remove-unconnected-vertex g v1)
+       [(left (nothing))
+        (panic
+          (bytes-append
+            (varargs list
+              #"Couldn't remove unconnected vertex it is not in the graph:\n"
+              (var->bytes v1))))]
+       [(left (just edges))
+        (panic
+          (bytes-append
+            (varargs list
+              #"Couldn't remove unconnected vertex it still has edges in the graph:\n"
+              (var->bytes v1)
+              #"\nEdges remain to :\n"
+              (bytes-append
+                (interleave
+                  (map var->bytes (set->list (dict-keys edges)))
+                  #" ")))))]
+       [(right g)
+        (state g fixed-constraints fixed-neighbors (cons (assign-fixed v1 reg) assignments))])]))
+
+
 ;; TODO check that this is not move related
 (define (spill-vertex [s : State] [v : Var]) : State
   (match-define (state g fixed-constraints fixed-neighbors assignments) s)
@@ -513,6 +593,19 @@
           (dict-remove fixed-constraints v)
           (dict-remove fixed-neighbors v)
           (cons (assign-spill v vs constraints) assignments))])]))
+
+
+(define (is-coalescable-fixed-edge [s : State] [v : Var] [reg : X8664Register]) : Boolean
+  (match-define (state g fixed-constraints fixed-neighbors assignments) s)
+
+  (< (set-count
+       (set-filter
+         (interfering-neighbors s v)
+         (lambda ([v : Var]) : Boolean
+           (case (dict-ref fixed-constraints v)
+             [(nothing) (panic #"Bad vertex")]
+             [(just fixed-regs) (set-member? fixed-regs reg)]))))
+     (set-count (valid-temporary-x86-64-registers))))
 
 
 (define (is-coalescable-edge [s : State] [v1 : Var] [v2 : Var]) : Boolean
