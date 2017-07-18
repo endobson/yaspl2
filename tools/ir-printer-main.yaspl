@@ -1,7 +1,9 @@
 #:module (ir-printer-main)
 #:import {
   (bytes)
+  (color-graph)
   (compiler)
+  (dict)
   (either)
   (io)
   (join-list)
@@ -9,13 +11,15 @@
   (lower-x86-64) {
     #:types
       Reg
+      X8664Register
     #:values
+      all-fixed-registers
       reg->bytes
       reg=?
-      all-fixed-registers
+      x86-64-register->bytes
   }
-  (module-signature)
   (lowered-live-variables)
+  (module-signature)
   (module-signature-serialization)
   (prim)
   (print-lowered-register-language) {
@@ -27,6 +31,10 @@
       [print-function r:print-function]
   }
   (register-language) {
+    #:types
+      Var
+    #:values
+      var->bytes
     #:patterns
       [function-definition r:function-definition]
   }
@@ -116,6 +124,30 @@
                                     (lambda ([ls : (LiveOutState Reg)])
                                       (write-line (live-out-state->bytes ls reg->bytes) port))
                                     (blocks->live-out-states live))))
+                              (case (color-graph (initial-state (blocks->live-out-states live)))
+                                [(left _) (void)]
+                                [(right dict)
+                                 (call-with-output-file
+                                   (bytes-append (varargs list output-directory #"/" name #".final-assignments"))
+                                   (lambda ([port : OutputPort])
+                                     (for-each
+                                       (lambda ([v : Bytes])
+                                         (write-line v port))
+                                       (dict-map
+                                         dict
+                                         (lambda ([v : Var] [reg : X8664Register])
+                                           (bytes-append
+                                             (varargs list
+                                               (var->bytes v) #" => " (x86-64-register->bytes reg))))))))])
+                              (call-with-output-file
+                                (bytes-append (varargs list output-directory #"/" name #".assignments"))
+                                (lambda ([port : OutputPort])
+                                  (for-each
+                                    (lambda ([v : RegisterAssignment])
+                                      (write-line (register-assignment->bytes v) port))
+                                    (determine-register-assignments (initial-state
+                                                                      (blocks->live-out-states
+                                                                        live))))))
                               (call-with-output-file
                                 (bytes-append (varargs list output-directory #"/" name #".graph"))
                                 (lambda ([port : OutputPort])

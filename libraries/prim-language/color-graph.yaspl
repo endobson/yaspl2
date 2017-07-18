@@ -14,8 +14,9 @@
   (undirected-graph)
 }
 (export
-  #:types ()
-  #:values (color-graph initial-state state->bytes)
+  #:types (RegisterAssignment)
+  #:values (color-graph initial-state state->bytes
+            determine-register-assignments register-assignment->bytes)
   #:patterns ())
 (types
   (define-type RegisterAssignment
@@ -190,21 +191,21 @@
 
 
 (define (color-graph [state : State]) : (Either (Set Var) (Dict Var X8664Register))
-  (select-loop-start (reduce-loop state)))
+  (select-loop-start (determine-register-assignments state)))
 
 
-(define (reduce-loop [state : State]) : (List RegisterAssignment)
+(define (determine-register-assignments [state : State]) : (List RegisterAssignment)
   (let ([state (simplify-loop-start state)])
     (if (= 0 (num-vertices state))
         (state-register-assignments state)
         (case (coalesce-loop-start state)
           [(tuple2 coalesced state)
            (if coalesced
-               (reduce-loop state)
+               (determine-register-assignments state)
                (case (maybe-freeze state)
-                 [(just state) (reduce-loop state)]
+                 [(just state) (determine-register-assignments state)]
                  [(nothing)
-                  (reduce-loop (spill-once state))]))]))))
+                  (determine-register-assignments (spill-once state))]))]))))
 
 (define (simplify-loop-start [state : State]) : State
   (simplify-loop (non-move-related-vertices state) state))
@@ -322,7 +323,7 @@
                    [_ #f]))
                (dict-values edges))
              [(just _) #f]
-             [_ #t])])))))
+             [_ (= (set-count (fixed-neighbors v state)) 0)])])))))
 
 (define (move-related-vertices [state : State]) : (Set Var)
   (let ([g (state-graph state)])
@@ -394,7 +395,8 @@
                       [_ #f]))
                   (dict-values edges))
                 [(just _) #f]
-                [(nothing) #t])])))])))
+                [(nothing)
+                 (= (set-count (fixed-neighbors v state)) 0) ])])))])))
 
 (define (neighbors [state : State] [v : Var]) : (Set Var)
   (let ([g (state-graph state)])
@@ -683,3 +685,14 @@
         (select-loop assignment (dict-add acc v (nothing)))]
        [(just (tuple2 reg _))
         (select-loop assignment (dict-add acc v (just reg)))])]))
+
+(define (register-assignment->bytes [v : RegisterAssignment]) : Bytes
+  (case v
+    [(assign-free v _ _)
+     (bytes-append (varargs list (var->bytes v) #" = free"))]
+    [(assign-same v v2)
+     (bytes-append (varargs list (var->bytes v) #" = " (var->bytes v2)))]
+    [(assign-fixed v reg)
+     (bytes-append (varargs list (var->bytes v) #" = " (x86-64-register->bytes reg)))]
+    [(assign-spill v _ _)
+     (bytes-append (varargs list (var->bytes v) #" = spill"))]))
