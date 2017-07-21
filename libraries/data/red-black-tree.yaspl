@@ -1,0 +1,78 @@
+#:module (data red-black-tree)
+#:import {
+  (data ordering)
+  (list)
+  (maybe)
+  (prim)
+}
+(export
+  #:types (RedBlackTree)
+  #:values (rb-ref rb-set)
+  #:patterns ())
+(types
+  (define-type Color
+    (red)
+    (black))
+  (define-type (RedBlackNode K V)
+    (node [color : Color] [left : (Maybe (RedBlackNode K V))] [right : (Maybe (RedBlackNode K V))]
+          [key : K] [value : V]))
+  (define-type (RedBlackTree K V)
+    (tree [order : (K K -> Ordering)] [root-node : (Maybe (RedBlackNode K V))]))
+  (define-type (RedBlackContext K V)
+    (left-context [color : Color] [right : (Maybe (RedBlackNode K V))] [key : K] [value : V])
+    (right-context [color : Color] [left : (Maybe (RedBlackNode K V))] [key : K] [value : V])))
+
+(define (K V) (rb-ref [t : (RedBlackTree K V)] [k : K]) : (Maybe V)
+  (match-define (tree order root-node) t)
+  (rb-node-ref root-node k order))
+
+(define (K V) (rb-node-ref [n : (Maybe (RedBlackNode K V))] [k : K] [order : (K K -> Ordering)]) : (Maybe V)
+  (case n
+    [(nothing) (nothing)]
+    [(just (node _ left right node-key value))
+     (case (order k node-key)
+       [(less-than) (rb-node-ref left k order)]
+       [(equal-to) (just value)]
+       [(greater-than) (rb-node-ref right k order)])]))
+
+
+(define (K V) (rb-set [t : (RedBlackTree K V)] [k : K] [v : V]) : (RedBlackTree K V)
+  (match-define (tree order root-node) t)
+  (tree order (just (rb-node-set root-node k v (empty) order))))
+
+(define (K V) (rb-node-set
+                [n : (Maybe (RedBlackNode K V))] [k : K] [v : V]
+                [context : (List (RedBlackContext K V))] [order : (K K -> Ordering)])
+  : (RedBlackNode K V)
+  (case n
+    [(nothing) (fill-context (node (red) (nothing) (nothing) k v) context)]
+    [(just (node color left right k2 _))
+     (case (order k k2)
+       [(equal-to) (fill-context-noop (node color left right k v) context)]
+       [(less-than) (panic #"NYI")]
+       [(greater-than) (panic #"NYI")])]))
+
+
+(define (K V) (fill-context-noop [n : (RedBlackNode K V)] [context : (List (RedBlackContext K V))])
+  : (RedBlackNode K V)
+  (case context
+    [(empty) n]
+    [(cons (left-context color right k v) context)
+     (fill-context-noop (node color (just n) right k v) context)]
+    [(cons (right-context color left k v) context)
+     (fill-context-noop (node color left (just n) k v) context)]))
+
+;; n needs to be red otherwise fill-context-noop would be simpler
+(define (K V) (fill-context [n : (RedBlackNode K V)] [context : (List (RedBlackContext K V))])
+  : (RedBlackNode K V)
+  (case context
+    [(empty)
+     (match-define (node _ left right key value) n)
+     (node (black) left right key value)]
+    [(cons (left-context (black) right k v) context)
+     (fill-context-noop (node (black) (just n) right k v) context)]
+    [(cons (right-context (black) left k v) context)
+     (fill-context-noop (node (black) left (just n) k v) context)]
+    [(cons (left-context (red) _ _ _) (empty)) (panic #"Root cannot be red")]
+    [(cons (right-context (red) _ _ _) (empty)) (panic #"Root cannot be red")]
+    [_ (panic #"NYI")]))

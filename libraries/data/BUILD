@@ -145,6 +145,21 @@ yaspl_bootstrap_library(
     ],
 )
 
+yaspl_bootstrap_library(
+    name = "ordering",
+    srcs = ["ordering.yaspl"],
+)
+
+yaspl_bootstrap_library(
+    name = "red-black-tree",
+    srcs = ["red-black-tree.yaspl"],
+    deps = [
+        ":list",
+        ":maybe",
+        ":ordering",
+    ],
+)
+
 yaspl_library(
     name = "regexp",
     srcs = ["regexp.yaspl"],
