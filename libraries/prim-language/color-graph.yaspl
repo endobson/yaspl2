@@ -15,7 +15,7 @@
 }
 (export
   #:types (RegisterAssignment)
-  #:values (color-graph initial-state state->bytes
+  #:values (color-graph initial-state
             determine-register-assignments register-assignment->bytes)
   #:patterns ())
 (types
@@ -27,188 +27,119 @@
   (define-type EdgeData
     (move-edge)
     (interference-edge))
+  (define-type VertexData
+    (vertex-data
+      [fixed-constraints : (Set X8664Register)]
+      [fixed-move-neighbors : (Set X8664Register)]))
   (define-type State
     (state
-      [graph : (Graph Var Void EdgeData)]
-      [fixed-constraints : (Dict Var (Set X8664Register))]
-      [fixed-neighbors : (Dict Var (Set X8664Register))]
+      [graph : (Graph Var VertexData EdgeData)]
       [register-assignments : (List RegisterAssignment)])))
 
 (define (initial-state [live-outs : (List (LiveOutState Reg))]) : State
   (state
     (initial-graph live-outs)
-    (initial-fixed-constraints live-outs)
-    (initial-fixed-neighbors live-outs)
     (empty)))
 
-;; TODO make this include the graph and the assignments
-(define (state->bytes [s : State]) : Bytes
-  (match-define (state g fixed-constraints fixed-neighbors assignment) s)
-  (bytes-append
-    (cons #"fixed: "
-    (interleave
-      (dict-map
-        fixed-constraints
-        (lambda ([v : Var] [rs : (Set X8664Register)])
-          (var->bytes v)))
-      #","))))
 
-(define (initial-graph [live-outs : (List (LiveOutState Reg))]) : (Graph Var Void EdgeData)
+(define (empty-vertex-data) : VertexData
+  (vertex-data (make-set x86-64-register=?) (make-set x86-64-register=?)))
+
+(define (initial-graph [live-outs : (List (LiveOutState Reg))]) : (Graph Var VertexData EdgeData)
   (foldl
-    (lambda ([l : (LiveOutState Reg)] [acc : (Graph Var Void EdgeData)])
+    (lambda ([l : (LiveOutState Reg)] [acc : (Graph Var VertexData EdgeData)])
       (case l
         [(live-out-state out-regs def-regs move-source)
          (foldl
-           (lambda ([def-reg : Reg] [acc : (Graph Var Void EdgeData)])
+           (lambda ([def-reg : Reg] [acc : (Graph Var VertexData EdgeData)])
              (case def-reg
-               [(fixed-reg _) acc]
-               [(temporary-reg reg)
-                (match-define out-regs
-                  (filter-map
-                    (lambda ([r : Reg]) : (Maybe Var)
-                      (case r
-                        [(fixed-reg _) (nothing)]
-                        [(temporary-reg r)
-                         (if (var=? r reg)
-                             (nothing)
-                             (just r))]))
-                    (set->list out-regs)))
-                (match-define acc (graph-add-vertex-if-absent acc reg (void)))
+               [(fixed-reg f-reg)
                 (match-define acc
                   (foldl
-                    (lambda ([v : Var] [acc : (Graph Var Void EdgeData)]) : (Graph Var Void EdgeData)
-                      (case
-                        (graph-update-edge
-                          (graph-add-vertex-if-absent acc v (void))
-                          v reg
-                          (lambda ([e : EdgeData]) (interference-edge))
-                          (interference-edge))
-                        [(nothing) (panic #"Bad graph")]
-                        [(just g) g]))
-                    out-regs
+                    (lambda ([r : Reg] [acc : (Graph Var VertexData EdgeData)])
+                      : (Graph Var VertexData EdgeData)
+                      (case r
+                        [(fixed-reg _) acc]
+                        [(temporary-reg reg)
+                         (case (graph-update-vertex acc reg
+                                 (lambda ([vd : VertexData])
+                                   (case vd
+                                     [(vertex-data conflicts moves)
+                                      (vertex-data (set-add conflicts f-reg) moves)])))
+                           [(nothing) (panic #"Bad graph")]
+                           [(just acc) acc])]))
+                    (set->list out-regs)
                     acc))
                 (match-define acc
                   (case move-source
                     [(nothing) acc]
                     [(just (fixed-reg _)) acc]
+                    [(just (temporary-reg reg))
+                     ((lambda () : (Graph Var VertexData EdgeData)
+                        (case (graph-update-vertex
+                                (graph-add-vertex-if-absent acc reg (empty-vertex-data))
+                                reg
+                                (lambda ([vd : VertexData])
+                                  (case vd
+                                    [(vertex-data conflicts moves)
+                                     (vertex-data conflicts (set-add moves f-reg))])))
+                              [(nothing) (panic #"Bad graph")]
+                              [(just acc) acc])))]))
+                acc]
+               [(temporary-reg reg)
+                (match-define acc (graph-add-vertex-if-absent acc reg (empty-vertex-data)))
+                (match-define acc
+                  (foldl
+                    (lambda ([r : Reg] [acc : (Graph Var VertexData EdgeData)])
+                      : (Graph Var VertexData EdgeData)
+                      (case r
+                        [(fixed-reg f-reg)
+                         (case (graph-update-vertex acc reg
+                                 (lambda ([vd : VertexData])
+                                   (case vd
+                                     [(vertex-data conflicts moves)
+                                      (vertex-data (set-add conflicts f-reg) moves)])))
+                           [(nothing) (panic #"Bad graph")]
+                           [(just acc) acc])]
+                        [(temporary-reg v)
+                         (if (var=? v reg)
+                             acc
+                             (case
+                               (graph-update-edge
+                                 (graph-add-vertex-if-absent acc v (empty-vertex-data))
+                                 v reg
+                                 (lambda ([e : EdgeData]) (interference-edge))
+                                 (interference-edge))
+                               [(nothing) (panic #"Bad graph")]
+                               [(just g) g]))]))
+                    (set->list out-regs)
+                    acc))
+                (match-define acc
+                  (case move-source
+                    [(nothing) acc]
+                    [(just (fixed-reg f-reg))
+                     ((lambda () : (Graph Var VertexData EdgeData)
+                        (case (graph-update-vertex acc reg
+                                    (lambda ([vd : VertexData])
+                                      (case vd
+                                        [(vertex-data conflicts moves)
+                                         (vertex-data conflicts (set-add moves f-reg))])))
+                              [(nothing) (panic #"Bad graph")]
+                              [(just acc) acc])))]
                     [(just (temporary-reg v))
                      (case
                        (graph-update-edge
-                         (graph-add-vertex-if-absent acc v (void))
+                         (graph-add-vertex-if-absent acc v (empty-vertex-data))
                          v reg
                          (lambda ([e : EdgeData]) e)
                          (move-edge))
-                       [(nothing) ((lambda () : (Graph Var Void EdgeData) (panic #"Bad graph")))]
+                       [(nothing) ((lambda () : (Graph Var VertexData EdgeData) (panic #"Bad graph")))]
                        [(just g) g])]))
                 acc]))
            (set->list def-regs)
            acc)]))
     live-outs
-    ((lambda () : (Graph Var Void EdgeData) (empty-graph var=?)))))
-
-(define (initial-fixed-constraints [live-outs : (List (LiveOutState Reg))])
-  : (Dict Var (Set X8664Register))
-  (foldl
-    (lambda ([l : (LiveOutState Reg)] [acc : (Dict Var (Set X8664Register))])
-      (case l
-        [(live-out-state out-regs defined-regs _)
-         (foldl
-           (lambda ([defined : Reg] [acc : (Dict Var (Set X8664Register))])
-             (case defined
-               [(fixed-reg f-reg)
-                (foldl
-                  (lambda ([r : Reg] [acc : (Dict Var (Set X8664Register))])
-                    (case r
-                      [(fixed-reg _) acc]
-                      [(temporary-reg r)
-                       (dict-update
-                         acc
-                         r
-                         (lambda ([s : (Set X8664Register)]) (set-add s f-reg))
-                         (make-set x86-64-register=?))]))
-                  (set->list out-regs)
-                  acc)]
-               [(temporary-reg t-reg)
-                (foldl
-                  (lambda ([r : Reg] [acc : (Dict Var (Set X8664Register))])
-                    : (Dict Var (Set X8664Register))
-                    (case r
-                      [(temporary-reg t-reg)
-                       (dict-update
-                         acc
-                         t-reg
-                         (lambda ([s : (Set X8664Register)]) s)
-                         (make-set x86-64-register=?))]
-                      [(fixed-reg r)
-                       (dict-update-existing
-                         acc
-                         t-reg
-                         (lambda ([s : (Set X8664Register)]) (set-add s r)))]))
-                  (set->list out-regs)
-                  (dict-update
-                    acc
-                    t-reg
-                    (lambda ([s : (Set X8664Register)]) s)
-                    (make-set x86-64-register=?)))]))
-           (set->list defined-regs)
-           acc)]))
-    live-outs
-    ((lambda () : (Dict Var (Set X8664Register)) (make-dict var=?)))))
-
-(define (initial-fixed-neighbors [live-outs : (List (LiveOutState Reg))])
-  : (Dict Var (Set X8664Register))
-  (foldl
-    (lambda ([l : (LiveOutState Reg)] [acc : (Dict Var (Set X8664Register))])
-      (case l
-        [(live-out-state out-regs defined-regs move-source)
-         (foldl
-           (lambda ([defined : Reg] [acc : (Dict Var (Set X8664Register))])
-             (case defined
-               [(temporary-reg t-reg)
-                (match-define acc
-                  (dict-update
-                    acc
-                    t-reg
-                    (lambda ([s : (Set X8664Register)]) s)
-                    (make-set x86-64-register=?)))
-                (match-define acc
-                  (foldl
-                    (lambda ([r : Reg] [acc : (Dict Var (Set X8664Register))])
-                      (case r
-                        [(temporary-reg t-reg)
-                         (dict-update
-                           acc
-                           t-reg
-                           (lambda ([s : (Set X8664Register)]) s)
-                           (make-set x86-64-register=?))]
-                        [(fixed-reg _)
-                         acc]))
-                    (set->list out-regs)
-                    acc))
-                (case move-source
-                  [(nothing) acc]
-                  [(just (temporary-reg _)) acc]
-                  [(just (fixed-reg f-reg))
-                   (dict-update-existing
-                     acc
-                     t-reg
-                     (lambda ([s : (Set X8664Register)]) (set-add s f-reg)))])]
-               [(fixed-reg f-reg)
-                (case move-source
-                  [(nothing) acc]
-                  [(just (fixed-reg _)) acc]
-                  [(just (temporary-reg t-reg))
-                   (dict-update
-                     acc
-                     t-reg
-                     (lambda ([s : (Set X8664Register)]) (set-add s f-reg))
-                     (make-set x86-64-register=?))])]))
-           (set->list defined-regs)
-           acc)]))
-    live-outs
-    ((lambda () : (Dict Var (Set X8664Register)) (make-dict var=?)))))
-
-
+    ((lambda () : (Graph Var VertexData EdgeData) (empty-graph var=?)))))
 
 (define (color-graph [state : State]) : (Either (Set Var) (Dict Var X8664Register))
   (select-loop-start (determine-register-assignments state)))
@@ -282,13 +213,13 @@
     [(just (tuple2 v _)) (just v)]))
 
 
-(define (fixed-neighbors [v : Var] [state : State]) : (Set X8664Register)
-  (case (dict-ref (state-fixed-neighbors state) v)
+(define (fixed-move-neighbors [v : Var] [state : State]) : (Set X8664Register)
+  (case (graph-vertex-label (state-graph state) v)
     [(nothing) (panic #"Bad vertex: fixed-neighbors")]
-    [(just v) v]))
+    [(just (vertex-data _ move-neighbors)) move-neighbors]))
 
 (define (find-fixed-coalescable-neighbor [v : Var] [state : State]) : (Maybe X8664Register)
-  (case (set-split (set-filter (fixed-neighbors v state)
+  (case (set-split (set-filter (fixed-move-neighbors v state)
                                (lambda ([reg : X8664Register])
                                  (is-coalescable-fixed-edge state v reg))))
     [(nothing) (nothing)]
@@ -313,14 +244,14 @@
   (arg-max (lambda ([x : A]) (- 0 (f x))) elems))
 
 (define (num-interfering-neighbors [state : State] [v : Var]) : Int
-  (case (dict-ref (state-fixed-constraints state) v)
+  (case (graph-vertex-label (state-graph state) v)
     [(nothing)
      (panic
        (bytes-append
          (varargs list #"Bad context: " (var->bytes v))))]
-    [(just fixed-regs)
+    [(just (vertex-data fixed-constraints _))
      (+
-       (set-count fixed-regs)
+       (set-count fixed-constraints)
        (set-count (interfering-neighbors state v)))]))
 
 
@@ -343,14 +274,14 @@
                    [_ #f]))
                (dict-values edges))
              [(just _) #f]
-             [_ (= (set-count (fixed-neighbors v state)) 0)])])))))
+             [_ (= (set-count (fixed-move-neighbors v state)) 0)])])))))
 
 (define (move-related-vertices [state : State]) : (Set Var)
   (let ([g (state-graph state)])
-    (set-union
-      (set-filter
-        (dict-keys (graph-vertices g))
-        (lambda ([v : Var])
+    (dict-keys
+      (dict-filter
+        (graph-vertices g)
+        (lambda ([v : Var] [vd : VertexData]) : Boolean
           (case (graph-vertex-edges g v)
             [(nothing) (panic #"Bad vertex")]
             [(just edges)
@@ -362,12 +293,9 @@
                      [_ #f]))
                  (dict-values edges))
                [(just _) #t]
-               [_ #f])])))
-      (dict-keys
-        (dict-filter
-          (state-fixed-neighbors state)
-          (lambda ([v : Var] [neighbors : (Set X8664Register)])
-            (> (set-count neighbors) 0)))))))
+               [(nothing)
+                (match-define (vertex-data _ fixed-neighbors) vd)
+                (> (set-count fixed-neighbors) 0)])]))))))
 
 (define (move-neighbors [state : State] [v : Var]) : (Set Var)
   (let ([g (state-graph state)])
@@ -416,7 +344,7 @@
                   (dict-values edges))
                 [(just _) #f]
                 [(nothing)
-                 (= (set-count (fixed-neighbors v state)) 0) ])])))])))
+                 (= (set-count (fixed-move-neighbors v state)) 0) ])])))])))
 
 (define (neighbors [state : State] [v : Var]) : (Set Var)
   (let ([g (state-graph state)])
@@ -427,50 +355,55 @@
 
 
 (define (freeze [s : State] [v : Var]) : State
-  (match-define (state g fixed-constraints fixed-neighbors assignments) s)
-  (state
+  (match-define (state g assignments) s)
+  (match-define g
     (foldl
-      (lambda ([v2 : Var] [g : (Graph Var Void EdgeData)])
+      (lambda ([v2 : Var] [g : (Graph Var VertexData EdgeData)])
         (graph-remove-edge g v v2))
       (set->list (move-neighbors s v))
-      g)
-    fixed-constraints
-    (dict-set fixed-neighbors v (make-set x86-64-register=?))
+      g))
+  (state
+    (case (graph-update-vertex g v
+            (lambda ([vd : VertexData])
+              (case vd
+                [(vertex-data fixed-constraints fixed-move-neighbors)
+                 (vertex-data fixed-constraints (make-set x86-64-register=?))])))
+      [(nothing) (panic #"Bad vertex")]
+      [(just g) g])
     assignments))
 
 ;; TODO Should check that it actually is not move related.
 (define (remove-unconstrained-vertex [s : State] [v : Var]) : State
-  (match-define (state g fixed-constraints fixed-neighbors assignments) s)
-  (match-define vs (neighbors s v))
-  (match-define g
-    (foldl
-      (lambda ([v2 : Var] [g : (Graph Var Void EdgeData)])
-        (graph-remove-edge g v v2))
-      (set->list vs)
-      g))
-  (case (graph-remove-unconnected-vertex g v)
-    [(left _) (panic #"Bad graph")]
-    [(right g)
-     (case (dict-ref fixed-constraints v)
-       [(nothing) (panic #"Bad vertex")]
-       [(just constraints)
+  (match-define (state g assignments) s)
+  (case (graph-vertex-label g v)
+    [(nothing) (panic #"Bad vertex")]
+    [(just (vertex-data constraints _))
+     (match-define vs (neighbors s v))
+     (match-define g
+       (foldl
+         (lambda ([v2 : Var] [g : (Graph Var VertexData EdgeData)])
+           (graph-remove-edge g v v2))
+         (set->list vs)
+         g))
+     (case (graph-remove-unconnected-vertex g v)
+       [(left _) (panic #"Bad graph")]
+       [(right g)
         (state
           g
-          (dict-remove fixed-constraints v)
-          (dict-remove fixed-neighbors v)
           (cons (assign-free v vs constraints) assignments))])]))
 
 
 ;; This merges v1 into v2, keeping the v2 name
 (define (coalesce [s : State] [v1 : Var] [v2 : Var]) : State
-  (match-define (state g fixed-constraints fixed-neighbors assignments) s)
+  (match-define (state g assignments) s)
   (case (graph-vertex-edges g v1)
     [(nothing) (panic #"Bad vertex")]
     [(just edges)
      (match-define g
        (dict-fold
          edges
-         (lambda ([v : Var] [e : EdgeData] [g : (Graph Var Void EdgeData)]) : (Graph Var Void EdgeData)
+         (lambda ([v : Var] [e : EdgeData] [g : (Graph Var VertexData EdgeData)])
+           : (Graph Var VertexData EdgeData)
            (let ([g (graph-remove-edge g v1 v)])
              (if (var=? v v2)
                  g
@@ -485,30 +418,21 @@
                  [(just g) g]))))
          g))
 
-     (match-define fixed-constraints
-       (dict-remove
-         (dict-update-existing
-           fixed-constraints
-           v2
-           (lambda ([conflicts2 : (Set X8664Register)]) : (Set X8664Register)
-             (case (dict-ref fixed-constraints v1)
-               [(nothing) (panic #"Bad vertex")]
-               [(just conflicts1)
-                (set-union conflicts1 conflicts2)])))
-         v1))
 
-     (match-define fixed-neighbors
-       (dict-remove
-         (dict-update-existing
-           fixed-neighbors
-           v2
-           (lambda ([neighbors2 : (Set X8664Register)]) : (Set X8664Register)
-             (case (dict-ref fixed-neighbors v1)
+     (match-define g
+       ((lambda () : (Graph Var VertexData EdgeData)
+          (case (graph-vertex-label g v1)
+            [(nothing) (panic #"Bad vertex")]
+            [(just (vertex-data fixed-constraints fixed-move-neighbors))
+             (case (graph-update-vertex g v2
+                     (lambda ([vd : VertexData]) : VertexData
+                       (case vd
+                         [(vertex-data fixed-constraints2 fixed-move-neighbors2)
+                          (vertex-data
+                            (set-union fixed-constraints fixed-constraints2)
+                            (set-union fixed-move-neighbors fixed-move-neighbors2))])))
                [(nothing) (panic #"Bad vertex")]
-               [(just neighbors1)
-                (set-union neighbors1 neighbors2)])))
-         v1))
-
+               [(just g) g])]))))
 
      (case (graph-remove-unconnected-vertex g v1)
        [(left (nothing))
@@ -529,48 +453,39 @@
                   (map var->bytes (set->list (dict-keys edges)))
                   #" ")))))]
        [(right g)
-        (state g fixed-constraints fixed-neighbors (cons (assign-same v1 v2) assignments))])]))
+        (state g (cons (assign-same v1 v2) assignments))])]))
 
 ;; This merges v1 into reg.
 (define (coalesce-fixed [s : State] [v1 : Var] [reg : X8664Register]) : State
-  (match-define (state g fixed-constraints fixed-neighbors assignments) s)
+  (match-define (state g assignments) s)
   (case (graph-vertex-edges g v1)
     [(nothing) (panic #"Bad vertex")]
     [(just edges)
      (match-define g
        (dict-fold
          edges
-         (lambda ([v : Var] [e : EdgeData] [g : (Graph Var Void EdgeData)]) : (Graph Var Void EdgeData)
+         (lambda ([v : Var] [e : EdgeData] [g : (Graph Var VertexData EdgeData)])
+           : (Graph Var VertexData EdgeData)
            (graph-remove-edge g v1 v))
          g))
 
-     (match-define fixed-constraints
-       (dict-remove
-         (dict-fold
-           edges
-           (lambda ([v : Var] [e : EdgeData] [fixed-constraints : (Dict Var (Set X8664Register))])
-               : (Dict Var (Set X8664Register))
-             (case e
-               [(interference-edge)
-                (dict-update-existing fixed-constraints v (lambda ([s : (Set X8664Register)])
-                                                            (set-add s reg)))]
-               [(move-edge) fixed-constraints]))
-           fixed-constraints)
-         v1))
-
-     (match-define fixed-neighbors
-       (dict-remove
-         (dict-fold
-           edges
-           (lambda ([v : Var] [e : EdgeData] [fixed-neighbors : (Dict Var (Set X8664Register))])
-               : (Dict Var (Set X8664Register))
-             (case e
-               [(move-edge)
-                (dict-update-existing fixed-neighbors v (lambda ([s : (Set X8664Register)])
-                                                          (set-add s reg)))]
-               [(interference-edge) fixed-neighbors]))
-           fixed-neighbors)
-         v1))
+     (match-define g
+       (dict-fold
+         edges
+         (lambda ([v : Var] [e : EdgeData] [g : (Graph Var VertexData EdgeData)])
+             : (Graph Var VertexData EdgeData)
+           (case (graph-update-vertex g v
+                   (lambda ([vd : VertexData])
+                     (case vd
+                       [(vertex-data fixed-constraints fixed-move-neighbors)
+                        (case e
+                          [(interference-edge)
+                           (vertex-data (set-add fixed-constraints reg) fixed-move-neighbors)]
+                          [(move-edge)
+                           (vertex-data fixed-constraints (set-add fixed-move-neighbors reg))])])))
+             [(nothing) (panic #"Bad vertex")]
+             [(just g) g]))
+         g))
 
      (case (graph-remove-unconnected-vertex g v1)
        [(left (nothing))
@@ -591,55 +506,53 @@
                   (map var->bytes (set->list (dict-keys edges)))
                   #" ")))))]
        [(right g)
-        (state g fixed-constraints fixed-neighbors (cons (assign-fixed v1 reg) assignments))])]))
+        (state g (cons (assign-fixed v1 reg) assignments))])]))
 
 
 ;; TODO check that this is not move related
 (define (spill-vertex [s : State] [v : Var]) : State
-  (match-define (state g fixed-constraints fixed-neighbors assignments) s)
+  (match-define (state g assignments) s)
   (match-define vs (neighbors s v))
   (match-define g
     (foldl
-      (lambda ([v2 : Var] [g : (Graph Var Void EdgeData)])
+      (lambda ([v2 : Var] [g : (Graph Var VertexData EdgeData)])
         (graph-remove-edge g v v2))
       (set->list vs)
       g))
-  (case (graph-remove-unconnected-vertex g v)
-    [(left _) (panic #"Bad graph")]
-    [(right g)
-     (case (dict-ref fixed-constraints v)
-       [(nothing) (panic #"Bad vertex")]
-       [(just constraints)
+  (case (graph-vertex-label g v)
+    [(nothing) (panic #"Bad vertex")]
+    [(just (vertex-data fixed-constraints _))
+     (case (graph-remove-unconnected-vertex g v)
+       [(left _) (panic #"Bad graph")]
+       [(right g)
         (state
           g
-          (dict-remove fixed-constraints v)
-          (dict-remove fixed-neighbors v)
-          (cons (assign-spill v vs constraints) assignments))])]))
+          (cons (assign-spill v vs fixed-constraints) assignments))])]))
 
 
 (define (is-coalescable-fixed-edge [s : State] [v : Var] [reg : X8664Register]) : Boolean
-  (match-define (state g fixed-constraints fixed-neighbors assignments) s)
+  (match-define (state g assignments) s)
 
   (< (set-count
        (set-filter
          (interfering-neighbors s v)
          (lambda ([v : Var]) : Boolean
-           (case (dict-ref fixed-constraints v)
+           (case (graph-vertex-label g v)
              [(nothing) (panic #"Bad vertex")]
-             [(just fixed-regs) (set-member? fixed-regs reg)]))))
+             [(just (vertex-data fixed-regs _)) (set-member? fixed-regs reg)]))))
      (set-count (valid-temporary-x86-64-registers))))
 
 
 (define (is-coalescable-edge [s : State] [v1 : Var] [v2 : Var]) : Boolean
-  (match-define (state g fixed-constraints fixed-neighbors assignments) s)
+  (match-define (state g assignments) s)
   (match-define fixed-count
     ((lambda () : Int
-       (case (dict-ref fixed-constraints v1)
+       (case (graph-vertex-label g v1)
          [(nothing) (panic #"Bad vertex")]
-         [(just regs1)
-          (case (dict-ref fixed-constraints v2)
+         [(just (vertex-data regs1 _))
+          (case (graph-vertex-label g v2)
             [(nothing) (panic #"Bad vertex")]
-            [(just regs2)
+            [(just (vertex-data regs2 _))
              (set-count (set-union regs1 regs2))])]))))
   (< (+ fixed-count
        (set-count
