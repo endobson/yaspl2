@@ -4,6 +4,7 @@
   (list)
   (maybe)
   (prim)
+  (tuples)
 }
 (export
   #:types (RedBlackTree)
@@ -13,14 +14,17 @@
   (define-type Color
     (red)
     (black))
+  (define-type Side
+    (left)
+    (right))
   (define-type (RedBlackNode K V)
     (node [color : Color] [left : (Maybe (RedBlackNode K V))] [right : (Maybe (RedBlackNode K V))]
           [key : K] [value : V]))
   (define-type (RedBlackTree K V)
     (tree [order : (K K -> Ordering)] [root-node : (Maybe (RedBlackNode K V))]))
   (define-type (RedBlackContext K V)
-    (left-context [color : Color] [right : (Maybe (RedBlackNode K V))] [key : K] [value : V])
-    (right-context [color : Color] [left : (Maybe (RedBlackNode K V))] [key : K] [value : V])))
+    (context-node [side : Side] [color : Color] [sibling : (Maybe (RedBlackNode K V))]
+                  [key : K] [value : V])))
 
 (define (K V) (rb-ref [t : (RedBlackTree K V)] [k : K]) : (Maybe V)
   (match-define (tree order root-node) t)
@@ -57,10 +61,25 @@
   : (RedBlackNode K V)
   (case context
     [(empty) n]
-    [(cons (left-context color right k v) context)
-     (fill-context-noop (node color (just n) right k v) context)]
-    [(cons (right-context color left k v) context)
-     (fill-context-noop (node color left (just n) k v) context)]))
+    [(cons (context-node side color sibling k v) context)
+     (fill-context-noop (node/side side color sibling n k v) context)]))
+
+(define (K V) (node/side [s : Side] [c : Color] [sibling : (Maybe (RedBlackNode K V))]
+                         [n : (RedBlackNode K V)] [k : K] [v : V]) : (RedBlackNode K V)
+  (node/side* s c sibling (just n) k v))
+
+(define (K V) (node/side* [s : Side] [c : Color] [sibling : (Maybe (RedBlackNode K V))]
+                          [n : (Maybe (RedBlackNode K V))] [k : K] [v : V]) : (RedBlackNode K V)
+  (case s
+    [(left) (node c n sibling k v)]
+    [(right) (node c sibling n k v)]))
+
+(define (side=? [s1 : Side] [s2 : Side]) : Boolean
+  (case (tuple2 s1 s2)
+    [(tuple2 (left) (left)) #t]
+    [(tuple2 (left) (right)) #f]
+    [(tuple2 (right) (left)) #f]
+    [(tuple2 (right) (right)) #t]))
 
 ;; n needs to be red otherwise fill-context-noop would be simpler
 (define (K V) (fill-context [n : (RedBlackNode K V)] [context : (List (RedBlackContext K V))])
@@ -69,10 +88,57 @@
     [(empty)
      (match-define (node _ left right key value) n)
      (node (black) left right key value)]
-    [(cons (left-context (black) right k v) context)
-     (fill-context-noop (node (black) (just n) right k v) context)]
-    [(cons (right-context (black) left k v) context)
-     (fill-context-noop (node (black) left (just n) k v) context)]
-    [(cons (left-context (red) _ _ _) (empty)) (panic #"Root cannot be red")]
-    [(cons (right-context (red) _ _ _) (empty)) (panic #"Root cannot be red")]
-    [_ (panic #"NYI")]))
+    [(cons (context-node side (black) sibling k v) context)
+     (fill-context-noop (node/side side (black) sibling n k v) context)]
+    [(cons (context-node _ (red) _ _ _) (empty)) (panic #"Root cannot be red")]
+    [(cons (context-node p-side (red) p-sib p-k p-v)
+           (cons (context-node g-side (black)
+                               (just (node (red) u-l u-r u-k u-v))
+                               g-k g-v)
+                 context))
+     (fill-context
+       (node/side g-side (red)
+                  (just (node (black) u-l u-r u-k u-v))
+                  (node/side p-side (black) p-sib n p-k p-v)
+                  g-k g-v)
+       context)]
+    [(cons (context-node _ (red) _ _ _) (cons (context-node _ (red) _ _ _) _))
+     (panic #"Cannot have two red nodes in a row")]
+    [(cons (context-node p-side (red) p-sib p-k p-v)
+           (cons (context-node g-side (black)
+                               u
+                               g-k g-v)
+                 context))
+     (if (side=? p-side g-side)
+         (fill-context-noop
+           (node/side
+             p-side
+             (black)
+             (just
+               (node/side*
+                 g-side
+                 (red)
+                 u
+                 p-sib
+                 g-k
+                 g-v))
+             n
+             p-k
+             p-v)
+           context)
+         (case n
+           [(node (black) _ _ _ _) (panic #"Node must be colored red")]
+           [(node (red) n-l n-r n-k n-v)
+            (case p-side
+              [(left)
+               (fill-context
+                 (node (red) n-r p-sib p-k p-v)
+                 (cons (context-node p-side (red) n-l n-k n-v)
+                       (cons (context-node g-side (black) u g-k g-v)
+                             context)))]
+              [(right)
+               (fill-context
+                 (node (red) p-sib n-l p-k p-v)
+                 (cons (context-node p-side (red) n-r n-k n-v)
+                       (cons (context-node g-side (black) u g-k g-v)
+                             context)))])]))]))
