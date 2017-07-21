@@ -29,6 +29,7 @@
       [memory-compare-condition l:memory-compare-condition]
       [move l:move]
       [negated-reg-condition l:negated-reg-condition]
+      [numeric-op-immediate l:numeric-op-immediate]
       [reg-condition l:reg-condition]
       [return l:return]
       [store-8byte l:store-8byte]
@@ -258,25 +259,41 @@
     [(right validated-new-blocks)
      (l:function-definition name 0 validated-new-blocks)]))
 
+(define (args/registers [args : (List r:Var)] [registers : (List X8664Register)]
+                        [overflow-register : X8664Register])
+  : (List (l:Instruction Reg))
+  (case registers
+    [(empty)
+     (args/extra-registers args 0 overflow-register)]
+    [(cons reg registers)
+     (case args
+       [(empty) (empty)]
+       [(cons arg args)
+        (cons
+          (l:move (temporary-reg arg) (fixed-reg reg))
+          (args/registers args registers overflow-register))])]))
+
+(define (args/extra-registers [args : (List r:Var)] [offset : Int] [overflow-register : X8664Register])
+  : (List (l:Instruction Reg))
+  (case args
+    [(empty) (empty)]
+    [(cons arg args)
+     (cons
+       (l:load-8byte (temporary-reg arg) (fixed-reg overflow-register) offset)
+       (args/extra-registers args (+ offset 8) overflow-register))]))
+
 
 (define (make-entry-block [convention : r:CallingConvention] [blocks : (Dict Int r:BasicBlock)])
   : (l:BasicBlock Reg)
   (match-define arg-registers (varargs list (rdi) (rsi) (rdx) (rcx) (r8) (r9)))
+  (match-define overflow-arg-register (r10))
   (case convention
     [(r:plain-function-convention num-args entry-block-num)
      (case (dict-ref blocks entry-block-num)
        [(nothing) (panic #"No entry block")]
        [(just (r:basic-block args _ _))
         (l:basic-block
-          (case (zip args (take num-args arg-registers))
-            [(nothing) (panic #"Too long initial args")]
-            [(just linked-args)
-             (map
-               (lambda ([t : (Tuple2 r:Var X8664Register)])
-                 (case t
-                   [(tuple2 v reg)
-                    (l:move (temporary-reg v) (fixed-reg reg))]))
-               linked-args)])
+          (args/registers args arg-registers overflow-arg-register)
           ((lambda () : (l:Terminal Reg) (l:jump entry-block-num))))])]
     [(r:closure-convention num-args entry-block-num num-free-vars)
      (case (dict-ref blocks entry-block-num)
@@ -284,15 +301,7 @@
        [(just (r:basic-block args _ _))
         (l:basic-block
           (append
-            (case (zip (take num-args args) (take num-args arg-registers))
-              [(nothing) (panic #"Too long initial args")]
-              [(just linked-args)
-               (map
-                 (lambda ([t : (Tuple2 r:Var X8664Register)])
-                   (case t
-                     [(tuple2 v reg)
-                      (l:move (temporary-reg v) (fixed-reg reg))]))
-                 linked-args)])
+            (args/registers (take num-args args) arg-registers overflow-arg-register)
             (case (zip (drop num-args args)
                        (build-list num-free-vars (lambda ([x : Int]) (* 8 (+ x 1)))))
               [(nothing) (panic #"Wrong number of free vars")]
@@ -418,6 +427,49 @@
                    (+ next-block 1)))
        (tuple2 (+ next-block 2) new-acc-blocks))]))
 
+
+;; TODO make this not use the heap so that it can be used from the GC system
+(define (put-arguments-in-registers
+          [args : (List r:Var)]
+          [regs : (List X8664Register)]
+          [overflow-register : X8664Register]) :
+  (Tuple2 (List (l:Instruction Reg)) (List Reg))
+  (case regs
+    [(empty)
+     (case args
+       [(empty) (tuple2 (empty) (empty))]
+       [_
+         (tuple2
+           (cons
+             (l:move (fixed-reg overflow-register) (fixed-reg (r15)))
+             (cons
+               (l:numeric-op-immediate (fixed-reg (r15)) (plus) (* 8 (length args)))
+               (put-arguments-in-memory args 0 overflow-register)))
+           (cons (fixed-reg overflow-register) (empty)))])]
+    [(cons reg regs)
+     (case args
+       [(empty) (tuple2 (empty) (empty))]
+       [(cons arg args)
+        (case (put-arguments-in-registers args regs overflow-register)
+          [(tuple2 arg-insts arg-regs)
+           (tuple2
+             (cons (l:move (fixed-reg reg) (temporary-reg arg)) arg-insts)
+             (cons (fixed-reg reg) arg-regs))])])]))
+
+(define (put-arguments-in-memory
+          [args : (List r:Var)]
+          [offset : Int]
+          [overflow-register : X8664Register]) :
+  (List (l:Instruction Reg))
+  (case args
+    [(empty) (empty)]
+    [(cons arg args)
+     (cons
+       (l:store-8byte (fixed-reg overflow-register) offset (temporary-reg arg))
+       (put-arguments-in-memory args (+ offset 8) overflow-register))]))
+
+
+
 (define (lower-instruction [i : r:Instruction]) : (List (l:Instruction Reg))
   (case i
     [(r:int-literal output v)
@@ -454,33 +506,23 @@
        (l:move (fixed-reg (rsi)) (temporary-reg v2))
        (l:compare-memory (temporary-reg output) (fixed-reg (rcx)) (fixed-reg (rdi)) (fixed-reg (rsi))))]
     [(r:function-call-inst output f args)
-     (case (zip/left args (varargs list (rdi) (rsi) (rdx) (r10) (r8) (r9)))
-       [(nothing) (panic #"Too long function call args")]
-       [(just linked-args)
-        (append
-          (map
-            (lambda ([t : (Tuple2 r:Var X8664Register)])
-              (case t
-                [(tuple2 v reg)
-                 (l:move (fixed-reg reg) (temporary-reg v))]))
-            linked-args)
-          (append
-            (case f
-              [(r:indirect-function-call f) (empty)]
-              [(r:closure-call c)
-               (varargs list (l:move (fixed-reg (r11)) (temporary-reg c)))]
-              [(r:syscall s) (varargs list (l:int-literal (fixed-reg (rax)) (syscall-number s)))])
-            (varargs list
-              (l:function-call-inst
-                (fixed-reg (rax))
-                (case f
-                  [(r:indirect-function-call f) (l:indirect-function-call (temporary-reg f))]
-                  [(r:closure-call _) (l:closure-call (fixed-reg (r11)))]
-                  [(r:syscall _) (l:syscall (fixed-reg (rax)))])
-                (map (lambda ([t : (Tuple2 r:Var X8664Register)])
-                       (case t
-                         [(tuple2 v reg)
-                          (fixed-reg reg)]))
-                     linked-args)
-                (call-conflicts))
-              (l:move (temporary-reg output) (fixed-reg (rax))))))])]))
+     (match-define (tuple2 arg-insts arg-regs)
+       (put-arguments-in-registers args (varargs list (rdi) (rsi) (rdx) (rcx) (r8) (r9)) (r10)))
+     (append
+       arg-insts
+       (append
+         (case f
+           [(r:indirect-function-call f) (empty)]
+           [(r:closure-call c)
+            (varargs list (l:move (fixed-reg (r11)) (temporary-reg c)))]
+           [(r:syscall s) (varargs list (l:int-literal (fixed-reg (rax)) (syscall-number s)))])
+         (varargs list
+           (l:function-call-inst
+             (fixed-reg (rax))
+             (case f
+               [(r:indirect-function-call f) (l:indirect-function-call (temporary-reg f))]
+               [(r:closure-call _) (l:closure-call (fixed-reg (r11)))]
+               [(r:syscall _) (l:syscall (fixed-reg (rax)))])
+             arg-regs
+             (call-conflicts))
+           (l:move (temporary-reg output) (fixed-reg (rax))))))]))

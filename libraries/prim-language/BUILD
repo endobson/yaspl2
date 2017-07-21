@@ -376,6 +376,18 @@ binary_test(
 )
 
 prim_binary(
+    name = "call2",
+    srcs = ["call2.prim"],
+)
+
+binary_test(
+    name = "call2_test",
+    binary = ":call2",
+    binary_args = ["arg1"],
+    exit_code = 14,
+)
+
+prim_binary(
     name = "cast1",
     srcs = ["cast1.prim"],
 )
