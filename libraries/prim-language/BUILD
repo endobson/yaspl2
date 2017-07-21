@@ -310,6 +310,7 @@ yaspl_bootstrap_library(
     srcs = ["simplify-lowered-register-language.yaspl"],
     deps = [
         ":lowered-register-language",
+        ":prim-language",
         "//libraries/data:boolean",
         "//libraries/data:dict",
         "//libraries/data:either",
