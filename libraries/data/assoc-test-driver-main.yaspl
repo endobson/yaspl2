@@ -1,0 +1,142 @@
+#:module (data assoc-test-driver-main)
+#:import {
+  (bytes)
+  (data ordering)
+  (data red-black-tree) {
+    #:types
+      RedBlackTree
+    #:values
+      make-rb-tree
+      rb-tree-ref
+      rb-tree-remove
+      rb-tree-set
+  }
+  (dict)
+  (either)
+  (io)
+  (list)
+  (maybe)
+  (prim)
+  (sexp-parser)
+  (sexp-printer)
+}
+(export)
+(types
+  (define-type Command
+    (set-value [k : Int] [v : Int])
+    (remove-value [k : Int])
+    (query-values [ks : (List Int)])))
+
+
+(define (parse-command [s : Sexp]) : (Either Bytes Command)
+  (case s
+    [(node (cons (symbol-sexp #"add") (cons (number-sexp k) (cons (number-sexp v) (empty)))))
+     (right (set-value k v))]
+    [(node (cons (symbol-sexp #"remove") (cons (number-sexp k) (empty))))
+     (right (remove-value k))]
+    [(node (cons (symbol-sexp #"query") values))
+     (case (extract-rights (map parse-number values))
+       [(left v) (left v)]
+       [(right ks)
+        (right (query-values ks))])]
+    [_ (left (bytes-append (varargs list #"Unparseable Sexp: " (print-sexp s))))]))
+
+(define (parse-number [s : Sexp]) : (Either Bytes Int)
+  (case s
+    [(number-sexp k) (right k)]
+    [_ (left #"Not a number")]))
+
+
+(define (handle-command-rb-tree [command : Command] [tree : (RedBlackTree Int Int)] [output : OutputPort])
+  : (RedBlackTree Int Int)
+  (case command
+    [(set-value k v)
+     (rb-tree-set tree k v)]
+    [(remove-value k)
+     (rb-tree-remove tree k)]
+    [(query-values ks)
+     (match-define vs
+       (map
+         (lambda ([k : Int]) (rb-tree-ref tree k))
+         ks))
+     (begin
+       tree)]))
+
+(define (handle-command-dict [command : Command] [dict : (Dict Int Int)] [output : OutputPort])
+  : (Dict Int Int)
+  (case command
+    [(set-value k v)
+     (dict-set dict k v)]
+    [(remove-value k)
+     (dict-remove dict k)]
+    [(query-values ks)
+     (match-define vs
+       (map
+         (lambda ([k : Int]) (dict-ref dict k))
+         ks))
+     (begin
+       dict)]))
+
+
+(define (Acc) (handle-commands [commands : (List Command)]
+                                [acc : Acc]
+                                [handler : (Command Acc OutputPort -> Acc)]
+                                [output : OutputPort])
+  : (Maybe Bytes)
+  (case commands
+    [(empty) (nothing)]
+    [(cons c commands)
+     (handle-commands commands (handler c acc output) handler output)]))
+
+
+(define (int-cmp [i1 : Int] [i2 : Int]) : Ordering
+  (if (= i1 i2)
+      (equal-to)
+      (if (< i1 i2)
+          (less-than)
+          (greater-than))))
+
+(define (empty-rb-tree) : (RedBlackTree Int Int)
+  (make-rb-tree int-cmp))
+
+(define (empty-dict) : (Dict Int Int)
+  (make-dict =))
+
+
+(define (noop) : (Maybe Bytes)
+  (nothing))
+
+(define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Int
+  (case (array->list args)
+    [(cons _ (cons type (empty)))
+     (case (parse-sexps (read-all-bytes stdin))
+       [(left v)
+        (begin
+          (write-line v stderr)
+          1)]
+       [(right sexps)
+        (case (extract-rights (map parse-command sexps))
+          [(left v)
+           (begin
+             (write-line v stderr)
+             1)]
+          [(right commands)
+           (case (case type
+                   [#"red-black"
+                    (handle-commands commands (empty-rb-tree) handle-command-rb-tree stdout)]
+                   [#"dict"
+                    (handle-commands commands (empty-dict) handle-command-dict stdout)]
+                   [#"noop"
+                    (noop)]
+                   [_
+                    (just #"Not a valid type")])
+             [(just v)
+              (begin
+                (write-line v stderr)
+                1)]
+             [(nothing)
+              0])])])]
+    [_
+     (begin
+       (write-line #"Wrong number of arguments" stdout)
+       1)]))

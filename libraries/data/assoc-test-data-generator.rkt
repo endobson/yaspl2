@@ -1,8 +1,8 @@
 #lang racket/base
 
-(define N 128)
-(for ([j 10])
-  (for ([i 1000])
+(define N 16)
+(for ([j 500])
+  (for ([i 100])
     (define v (random))
     (if (< v .8)
         (write `(add ,(random N) ,(random N)))

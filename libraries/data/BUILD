@@ -4,6 +4,31 @@ package(
     default_visibility = ["//visibility:public"],
 )
 
+yaspl_library(
+    name = "assoc-test-driver-main",
+    srcs = ["assoc-test-driver-main.yaspl"],
+    deps = [
+        ":bytes",
+        ":dict",
+        ":either",
+        ":list",
+        ":maybe",
+        ":ordering",
+        ":red-black-tree",
+        "//libraries:io",
+        "//libraries:sexp-parser",
+        "//libraries:sexp-printer",
+    ],
+)
+
+yaspl_binary(
+    name = "assoc-test-driver",
+    main_module = "data_assoc_test_driver_main",
+    deps = [
+        ":assoc-test-driver-main",
+    ],
+)
+
 yaspl_bootstrap_library(
     name = "boolean",
     srcs = ["boolean.yaspl"],
@@ -154,36 +179,12 @@ yaspl_bootstrap_library(
     name = "red-black-tree",
     srcs = ["red-black-tree.yaspl"],
     deps = [
+        ":either",
         ":list",
         ":maybe",
-        ":either",
         ":ordering",
         ":tuples",
         "//libraries:sexp-parser",
-    ],
-)
-
-yaspl_library(
-    name = "red-black-tree-assoc-test-driver-main",
-    srcs = ["red-black-tree-assoc-test-driver-main.yaspl"],
-    deps = [
-        ":bytes",
-        ":either",
-        ":list",
-        ":maybe",
-        ":ordering",
-        ":red-black-tree",
-        "//libraries:io",
-        "//libraries:sexp-parser",
-        "//libraries:sexp-printer",
-    ],
-)
-
-yaspl_binary(
-    name = "red-black-tree-assoc-test-driver",
-    main_module = "data_red_black_tree_assoc_test_driver_main",
-    deps = [
-        ":red-black-tree-assoc-test-driver-main",
     ],
 )
 
