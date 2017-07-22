@@ -8,7 +8,7 @@
 }
 (export
   #:types (RedBlackTree)
-  #:values (rb-ref rb-set)
+  #:values (rb-ref rb-set rb-remove)
   #:patterns ())
 (types
   (define-type Color
@@ -63,6 +63,14 @@
     [(empty) n]
     [(cons (context-node side color sibling k v) context)
      (fill-context-noop (node/side side color sibling n k v) context)]))
+
+(define (K V) (fill-context-noop* [context : (List (RedBlackContext K V))])
+  : (Maybe (RedBlackNode K V))
+  (case context
+    [(empty) (nothing)]
+    [(cons (context-node side color sibling k v) context)
+     (just (fill-context-noop (node/side* side color sibling (nothing) k v) context))]))
+
 
 (define (K V) (node/side [s : Side] [c : Color] [sibling : (Maybe (RedBlackNode K V))]
                          [n : (RedBlackNode K V)] [k : K] [v : V]) : (RedBlackNode K V)
@@ -142,3 +150,142 @@
                  (cons (context-node p-side (red) n-r n-k n-v)
                        (cons (context-node g-side (black) u g-k g-v)
                              context)))])]))]))
+
+(define (K V) (rb-remove [t : (RedBlackTree K V)] [k : K]) : (RedBlackTree K V)
+  (match-define (tree order root-node) t)
+  (tree order (rb-node-remove root-node k (empty) order)))
+
+(define (K V) (rb-node-remove [n : (Maybe (RedBlackNode K V))] [k : K] [context : (List (RedBlackContext K V))]
+                              [order : (K K -> Ordering)])
+  : (Maybe (RedBlackNode K V))
+  (case n
+    [(nothing) (fill-context-noop* context)]
+    [(just (node color l r k2 v))
+     (case (order k k2)
+       [(less-than) (rb-node-remove l k (cons (context-node (left) color r k2 v) context) order)]
+       [(greater-than) (rb-node-remove r k (cons (context-node (right) color l k2 v) context) order)]
+       [(equal-to)
+        (match-define (tuple2 child context)
+          (case (tuple2 l r)
+            [(tuple2 (just l) (just r))
+             (match-define (tuple2 succ context2)
+               (rb-node-find-smallest r ((lambda () : (List (RedBlackContext K V)) (empty)))))
+             (case succ
+               [(node _ (just _) _ _ _)
+                ((lambda () : (Tuple2 (Maybe (RedBlackNode K V)) (List (RedBlackContext K V)))
+                   (panic #"Successor node has left child")))]
+               [(node color (nothing) child s-k s-v)
+                (tuple2
+                  child
+                  (append context2 (cons (context-node (right) color (just l) s-k s-v) context)))])]
+            [(tuple2 l (nothing))
+             (tuple2 l context)]
+            [(tuple2 (nothing) r)
+             (tuple2 r context)]))
+        (case color
+          [(red)
+           (case child
+             [(nothing)
+              (fill-context-noop* context)]
+             [(just child)
+              (just (fill-context-noop child context))])]
+          [(black)
+           (case child
+             [(just (node (red) c-l c-r c-k c-v))
+              (just (fill-context-noop (node (black) c-l c-r c-k c-v) context))]
+             [black-child
+              (remove-fill-context black-child context)])])])]))
+
+
+(define (K V) (rb-node-find-smallest [n : (RedBlackNode K V)] [context : (List (RedBlackContext K V))])
+  : (Tuple2 (RedBlackNode K V) (List (RedBlackContext K V)))
+  (case n
+    [(node color (nothing) _ _ _)
+     (tuple2 n context)]
+    [(node color (just l) r k v)
+     (rb-node-find-smallest l (cons (context-node (left) color r k v) context))]))
+
+;; n is a black node
+;; The side that n is on, has one less black node in its path and so need to rotate/recolor to fix that.
+(define (K V) (remove-fill-context [n : (Maybe (RedBlackNode K V))]
+                                   [context : (List (RedBlackContext K V))])
+  : (Maybe (RedBlackNode K V))
+  (case context
+    [(empty) n]
+    [(cons (context-node (left) (black) (just (node (red) s-l s-r s-k s-v)) p-k p-v) context)
+     (remove-fill-context
+       n
+       (cons (context-node (left) (red) s-l p-k p-v)
+             (cons (context-node (left) (black) s-r s-k s-v)
+                   context)))]
+    [(cons (context-node (right) (black) (just (node (red) s-l s-r s-k s-v)) p-k p-v) context)
+     (remove-fill-context
+       n
+       (cons (context-node (right) (red) s-r p-k p-v)
+             (cons (context-node (right) (black) s-l s-k s-v)
+                   context)))]
+    [(cons (context-node (left) p-color
+                         (just (node (black)
+                                     s-l
+                                     (just (node (red) s-r-l s-r-r s-r-k s-r-v))
+                                     s-k s-v))
+                         p-k p-v) context)
+     (just
+       (fill-context-noop
+         (node p-color (just (node (black) n s-l p-k p-v))
+                       (just (node (black) s-r-l s-r-r s-r-k s-r-v))
+                       s-k s-v)
+         context))]
+    [(cons (context-node (right) p-color
+                         (just (node (black)
+                                     (just (node (red) s-l-l s-l-r s-l-k s-l-v))
+                                     s-r
+                                     s-k s-v))
+                         p-k p-v) context)
+     (just
+       (fill-context-noop
+         (node p-color (just (node (black) s-l-l s-l-r s-l-k s-l-v))
+                       (just (node (black) s-r n p-k p-v))
+                       s-k s-v)
+         context))]
+    [(cons (context-node (left) p-color
+                         (just (node (black)
+                                     (just (node (red) s-l-l s-l-r s-l-k s-l-v))
+                                     s-r
+                                     s-k s-v))
+                         p-k p-v) context)
+     (remove-fill-context
+       n
+       (cons (context-node (left) p-color
+                           (just (node (black)
+                                       s-l-l
+                                       (just (node (red) s-l-r s-r s-k s-v))
+                                       s-l-k s-l-v))
+                           p-k p-v) context))]
+    [(cons (context-node (right) p-color
+                         (just (node (black)
+                                     s-l
+                                     (just (node (red) s-r-l s-r-r s-r-k s-r-v))
+                                     s-k s-v))
+                         p-k p-v) context)
+     (remove-fill-context
+       n
+       (cons (context-node (right) p-color
+                           (just (node (black)
+                                       (just (node (red) s-l s-r-l s-k s-v))
+                                       s-r-r
+                                       s-r-k s-r-v))
+                           p-k p-v) context))]
+    [(cons (context-node side (red) (just (node (black) s-l s-r s-k s-v)) p-k p-v) context)
+     (just
+       (fill-context-noop
+         (node/side* side (black) (just (node (red) s-l s-r s-k s-v)) n p-k p-v)
+         context))]
+    [(cons (context-node side (black) (just (node (black) s-l s-r s-k s-v)) p-k p-v) context)
+     (remove-fill-context
+       (just (node/side* side (black) (just (node (red) s-l s-r s-k s-v)) n p-k p-v))
+       context)]
+    [(cons (context-node side _ (nothing) _ _) _)
+     (panic #"Black height invariant is not maintained")]
+    [(cons (context-node side (red) (just (node (red) s-l s-r s-k s-v)) p-k p-v) context)
+     (panic #"Double red invariant violated")]))
