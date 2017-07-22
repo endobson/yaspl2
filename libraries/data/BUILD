@@ -161,6 +161,21 @@ yaspl_bootstrap_library(
     ],
 )
 
+yaspl_test(
+    name = "red-black-tree-test",
+    size = "small",
+    srcs = ["red-black-tree-test.yaspl"],
+    main_module = "data_red_black_tree_test",
+    deps = [
+        ":bytes",
+        ":list",
+        ":maybe",
+        ":ordering",
+        ":red-black-tree",
+        "//libraries:yunit",
+    ],
+)
+
 yaspl_library(
     name = "regexp",
     srcs = ["regexp.yaspl"],
