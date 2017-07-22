@@ -11,6 +11,7 @@ yaspl_bootstrap_library(
         ":boolean",
         ":list",
         ":maybe",
+        ":set",
         ":tuples",
     ],
 )
@@ -69,7 +70,7 @@ yaspl_bootstrap_library(
     name = "dict",
     srcs = ["dict.yaspl"],
     deps = [
-        ":boolean",
+        ":assoc-list",
         ":list",
         ":maybe",
         ":set",
