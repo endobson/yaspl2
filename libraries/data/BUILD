@@ -1,4 +1,4 @@
-load("//libraries:yaspl.bzl", "yaspl_library", "yaspl_test", "yaspl_bootstrap_library")
+load("//libraries:yaspl.bzl", "yaspl_binary", "yaspl_library", "yaspl_test", "yaspl_bootstrap_library")
 
 package(
     default_visibility = ["//visibility:public"],
@@ -158,6 +158,31 @@ yaspl_bootstrap_library(
         ":maybe",
         ":ordering",
         ":tuples",
+        "//libraries:sexp-parser",
+    ],
+)
+
+yaspl_library(
+    name = "red-black-tree-assoc-test-driver-main",
+    srcs = ["red-black-tree-assoc-test-driver-main.yaspl"],
+    deps = [
+        ":bytes",
+        ":either",
+        ":list",
+        ":maybe",
+        ":ordering",
+        ":red-black-tree",
+        "//libraries:io",
+        "//libraries:sexp-parser",
+        "//libraries:sexp-printer",
+    ],
+)
+
+yaspl_binary(
+    name = "red-black-tree-assoc-test-driver",
+    main_module = "data_red_black_tree_assoc_test_driver_main",
+    deps = [
+        ":red-black-tree-assoc-test-driver-main",
     ],
 )
 
@@ -170,8 +195,10 @@ yaspl_test(
         ":bytes",
         ":list",
         ":maybe",
+        ":numbers",
         ":ordering",
         ":red-black-tree",
+        ":tuples",
         "//libraries:yunit",
     ],
 )

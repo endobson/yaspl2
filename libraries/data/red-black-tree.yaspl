@@ -4,11 +4,18 @@
   (list)
   (maybe)
   (prim)
+  (sexp-parser) {
+    #:types
+      Sexp
+    #:values
+      [node s:node]
+      symbol-sexp
+  }
   (tuples)
 }
 (export
   #:types (RedBlackTree)
-  #:values (rb-tree-ref rb-tree-set rb-tree-remove make-rb-tree)
+  #:values (rb-tree-ref rb-tree-set rb-tree-remove make-rb-tree rb-tree->sexp)
   #:patterns ())
 (types
   (define-type Color
@@ -53,11 +60,13 @@
   : (RedBlackNode K V)
   (case n
     [(nothing) (fill-context (node (red) (nothing) (nothing) k v) context)]
-    [(just (node color left right k2 _))
+    [(just (node color l r k2 v2))
      (case (order k k2)
-       [(equal-to) (fill-context-noop (node color left right k v) context)]
-       [(less-than) (panic #"NYI")]
-       [(greater-than) (panic #"NYI")])]))
+       [(equal-to) (fill-context-noop (node color l r k v) context)]
+       [(less-than)
+        (rb-node-set l k v (cons (context-node (left) color r k2 v2) context) order)]
+       [(greater-than)
+        (rb-node-set r k v (cons (context-node (right) color l k2 v2) context) order)])]))
 
 
 (define (K V) (fill-context-noop [n : (RedBlackNode K V)] [context : (List (RedBlackContext K V))])
@@ -168,23 +177,24 @@
        [(less-than) (rb-node-remove l k (cons (context-node (left) color r k2 v) context) order)]
        [(greater-than) (rb-node-remove r k (cons (context-node (right) color l k2 v) context) order)]
        [(equal-to)
-        (match-define (tuple2 child context)
+        (match-define (tuple3 color child context)
           (case (tuple2 l r)
             [(tuple2 (just l) (just r))
              (match-define (tuple2 succ context2)
                (rb-node-find-smallest r ((lambda () : (List (RedBlackContext K V)) (empty)))))
              (case succ
                [(node _ (just _) _ _ _)
-                ((lambda () : (Tuple2 (Maybe (RedBlackNode K V)) (List (RedBlackContext K V)))
+                ((lambda () : (Tuple3 Color (Maybe (RedBlackNode K V)) (List (RedBlackContext K V)))
                    (panic #"Successor node has left child")))]
                [(node color (nothing) child s-k s-v)
-                (tuple2
+                (tuple3
+                  color
                   child
                   (append context2 (cons (context-node (right) color (just l) s-k s-v) context)))])]
             [(tuple2 l (nothing))
-             (tuple2 l context)]
+             (tuple3 color l context)]
             [(tuple2 (nothing) r)
-             (tuple2 r context)]))
+             (tuple3 color r context)]))
         (case color
           [(red)
            (case child
@@ -292,3 +302,27 @@
      (panic #"Black height invariant is not maintained")]
     [(cons (context-node side (red) (just (node (red) s-l s-r s-k s-v)) p-k p-v) context)
      (panic #"Double red invariant violated")]))
+
+(define (K V) (rb-tree->sexp [t : (RedBlackTree K V)] [k->sexp : (K -> Sexp)] [v->sexp : (V -> Sexp)])
+  : Sexp
+  (match-define (tree _ root) t)
+  (rb-node->sexp root k->sexp v->sexp))
+
+(define (K V) (rb-node->sexp [n : (Maybe (RedBlackNode K V))]
+                             [k->sexp : (K -> Sexp)]
+                             [v->sexp : (V -> Sexp)])
+  : Sexp
+  (case n
+    [(nothing) (s:node (empty))]
+    [(just (node color l r k v))
+     (s:node
+       (varargs list
+         (rb-node->sexp l k->sexp v->sexp)
+         (s:node
+           (varargs list
+             (case color
+               [(red) (symbol-sexp #"R")]
+               [(black) (symbol-sexp #"B")])
+             (k->sexp k)
+             (v->sexp v)))
+         (rb-node->sexp r k->sexp v->sexp)))]))

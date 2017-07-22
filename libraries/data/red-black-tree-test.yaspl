@@ -5,7 +5,9 @@
   (data red-black-tree)
   (list)
   (maybe)
+  (numbers)
   (prim)
+  (tuples)
   (yunit)
 }
 (export)
@@ -18,41 +20,112 @@
           (less-than)
           (greater-than))))
 
-(define (check-rb-tree-contains [t : (RedBlackTree Int Bytes)] [k : Int] [v : Bytes])
+(define (check-rb-tree-contents [t : (RedBlackTree Int Bytes)]
+                                [elements : (List (Tuple2 Int Bytes))]
+                                [non-elements : (List Int)])
   : (-> (Maybe FailedAssertion))
   (lambda ()
-    (case (rb-tree-ref t k)
-      [(nothing) (just (failure #"No entry for key"))]
-      [(just v2)
-       (if (bytes=? v v2)
-           (nothing)
-           (just (failure #"Values don't match")))])))
+    (case (find/maybe
+            (lambda ([e : (Tuple2 Int Bytes)]) : (Maybe FailedAssertion)
+              (case e
+                [(tuple2 k v)
+                 (case (rb-tree-ref t k)
+                   [(nothing)
+                    (just
+                      (failure
+                        (bytes-append (varargs list #"No entry for key: " (integer->decimal-bytes k)))))]
+                   [(just v2)
+                    (if (bytes=? v v2)
+                        (nothing)
+                        (just (failure (bytes-append (varargs list
+                                                              #"Values don't match for key: "
+                                                              (integer->decimal-bytes k)
+                                                              #" Got: '"
+                                                              v2
+                                                              #"' Expected: '"
+                                                              v
+                                                              #"'")))))])]))
+            elements)
+      [(just v) (just v)]
+      [(nothing)
+       (find/maybe
+         (lambda ([k : Int]) : (Maybe FailedAssertion)
+           (case (rb-tree-ref t k)
+             [(nothing) (nothing)]
+             [(just v)
+              (just (failure (bytes-append (varargs list
+                                                    #"Unexpected value for key: "
+                                                    (integer->decimal-bytes k)
+                                                    #" value: '"
+                                                    v
+                                                    #"'"))))]))
+         non-elements)])))
 
-(define (check-rb-tree-does-not-contain [t : (RedBlackTree Int Bytes)] [k : Int])
-  : (-> (Maybe FailedAssertion))
-  (lambda ()
-    (case (rb-tree-ref t k)
-      [(nothing) (nothing)]
-      [(just v2)
-       (just (failure #"Entry for key"))])))
 
 (define (empty-rb-tree) : (RedBlackTree Int Bytes)
   (make-rb-tree int-cmp))
-
 
 (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Int
   (yunit/main stderr
     (varargs list
       (new-test-case #"rb-ref empty"
-        (check-rb-tree-does-not-contain
+        (check-rb-tree-contents
           (empty-rb-tree)
-          0))
-      (new-test-case #"rb-ref entry exists"
-        (check-rb-tree-contains
-          (rb-tree-set (empty-rb-tree) 0 #"hello")
-          0
-          #"hello"))
-      (new-test-case #"rb-ref other-entry"
-        (check-rb-tree-does-not-contain
-          (rb-tree-set (empty-rb-tree) 0 #"hello")
-          1)))))
+          (empty)
+          (varargs list 0)))
+      (new-test-case #"rb-ref one entry"
+        (check-rb-tree-contents
+          (rb-tree-set (empty-rb-tree) 1 #"hello")
+          (varargs list
+            (tuple2 1 #"hello"))
+          (varargs list 0)))
+      (new-test-case #"rb-ref two entries"
+        (check-rb-tree-contents
+          (rb-tree-set
+            (rb-tree-set (empty-rb-tree) 1 #"hello")
+            2 #"world")
+          (varargs list
+            (tuple2 1 #"hello")
+            (tuple2 2 #"world"))
+          (varargs list 0)))
+      (new-test-case #"rb-ref delete single entry"
+        (check-rb-tree-contents
+          (rb-tree-remove
+            (rb-tree-set (empty-rb-tree) 1 #"hello")
+            1)
+          (empty)
+          (varargs list 0 1)))
+      (new-test-case #"rb-ref delete entry 1/2"
+        (check-rb-tree-contents
+          (rb-tree-remove
+            (rb-tree-set
+              (rb-tree-set (empty-rb-tree) 1 #"hello")
+              2 #"world")
+            1)
+          (varargs list
+            (tuple2 2 #"world"))
+          (varargs list 0 1)))
+      (new-test-case #"rb-ref delete entry 2/2"
+        (check-rb-tree-contents
+          (rb-tree-remove
+            (rb-tree-set
+              (rb-tree-set (empty-rb-tree) 1 #"hello")
+              2 #"world")
+            2)
+          (varargs list
+            (tuple2 1 #"hello"))
+          (varargs list 0 2)))
+      (new-test-case #"rb-ref delete entry 1/3"
+        (check-rb-tree-contents
+          (rb-tree-remove
+            (rb-tree-set
+              (rb-tree-set
+                (rb-tree-set (empty-rb-tree) 1 #"hello")
+                2 #"world")
+              4 #"foo")
+            2)
+          (varargs list
+            (tuple2 1 #"hello")
+            (tuple2 4 #"foo"))
+          (varargs list 0 2)))
+      )))
