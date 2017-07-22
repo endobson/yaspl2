@@ -19,6 +19,7 @@ yaspl_library(
     name = "assoc-test-driver-main",
     srcs = ["assoc-test-driver-main.yaspl"],
     deps = [
+        ":assoc-list",
         ":bytes",
         ":dict",
         ":either",
