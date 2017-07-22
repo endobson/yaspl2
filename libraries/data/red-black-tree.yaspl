@@ -15,7 +15,8 @@
 }
 (export
   #:types (RedBlackTree)
-  #:values (rb-tree-ref rb-tree-set rb-tree-remove make-rb-tree rb-tree->sexp)
+  #:values (rb-tree-ref rb-tree-set rb-tree-remove make-rb-tree rb-tree->sexp
+            rb-tree->broken-invariants)
   #:patterns ())
 (types
   (define-type Color
@@ -184,9 +185,9 @@
                [(node _ (just _) _ _ _)
                 ((lambda () : (Tuple3 Color (Maybe (RedBlackNode K V)) (List (RedBlackContext K V)))
                    (panic #"Successor node has left child")))]
-               [(node color (nothing) child s-k s-v)
+               [(node succ-color (nothing) child s-k s-v)
                 (tuple3
-                  color
+                  succ-color
                   child
                   (append context2 (cons (context-node (right) color (just l) s-k s-v) context)))])]
             [(tuple2 l (nothing))
@@ -324,3 +325,65 @@
              (k->sexp k)
              (v->sexp v)))
          (rb-node->sexp r k->sexp v->sexp)))]))
+
+(define (K V) (rb-tree->broken-invariants [t : (RedBlackTree K V)]) : (Maybe Bytes)
+  (match-define (tree order root) t)
+  (case root
+    [(nothing) (nothing)]
+    [(just (node (red) _ _ _ _)) (just #"Root node is red")]
+    [(just root)
+     (case (check-order-root root order)
+       [(just v) (just v)]
+       [(nothing)
+        (case (check-red-children (just root) #f)
+          [(just v) (just v)]
+          [(nothing)
+           (nothing)])])]))
+
+(define (K V) (check-order-root [n : (RedBlackNode K V)] [order : (K K -> Ordering)]) : (Maybe Bytes)
+  (case n
+    [(node _ l r k _)
+     (case (check-order-left l k order)
+       [(just v) (just v)]
+       [(nothing)
+        (check-order-right r k order)])]))
+
+(define (K V) (check-order-left [n : (Maybe (RedBlackNode K V))] [k : K] [order : (K K -> Ordering)]) : (Maybe Bytes)
+  (case n
+    [(nothing) (nothing)]
+    [(just (node _ l r k2 _))
+     (case (order k k2)
+       [(less-than) (just #"Tree not in order")]
+       [(equal-to) (just #"Tree has duplicate node")]
+       [(greater-than)
+        (case (check-order-left l k2 order)
+          [(just v) (just v)]
+          [(nothing)
+           (check-order-right r k2 order)])])]))
+
+(define (K V) (check-order-right [n : (Maybe (RedBlackNode K V))] [k : K] [order : (K K -> Ordering)]) : (Maybe Bytes)
+  (case n
+    [(nothing) (nothing)]
+    [(just (node _ l r k2 _))
+     (case (order k k2)
+       [(greater-than) (just #"Tree not in order")]
+       [(equal-to) (just #"Tree has duplicate node")]
+       [(less-than)
+        (case (check-order-left l k2 order)
+          [(just v) (just v)]
+          [(nothing)
+           (check-order-right r k2 order)])])]))
+
+(define (K V) (check-red-children [n : (Maybe (RedBlackNode K V))] [parent-red : Boolean]) : (Maybe Bytes)
+  (case n
+    [(nothing) (nothing)]
+    [(just (node (black) l r _ _))
+     (case (check-red-children l #f)
+       [(just v) (just v)]
+       [(nothing) (check-red-children r #f)])]
+    [(just (node (red) l r _ _))
+     (if parent-red
+         (just #"Tree has red parent-child nodes")
+         (case (check-red-children l #t)
+           [(just v) (just v)]
+           [(nothing) (check-red-children r #t)]))]))
