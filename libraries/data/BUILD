@@ -156,6 +156,7 @@ yaspl_bootstrap_library(
     deps = [
         ":list",
         ":maybe",
+        ":either",
         ":ordering",
         ":tuples",
         "//libraries:sexp-parser",
