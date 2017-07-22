@@ -4,6 +4,17 @@ package(
     default_visibility = ["//visibility:public"],
 )
 
+yaspl_bootstrap_library(
+    name = "assoc-list",
+    srcs = ["assoc-list.yaspl"],
+    deps = [
+        ":boolean",
+        ":list",
+        ":maybe",
+        ":tuples",
+    ],
+)
+
 yaspl_library(
     name = "assoc-test-driver-main",
     srcs = ["assoc-test-driver-main.yaspl"],
