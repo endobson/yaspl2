@@ -18,32 +18,38 @@
   #:types (LiveOutState)
   #:values (live-variables print-blocks print-graph blocks->live-out-states live-out-state->bytes
                            input-registers output-registers)
-  #:patterns (live-out-state))
+  #:patterns (def-live-out-state move-live-out-state))
 (types
   (define-type (BlockState Reg)
     (block-state [instruction-states : (List (PointState Reg))]
                  [terminal-live-in : (Set Reg)]
                  [terminal-defined : (Set Reg)]))
   (define-type (PointState Reg)
-    (point-state [live-in : (Set Reg)]
-                 [defined : (Set Reg)]
-                 [move-source : (Maybe Reg)]))
+    (def-point-state [live-in : (Set Reg)] [defined : (Set Reg)])
+    (move-point-state [live-in : (Set Reg)] [defined : Reg] [move-source : Reg]))
   (define-type (LiveOutState Reg)
-    (live-out-state [live-out : (Set Reg)]
-                    [defined : (Set Reg)]
-                    [move-source : (Maybe Reg)])))
+    (def-live-out-state [live-out : (Set Reg)] [defined : (Set Reg)])
+    (move-live-out-state [live-out : (Set Reg)]
+                         [defined : Reg]
+                         [move-source : Reg])))
 
 (define (Reg) (live-out-state->bytes [los : (LiveOutState Reg)] [reg->bytes : (Reg -> Bytes)]) : Bytes
-  (match-define (live-out-state live-out defined move-source) los)
-  (bytes-append
-    (jl->list
-      (varargs append-jl*
-        (list->jl (interleave (map reg->bytes (set->list defined)) #", "))
-        (case move-source
-          [(nothing) (single-jl #" (")]
-          [(just reg) (varargs join-list #" <- " (reg->bytes reg) #" (")])
-        (list->jl (interleave (map reg->bytes (set->list live-out)) #", "))
-        (single-jl #")")))))
+  (case los
+    [(def-live-out-state live-out defined)
+     (bytes-append
+       (jl->list
+         (varargs append-jl*
+           (list->jl (interleave (map reg->bytes (set->list defined)) #", "))
+           (single-jl #" (")
+           (list->jl (interleave (map reg->bytes (set->list live-out)) #", "))
+           (single-jl #")"))))]
+    [(move-live-out-state live-out defined move-source)
+     (bytes-append
+       (jl->list
+         (varargs append-jl*
+           (varargs join-list (reg->bytes defined) #" <- " (reg->bytes move-source) #" (")
+           (list->jl (interleave (map reg->bytes (set->list live-out)) #", "))
+           (single-jl #")"))))]))
 
 (define (Reg) (live-variables [f : (FunctionDefinition Reg)]
                               [reg-cmp : (Reg Reg -> Ordering)]) : (Dict Int (BlockState Reg))
@@ -97,14 +103,16 @@
   (match-define print-point-state
     (lambda ([ps : (PointState Reg)]) : (JoinList Bytes)
       (case ps
-        [(point-state live def move)
+        [(def-point-state live def)
          (varargs append-jl*
-           (case move
-             [(nothing)
-              (single-jl #"def: ")]
-             [(just move-source)
-              (single-jl (bytes-append (varargs list #"mov(" (reg->bytes move-source) #"): ")))])
+           (single-jl #"def: ")
            (list->jl (interleave (map reg->bytes (set->list def)) #", "))
+           (single-jl #" live: ")
+           (print-live-set live)
+           (single-jl #"\n"))]
+        [(move-point-state live def move-source)
+         (varargs append-jl*
+           (varargs join-list #"mov: " (reg->bytes def) #" <- " (reg->bytes move-source))
            (single-jl #" live: ")
            (print-live-set live)
            (single-jl #"\n"))])))
@@ -187,12 +195,20 @@
                 [live-out : (Set Reg)]) : (List (PointState Reg))
   (case rev-instructions
     [(empty) acc-instructions]
-    [(cons (point-state live-in def move) rev-instructions)
+    [(cons (def-point-state live-in def) rev-instructions)
      (let ([live-in (set-union live-in (set-difference live-out def))])
        (propagate-live-variables/instructions
          rev-instructions
          (cons
-           (point-state live-in def move)
+           (def-point-state live-in def)
+           acc-instructions)
+         live-in))]
+    [(cons (move-point-state live-in def move) rev-instructions)
+     (let ([live-in (set-union live-in (set-remove live-out def))])
+       (propagate-live-variables/instructions
+         rev-instructions
+         (cons
+           (move-point-state live-in def move)
            acc-instructions)
          live-in))]))
 
@@ -216,26 +232,20 @@
                 [i : (Instruction Reg)]
                 [reg-cmp : (Reg Reg -> Ordering)]) : (PointState Reg)
   (case i
-    [(move _ src)
-     (point-state
-       (input-registers i reg-cmp)
-       (output-registers i reg-cmp)
-       (just src))]
+    [(move out src)
+     (move-point-state (input-registers i reg-cmp) out src)]
     [(function-call-inst _ _ _ conflicts)
-     (point-state
+     (def-point-state
        (input-registers i reg-cmp)
-       (set-add-all (output-registers i reg-cmp) conflicts)
-       (nothing))]
+       (set-add-all (output-registers i reg-cmp) conflicts))]
     [(compare-memory out size v1 v2)
-     (point-state
+     (def-point-state
        (input-registers i reg-cmp)
-       (set-add-all (output-registers i reg-cmp) (varargs list size v1 v2))
-       (nothing))]
+       (set-add-all (output-registers i reg-cmp) (varargs list size v1 v2)))]
     [_
-     (point-state
+     (def-point-state
        (input-registers i reg-cmp)
-       (output-registers i reg-cmp)
-       (nothing))]))
+       (output-registers i reg-cmp))]))
 
 (define (Reg) (input-registers [inst : (Instruction Reg)] [reg-cmp : (Reg Reg -> Ordering)]) : (Set Reg)
   (case inst
@@ -347,7 +357,8 @@
 
 (define (Reg) (block-live-in [b : (BlockState Reg)]) : (Set Reg)
   (case b
-    [(block-state (cons (point-state live _ _) _) _ _) live]
+    [(block-state (cons (def-point-state live _) _) _ _) live]
+    [(block-state (cons (move-point-state live _ _) _) _ _) live]
     [(block-state (empty) live _) live]))
 
 (define (Reg) (block->live-out-states [b : (BlockState Reg)]) : (List (LiveOutState Reg))
@@ -359,8 +370,14 @@
                                        [acc : (List (LiveOutState Reg))]) : (List (LiveOutState Reg))
   (case live-in-states
     [(empty) acc]
-    [(cons (point-state live-in def move) live-in-states)
-     (block->live-out-states* live-in-states live-in (cons (live-out-state live-out def move) acc))]))
+    [(cons (def-point-state live-in def) live-in-states)
+     (block->live-out-states*
+       live-in-states live-in
+       (cons (def-live-out-state live-out def) acc))]
+    [(cons (move-point-state live-in def move) live-in-states)
+     (block->live-out-states*
+       live-in-states live-in
+       (cons (move-live-out-state live-out def move) acc))]))
 
 
 (define (Reg) (add-live-variables-to-graph/blocks
@@ -387,8 +404,13 @@
                 [p : (PointState Reg)]
                 [g : (Graph Reg VertexData EdgeData)]
                 [reg->bytes : (Reg -> Bytes)]) : (Graph Reg VertexData EdgeData)
-  (match-define (point-state live def move) p)
-  (add-live-variables-to-graph/list (set->list live) g reg->bytes))
+  (add-live-variables-to-graph/list
+    (case p
+      [(def-point-state live def)
+       (set->list live)]
+      [(move-point-state live def move)
+       (set->list live)])
+    g reg->bytes))
 
 (define (Reg) (add-live-variables-to-graph/list
                 [l : (List Reg)]
@@ -405,10 +427,9 @@
 (define (Reg) (add-interference-edges-to-graph/live-out-state
                 [s : (LiveOutState Reg)]
                 [g : (Graph Reg VertexData EdgeData)]) : (Graph Reg VertexData EdgeData)
-  (match-define (live-out-state live def move) s)
-  (match-define def-list (set->list def))
-  (case move
-    [(nothing)
+  (case s
+    [(def-live-out-state live def)
+     (match-define def-list (set->list def))
      (foldl
        (lambda ([r : Reg] [g : (Graph Reg VertexData EdgeData)])
          (foldl
@@ -418,28 +439,19 @@
            g))
        (set->list (set-difference live def))
        g)]
-    [(just v)
+    [(move-live-out-state live def move-source)
      (foldl
        (lambda ([r : Reg] [g : (Graph Reg VertexData EdgeData)])
-         (foldl
-           (lambda ([def-reg : Reg] [g : (Graph Reg VertexData EdgeData)])
-             (graph-add-edge-if-absent g def-reg r (edge-data #"solid")))
-           def-list
-           g))
-       (set->list (set-remove (set-difference live def) v))
+         (graph-add-edge-if-absent g def r (edge-data #"solid")))
+       (set->list (set-remove (set-remove live def) move-source))
        g)]))
 
 (define (Reg) (add-move-edges-to-graph/live-out-state
                 [s : (LiveOutState Reg)]
                 [g : (Graph Reg VertexData EdgeData)]) : (Graph Reg VertexData EdgeData)
-  (match-define (live-out-state live def move) s)
-  (case move
-    [(just v)
-     (foldl
-       (lambda ([def-reg : Reg] [g : (Graph Reg VertexData EdgeData)])
-         (graph-add-edge-if-absent g def-reg v (edge-data #"dashed")))
-       (set->list def)
-       g)]
+  (case s
+    [(move-live-out-state _ def move-source)
+     (graph-add-edge-if-absent g def move-source (edge-data #"dashed"))]
     [_ g]))
 
 
