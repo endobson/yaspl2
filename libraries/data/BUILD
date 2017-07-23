@@ -24,6 +24,7 @@ yaspl_library(
         ":bytes",
         ":dict",
         ":either",
+        ":numbers",
         ":list",
         ":maybe",
         ":ordering",
@@ -52,6 +53,8 @@ yaspl_bootstrap_library(
     srcs = ["bytes.yaspl"],
     deps = [
         ":list",
+        ":ordering",
+        ":numbers",
     ],
 )
 
@@ -71,6 +74,8 @@ yaspl_bootstrap_library(
     srcs = ["dict.yaspl"],
     deps = [
         ":assoc-list",
+        ":ordering",
+        ":red-black-tree",
         ":list",
         ":maybe",
         ":set",
@@ -87,6 +92,7 @@ yaspl_test(
         ":dict",
         ":list",
         ":maybe",
+        ":numbers",
         ":set",
         ":tuples",
         "//libraries:yunit",
@@ -99,6 +105,7 @@ yaspl_library(
     deps = [
         ":dict",
         ":maybe",
+        ":numbers",
         ":tuples",
     ],
 )
@@ -113,6 +120,7 @@ yaspl_bootstrap_library(
     srcs = ["indexed-set.yaspl"],
     deps = [
         ":dict",
+        ":ordering",
         ":list",
         ":maybe",
     ],
@@ -129,6 +137,7 @@ yaspl_bootstrap_library(
     srcs = ["list.yaspl"],
     deps = [
         ":either",
+        ":ordering",
         ":maybe",
         ":tuples",
     ],
@@ -169,6 +178,7 @@ yaspl_bootstrap_library(
     srcs = ["multi-set.yaspl"],
     deps = [
         ":dict",
+        ":ordering",
         ":list",
         ":maybe",
         ":set",
@@ -180,6 +190,7 @@ yaspl_bootstrap_library(
     srcs = ["numbers.yaspl"],
     deps = [
         ":maybe",
+        ":ordering",
     ],
 )
 
@@ -247,6 +258,7 @@ yaspl_bootstrap_library(
     srcs = ["set-multi-dict.yaspl"],
     deps = [
         ":dict",
+        ":ordering",
         ":maybe",
         ":set",
     ],
@@ -278,6 +290,9 @@ yaspl_test(
 yaspl_bootstrap_library(
     name = "tuples",
     srcs = ["tuples.yaspl"],
+    deps = [
+        ":ordering",
+    ]
 )
 
 yaspl_test(
@@ -298,6 +313,7 @@ yaspl_bootstrap_library(
     srcs = ["undirected-graph.yaspl"],
     deps = [
         ":dict",
+        ":ordering",
         ":either",
         ":maybe",
         ":tuples",
@@ -309,6 +325,7 @@ yaspl_bootstrap_library(
     srcs = ["unique-dict.yaspl"],
     deps = [
         ":dict",
+        ":ordering",
         ":maybe",
         ":set",
     ],

@@ -58,6 +58,7 @@ yaspl_bootstrap_library(
         ":prim-language",
         ":register-language",
         ":syscalls",
+        "//libraries/data:ordering",
         "//libraries/data:dict",
         "//libraries/data:either",
         "//libraries/data:list",
@@ -77,6 +78,7 @@ yaspl_bootstrap_library(
         "//libraries/data:dict",
         "//libraries/data:either",
         "//libraries/data:list",
+        "//libraries/data:numbers",
         "//libraries/data:maybe",
         "//libraries/data:set",
         "//libraries/data:set-multi-dict",
@@ -99,6 +101,7 @@ yaspl_bootstrap_library(
         "//libraries/data:set",
         "//libraries/data:tuples",
         "//libraries/data:undirected-graph",
+        "//libraries/data:ordering",
     ],
 )
 
@@ -253,6 +256,7 @@ yaspl_library(
         ":register-language-builder",
         "//libraries/data:boolean",
         "//libraries/data:bytes",
+        "//libraries/data:numbers",
         "//libraries/data:dict",
         "//libraries/data:list",
         "//libraries/data:maybe",
@@ -271,6 +275,7 @@ yaspl_bootstrap_library(
         "//libraries/data:dict",
         "//libraries/data:list",
         "//libraries/data:numbers",
+        "//libraries/data:ordering",
     ],
 )
 

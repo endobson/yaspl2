@@ -8,10 +8,11 @@ yaspl_bootstrap_library(
     name = "intermediate-to-register",
     srcs = ["intermediate-to-register.yaspl"],
     deps = [
-        ":module-environment",
         ":top-level-objects",
+        ":module-environment",
         "//libraries:intermediate-language",
         "//libraries/data:bytes",
+        "//libraries/data:numbers",
         "//libraries/data:dict",
         "//libraries/data:list",
         "//libraries/data:maybe",
@@ -67,10 +68,10 @@ yaspl_bootstrap_library(
     name = "top-level-objects",
     srcs = ["top-level-objects.yaspl"],
     deps = [
-        "//libraries:module-signature",
         "//libraries:stack-machine",
-        "//libraries/data:list",
         "//libraries/prim-language:register-language",
+        "//libraries:module-signature",
+        "//libraries/data:list",
     ],
 )
 

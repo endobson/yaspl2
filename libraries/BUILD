@@ -459,6 +459,7 @@ yaspl_bootstrap_library(
     deps = [
         ":sexp-parser",
         "//libraries/data:bytes",
+        "//libraries/data:ordering",
         "//libraries/data:list",
         "//libraries/data:maybe",
     ],
@@ -592,6 +593,7 @@ yaspl_bootstrap_library(
         "//libraries/data:dict",
         "//libraries/data:list",
         "//libraries/data:maybe",
+        "//libraries/data:numbers",
         "//libraries/data:set",
         "//libraries/data:tuples",
     ],
@@ -887,6 +889,7 @@ yaspl_bootstrap_library(
         "//libraries/data:bytes",
         "//libraries/data:dict",
         "//libraries/data:list",
+        "//libraries/data:ordering",
         "//libraries/data:maybe",
         "//libraries/data:numbers",
         "//libraries/data:tuples",

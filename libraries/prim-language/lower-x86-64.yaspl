@@ -1,5 +1,6 @@
 #:module (lower-x86-64)
 #:import {
+  (data ordering)
   (dict)
   (either)
   (list)
@@ -58,6 +59,7 @@
       [Var r:Var]
     #:values
       var->bytes
+      var-cmp
       var=?
     #:patterns
       [basic-block r:basic-block]
@@ -94,7 +96,7 @@
 }
 (export
   #:types (Reg X8664Register)
-  #:values (lower-function reg->bytes x86-64-register=?  x86-64-register->bytes reg=?
+  #:values (lower-function reg->bytes x86-64-register=?  x86-64-register->bytes reg=? reg-cmp
             valid-temporary-x86-64-registers all-fixed-registers
             rax rdi rsi rdx rcx r8 r9 r10 r11 r15 rbp rsp)
   #:patterns (rax rdi rsi rdx rcx r8 r9 r10 r11 r15 rbp rsp
@@ -204,39 +206,64 @@
 
 
 (define (x86-64-register=? [reg1 : X8664Register] [reg2 : X8664Register]) : Boolean
+  (case (x86-64-register-cmp reg1 reg2)
+    [(equal-to) #t]
+    [_ #f]))
+
+(define (x86-64-register-cmp [reg1 : X8664Register] [reg2 : X8664Register]) : Ordering
   (case (tuple2 reg1 reg2)
-    [(tuple2 (rax) (rax)) #t]
-    [(tuple2 (rax) _) #f]
-    [(tuple2 (rcx) (rcx)) #t]
-    [(tuple2 (rcx) _) #f]
-    [(tuple2 (rdx) (rdx)) #t]
-    [(tuple2 (rdx) _) #f]
-    [(tuple2 (rdi) (rdi)) #t]
-    [(tuple2 (rdi) _) #f]
-    [(tuple2 (rsi) (rsi)) #t]
-    [(tuple2 (rsi) _) #f]
-    [(tuple2 (r8) (r8)) #t]
-    [(tuple2 (r8) _) #f]
-    [(tuple2 (r9) (r9)) #t]
-    [(tuple2 (r9) _) #f]
-    [(tuple2 (r10) (r10)) #t]
-    [(tuple2 (r10) _) #f]
-    [(tuple2 (r11) (r11)) #t]
-    [(tuple2 (r11) _) #f]
-    [(tuple2 (r15) (r15)) #t]
-    [(tuple2 (r15) _) #f]
-    [(tuple2 (rsp) (rsp)) #t]
-    [(tuple2 (rsp) _) #f]
-    [(tuple2 (rbp) (rbp)) #t]
-    [(tuple2 (rbp) _) #f]))
+    [(tuple2 (rax) (rax)) (equal-to)]
+    [(tuple2 (rax) _) (less-than)]
+    [(tuple2 _ (rax)) (greater-than)]
+    [(tuple2 (rcx) (rcx)) (equal-to)]
+    [(tuple2 (rcx) _) (less-than)]
+    [(tuple2 _ (rcx)) (greater-than)]
+    [(tuple2 (rdx) (rdx)) (equal-to)]
+    [(tuple2 (rdx) _) (less-than)]
+    [(tuple2 _ (rdx)) (greater-than)]
+    [(tuple2 (rdi) (rdi)) (equal-to)]
+    [(tuple2 (rdi) _) (less-than)]
+    [(tuple2 _ (rdi)) (greater-than)]
+    [(tuple2 (rsi) (rsi)) (equal-to)]
+    [(tuple2 (rsi) _) (less-than)]
+    [(tuple2 _ (rsi)) (greater-than)]
+    [(tuple2 (r8) (r8)) (equal-to)]
+    [(tuple2 (r8) _) (less-than)]
+    [(tuple2 _ (r8)) (greater-than)]
+    [(tuple2 (r9) (r9)) (equal-to)]
+    [(tuple2 (r9) _) (less-than)]
+    [(tuple2 _ (r9)) (greater-than)]
+    [(tuple2 (r10) (r10)) (equal-to)]
+    [(tuple2 (r10) _) (less-than)]
+    [(tuple2 _ (r10)) (greater-than)]
+    [(tuple2 (r11) (r11)) (equal-to)]
+    [(tuple2 (r11) _) (less-than)]
+    [(tuple2 _ (r11)) (greater-than)]
+    [(tuple2 (r15) (r15)) (equal-to)]
+    [(tuple2 (r15) _) (less-than)]
+    [(tuple2 _ (r15)) (greater-than)]
+    [(tuple2 (rsp) (rsp)) (equal-to)]
+    [(tuple2 (rsp) _) (less-than)]
+    [(tuple2 _ (rsp)) (greater-than)]
+    [(tuple2 (rbp) (rbp)) (equal-to)]
+    ;[(tuple2 (rbp) _) (less-than)]
+    ;[(tuple2 _ (rbp)) (greater-than)]
+    ))
+
 
 (define (reg=? [reg1 : Reg] [reg2 : Reg]) : Boolean
+  (case (reg-cmp reg1 reg2)
+    [(equal-to) #t]
+    [_ #f]))
+
+(define (reg-cmp [reg1 : Reg] [reg2 : Reg]) : Ordering
   (case (tuple2 reg1 reg2)
     [(tuple2 (fixed-reg r1) (fixed-reg r2))
-     (x86-64-register=? r1 r2)]
-    [(tuple2 (temporary-reg v1) (temporary-reg v2)) (var=? v1 v2)]
-    [(tuple2 (fixed-reg _) (temporary-reg _)) #f]
-    [(tuple2 (temporary-reg _) (fixed-reg _)) #f]))
+     (x86-64-register-cmp r1 r2)]
+    [(tuple2 (temporary-reg v1) (temporary-reg v2)) (var-cmp v1 v2)]
+    [(tuple2 (fixed-reg _) (temporary-reg _)) (greater-than)]
+    [(tuple2 (temporary-reg _) (fixed-reg _)) (less-than)]))
+
 
 (define (lower-function [fun : r:FunctionDefinition]) : (l:FunctionDefinition Reg)
   (match-define (r:function-definition name convention blocks _ next-block) fun)
@@ -342,7 +369,7 @@
        [(just v) v])]))
 
 (define (move-args [args : (List (Tuple2 r:Var r:Var))]) : (List (l:Instruction Reg))
-  (match-define moves (dict-add-all ((lambda () : (Dict r:Var r:Var) (make-dict var=?))) args))
+  (match-define moves (dict-add-all ((lambda () : (Dict r:Var r:Var) (make-dict var-cmp))) args))
   (if (has-cycle? moves)
       (panic #"Cannot currently perform permutation of args when jumping to block")
       (move-args/dict moves (empty))))
