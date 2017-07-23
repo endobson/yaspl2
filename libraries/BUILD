@@ -151,11 +151,11 @@ yaspl_bootstrap_library(
     deps = [
         ":io",
         ":linker_lib",
-        "//libraries/data:indexed-set",
         ":mach-o-writer2_lib",
         ":mach-o_lib",
         "//libraries/data:bytes",
         "//libraries/data:either",
+        "//libraries/data:indexed-set",
         "//libraries/data:list",
         "//libraries/data:maybe",
         "//libraries/data:set",
@@ -379,11 +379,11 @@ yaspl_bootstrap_library(
         ":mach-o_lib",
         "//libraries/data:boolean",
         "//libraries/data:bytes",
-        "//libraries/data:indexed-set",
-        "//libraries/data:ordering",
         "//libraries/data:either",
+        "//libraries/data:indexed-set",
         "//libraries/data:list",
         "//libraries/data:maybe",
+        "//libraries/data:ordering",
     ],
 )
 
@@ -462,9 +462,9 @@ yaspl_bootstrap_library(
     deps = [
         ":sexp-parser",
         "//libraries/data:bytes",
-        "//libraries/data:ordering",
         "//libraries/data:list",
         "//libraries/data:maybe",
+        "//libraries/data:ordering",
     ],
 )
 
@@ -791,8 +791,8 @@ yaspl_bootstrap_library(
         ":sexp-printer",
         "//libraries/data:bytes",
         "//libraries/data:list",
-        "//libraries/data:ordering",
         "//libraries/data:maybe",
+        "//libraries/data:ordering",
         "//libraries/data:tuples",
     ],
 )
@@ -893,9 +893,9 @@ yaspl_bootstrap_library(
         "//libraries/data:bytes",
         "//libraries/data:dict",
         "//libraries/data:list",
-        "//libraries/data:ordering",
         "//libraries/data:maybe",
         "//libraries/data:numbers",
+        "//libraries/data:ordering",
         "//libraries/data:tuples",
     ],
 )
@@ -941,7 +941,6 @@ yaspl_library(
         "//libraries/data:indexed-set",
         "//libraries/data:list",
         "//libraries/data:maybe",
-        "//libraries/data:multi-set",
         "//libraries/data:set",
         "//libraries/data:tuples",
     ],

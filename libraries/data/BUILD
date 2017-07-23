@@ -11,7 +11,6 @@ yaspl_bootstrap_library(
         ":boolean",
         ":list",
         ":maybe",
-        ":set",
         ":tuples",
     ],
 )
@@ -24,10 +23,9 @@ yaspl_library(
         ":bytes",
         ":dict",
         ":either",
-        ":numbers",
         ":list",
         ":maybe",
-        ":ordering",
+        ":numbers",
         ":red-black-tree",
         "//libraries:io",
         "//libraries:sexp-parser",
@@ -53,8 +51,8 @@ yaspl_bootstrap_library(
     srcs = ["bytes.yaspl"],
     deps = [
         ":list",
-        ":ordering",
         ":numbers",
+        ":ordering",
     ],
 )
 
@@ -73,11 +71,10 @@ yaspl_bootstrap_library(
     name = "dict",
     srcs = ["dict.yaspl"],
     deps = [
-        ":assoc-list",
-        ":ordering",
-        ":red-black-tree",
         ":list",
         ":maybe",
+        ":ordering",
+        ":red-black-tree",
         ":set",
         ":tuples",
     ],
@@ -120,9 +117,9 @@ yaspl_bootstrap_library(
     srcs = ["indexed-set.yaspl"],
     deps = [
         ":dict",
-        ":ordering",
         ":list",
         ":maybe",
+        ":ordering",
     ],
 )
 
@@ -137,8 +134,8 @@ yaspl_bootstrap_library(
     srcs = ["list.yaspl"],
     deps = [
         ":either",
-        ":ordering",
         ":maybe",
+        ":ordering",
         ":tuples",
     ],
 )
@@ -178,9 +175,9 @@ yaspl_bootstrap_library(
     srcs = ["multi-set.yaspl"],
     deps = [
         ":dict",
-        ":ordering",
         ":list",
         ":maybe",
+        ":ordering",
         ":set",
     ],
 )
@@ -222,7 +219,6 @@ yaspl_test(
         ":list",
         ":maybe",
         ":numbers",
-        ":ordering",
         ":red-black-tree",
         ":tuples",
         "//libraries:yunit",
@@ -258,8 +254,8 @@ yaspl_bootstrap_library(
     srcs = ["set-multi-dict.yaspl"],
     deps = [
         ":dict",
-        ":ordering",
         ":maybe",
+        ":ordering",
         ":set",
     ],
 )
@@ -270,8 +266,8 @@ yaspl_bootstrap_library(
     deps = [
         ":list",
         ":maybe",
-        ":red-black-tree",
         ":ordering",
+        ":red-black-tree",
         ":tuples",
     ],
 )
@@ -295,7 +291,7 @@ yaspl_bootstrap_library(
     srcs = ["tuples.yaspl"],
     deps = [
         ":ordering",
-    ]
+    ],
 )
 
 yaspl_test(
@@ -316,9 +312,9 @@ yaspl_bootstrap_library(
     srcs = ["undirected-graph.yaspl"],
     deps = [
         ":dict",
-        ":ordering",
         ":either",
         ":maybe",
+        ":ordering",
         ":tuples",
     ],
 )
@@ -328,8 +324,8 @@ yaspl_bootstrap_library(
     srcs = ["unique-dict.yaspl"],
     deps = [
         ":dict",
-        ":ordering",
         ":maybe",
+        ":ordering",
         ":set",
     ],
 )
