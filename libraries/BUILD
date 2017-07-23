@@ -151,6 +151,7 @@ yaspl_bootstrap_library(
     deps = [
         ":io",
         ":linker_lib",
+        "//libraries/data:indexed-set",
         ":mach-o-writer2_lib",
         ":mach-o_lib",
         "//libraries/data:bytes",
@@ -378,6 +379,7 @@ yaspl_bootstrap_library(
         ":mach-o_lib",
         "//libraries/data:boolean",
         "//libraries/data:bytes",
+        "//libraries/data:indexed-set",
         "//libraries/data:either",
         "//libraries/data:list",
         "//libraries/data:maybe",
