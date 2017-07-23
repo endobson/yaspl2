@@ -270,6 +270,8 @@ yaspl_bootstrap_library(
     deps = [
         ":list",
         ":maybe",
+        ":red-black-tree",
+        ":ordering",
         ":tuples",
     ],
 )
@@ -282,6 +284,7 @@ yaspl_test(
     deps = [
         ":boolean",
         ":list",
+        ":numbers",
         ":set",
         "//libraries:yunit",
     ],

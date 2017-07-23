@@ -1,76 +1,20 @@
 #:module (types)
 #:import {
-  (bytes) {
-    #:values
-      bytes=?
-  }
-  (list) {
-    #:types
-      List
-    #:values
-      append
-      cons
-      empty
-      extract-justs
-      list
-      list=?
-      map
-      reverse
-    #:patterns
-      cons
-      empty
-  }
-  (maybe) {
-    #:types
-      Maybe
-    #:values
-      just
-      nothing
-    #:patterns
-      just
-      nothing
-  }
-  (module-name) {
-    #:types
-      ModName
-    #:values
-      mod-name->sexp
-      mod-name=?
-      sexp->mod-name
-  }
-  (prim) {
-    #:types
-      Boolean
-      Bytes
-  }
-  (sexp-parser) {
-    #:types
-      Sexp
-    #:values
-      bytes-sexp
-      node
-      symbol-sexp
-    #:patterns
-      bytes-sexp
-      node
-      symbol-sexp
-  }
-  (sexp-printer) {
-    #:values
-      print-sexp
-  }
-  (tuples) {
-    #:values
-      tuple2
-    #:patterns
-      tuple2
-  }
+  (bytes)
+  (data ordering)
+  (list)
+  (maybe)
+  (module-name)
+  (prim)
+  (sexp-parser)
+  (sexp-printer)
+  (tuples)
 }
 (export
   #:types (Type Kind)
   #:values (star-kind fun-kind kind=? serialize-kind
             abstract-type var-type fun-type type-constructor type=? serialize-type
-            kind->sexp sexp->kind type->sexp sexp->type)
+            kind->sexp sexp->kind type->sexp sexp->type type-cmp)
   #:patterns (type-constructor fun-type abstract-type var-type))
 (types
   (define-type Kind
@@ -90,6 +34,18 @@
          ((list=? kind=?) args1 args2)
          #f)]
     [_ #f]))
+
+(define (kind-cmp [k1 : Kind] [k2 : Kind]) : Ordering
+  (case (tuple2 k1 k2)
+    [(tuple2 (star-kind) (star-kind)) (equal-to)]
+    [(tuple2 (star-kind) _) (less-than)]
+    [(tuple2 _ (star-kind)) (greater-than)]
+    [(tuple2 (fun-kind args1 result1) (fun-kind args2 result2))
+     (case ((list-cmp kind-cmp) args1 args2)
+       [(equal-to)
+        (kind-cmp result1 result2)]
+       [res res])]))
+
 
 (define (type=? [t1 : Type] [t2 : Type]) : Boolean
   (case (tuple2 t1 t2)
@@ -120,6 +76,55 @@
              #f)
          #f)]
     [_ #f]))
+
+
+(define (type-cmp [t1 : Type] [t2 : Type]) : Ordering
+  (case (tuple2 t1 t2)
+    [(tuple2 (var-type v1) (var-type v2))
+     (bytes-cmp v1 v2)]
+    [(tuple2 (var-type _) _)
+     (less-than)]
+    [(tuple2 _ (var-type _))
+     (greater-than)]
+    [(tuple2
+       (abstract-type mod1 name1 args1)
+       (abstract-type mod2 name2 args2))
+     (case (mod-name-cmp mod1 mod2)
+       [(equal-to)
+        (case (bytes-cmp name1 name2)
+          [(equal-to)
+           ((list-cmp type-cmp) args1 args2)]
+          [res res])]
+       [res res])]
+    [(tuple2 (abstract-type _ _ _) _)
+     (less-than)]
+    [(tuple2 _ (abstract-type _ _ _))
+     (greater-than)]
+    [(tuple2
+       (fun-type type-vars1 args1 result1)
+       (fun-type type-vars2 args2 result2))
+     (case ((list-cmp bytes-cmp) type-vars1 type-vars2)
+       [(equal-to)
+        (case ((list-cmp type-cmp) args1 args2)
+          [(equal-to)
+           (type-cmp result1 result2)]
+          [res res])]
+       [res res])]
+    [(tuple2 (fun-type _ _ _) _)
+     (less-than)]
+    [(tuple2 _ (fun-type _ _ _))
+     (greater-than)]
+    [(tuple2
+       (type-constructor mod1 name1 args1)
+       (type-constructor mod2 name2 args2))
+     (case (mod-name-cmp mod1 mod2)
+       [(equal-to)
+        (case (bytes-cmp name1 name2)
+          [(equal-to)
+           ((list-cmp kind-cmp) args1 args2)]
+          [res res])]
+       [res res])]))
+
 
 (define (serialize-type [type : Type]) : Bytes
   (print-sexp (type->sexp type)))

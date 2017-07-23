@@ -46,14 +46,14 @@
         (single-jl #")")))))
 
 (define (Reg) (live-variables [f : (FunctionDefinition Reg)]
-                              [reg=? : (Reg Reg -> Boolean)]) : (Dict Int (BlockState Reg))
+                              [reg-cmp : (Reg Reg -> Ordering)]) : (Dict Int (BlockState Reg))
   (match-define (function-definition _ _ block-map) f)
   (match-define blocks (block-map-blocks block-map))
   (match-define jump-index (make-jump-index blocks))
   (fully-propagate-live-variables/blocks
     (dict-value-map blocks (lambda ([block : (BasicBlock Reg)])
-                             (initial-block-state block reg=?)))
-    reg=?
+                             (initial-block-state block reg-cmp)))
+    reg-cmp
     jump-index
     (reverse-jump-index jump-index)
     (dict-keys blocks)))
@@ -74,12 +74,12 @@
             acc
             target
             (lambda ([set : (Set Int)]) (set-add set index))
-            (make-set =)))
+            (make-set int-cmp)))
         (set->list targets)
         acc))
     (dict-value-map
       jump-index
-      (lambda ([ignored : (Set Int)]) (make-set =)))))
+      (lambda ([ignored : (Set Int)]) (make-set int-cmp)))))
 
 (define (Reg) (print-blocks [blocks : (Dict Int (BlockState Reg))] [reg->bytes : (Reg -> Bytes)]) : Bytes
   (bytes-append
@@ -123,7 +123,7 @@
 
 (define (Reg) (fully-propagate-live-variables/blocks
                 [blocks : (Dict Int (BlockState Reg))]
-                [reg=? : (Reg Reg -> Boolean)]
+                [reg-cmp : (Reg Reg -> Ordering)]
                 [jump-index : (Dict Int (Set Int))]
                 [reverse-jump-index : (Dict Int (Set Int))]
                 [worklist : (Set Int)])
@@ -142,7 +142,7 @@
                ((lambda () : (BlockState Reg) (panic #"Unknown block")))]
               [(just block) block])
             (set-union*
-              (make-set reg=?)
+              (make-set reg-cmp)
               (map
                 (lambda ([num : Int]) : (Set Reg)
                   (case (dict-ref blocks num)
@@ -153,14 +153,14 @@
           [(nothing)
            (fully-propagate-live-variables/blocks
              blocks
-             reg=?
+             reg-cmp
              jump-index
              reverse-jump-index
              worklist)]
           [(just new-block)
            (fully-propagate-live-variables/blocks
              (dict-replace blocks block-num new-block)
-             reg=?
+             reg-cmp
              jump-index
              reverse-jump-index
              (set-union
@@ -197,16 +197,16 @@
          live-in))]))
 
 (define (Reg) (initial-block-state [block : (BasicBlock Reg)]
-                                   [reg=? : (Reg Reg -> Boolean)])
+                                   [reg-cmp : (Reg Reg -> Ordering)])
   : (BlockState Reg)
   (match-define (basic-block instructions terminal) block)
-  (match-define terminal-live-in (initial-live-in/terminal terminal reg=?))
-  (match-define terminal-defined (initial-defined/terminal terminal reg=?))
+  (match-define terminal-live-in (initial-live-in/terminal terminal reg-cmp))
+  (match-define terminal-defined (initial-defined/terminal terminal reg-cmp))
   (block-state
     (propagate-live-variables/instructions
       (reverse
         (map (lambda ([inst : (Instruction Reg)])
-               (initial-point-state/instruction inst reg=?)) instructions))
+               (initial-point-state/instruction inst reg-cmp)) instructions))
       (empty)
       terminal-live-in)
     terminal-live-in
@@ -214,134 +214,134 @@
 
 (define (Reg) (initial-point-state/instruction
                 [i : (Instruction Reg)]
-                [reg=? : (Reg Reg -> Boolean)]) : (PointState Reg)
+                [reg-cmp : (Reg Reg -> Ordering)]) : (PointState Reg)
   (case i
     [(move _ src)
      (point-state
-       (input-registers i reg=?)
-       (output-registers i reg=?)
+       (input-registers i reg-cmp)
+       (output-registers i reg-cmp)
        (just src))]
     [(function-call-inst _ _ _ conflicts)
      (point-state
-       (input-registers i reg=?)
-       (set-add-all (output-registers i reg=?) conflicts)
+       (input-registers i reg-cmp)
+       (set-add-all (output-registers i reg-cmp) conflicts)
        (nothing))]
     [(compare-memory out size v1 v2)
      (point-state
-       (input-registers i reg=?)
-       (set-add-all (output-registers i reg=?) (varargs list size v1 v2))
+       (input-registers i reg-cmp)
+       (set-add-all (output-registers i reg-cmp) (varargs list size v1 v2))
        (nothing))]
     [_
      (point-state
-       (input-registers i reg=?)
-       (output-registers i reg=?)
+       (input-registers i reg-cmp)
+       (output-registers i reg-cmp)
        (nothing))]))
 
-(define (Reg) (input-registers [inst : (Instruction Reg)] [reg=? : (Reg Reg -> Boolean)]) : (Set Reg)
+(define (Reg) (input-registers [inst : (Instruction Reg)] [reg-cmp : (Reg Reg -> Ordering)]) : (Set Reg)
   (case inst
     [(int-literal output _)
-     (make-set reg=?)]
+     (make-set reg-cmp)]
     [(symbol-address output _)
-     (make-set reg=?)]
+     (make-set reg-cmp)]
     [(move dest src)
-     (set-add (make-set reg=?) src)]
+     (set-add (make-set reg-cmp) src)]
     [(push reg)
-     (set-add (make-set reg=?) reg)]
+     (set-add (make-set reg-cmp) reg)]
     [(pop reg)
-     (make-set reg=?)]
+     (make-set reg-cmp)]
     [(store-least-significant-byte loc offset val)
-     (set-add (set-add (make-set reg=?) loc) val)]
+     (set-add (set-add (make-set reg-cmp) loc) val)]
     [(load-zero-extended-byte output loc offset)
-     (set-add (make-set reg=?) loc)]
+     (set-add (make-set reg-cmp) loc)]
     [(store-8byte loc offset val)
-     (set-add (set-add (make-set reg=?) loc) val)]
+     (set-add (set-add (make-set reg-cmp) loc) val)]
     [(load-8byte output loc offset)
-     (set-add (make-set reg=?) loc)]
+     (set-add (make-set reg-cmp) loc)]
     [(compare-memory out size v1 v2)
-     (set-add (set-add (set-add (make-set reg=?) size) v1) v2)]
+     (set-add (set-add (set-add (make-set reg-cmp) size) v1) v2)]
     [(store-temporary index val)
-     (set-add (make-set reg=?) val)]
+     (set-add (make-set reg-cmp) val)]
     [(load-temporary output index)
-     (make-set reg=?)]
+     (make-set reg-cmp)]
     [(bin-op-inst output _ input)
-     (set-add (set-add (make-set reg=?) input) output)]
+     (set-add (set-add (make-set reg-cmp) input) output)]
     [(numeric-op-immediate output _ _)
-     (set-add (make-set reg=?) output)]
+     (set-add (make-set reg-cmp) output)]
     [(unary-op-inst output _ input)
-     (set-add (make-set reg=?) input)]
+     (set-add (make-set reg-cmp) input)]
     [(function-call-inst output f args conflicts)
-     (let ([input (set-add-all (make-set reg=?) args)])
+     (let ([input (set-add-all (make-set reg-cmp) args)])
        (case f
          [(syscall num) (set-add input num)]
          [(closure-call c) (set-add input c)]
          [(indirect-function-call f) (set-add input f)]))]))
 
-(define (Reg) (output-registers [inst : (Instruction Reg)] [reg=? : (Reg Reg -> Boolean)]) : (Set Reg)
+(define (Reg) (output-registers [inst : (Instruction Reg)] [reg-cmp : (Reg Reg -> Ordering)]) : (Set Reg)
   (case inst
     [(int-literal output _)
-     (set-add (make-set reg=?) output)]
+     (set-add (make-set reg-cmp) output)]
     [(symbol-address output _)
-     (set-add (make-set reg=?) output)]
+     (set-add (make-set reg-cmp) output)]
     [(move dest src)
-     (set-add (make-set reg=?) dest)]
+     (set-add (make-set reg-cmp) dest)]
     [(push reg)
-     (make-set reg=?)]
+     (make-set reg-cmp)]
     [(pop reg)
-     (set-add (make-set reg=?) reg)]
+     (set-add (make-set reg-cmp) reg)]
     [(store-least-significant-byte loc offset val)
-     (make-set reg=?)]
+     (make-set reg-cmp)]
     [(load-zero-extended-byte output loc offset)
-     (set-add (make-set reg=?) output)]
+     (set-add (make-set reg-cmp) output)]
     [(store-8byte loc offset val)
-     (make-set reg=?)]
+     (make-set reg-cmp)]
     [(load-8byte output loc offset)
-     (set-add (make-set reg=?) output)]
+     (set-add (make-set reg-cmp) output)]
     [(compare-memory output size v1 v2)
-     (set-add (make-set reg=?) output)]
+     (set-add (make-set reg-cmp) output)]
     [(store-temporary index val)
-     (make-set reg=?)]
+     (make-set reg-cmp)]
     [(load-temporary output index)
-     (set-add (make-set reg=?) output)]
+     (set-add (make-set reg-cmp) output)]
     [(bin-op-inst output _ input)
-     (set-add (make-set reg=?) output)]
+     (set-add (make-set reg-cmp) output)]
     [(numeric-op-immediate output _ _)
-     (set-add (make-set reg=?) output)]
+     (set-add (make-set reg-cmp) output)]
     [(unary-op-inst output _ input)
-     (set-add (make-set reg=?) output)]
+     (set-add (make-set reg-cmp) output)]
     [(function-call-inst output f args conflicts)
-     (set-add (make-set reg=?) output)]))
+     (set-add (make-set reg-cmp) output)]))
 
 
-(define (Reg) (initial-live-in/terminal [t : (Terminal Reg)] [reg=? : (Reg Reg -> Boolean)]) : (Set Reg)
+(define (Reg) (initial-live-in/terminal [t : (Terminal Reg)] [reg-cmp : (Reg Reg -> Ordering)]) : (Set Reg)
   (case t
-    [(return reg) (set-add (make-set reg=?) reg)]
-    [(halt) (make-set reg=?)]
-    [(jump index) (make-set reg=?)]
-    [(fall-through index) (make-set reg=?)]
+    [(return reg) (set-add (make-set reg-cmp) reg)]
+    [(halt) (make-set reg-cmp)]
+    [(jump index) (make-set reg-cmp)]
+    [(fall-through index) (make-set reg-cmp)]
     [(cond-jump/false-fall-through condition true false)
      (case condition
-       [(reg-condition reg) (set-add (make-set reg=?) reg)]
-       [(negated-reg-condition reg) (set-add (make-set reg=?) reg)]
+       [(reg-condition reg) (set-add (make-set reg-cmp) reg)]
+       [(negated-reg-condition reg) (set-add (make-set reg-cmp) reg)]
        [(comparison-condition _ reg1 reg2)
-        (set-add (set-add (make-set reg=?) reg1) reg2)]
+        (set-add (set-add (make-set reg-cmp) reg1) reg2)]
        [(memory-compare-condition _ size reg1 reg2)
-        (set-add (set-add (set-add (make-set reg=?) size) reg1) reg2)])]))
+        (set-add (set-add (set-add (make-set reg-cmp) size) reg1) reg2)])]))
 
 
-(define (Reg) (initial-defined/terminal [t : (Terminal Reg)] [reg=? : (Reg Reg -> Boolean)]) : (Set Reg)
+(define (Reg) (initial-defined/terminal [t : (Terminal Reg)] [reg-cmp : (Reg Reg -> Ordering)]) : (Set Reg)
   (case t
-    [(return reg) (make-set reg=?)]
-    [(halt) (make-set reg=?)]
-    [(jump index) (make-set reg=?)]
-    [(fall-through index) (make-set reg=?)]
+    [(return reg) (make-set reg-cmp)]
+    [(halt) (make-set reg-cmp)]
+    [(jump index) (make-set reg-cmp)]
+    [(fall-through index) (make-set reg-cmp)]
     [(cond-jump/false-fall-through condition true false)
      (case condition
-       [(reg-condition reg) (make-set reg=?)]
-       [(negated-reg-condition reg) (make-set reg=?)]
+       [(reg-condition reg) (make-set reg-cmp)]
+       [(negated-reg-condition reg) (make-set reg-cmp)]
        [(comparison-condition _ reg1 reg2)
-        (make-set reg=?)]
+        (make-set reg-cmp)]
        [(memory-compare-condition _ size reg1 reg2)
-        (set-add (set-add (set-add (make-set reg=?) size) reg1) reg2)])]))
+        (set-add (set-add (set-add (make-set reg-cmp) size) reg1) reg2)])]))
 
 
 (define (Reg) (block-live-in [b : (BlockState Reg)]) : (Set Reg)

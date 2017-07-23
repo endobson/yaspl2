@@ -9,6 +9,7 @@ yaspl_bootstrap_library(
     srcs = ["depth-first-search.yaspl"],
     deps = [
         "//libraries/data:list",
+        "//libraries/data:ordering",
         "//libraries/data:set",
         "//libraries/data:tuples",
     ],
@@ -21,6 +22,7 @@ yaspl_test(
     deps = [
         ":depth-first-search",
         "//libraries:yunit",
+        "//libraries/data:numbers",
         "//libraries/data:list",
         "//libraries/data:maybe",
     ],
