@@ -63,6 +63,8 @@ yaspl_test(
     deps = [
         ":bytes",
         ":list",
+        ":ordering",
+        ":tuples",
         "//libraries:yunit",
     ],
 )
