@@ -11,6 +11,7 @@ yaspl_bootstrap_library(
         ":module-environment",
         ":top-level-objects",
         "//libraries:intermediate-language",
+        "//libraries:intermediate-to-stack",
         "//libraries/data:bytes",
         "//libraries/data:dict",
         "//libraries/data:list",
