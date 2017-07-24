@@ -9,7 +9,6 @@
   (dict)
   (either)
   (io)
-  (join-list)
   (list)
   (lower-x86-64) {
     #:types
@@ -27,24 +26,18 @@
       temporary-reg
   }
   (lowered-live-variables) {
+    #:types
+      LiveOutState
     #:values
       blocks->live-out-states
+      live-out-state->bytes
       live-variables
       print-blocks
       print-graph
   }
-  (lowered-register-language) {
-    #:values
-      assigned-registers-function-definition-name
-  }
   (lowered-register-language-to-x86-64) {
     #:values
       assign-registers
-      function-definition->assembly-fragment
-  }
-  (mach-o-writer2) {
-    #:values
-      write-mach-o-library/fragments
   }
   (maybe)
   (prim)
@@ -62,6 +55,7 @@
   }
   (print-lowered-register-language) {
     #:values
+      [print-assigned-registers-function l:print-assigned-registers-function]
       [print-function l:print-function]
   }
   (print-register-language) {
@@ -87,46 +81,9 @@
     #:values
       [simplify-function-definition r:simplify-function-definition]
   }
-  (yaspl x86-64-assembly) {
-    #:types
-      TextFragment
-    #:values
-      assembly-fragments
-      basic-block
-      call
-      function-fragment
-      imm
-      jmp
-      mem
-      movq
-      rax
-      rdi
-      reg
-      rsp
-      section
-      syscall
-  }
 }
 (export)
 (types)
-
-
-(define (start-function-fragment [main-function-name : Bytes]) : TextFragment
-  (function-fragment
-    #"start"
-    (varargs list
-      (section
-        (varargs list
-          (basic-block #"start"
-            (varargs join-list
-              (jmp #"start_break")))
-          (basic-block #"start_break"
-            (varargs join-list
-              (movq (mem (rsp) 0) (reg (rdi)))
-              (call main-function-name)
-              (movq (reg (rax)) (reg (rdi)))
-              (movq (imm #x2000001) (reg (rax)))
-              (syscall))))))))
 
 
 (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]): Int
@@ -162,8 +119,6 @@
                1)]
             [(right (module name functions))
              (begin
-               ; (write-all-bytes #"parsed module: " stdout)
-               ; (write-line name stdout)
                (for-each
                  (lambda ([f : r:FunctionDefinition])
                    (let ([f (r:simplify-function-definition f (make-dict bytes-cmp))])
@@ -172,69 +127,61 @@
                        (newline stdout)
                        (let ([lowered (lower-function f)])
                          (let ([live (live-variables lowered reg-cmp)])
-                           (if #t
-                             (begin
-                               (write-all-bytes (l:print-function lowered reg->bytes) stdout)
-                               (newline stdout)
-                               (write-all-bytes (print-blocks live reg->bytes) stdout)
-                               (newline stdout)
-                               (if #t
-                                   (let ([live-outs (blocks->live-out-states live)])
-                                     (case (color-graph (initial-state live-outs))
-                                       [(left vs)
+                           (begin
+                             (write-all-bytes (l:print-function lowered reg->bytes) stdout)
+                             (newline stdout)
+                             (write-all-bytes (print-blocks live reg->bytes) stdout)
+                             (newline stdout)
+                             (write-all-bytes (print-graph live reg-cmp reg->bytes (all-fixed-registers)) stdout)
+                             (newline stdout)
+                             (let ([live-outs (blocks->live-out-states live)])
+                               (begin
+                                 (write-all-bytes
+                                   (bytes-append
+                                     (interleave
+                                       (map (lambda ([los : (LiveOutState Reg)])
+                                              (live-out-state->bytes los reg->bytes)) live-outs)
+                                       #"\n"))
+                                   stdout)
+                                 (newline stdout)
+                                 (newline stdout)
+                                 (case (color-graph (initial-state live-outs))
+                                   [(left vs)
+                                    (begin
+                                      (write-all-bytes #"Couldn't color verticesx:" stdout)
+                                      (newline stdout))]
+                                   [(right assignments)
+                                    (begin
+                                      (write-line #"Colored graph" stdout)
+                                      (write-line
+                                        (bytes-append
+                                          (interleave
+                                            (dict-map
+                                              assignments
+                                              (lambda ([var : Var] [reg : X8664Register])
+                                                (bytes-append
+                                                  (varargs list
+                                                    (var->bytes var)
+                                                    #" -> "
+                                                    (x86-64-register->bytes reg)))))
+                                            #"\n"))
+                                        stdout)
+                                      (newline stdout)
+                                      (let ([opt-f
+                                             (l:simplify-function-definition
+                                               (assign-registers
+                                                 lowered
+                                                 (lambda ([r : Reg]) : X8664Register
+                                                   (case r
+                                                     [(fixed-reg r) r]
+                                                     [(temporary-reg v)
+                                                      (case (dict-ref assignments v)
+                                                        [(nothing) (panic #"No assignment")]
+                                                        [(just r) r])])))
+                                               x86-64-register=?)])
                                         (begin
-                                          (write-all-bytes #"Couldn't color verticesx:" stdout)
-                                          (newline stdout))]
-                                       [(right assignments)
-                                        (begin
-                                          (write-line #"Colored graph" stdout)
-                                          (write-line
-                                            (bytes-append
-                                              (interleave
-                                                (dict-map
-                                                  assignments
-                                                  (lambda ([var : Var] [reg : X8664Register])
-                                                    (bytes-append
-                                                      (varargs list
-                                                        (var->bytes var)
-                                                        #" -> "
-                                                        (x86-64-register->bytes reg)))))
-                                                #"\n"))
-                                            stdout)
-                                          (let ([opt-f
-                                                 (l:simplify-function-definition
-                                                   (assign-registers
-                                                     lowered
-                                                     (lambda ([r : Reg]) : X8664Register
-                                                       (case r
-                                                         [(fixed-reg r) r]
-                                                         [(temporary-reg v)
-                                                          (case (dict-ref assignments v)
-                                                            [(nothing) (panic #"No assignment")]
-                                                            [(just r) r])])))
-                                                   x86-64-register=?)])
-                                            (begin
-                                              ;(write-line (l:print-function opt-f x86-64-register->bytes)
-                                              ;            stdout)
-                                              (let ([fragment (function-definition->assembly-fragment
-                                                                opt-f)])
-                                                (case (write-mach-o-library/fragments
-                                                        out-file-name
-                                                        (assembly-fragments
-                                                          (varargs list
-                                                            (start-function-fragment
-                                                              (assigned-registers-function-definition-name opt-f))
-                                                            fragment)
-                                                          (empty)))
-                                                  [(left v)
-                                                   (begin
-                                                     (write-line v stderr)
-                                                     (void))]
-                                                  [(right _)
-                                                   (void)])))))]))
-                                   (void)))
-                             (begin
-                               (write-all-bytes (print-graph live reg-cmp reg->bytes (all-fixed-registers)) stdout)
-                               (newline stdout))))))))
+                                          (write-line (l:print-assigned-registers-function opt-f x86-64-register->bytes)
+                                                      stdout)
+                                          )))])))))))))
                  (map convert-function functions))
                0)])]))]))

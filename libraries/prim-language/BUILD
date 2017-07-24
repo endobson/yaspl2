@@ -166,7 +166,6 @@ yaspl_library(
         ":color-graph",
         ":lower-x86-64",
         ":lowered-live-variables",
-        ":lowered-register-language",
         ":lowered-register-language-to-x86-64",
         ":prim-language",
         ":prim-language-parser",
@@ -177,15 +176,12 @@ yaspl_library(
         ":simplify-lowered-register-language",
         ":simplify-register-language",
         "//libraries:io",
-        "//libraries:mach-o-writer2_lib",
         "//libraries:sexp-parser",
         "//libraries/data:bytes",
         "//libraries/data:dict",
         "//libraries/data:either",
-        "//libraries/data:join-list",
         "//libraries/data:list",
         "//libraries/data:maybe",
-        "//libraries/yaspl:x86-64-assembly",
     ],
 )
 
