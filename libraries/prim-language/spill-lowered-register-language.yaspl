@@ -12,7 +12,10 @@
     #:types
       Var
     #:values
+      var
       var-cmp
+    #:patterns
+      var
   }
   (set)
   (tuples)
@@ -33,105 +36,221 @@
            (tuple2 (+ 1 num-temp) (dict-add dict v num-temp))]))
       (set->list vars)
       (tuple2 num-temporaries ((lambda () : (Dict Var Int) (make-dict var-cmp))))))
-  (case (validate-block-map
-          (unvalidated-block-map-map
-            (block-map->unvalidated-block-map block-map)
-            (lambda ([index : Int] [b : (BasicBlock Reg)])
-              (spill-variables/block b spilled))))
+  (match-define next-var (compute-next-var block-map))
+  (match-define (tuple2 unvalidated-block-map next-var)
+    (unvalidated-block-map-map/acc
+      (block-map->unvalidated-block-map block-map)
+      (lambda ([index : Int] [b : (BasicBlock Reg)] [next-var : Int])
+        (spill-variables/block b spilled next-var))
+      next-var))
+  (case (validate-block-map unvalidated-block-map)
     [(left v) (panic v)]
     [(right block-map)
      (function-definition name new-num-temporaries block-map)]))
 
+(define (compute-next-var [blocks : (BlockMap Reg)]) : Int
+  (foldl
+    (lambda ([s : (Set Var)] [next-var : Int])
+      (foldl
+        (lambda ([v : Var] [next-var : Int])
+          (case v
+            [(var _ c)
+             (if (< c next-var)
+                 next-var
+                 (+ 1 c))]))
+        (set->list s)
+        next-var))
+    (dict-map
+      (block-map-blocks blocks)
+      (lambda ([i : Int] [b : (BasicBlock Reg)])
+        (used-vars/block b)))
+    0))
 
-(define (spill-variables/block [b : (BasicBlock Reg)] [spilled : (Dict Var Int)]) : (BasicBlock Reg)
+(define (used-vars/block [b : (BasicBlock Reg)]) : (Set Var)
+  (match-define (basic-block instructions terminal) b)
+  (match-define reg-sets
+    (cons
+      (let ([empty-set (make-set reg-cmp)])
+        (case terminal
+          [(return reg) (set-add empty-set reg)]
+          [(halt) empty-set]
+          [(jump _) empty-set]
+          [(fall-through _) empty-set]
+          [(cond-jump/false-fall-through c t f)
+           (case c
+             [(reg-condition r) (set-add empty-set r)]
+             [(negated-reg-condition r) (set-add empty-set r)]
+             [(comparison-condition _ reg1 reg2) (set-add (set-add empty-set reg1) reg2)]
+             [(memory-compare-condition _ _ reg1 reg2) (set-add (set-add empty-set reg1) reg2)])]))
+      (append
+        (map (lambda ([i : (Instruction Reg)]) (input-registers i reg-cmp)) instructions)
+        (map (lambda ([i : (Instruction Reg)]) (output-registers i reg-cmp)) instructions))))
+  (foldl
+    (lambda ([regs : (Set Reg)] [vars : (Set Var)])
+      (foldl
+        (lambda ([reg : Reg] [vars : (Set Var)])
+          (case reg
+            [(temporary-reg v) (set-add vars v)]
+            [(fixed-reg _) vars]))
+        (set->list regs)
+        vars))
+    reg-sets
+    (make-set var-cmp)))
+
+
+(define (spill-variables/block [b : (BasicBlock Reg)] [spilled : (Dict Var Int)] [next-var : Int])
+  : (Tuple2 (BasicBlock Reg) Int)
   (case b
     [(basic-block instructions terminal)
-     (match-define term-instructions (spill-variables/terminal terminal spilled))
-     (basic-block
+     (match-define (tuple3 term-instructions terminal next-var)
+       (spill-variables/terminal terminal spilled next-var))
+     (match-define (tuple2 instructions next-var)
        (spill-variables/reverse-instructions
          (reverse instructions)
          term-instructions
-         spilled)
-       terminal)]))
+         spilled
+         next-var))
+     (tuple2
+       (basic-block
+         instructions
+         terminal)
+       next-var)]))
 
-(define (spill-variables/terminal [t : (Terminal Reg)] [spilled : (Dict Var Int)])
-  : (List (Instruction Reg))
-  (add-load-spilled
+
+(define (maybe-spill-reg [reg : Reg] [spilled : (Dict Var Int)] [loads : (Dict Var Int)]
+                         [next-var : Int])
+  : (Tuple3 Reg (Dict Var Int) Int)
+  (case reg
+    [(fixed-reg _) (tuple3 reg loads next-var)]
+    [(temporary-reg v)
+     (case (dict-ref spilled v)
+       [(nothing) (tuple3 reg loads next-var)]
+       [(just temp)
+        (match-define new-var
+          (case v
+            [(var n _) (var n next-var)]))
+        (tuple3
+          (temporary-reg new-var)
+          (dict-add loads new-var temp)
+          (+ 1 next-var))])]))
+
+
+(define (empty-loads) : (Dict Var Int)
+  (make-dict var-cmp))
+
+(define (spill-variables/terminal [t : (Terminal Reg)] [spilled : (Dict Var Int)] [next-var : Int])
+  : (Tuple3 (List (Instruction Reg)) (Terminal Reg) Int)
+  (match-define loads (empty-loads))
+  (match-define (tuple3 t loads next-var)
     (case t
-          [(return reg)
-           (varargs list reg)]
-          [(halt)
-           (empty)]
-          [(jump _)
-           (empty)]
-          [(fall-through _)
-           (empty)]
-          [(cond-jump/false-fall-through (reg-condition reg) _ _)
-           (varargs list reg)]
-          [(cond-jump/false-fall-through (negated-reg-condition reg) _ _)
-           (varargs list reg)]
-          [(cond-jump/false-fall-through (comparison-condition _ reg1 reg2) _ _)
-           (varargs list reg1 reg2)]
-          [(cond-jump/false-fall-through (memory-compare-condition _ size reg1 reg2) _ _)
-           (varargs list size reg1 reg2)])
-    (empty) spilled))
+      [(halt)
+       (tuple3 t loads next-var)]
+      [(jump _)
+       (tuple3 t loads next-var)]
+      [(fall-through _)
+       (tuple3 t loads next-var)]
+      [(return reg)
+       (match-define (tuple3 new-reg loads next-var) (maybe-spill-reg reg spilled loads next-var))
+       (tuple3 (return new-reg) loads next-var)]
+      [(cond-jump/false-fall-through cond t f)
+       (match-define (tuple3 new-condition loads next-var)
+         (case cond
+           [(reg-condition reg)
+            (match-define (tuple3 new-reg loads next-var) (maybe-spill-reg reg spilled loads next-var))
+            (tuple3 (reg-condition new-reg) loads next-var)]
+           [(negated-reg-condition reg)
+            (match-define (tuple3 new-reg loads next-var) (maybe-spill-reg reg spilled loads next-var))
+            (tuple3 (negated-reg-condition new-reg) loads next-var)]
+           [(comparison-condition op reg1 reg2)
+            (match-define (tuple3 new-reg1 loads next-var) (maybe-spill-reg reg1 spilled loads next-var))
+            (match-define (tuple3 new-reg2 loads next-var) (maybe-spill-reg reg2 spilled loads next-var))
+            (tuple3 (comparison-condition op new-reg1 new-reg2) loads next-var)]
+           [(memory-compare-condition op size reg1 reg2)
+            (match-define (tuple3 new-reg1 loads next-var) (maybe-spill-reg reg1 spilled loads next-var))
+            (match-define (tuple3 new-reg2 loads next-var) (maybe-spill-reg reg2 spilled loads next-var))
+            (tuple3 (memory-compare-condition op size new-reg1 new-reg2) loads next-var)]))
+       (tuple3 (cond-jump/false-fall-through new-condition t f) loads next-var)]))
+  (tuple3 (add-loads loads (empty)) t next-var))
 
 (define (spill-variables/reverse-instructions
           [instructions : (List (Instruction Reg))]
           [acc : (List (Instruction Reg))]
-          [spilled : (Dict Var Int)])
-  : (List (Instruction Reg))
+          [spilled : (Dict Var Int)]
+          [next-var : Int])
+  : (Tuple2 (List (Instruction Reg)) Int)
   (case instructions
-    [(empty) acc]
+    [(empty) (tuple2 acc next-var)]
     [(cons inst instructions)
+     (match-define (tuple2 new-instructions next-var)
+       (spill-instruction inst spilled next-var))
      (spill-variables/reverse-instructions
        instructions
-       (spill-variables/instruction inst acc spilled)
-       spilled)]))
+       (append new-instructions acc)
+       spilled
+       next-var)]))
 
-(define (spill-variables/instruction
-          [instruction : (Instruction Reg)]
-          [acc : (List (Instruction Reg))]
-          [spilled : (Dict Var Int)])
-  : (List (Instruction Reg))
-  (add-load-spilled
-    (set->list (input-registers instruction reg-cmp))
-    (cons
+(define (add-loads [loads : (Dict Var Int)]
+                   [instructions : (List (Instruction Reg))]) : (List (Instruction Reg))
+  (dict-fold
+    loads
+    (lambda ([v : Var] [i : Int] [instructions : (List (Instruction Reg))])
+      (cons (load-temporary (temporary-reg v) i) instructions))
+    instructions))
+
+
+(define (spill-instruction [instruction : (Instruction Reg)] [spilled : (Dict Var Int)] [next-var : Int])
+  : (Tuple2 (List (Instruction Reg)) Int)
+  (match-define in (input-registers instruction reg-cmp))
+  (match-define out (output-registers instruction reg-cmp))
+  (match-define (tuple2 actual-spilled-regs next-var)
+    (compute-spills
+      (set-union in out)
+      spilled
+      next-var))
+  (match-define new-instruction
+    (rename-registers/instruction
       instruction
-      (add-store-spilled
-        (set->list (output-registers instruction reg-cmp))
-        acc
-        spilled))
-    spilled))
+      (lambda ([reg : Reg])
+        (case (dict-ref actual-spilled-regs reg)
+          [(nothing) reg]
+          [(just (tuple2 new-reg _)) new-reg]))))
+  (tuple2
+    (append
+      (filter-map
+        (lambda ([reg : Reg]) : (Maybe (Instruction Reg))
+          (case (dict-ref actual-spilled-regs reg)
+            [(nothing) (nothing)]
+            [(just (tuple2 new-reg temp))
+             (just (load-temporary new-reg temp))]))
+        (set->list in))
+      (cons
+        new-instruction
+        (filter-map
+          (lambda ([reg : Reg]) : (Maybe (Instruction Reg))
+            (case (dict-ref actual-spilled-regs reg)
+              [(nothing) (nothing)]
+              [(just (tuple2 new-reg temp))
+               (just (store-temporary temp new-reg))]))
+          (set->list out))))
+    next-var))
 
-(define (add-load-spilled [regs : (List Reg)]
-                          [instructions : (List (Instruction Reg))]
-                          [spilled : (Dict Var Int)]) : (List (Instruction Reg))
-  (case regs
-    [(empty) instructions]
-    [(cons reg regs)
-     (case reg
-       [(fixed-reg _)
-        (add-load-spilled regs instructions spilled)]
-       [(temporary-reg v)
-        (case (dict-ref spilled v)
-          [(nothing)
-           (add-load-spilled regs instructions spilled)]
-          [(just temp)
-           (add-load-spilled regs (cons (load-temporary reg temp) instructions) spilled)])])]))
+(define (empty-spills) : (Dict Reg (Tuple2 Reg Int))
+  (make-dict reg-cmp))
 
-(define (add-store-spilled [regs : (List Reg)]
-                           [instructions : (List (Instruction Reg))]
-                           [spilled : (Dict Var Int)]) : (List (Instruction Reg))
-  (case regs
-    [(empty) instructions]
-    [(cons reg regs)
-     (case reg
-       [(fixed-reg _)
-        (add-store-spilled regs instructions spilled)]
-       [(temporary-reg v)
-        (case (dict-ref spilled v)
-          [(nothing)
-           (add-store-spilled regs instructions spilled)]
-          [(just temp)
-           (add-store-spilled regs (cons (store-temporary temp reg) instructions) spilled)])])]))
+(define (compute-spills [regs : (Set Reg)] [spilled : (Dict Var Int)] [next-var : Int])
+  : (Tuple2 (Dict Reg (Tuple2 Reg Int)) Int)
+  (foldl
+    (lambda ([reg : Reg] [acc : (Tuple2 (Dict Reg (Tuple2 Reg Int)) Int)])
+      (case reg
+        [(fixed-reg _) acc]
+        [(temporary-reg v)
+         (case (dict-ref spilled v)
+           [(nothing) acc]
+           [(just temp)
+            (match-define (tuple2 actual-spills next-var) acc)
+            (match-define (var n _) v)
+            (tuple2
+              (dict-add actual-spills reg (tuple2 (temporary-reg (var n next-var)) temp))
+              (+ 1 next-var))])]))
+    (set->list regs)
+    (tuple2 (empty-spills) next-var)))

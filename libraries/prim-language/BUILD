@@ -82,6 +82,7 @@ yaspl_bootstrap_library(
         "//libraries/data:numbers",
         "//libraries/data:set",
         "//libraries/data:set-multi-dict",
+        "//libraries/data:tuples",
         "//libraries/data:unique-dict",
     ],
 )
