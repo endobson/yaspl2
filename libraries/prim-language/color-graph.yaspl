@@ -45,6 +45,18 @@
 (define (empty-vertex-data) : VertexData
   (vertex-data (make-set x86-64-register-cmp) (make-set x86-64-register-cmp)))
 
+(define (add-fixed-conflict [vd : VertexData] [reg : X8664Register]) : VertexData
+  (case vd
+    [(vertex-data conflicts move-neighbors)
+     (vertex-data (set-add conflicts reg) (set-remove move-neighbors reg))]))
+
+(define (add-fixed-move-neighbor [vd : VertexData] [reg : X8664Register]) : VertexData
+  (case vd
+    [(vertex-data conflicts move-neighbors)
+     (if (set-member? conflicts reg)
+         vd
+         (vertex-data conflicts (set-add move-neighbors reg)))]))
+
 (define (initial-graph [live-outs : (List (LiveOutState Reg))]) : (Graph Var VertexData EdgeData)
   (foldl
     (lambda ([l : (LiveOutState Reg)] [acc : (Graph Var VertexData EdgeData)])
@@ -69,9 +81,7 @@
                                  (graph-add-vertex-if-absent acc reg (empty-vertex-data))
                                  reg
                                  (lambda ([vd : VertexData])
-                                   (case vd
-                                     [(vertex-data conflicts moves)
-                                      (vertex-data (set-add conflicts f-reg) moves)])))
+                                   (add-fixed-conflict vd f-reg)))
                            [(nothing) (panic #"Bad graph: Register not defined")]
                            [(just acc) acc])]))
                     (set->list out-regs)
@@ -86,9 +96,7 @@
                                 (graph-add-vertex-if-absent acc reg (empty-vertex-data))
                                 reg
                                 (lambda ([vd : VertexData])
-                                  (case vd
-                                    [(vertex-data conflicts moves)
-                                     (vertex-data conflicts (set-add moves f-reg))])))
+                                  (add-fixed-move-neighbor vd f-reg)))
                               [(nothing) (panic #"Bad graph")]
                               [(just acc) acc])))]))
                 acc]
@@ -102,9 +110,7 @@
                         [(fixed-reg f-reg)
                          (case (graph-update-vertex acc reg
                                  (lambda ([vd : VertexData])
-                                   (case vd
-                                     [(vertex-data conflicts moves)
-                                      (vertex-data (set-add conflicts f-reg) moves)])))
+                                   (add-fixed-conflict vd f-reg)))
                            [(nothing) (panic #"Bad graph")]
                            [(just acc) acc])]
                         [(temporary-reg v)
@@ -126,10 +132,8 @@
                     [(just (fixed-reg f-reg))
                      ((lambda () : (Graph Var VertexData EdgeData)
                         (case (graph-update-vertex acc reg
-                                    (lambda ([vd : VertexData])
-                                      (case vd
-                                        [(vertex-data conflicts moves)
-                                         (vertex-data conflicts (set-add moves f-reg))])))
+                                (lambda ([vd : VertexData])
+                                  (add-fixed-move-neighbor vd f-reg)))
                               [(nothing) (panic #"Bad graph")]
                               [(just acc) acc])))]
                     [(just (temporary-reg v))
@@ -434,9 +438,13 @@
                      (lambda ([vd : VertexData]) : VertexData
                        (case vd
                          [(vertex-data fixed-constraints2 fixed-move-neighbors2)
+                          (match-define new-fixed-constraints
+                            (set-union fixed-constraints fixed-constraints2))
                           (vertex-data
-                            (set-union fixed-constraints fixed-constraints2)
-                            (set-union fixed-move-neighbors fixed-move-neighbors2))])))
+                            fixed-constraints
+                            (set-difference
+                              (set-union fixed-move-neighbors fixed-move-neighbors2)
+                              new-fixed-constraints))])))
                [(nothing) (panic #"Bad vertex")]
                [(just g) g])]))))
 
@@ -482,13 +490,11 @@
              : (Graph Var VertexData EdgeData)
            (case (graph-update-vertex g v
                    (lambda ([vd : VertexData])
-                     (case vd
-                       [(vertex-data fixed-constraints fixed-move-neighbors)
-                        (case e
-                          [(interference-edge)
-                           (vertex-data (set-add fixed-constraints reg) fixed-move-neighbors)]
-                          [(move-edge)
-                           (vertex-data fixed-constraints (set-add fixed-move-neighbors reg))])])))
+                     (case e
+                       [(interference-edge)
+                        (add-fixed-conflict vd reg)]
+                       [(move-edge)
+                        (add-fixed-move-neighbor vd reg)])))
              [(nothing) (panic #"Bad vertex")]
              [(just g) g]))
          g))

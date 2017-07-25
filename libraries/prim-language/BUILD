@@ -166,6 +166,7 @@ yaspl_library(
         ":color-graph",
         ":lower-x86-64",
         ":lowered-live-variables",
+        ":lowered-register-language",
         ":lowered-register-language-to-x86-64",
         ":prim-language",
         ":prim-language-parser",
@@ -175,6 +176,7 @@ yaspl_library(
         ":register-language",
         ":simplify-lowered-register-language",
         ":simplify-register-language",
+        ":spill-lowered-register-language",
         "//libraries:io",
         "//libraries:sexp-parser",
         "//libraries/data:bytes",
@@ -182,6 +184,8 @@ yaspl_library(
         "//libraries/data:either",
         "//libraries/data:list",
         "//libraries/data:maybe",
+        "//libraries/data:set",
+        "//libraries/data:tuples",
     ],
 )
 
@@ -387,6 +391,18 @@ binary_test(
     binary = ":call2",
     binary_args = ["arg1"],
     exit_code = 14,
+)
+
+prim_binary(
+    name = "call3",
+    srcs = ["call3.prim"],
+)
+
+binary_test(
+    name = "call3_test",
+    binary = ":call3",
+    binary_args = ["arg1"],
+    exit_code = 3,
 )
 
 prim_binary(

@@ -35,6 +35,10 @@
       print-blocks
       print-graph
   }
+  (lowered-register-language) {
+    #:types
+      [FunctionDefinition l:FunctionDefinition]
+  }
   (lowered-register-language-to-x86-64) {
     #:values
       assign-registers
@@ -69,6 +73,7 @@
     #:values
       var->bytes
   }
+  (set)
   (sexp-parser) {
     #:values
       parse-single-sexp
@@ -81,9 +86,51 @@
     #:values
       [simplify-function-definition r:simplify-function-definition]
   }
+  (spill-lowered-register-language) {
+    #:values
+      spill-variables
+  }
+  (tuples)
 }
 (export)
 (types)
+
+(define (handle-lowered [lowered : (l:FunctionDefinition Reg)] [stdout : OutputPort])
+  : (Either (Set Var) (Dict Var X8664Register))
+  (let ([live (live-variables lowered reg-cmp)])
+    (begin
+      (write-all-bytes (l:print-function lowered reg->bytes) stdout)
+      (newline stdout)
+      (write-all-bytes (print-blocks live reg->bytes) stdout)
+      (newline stdout)
+      (write-all-bytes (print-graph live reg-cmp reg->bytes (all-fixed-registers)) stdout)
+      (newline stdout)
+      (let ([live-outs (blocks->live-out-states live)])
+        (begin
+          (write-all-bytes
+            (bytes-append
+              (interleave
+                (map (lambda ([los : (LiveOutState Reg)])
+                       (live-out-state->bytes los reg->bytes)) live-outs)
+                #"\n"))
+            stdout)
+          (newline stdout)
+          (newline stdout)
+          (color-graph (initial-state live-outs)))))))
+
+(define (lowered-loop [lowered : (l:FunctionDefinition Reg)] [stdout : OutputPort])
+  : (Tuple2 (l:FunctionDefinition Reg) (Dict Var X8664Register))
+  (case (handle-lowered lowered stdout)
+    [(left vs)
+     (begin
+       (write-all-bytes #"Spilling vertices: " stdout)
+       (write-all-bytes (bytes-append (interleave (map var->bytes
+                                                       (set->list vs))
+                                                  #", ")) stdout)
+       (newline stdout)
+       (lowered-loop (spill-variables lowered vs) stdout))]
+    [(right assignments)
+     (tuple2 lowered assignments)]))
 
 
 (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]): Int
@@ -126,62 +173,39 @@
                        (write-all-bytes (print-function f) stdout)
                        (newline stdout)
                        (let ([lowered (lower-function f)])
-                         (let ([live (live-variables lowered reg-cmp)])
-                           (begin
-                             (write-all-bytes (l:print-function lowered reg->bytes) stdout)
-                             (newline stdout)
-                             (write-all-bytes (print-blocks live reg->bytes) stdout)
-                             (newline stdout)
-                             (write-all-bytes (print-graph live reg-cmp reg->bytes (all-fixed-registers)) stdout)
-                             (newline stdout)
-                             (let ([live-outs (blocks->live-out-states live)])
-                               (begin
-                                 (write-all-bytes
-                                   (bytes-append
-                                     (interleave
-                                       (map (lambda ([los : (LiveOutState Reg)])
-                                              (live-out-state->bytes los reg->bytes)) live-outs)
-                                       #"\n"))
-                                   stdout)
-                                 (newline stdout)
-                                 (newline stdout)
-                                 (case (color-graph (initial-state live-outs))
-                                   [(left vs)
-                                    (begin
-                                      (write-all-bytes #"Couldn't color verticesx:" stdout)
-                                      (newline stdout))]
-                                   [(right assignments)
-                                    (begin
-                                      (write-line #"Colored graph" stdout)
-                                      (write-line
+                         (case (lowered-loop lowered stdout)
+                           [(tuple2 lowered assignments)
+                            (begin
+                              (write-line #"Colored graph" stdout)
+                              (write-line
+                                (bytes-append
+                                  (interleave
+                                    (dict-map
+                                      assignments
+                                      (lambda ([var : Var] [reg : X8664Register])
                                         (bytes-append
-                                          (interleave
-                                            (dict-map
-                                              assignments
-                                              (lambda ([var : Var] [reg : X8664Register])
-                                                (bytes-append
-                                                  (varargs list
-                                                    (var->bytes var)
-                                                    #" -> "
-                                                    (x86-64-register->bytes reg)))))
-                                            #"\n"))
-                                        stdout)
-                                      (newline stdout)
-                                      (let ([opt-f
-                                             (l:simplify-function-definition
-                                               (assign-registers
-                                                 lowered
-                                                 (lambda ([r : Reg]) : X8664Register
-                                                   (case r
-                                                     [(fixed-reg r) r]
-                                                     [(temporary-reg v)
-                                                      (case (dict-ref assignments v)
-                                                        [(nothing) (panic #"No assignment")]
-                                                        [(just r) r])])))
-                                               x86-64-register=?)])
-                                        (begin
-                                          (write-line (l:print-assigned-registers-function opt-f x86-64-register->bytes)
-                                                      stdout)
-                                          )))])))))))))
+                                          (varargs list
+                                            (var->bytes var)
+                                            #" -> "
+                                            (x86-64-register->bytes reg)))))
+                                    #"\n"))
+                                stdout)
+                              (newline stdout)
+                              (let ([opt-f
+                                     (l:simplify-function-definition
+                                       (assign-registers
+                                         lowered
+                                         (lambda ([r : Reg]) : X8664Register
+                                           (case r
+                                             [(fixed-reg r) r]
+                                             [(temporary-reg v)
+                                              (case (dict-ref assignments v)
+                                                [(nothing) (panic #"No assignment")]
+                                                [(just r) r])])))
+                                       x86-64-register=?)])
+                                (begin
+                                  (write-line (l:print-assigned-registers-function opt-f x86-64-register->bytes)
+                                              stdout)
+                                  )))])))))
                  (map convert-function functions))
                0)])]))]))
