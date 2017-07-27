@@ -61,6 +61,7 @@
     #:values
       var->bytes
       var-cmp
+      var
     #:patterns
       [basic-block r:basic-block]
       [bin-op-inst r:bin-op-inst]
@@ -134,6 +135,7 @@
     (make-set x86-64-register-cmp)
     (varargs list
       (rax)
+      (rbx)
       (rcx)
       (rdx)
       (rdi)
@@ -141,7 +143,20 @@
       (r8)
       (r9)
       (r10)
-      (r11))))
+      (r11)
+      (r12)
+      (r13)
+      (r14))))
+
+(define (callee-saved-temporary-x86-64-registers) : (Set X8664Register)
+  (set-add-all
+    (make-set x86-64-register-cmp)
+    (varargs list
+      (rbx)
+      (r12)
+      (r13)
+      (r14))))
+
 
 (define (all-fixed-registers) : (Set Reg)
   (set-add-all
@@ -296,20 +311,24 @@
 
 
 (define (lower-function [fun : r:FunctionDefinition]) : (l:FunctionDefinition Reg)
-  (match-define (r:function-definition name convention blocks _ next-block) fun)
+  (match-define (r:function-definition name convention blocks next-var next-block) fun)
   (match-define lowered-entry-block next-block)
   (match-define next-block (+ 1 next-block))
+
+  (match-define (tuple2 saved-register-pairs next-var)
+    (compute-saved-register-pairs next-var))
 
   (match-define (tuple2 next-block new-blocks)
     (dict-fold
       blocks
       (lambda ([index : Int]  [b : r:BasicBlock]
                [acc : (Tuple2 Int (l:UnvalidatedBlockMap Reg))])
-        (lower-block index b blocks acc))
+        (lower-block index b blocks saved-register-pairs acc))
       (tuple2 next-block (empty-blocks lowered-entry-block))))
+  (match-define entry-block (make-entry-block convention blocks saved-register-pairs))
   (match-define new-blocks
     (l:unvalidated-block-map-add-block
-      new-blocks lowered-entry-block (make-entry-block convention blocks)))
+      new-blocks lowered-entry-block entry-block))
 
   (case (l:validate-block-map new-blocks)
     [(left msg) (panic msg)]
@@ -340,17 +359,27 @@
        (args/extra-registers args (+ offset 8) overflow-register))]))
 
 
-(define (make-entry-block [convention : r:CallingConvention] [blocks : (Dict Int r:BasicBlock)])
+(define (make-entry-block [convention : r:CallingConvention] [blocks : (Dict Int r:BasicBlock)]
+                          [saved-register-pairs : (List (Tuple2 X8664Register r:Var))])
   : (l:BasicBlock Reg)
   (match-define arg-registers (varargs list (rdi) (rsi) (rdx) (rcx) (r8) (r9)))
   (match-define overflow-arg-register (r10))
+  (match-define save-register-instructions
+    (map
+      (lambda ([p : (Tuple2 X8664Register r:Var)])
+        (case p
+          [(tuple2 reg var)
+           (l:move (temporary-reg var) (fixed-reg reg))]))
+      saved-register-pairs))
   (case convention
     [(r:plain-function-convention num-args entry-block-num)
      (case (dict-ref blocks entry-block-num)
        [(nothing) (panic #"No entry block")]
        [(just (r:basic-block args _ _))
         (l:basic-block
-          (args/registers args arg-registers overflow-arg-register)
+          (append
+            save-register-instructions
+            (args/registers args arg-registers overflow-arg-register))
           ((lambda () : (l:Terminal Reg) (l:jump entry-block-num))))])]
     [(r:closure-convention num-args entry-block-num num-free-vars)
      (case (dict-ref blocks entry-block-num)
@@ -358,26 +387,45 @@
        [(just (r:basic-block args _ _))
         (l:basic-block
           (append
-            (args/registers (take num-args args) arg-registers overflow-arg-register)
-            (case (zip (drop num-args args)
-                       (build-list num-free-vars (lambda ([x : Int]) (* 8 (+ x 1)))))
-              [(nothing) (panic #"Wrong number of free vars")]
-              [(just free-vars+offsets)
-               (map
-                 (lambda ([t : (Tuple2 r:Var Int)])
-                   (case t
-                     [(tuple2 v offset)
-                      (l:load-8byte (temporary-reg v) (fixed-reg (r11)) offset)]))
-                 free-vars+offsets)]))
+            save-register-instructions
+            (append
+              (args/registers (take num-args args) arg-registers overflow-arg-register)
+              (case (zip (drop num-args args)
+                         (build-list num-free-vars (lambda ([x : Int]) (* 8 (+ x 1)))))
+                [(nothing) (panic #"Wrong number of free vars")]
+                [(just free-vars+offsets)
+                 (map
+                   (lambda ([t : (Tuple2 r:Var Int)])
+                     (case t
+                       [(tuple2 v offset)
+                        (l:load-8byte (temporary-reg v) (fixed-reg (r11)) offset)]))
+                   free-vars+offsets)])))
           ((lambda () : (l:Terminal Reg) (l:jump entry-block-num))))])]))
+
+(define (compute-saved-register-pairs [next-var : Int]) : (Tuple2 (List (Tuple2 X8664Register r:Var)) Int)
+  (foldl
+    (lambda ([reg : X8664Register] [acc : (Tuple2 (List (Tuple2 X8664Register r:Var)) Int)])
+      (case acc
+        [(tuple2 pairs next-var)
+         (tuple2
+           (cons
+             (tuple2 reg (var #"saved" next-var))
+             pairs)
+           (+ 1 next-var))]))
+    (set->list (callee-saved-temporary-x86-64-registers))
+    (tuple2
+      ((lambda () : (List (Tuple2 X8664Register r:Var)) (empty)))
+      next-var)))
+
 
 (define (lower-block [index : Int]  [b : r:BasicBlock]
                      [blocks : (Dict Int r:BasicBlock)]
+                     [saved-register-pairs : (List (Tuple2 X8664Register r:Var))]
                      [acc : (Tuple2 Int (l:UnvalidatedBlockMap Reg))])
   : (Tuple2 Int (l:UnvalidatedBlockMap Reg))
   (match-define (r:basic-block _ instructions terminal) b)
   (match-define (tuple3 end-insts terminal (tuple2 next-block acc-blocks))
-    (lower-terminal terminal blocks acc))
+    (lower-terminal terminal blocks saved-register-pairs acc))
   (tuple2
     next-block
     (l:unvalidated-block-map-add-block
@@ -431,13 +479,21 @@
   t)
 
 (define (lower-terminal [t : r:Terminal] [blocks : (Dict Int r:BasicBlock)]
+                        [saved-register-pairs : (List (Tuple2 X8664Register r:Var))]
                         [acc : (Tuple2 Int (l:UnvalidatedBlockMap Reg))])
   : (Tuple3 (List (l:Instruction Reg)) (l:Terminal Reg) (Tuple2 Int (l:UnvalidatedBlockMap Reg)))
   (case t
     [(r:return name)
      (tuple3
-       (varargs list
-         (l:move (fixed-reg (rax)) (temporary-reg name)))
+       (append
+         (map
+           (lambda ([p : (Tuple2 X8664Register r:Var)])
+             (case p
+               [(tuple2 reg var)
+                (l:move (fixed-reg reg) (temporary-reg var))]))
+           saved-register-pairs)
+         (varargs list
+           (l:move (fixed-reg (rax)) (temporary-reg name))))
        (ann-term (l:return (fixed-reg (rax))))
        acc)]
     [(r:halt)
