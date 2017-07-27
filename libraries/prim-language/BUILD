@@ -24,6 +24,7 @@ yaspl_bootstrap_library(
         ":lowered-live-variables",
         ":register-language",
         "//libraries/data:bytes",
+        "//libraries/data:boolean",
         "//libraries/data:dict",
         "//libraries/data:either",
         "//libraries/data:list",

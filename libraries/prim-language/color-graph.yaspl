@@ -1,6 +1,7 @@
 #:module (color-graph)
 #:import {
   (bytes)
+  (data boolean)
   (dict)
   (either)
   (list)
@@ -14,9 +15,9 @@
   (undirected-graph)
 }
 (export
-  #:types (RegisterAssignment)
+  #:types (ColorTrace)
   #:values (color-graph initial-state
-            determine-register-assignments register-assignment->bytes)
+            determine-color-traces color-trace->bytes)
   #:patterns ())
 (types
   (define-type RegisterAssignment
@@ -24,6 +25,9 @@
     (assign-same [v1 : Var] [v2 : Var])
     (assign-fixed [v1 : Var] [fixed : X8664Register])
     (assign-spill [v1 : Var] [conflicts : (Set Var)] [fixed-conflicts : (Set X8664Register)]))
+  (define-type ColorTrace
+    (trace-assignment [v : RegisterAssignment])
+    (trace-freeze [v : Var]))
   (define-type EdgeData
     (move-edge)
     (interference-edge))
@@ -34,7 +38,7 @@
   (define-type State
     (state
       [graph : (Graph Var VertexData EdgeData)]
-      [register-assignments : (List RegisterAssignment)])))
+      [register-assignments : (List ColorTrace)])))
 
 (define (initial-state [live-outs : (List (LiveOutState Reg))]) : State
   (state
@@ -152,21 +156,21 @@
     ((lambda () : (Graph Var VertexData EdgeData) (empty-graph var-cmp)))))
 
 (define (color-graph [state : State]) : (Either (Set Var) (Dict Var X8664Register))
-  (select-loop-start (determine-register-assignments state)))
+  (select-loop-start (determine-color-traces state)))
 
 
-(define (determine-register-assignments [state : State]) : (List RegisterAssignment)
+(define (determine-color-traces [state : State]) : (List ColorTrace)
   (let ([state (simplify-loop-start state)])
     (if (= 0 (num-vertices state))
         (state-register-assignments state)
         (case (coalesce-loop-start state)
           [(tuple2 coalesced state)
            (if coalesced
-               (determine-register-assignments state)
+               (determine-color-traces state)
                (case (maybe-freeze state)
-                 [(just state) (determine-register-assignments state)]
+                 [(just state) (determine-color-traces state)]
                  [(nothing)
-                  (determine-register-assignments (spill-once state))]))]))))
+                  (determine-color-traces (spill-once state))]))]))))
 
 (define (simplify-loop-start [state : State]) : State
   (simplify-loop (non-move-related-vertices state) state))
@@ -222,11 +226,6 @@
     [(nothing) (nothing)]
     [(just (tuple2 v _)) (just v)]))
 
-
-(define (fixed-move-neighbors [v : Var] [state : State]) : (Set X8664Register)
-  (case (graph-vertex-label (state-graph state) v)
-    [(nothing) (panic #"Bad vertex: fixed-neighbors")]
-    [(just (vertex-data _ move-neighbors)) move-neighbors]))
 
 (define (find-fixed-coalescable-neighbor [v : Var] [state : State]) : (Maybe X8664Register)
   (case (set-split (set-filter (fixed-move-neighbors v state)
@@ -320,6 +319,12 @@
                [(move-edge) #t]
                [(interference-edge) #f]))))])))
 
+(define (fixed-move-neighbors [v : Var] [state : State]) : (Set X8664Register)
+  (case (graph-vertex-label (state-graph state) v)
+    [(nothing) (panic #"Bad vertex: fixed-neighbors")]
+    [(just (vertex-data _ move-neighbors)) move-neighbors]))
+
+
 (define (interfering-neighbors [state : State] [v : Var]) : (Set Var)
   (let ([g (state-graph state)])
     (case (graph-vertex-edges g v)
@@ -333,6 +338,10 @@
                [(move-edge) #f]
                [(interference-edge) #t]))))])))
 
+(define (fixed-interfering-neighbors [state : State] [v : Var]) : (Set X8664Register)
+  (case (graph-vertex-label (state-graph state) v)
+    [(nothing) (panic #"Bad vertex: fixed-neighbors")]
+    [(just (vertex-data fixed-conflicts _)) fixed-conflicts]))
 
 (define (non-move-related-neighbors [state : State] [v : Var]) : (Set Var)
   (let ([g (state-graph state)])
@@ -365,7 +374,7 @@
 
 
 (define (freeze [s : State] [v : Var]) : State
-  (match-define (state g assignments) s)
+  (match-define (state g trace) s)
   (match-define g
     (foldl
       (lambda ([v2 : Var] [g : (Graph Var VertexData EdgeData)])
@@ -380,11 +389,11 @@
                  (vertex-data fixed-constraints (make-set x86-64-register-cmp))])))
       [(nothing) (panic #"Bad vertex")]
       [(just g) g])
-    assignments))
+    (cons (trace-freeze v) trace)))
 
 ;; TODO Should check that it actually is not move related.
 (define (remove-unconstrained-vertex [s : State] [v : Var]) : State
-  (match-define (state g assignments) s)
+  (match-define (state g trace) s)
   (case (graph-vertex-label g v)
     [(nothing) (panic #"Bad vertex")]
     [(just (vertex-data constraints _))
@@ -400,12 +409,13 @@
        [(right g)
         (state
           g
-          (cons (assign-free v vs constraints) assignments))])]))
+          (cons (trace-assignment (assign-free v vs constraints))
+                trace))])]))
 
 
 ;; This merges v1 into v2, keeping the v2 name
 (define (coalesce [s : State] [v1 : Var] [v2 : Var]) : State
-  (match-define (state g assignments) s)
+  (match-define (state g trace) s)
   (case (graph-vertex-edges g v1)
     [(nothing) (panic #"Bad vertex")]
     [(just edges)
@@ -467,11 +477,11 @@
                   (map var->bytes (set->list (dict-keys edges)))
                   #" ")))))]
        [(right g)
-        (state g (cons (assign-same v1 v2) assignments))])]))
+        (state g (cons (trace-assignment (assign-same v1 v2)) trace))])]))
 
 ;; This merges v1 into reg.
 (define (coalesce-fixed [s : State] [v1 : Var] [reg : X8664Register]) : State
-  (match-define (state g assignments) s)
+  (match-define (state g trace) s)
   (case (graph-vertex-edges g v1)
     [(nothing) (panic #"Bad vertex")]
     [(just edges)
@@ -518,12 +528,12 @@
                   (map var->bytes (set->list (dict-keys edges)))
                   #" ")))))]
        [(right g)
-        (state g (cons (assign-fixed v1 reg) assignments))])]))
+        (state g (cons (trace-assignment (assign-fixed v1 reg)) trace))])]))
 
 
 ;; TODO check that this is not move related
 (define (spill-vertex [s : State] [v : Var]) : State
-  (match-define (state g assignments) s)
+  (match-define (state g trace) s)
   (match-define vs (neighbors s v))
   (match-define g
     (foldl
@@ -539,24 +549,26 @@
        [(right g)
         (state
           g
-          (cons (assign-spill v vs fixed-constraints) assignments))])]))
+          (cons (trace-assignment (assign-spill v vs fixed-constraints)) trace))])]))
 
 
 (define (is-coalescable-fixed-edge [s : State] [v : Var] [reg : X8664Register]) : Boolean
-  (match-define (state g assignments) s)
+  (match-define (state g _) s)
 
-  (< (set-count
-       (set-filter
-         (interfering-neighbors s v)
-         (lambda ([v : Var]) : Boolean
-           (case (graph-vertex-label g v)
-             [(nothing) (panic #"Bad vertex")]
-             [(just (vertex-data fixed-regs _)) (set-member? fixed-regs reg)]))))
+  (< (+
+       (set-count
+         (set-filter
+           (interfering-neighbors s v)
+           (lambda ([v : Var]) : Boolean
+             (case (graph-vertex-label g v)
+               [(nothing) (panic #"Bad vertex")]
+               [(just (vertex-data fixed-regs _)) (not (set-member? fixed-regs reg))]))))
+       (set-count (fixed-interfering-neighbors s v)))
      (set-count (valid-temporary-x86-64-registers))))
 
 
 (define (is-coalescable-edge [s : State] [v1 : Var] [v2 : Var]) : Boolean
-  (match-define (state g assignments) s)
+  (match-define (state g _) s)
   (match-define fixed-count
     ((lambda () : Int
        (case (graph-vertex-label g v1)
@@ -576,9 +588,9 @@
              (>= (num-interfering-neighbors s v) (set-count (valid-temporary-x86-64-registers)))))))
      (set-count (valid-temporary-x86-64-registers))))
 
-(define (select-loop-start [assignment : (List RegisterAssignment)])
+(define (select-loop-start [trace : (List ColorTrace)])
   : (Either (Set Var) (Dict Var X8664Register))
-  (let ([maybe-mapping (select-loop assignment (make-dict var-cmp))])
+  (let ([maybe-mapping (select-loop trace (make-dict var-cmp))])
     (let ([uncolorable-nodes (dict-keys (dict-filter maybe-mapping
                                                      (lambda ([k : Var] [v : (Maybe X8664Register)])
                                                        (case v
@@ -588,18 +600,20 @@
           (right (dict-filter-map maybe-mapping (lambda ([k : Var] [v : (Maybe X8664Register)]) v)))
           (left uncolorable-nodes)))))
 
-(define (select-loop [assignment : (List RegisterAssignment)] [acc : (Dict Var (Maybe X8664Register))])
+(define (select-loop [trace : (List ColorTrace)] [acc : (Dict Var (Maybe X8664Register))])
   : (Dict Var (Maybe X8664Register))
-  (case assignment
+  (case trace
     [(empty) acc]
-    [(cons (assign-same v1 v2) assignment)
+    [(cons (trace-freeze _) trace)
+     (select-loop trace acc)]
+    [(cons (trace-assignment (assign-same v1 v2)) trace)
      (case (dict-ref acc v2)
        [(nothing) (panic #"Bad assign-same")]
        [(just reg)
-        (select-loop assignment (dict-add acc v1 reg))])]
-    [(cons (assign-fixed v1 reg) assignment)
-     (select-loop assignment (dict-add acc v1 (just reg)))]
-    [(cons (assign-free v con fixed-con) assignment)
+        (select-loop trace (dict-add acc v1 reg))])]
+    [(cons (trace-assignment (assign-fixed v1 reg)) trace)
+     (select-loop trace (dict-add acc v1 (just reg)))]
+    [(cons (trace-assignment (assign-free v con fixed-con)) trace)
      (case (set-split
              (set-difference
                (valid-temporary-x86-64-registers)
@@ -613,8 +627,8 @@
                    (set->list con)))))
        [(nothing) (panic #"Bad assign-free")]
        [(just (tuple2 reg _))
-        (select-loop assignment (dict-add acc v (just reg)))])]
-    [(cons (assign-spill v con fixed-con) assignment)
+        (select-loop trace (dict-add acc v (just reg)))])]
+    [(cons (trace-assignment (assign-spill v con fixed-con)) trace)
      (case (set-split
              (set-difference
                (valid-temporary-x86-64-registers)
@@ -627,17 +641,19 @@
                        [(just v) v]))
                    (set->list con)))))
        [(nothing)
-        (select-loop assignment (dict-add acc v (nothing)))]
+        (select-loop trace (dict-add acc v (nothing)))]
        [(just (tuple2 reg _))
-        (select-loop assignment (dict-add acc v (just reg)))])]))
+        (select-loop trace (dict-add acc v (just reg)))])]))
 
-(define (register-assignment->bytes [v : RegisterAssignment]) : Bytes
+(define (color-trace->bytes [v : ColorTrace]) : Bytes
   (case v
-    [(assign-free v _ _)
+    [(trace-freeze v)
+     (bytes-append (varargs list #"freeze: " (var->bytes v)))]
+    [(trace-assignment (assign-free v _ _))
      (bytes-append (varargs list (var->bytes v) #" = free"))]
-    [(assign-same v v2)
+    [(trace-assignment (assign-same v v2))
      (bytes-append (varargs list (var->bytes v) #" = " (var->bytes v2)))]
-    [(assign-fixed v reg)
+    [(trace-assignment (assign-fixed v reg))
      (bytes-append (varargs list (var->bytes v) #" = " (x86-64-register->bytes reg)))]
-    [(assign-spill v _ _)
+    [(trace-assignment (assign-spill v _ _))
      (bytes-append (varargs list (var->bytes v) #" = spill"))]))
