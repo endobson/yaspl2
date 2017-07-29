@@ -86,61 +86,73 @@
     [(not-equal) (equal)]))
 
 (define (remove-dead-instructions [blocks : (Dict Int BasicBlock)]) : (Dict Int BasicBlock)
-  (dict-value-map blocks remove-dead-instructions/block))
+  (match-define used-vars (compute-used-vars blocks))
+  (dict-value-map blocks
+    (lambda ([b : BasicBlock])
+      (remove-dead-instructions/block b used-vars))))
 
-(define (remove-dead-instructions/block [b : BasicBlock]) : BasicBlock
+(define (remove-dead-instructions/block [b : BasicBlock] [used-vars : (Set Var)]) : BasicBlock
   (match-define (basic-block args instructions terminal) b)
-  (match-define used-variables
-    (set-add-all
-      (foldl
-        (lambda ([instruction : Instruction] [acc : (Set Var)])
-          (case instruction
-            [(int-literal _ _) acc]
-            [(symbol-address-inst _ _) acc]
-            [(function-allocate-inst _ var) (set-add acc var)]
-            [(heap-allocate-inst _ var) (set-add acc var)]
-            [(memory-compare-inst _ size v1 v2) (set-add (set-add (set-add acc size) v1) v2)]
-            [(pointer-set!-inst _ ptr _ val) (set-add (set-add acc ptr) val)]
-            [(pointer-ref-inst _ _ ptr _) (set-add acc ptr)]
-            [(function-call-inst _ (direct-call _) vars)
-             (set-add-all acc vars)]
-            [(function-call-inst _ (indirect-function-call f) vars)
-             (set-add (set-add-all acc vars) f)]
-            [(function-call-inst _ (closure-call c) vars)
-             (set-add (set-add-all acc vars) c)]
-            [(function-call-inst _ (syscall _) vars)
-             (set-add-all acc vars)]
-            [(bin-op-inst _ _ left right)
-             (set-add (set-add acc left) right)]
-            [(unary-op-inst _ _ var) (set-add acc var)]))
-        instructions
-        (make-set var-cmp))
-      (terminal-used-vars terminal)))
   (basic-block
     args
     (filter
       (lambda ([i : Instruction])
         (if (pure-instruction? i)
             (case (instruction-output-var i)
-              [(just v) (set-member? used-variables v)]
+              [(just v) (set-member? used-vars v)]
               [(nothing) (panic #"Pure instruction didn't have output var")])
             #t))
       instructions)
     terminal))
 
-(define (terminal-used-vars [t : Terminal]) : (List Var)
-  (case t
-    [(return var) (varargs list var)]
-    [(halt) (empty)]
-    [(cond-jump con _ t-args _ f-args)
-     (append
-       (case con
-         [(var-condition var) (varargs list var)]
-         [(negated-var-condition var) (varargs list var)]
-         [(comparison-condition op v1 v2) (varargs list v1 v2)]
-         [(memory-compare-condition _ size v1 v2) (varargs list size v1 v2)])
-       (append t-args f-args))]
-    [(jump _ args) args]))
+(define (compute-used-vars [blocks : (Dict Int BasicBlock)]) : (Set Var)
+  (dict-fold
+    blocks
+    (lambda ([k : Int] [v : BasicBlock] [s : (Set Var)])
+      (set-union s (used-vars/block v)))
+    (make-set var-cmp)))
+
+(define (used-vars/block [b : BasicBlock]) : (Set Var)
+  (match-define (basic-block args instructions terminal) b)
+  (foldl
+    (lambda ([instruction : Instruction] [acc : (Set Var)])
+      (case instruction
+        [(int-literal _ _) acc]
+        [(symbol-address-inst _ _) acc]
+        [(function-allocate-inst _ var) (set-add acc var)]
+        [(heap-allocate-inst _ var) (set-add acc var)]
+        [(memory-compare-inst _ size v1 v2) (set-add (set-add (set-add acc size) v1) v2)]
+        [(pointer-set!-inst _ ptr _ val) (set-add (set-add acc ptr) val)]
+        [(pointer-ref-inst _ _ ptr _) (set-add acc ptr)]
+        [(function-call-inst _ (direct-call _) vars)
+         (set-add-all acc vars)]
+        [(function-call-inst _ (indirect-function-call f) vars)
+         (set-add (set-add-all acc vars) f)]
+        [(function-call-inst _ (closure-call c) vars)
+         (set-add (set-add-all acc vars) c)]
+        [(function-call-inst _ (syscall _) vars)
+         (set-add-all acc vars)]
+        [(bin-op-inst _ _ left right)
+         (set-add (set-add acc left) right)]
+        [(unary-op-inst _ _ var) (set-add acc var)]))
+    instructions
+    (used-vars/terminal terminal)))
+
+(define (used-vars/terminal [t : Terminal]) : (Set Var)
+  (set-add-all
+    (make-set var-cmp)
+    (case t
+      [(return var) (varargs list var)]
+      [(halt) (empty)]
+      [(cond-jump con _ t-args _ f-args)
+       (append
+         (case con
+           [(var-condition var) (varargs list var)]
+           [(negated-var-condition var) (varargs list var)]
+           [(comparison-condition op v1 v2) (varargs list v1 v2)]
+           [(memory-compare-condition _ size v1 v2) (varargs list size v1 v2)])
+         (append t-args f-args))]
+      [(jump _ args) args])))
 
 (define (pure-instruction? [i : Instruction]) : Boolean
   (case i
