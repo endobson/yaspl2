@@ -32,23 +32,35 @@
   #:types ()
   #:values (simplify-function-definition)
   #:patterns ())
-(types)
+(types
+  (define-type AbstractValue
+    (av-comparison [op : ComparisonOp] [left : Var] [right : Var])
+    (av-memory-comparison [size : Var] [v1 : Var] [v2 : Var])
+    (av-int [val : Int])
+    (av-symbol [val : Bytes])
+    (av-unknown)))
 
 (define (simplify-function-definition
           [f : FunctionDefinition]
           [known-functions : (Dict Bytes Bytes)]) : FunctionDefinition
   (match-define (function-definition name entry-block blocks next-var-number next-block-number) f)
+  (match-define abstract-values (compute-abstract-values blocks))
   (match-define new-blocks
     (remove-dead-instructions
-      (optimize-known-functions known-functions
-        (optimize-conditional-jumps blocks))))
+      (optimize-known-functions abstract-values known-functions
+        (optimize-conditional-jumps abstract-values blocks))))
   (function-definition name entry-block new-blocks next-var-number next-block-number))
 
-(define (optimize-conditional-jumps [blocks : (Dict Int BasicBlock)]) : (Dict Int BasicBlock)
-  (dict-value-map blocks optimize-conditional-jumps/block))
+(define (optimize-conditional-jumps
+          [abstract-values : (Dict Var AbstractValue)]
+          [blocks : (Dict Int BasicBlock)]) : (Dict Int BasicBlock)
+  (dict-value-map blocks
+    (lambda ([b : BasicBlock])
+      (optimize-conditional-jumps/block abstract-values b))))
 
-;; TODO Use better flow analysis
-(define (optimize-conditional-jumps/block [b : BasicBlock]) : BasicBlock
+(define (optimize-conditional-jumps/block
+          [abstract-values : (Dict Var AbstractValue)]
+          [b : BasicBlock]) : BasicBlock
   (match-define (basic-block args instructions terminal) b)
   (case terminal
     [(cond-jump c t t-args f f-args)
@@ -58,22 +70,18 @@
              [_ ((lambda () : (Maybe (Tuple2 Var Boolean)) (nothing)))])
        [(nothing) b]
        [(just (tuple2 v negated?))
-        (case (find/maybe
-                (lambda ([i : Instruction]) : (Maybe Condition)
-                  (case i
-                    [(bin-op-inst out (comparison-bin-op c) left right)
-                     (if (var=? out v)
-                         (just (comparison-condition (if negated? (flip-comparison c) c) left right))
-                         (nothing))]
-                    [(memory-compare-inst out size v1 v2)
-                     (if (var=? out v)
-                         (just (memory-compare-condition negated? size v1 v2))
-                         (nothing))]
-                    [_ (nothing)]))
-                instructions)
-          [(nothing) b]
-          [(just c)
-           (basic-block args instructions (cond-jump c t t-args f f-args))])])]
+        (case (dict-ref abstract-values v)
+          [(just (av-comparison c left right))
+           (basic-block args instructions
+             (cond-jump
+               (comparison-condition (if negated? (flip-comparison c) c) left right)
+               t t-args f f-args))]
+          [(just (av-memory-comparison size v1 v2))
+           (basic-block args instructions
+             (cond-jump
+               (memory-compare-condition negated? size v1 v2)
+               t t-args f f-args))]
+          [_ b])])]
     [_ b]))
 
 (define (flip-comparison [c : ComparisonOp]) : ComparisonOp
@@ -181,42 +189,67 @@
     [(unary-op-inst v _ _) (just v)]))
 
 (define (optimize-known-functions
+          [abstract-values : (Dict Var AbstractValue)]
           [known-closures : (Dict Bytes Bytes)]
           [blocks : (Dict Int BasicBlock)]) : (Dict Int BasicBlock)
-  (dict-value-map blocks (lambda ([b : BasicBlock])
-                           (optimize-known-functions/block known-closures b))))
+  (dict-value-map blocks
+    (lambda ([b : BasicBlock])
+      (optimize-known-functions/block abstract-values known-closures b))))
 
 (define (optimize-known-functions/block
+          [abstract-values : (Dict Var AbstractValue)]
           [known-closures : (Dict Bytes Bytes)]
           [b : BasicBlock]) : BasicBlock
   (match-define (basic-block args instructions terminal) b)
-  (match-define symbol-vars
-    (foldl
-      (lambda ([i : Instruction] [acc : (Dict Var Bytes)])
-        (case i
-          [(symbol-address-inst v sym)
-           (dict-add acc v sym)]
-          [_ acc]))
-      instructions
-      ((lambda () : (Dict Var Bytes) (make-dict var-cmp)))))
   (basic-block
     args
     (map
       (lambda ([i : Instruction])
         (case i
           [(function-call-inst v (closure-call c) args)
-           (case (dict-ref symbol-vars c)
-             [(nothing) i]
-             [(just sym)
+           (case (dict-ref abstract-values c)
+             [(just (av-symbol sym))
               (case (dict-ref known-closures sym)
                 [(nothing) i]
                 [(just fun-sym)
-                 (function-call-inst v (direct-call fun-sym) args)])])]
+                 (function-call-inst v (direct-call fun-sym) args)])]
+             [_ i])]
           [(function-call-inst v (indirect-function-call f) args)
-           (case (dict-ref symbol-vars f)
-             [(nothing) i]
-             [(just fun-sym)
-              (function-call-inst v (direct-call fun-sym) args)])]
+           (case (dict-ref abstract-values f)
+             [(just (av-symbol fun-sym))
+              (function-call-inst v (direct-call fun-sym) args)]
+             [_ i])]
           [_ i]))
       instructions)
     terminal))
+
+;; TODO Use better flow analysis across blocks
+(define (compute-abstract-values [blocks : (Dict Int BasicBlock)])
+  : (Dict Var AbstractValue)
+  (dict-fold
+    blocks
+    (lambda ([i : Int] [b : BasicBlock] [acc : (Dict Var AbstractValue)])
+      (case b
+        [(basic-block args instructions terminal)
+         (foldl
+           (lambda ([arg : Var] [acc : (Dict Var AbstractValue)])
+             (dict-set acc arg (av-unknown)))
+           args
+           (foldl
+             (lambda ([i : Instruction] [acc : (Dict Var AbstractValue)])
+               (case i
+                 [(int-literal var v)
+                  (dict-set acc var (av-int v))]
+                 [(bin-op-inst var (comparison-bin-op c) left right)
+                  (dict-set acc var (av-comparison c left right))]
+                 [(memory-compare-inst var size v1 v2)
+                  (dict-set acc var (av-memory-comparison size v1 v2))]
+                 [(symbol-address-inst var v)
+                  (dict-set acc var (av-symbol v))]
+                 [_
+                  (case (output-var i)
+                    [(nothing) acc]
+                    [(just v) (dict-set acc v (av-unknown))])]))
+             instructions
+             acc))]))
+    ((lambda () : (Dict Var AbstractValue) (make-dict var-cmp)))))
