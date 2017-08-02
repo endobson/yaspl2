@@ -7,12 +7,6 @@
   (maybe)
   (numbers)
   (prim)
-  (prim-language) {
-    #:types
-      BinOp
-      ComparisonOp
-      NumericOp
-  }
   (register-language) {
     #:types
       UnaryOp
@@ -21,12 +15,13 @@
   (set-multi-dict)
   (tuples)
   (unique-dict)
+  (yaspl math-operations)
 }
 (export
   #:types (FunctionDefinition BasicBlock Instruction Terminal BlockMap UnvalidatedBlockMap Condition
            FunctionKind AssignedRegistersFunctionDefinition)
   #:values (function-definition return jump cond-jump/false-fall-through move basic-block
-            bin-op-inst int-literal basic-block-terminal
+            numeric-op-inst comparison-op-inst int-literal basic-block-terminal
             rename-registers/block-map
             rename-registers/instruction
             assigned-registers-function-definition assigned-registers-function-definition-name
@@ -44,7 +39,7 @@
             output-register)
   #:patterns (int-literal symbol-address load-temporary store-temporary push pop
               load-zero-extended-byte store-least-significant-byte load-8byte store-8byte
-              compare-memory move function-call-inst unary-op-inst bin-op-inst
+              compare-memory move function-call-inst unary-op-inst numeric-op-inst comparison-op-inst
               return halt jump fall-through cond-jump/false-fall-through
               reg-condition negated-reg-condition comparison-condition memory-compare-condition
               syscall indirect-function-call closure-call direct-call
@@ -95,8 +90,9 @@
     ;; TODO Make conflict a set when equality is easier to deal with
     (function-call-inst [output : Reg] [f : (FunctionKind Reg)] [args : (List Reg)] [conflicts : (List Reg)])
     (unary-op-inst [output : Reg] [op : UnaryOp] [input : Reg])
-    (bin-op-inst [output : Reg] [op : BinOp] [right : Reg])
-    (numeric-op-immediate [output : Reg] [op : NumericOp] [amount : S32]))
+    (numeric-op-inst [output : Reg] [op : NumericBinOp] [right : Reg])
+    (comparison-op-inst [output : Reg] [op : ComparisonBinOp] [right : Reg])
+    (numeric-op-immediate [output : Reg] [op : NumericBinOp] [amount : S32]))
 
   (define-type (FunctionKind Reg)
     (direct-call [f : Bytes])
@@ -107,7 +103,7 @@
   (define-type (Condition Reg)
     (reg-condition [reg : Reg])
     (negated-reg-condition [reg : Reg])
-    (comparison-condition [op : ComparisonOp] [reg1 : Reg] [reg2 : Reg])
+    (comparison-condition [op : ComparisonBinOp] [reg1 : Reg] [reg2 : Reg])
     (memory-compare-condition [negated? : Boolean] [size : Reg] [reg1 : Reg] [reg2 : Reg]))
 
   (define-type (Terminal Reg)
@@ -168,8 +164,10 @@
      (load-temporary (rename out) index)]
     [(store-temporary index reg)
      (store-temporary index (rename reg))]
-    [(bin-op-inst out op in)
-     (bin-op-inst (rename out) op (rename in))]
+    [(numeric-op-inst out op in)
+     (numeric-op-inst (rename out) op (rename in))]
+    [(comparison-op-inst out op in)
+     (comparison-op-inst (rename out) op (rename in))]
     [(unary-op-inst out op in)
      (unary-op-inst (rename out) op (rename in))]
     [(function-call-inst out f args conflicts)
@@ -395,7 +393,9 @@
      (nothing)]
     [(load-temporary output index)
      (just output)]
-    [(bin-op-inst output _ input)
+    [(numeric-op-inst output _ input)
+     (just output)]
+    [(comparison-op-inst output _ input)
      (just output)]
     [(numeric-op-immediate output _ _)
      (just output)]

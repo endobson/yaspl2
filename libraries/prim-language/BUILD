@@ -48,6 +48,7 @@ yaspl_test(
         "//libraries:yunit",
         "//libraries/data:list",
         "//libraries/data:maybe",
+        "//libraries/yaspl:math-operations",
     ],
 )
 
@@ -66,6 +67,7 @@ yaspl_bootstrap_library(
         "//libraries/data:ordering",
         "//libraries/data:set",
         "//libraries/data:tuples",
+        "//libraries/yaspl:math-operations",
     ],
 )
 
@@ -73,7 +75,6 @@ yaspl_bootstrap_library(
     name = "lowered-register-language",
     srcs = ["lowered-register-language.yaspl"],
     deps = [
-        ":prim-language",
         ":register-language",
         "//libraries/algorithms:find-chains",
         "//libraries/data:dict",
@@ -85,6 +86,7 @@ yaspl_bootstrap_library(
         "//libraries/data:set-multi-dict",
         "//libraries/data:tuples",
         "//libraries/data:unique-dict",
+        "//libraries/yaspl:math-operations",
     ],
 )
 
@@ -113,7 +115,6 @@ yaspl_bootstrap_library(
     deps = [
         ":lower-x86-64",
         ":lowered-register-language",
-        ":prim-language",
         ":register-language",
         "//libraries/data:bytes",
         "//libraries/data:dict",
@@ -123,6 +124,7 @@ yaspl_bootstrap_library(
         "//libraries/data:maybe",
         "//libraries/data:numbers",
         "//libraries/data:set",
+        "//libraries/yaspl:math-operations",
         "//libraries/yaspl:x86-64-assembly",
     ],
 )
@@ -134,6 +136,7 @@ yaspl_bootstrap_library(
         ":syscalls",
         "//libraries/data:list",
         "//libraries/data:tuples",
+        "//libraries/yaspl:math-operations",
     ],
 )
 
@@ -201,6 +204,7 @@ yaspl_library(
         "//libraries/data:either",
         "//libraries/data:list",
         "//libraries/data:tuples",
+        "//libraries/yaspl:math-operations",
     ],
 )
 
@@ -224,13 +228,13 @@ yaspl_library(
     srcs = ["print-lowered-register-language.yaspl"],
     deps = [
         ":lowered-register-language",
-        ":prim-language",
         ":register-language",
         "//libraries/data:bytes",
         "//libraries/data:dict",
         "//libraries/data:join-list",
         "//libraries/data:list",
         "//libraries/data:numbers",
+        "//libraries/yaspl:math-operations",
     ],
 )
 
@@ -246,6 +250,7 @@ yaspl_library(
         "//libraries/data:join-list",
         "//libraries/data:list",
         "//libraries/data:numbers",
+        "//libraries/yaspl:math-operations",
     ],
 )
 
@@ -264,6 +269,7 @@ yaspl_library(
         "//libraries/data:numbers",
         "//libraries/data:set",
         "//libraries/data:tuples",
+        "//libraries/yaspl:math-operations",
     ],
 )
 
@@ -279,6 +285,7 @@ yaspl_bootstrap_library(
         "//libraries/data:maybe",
         "//libraries/data:numbers",
         "//libraries/data:ordering",
+        "//libraries/yaspl:math-operations",
     ],
 )
 
@@ -318,7 +325,6 @@ yaspl_bootstrap_library(
     srcs = ["simplify-lowered-register-language.yaspl"],
     deps = [
         ":lowered-register-language",
-        ":prim-language",
         "//libraries/data:boolean",
         "//libraries/data:dict",
         "//libraries/data:either",
@@ -328,6 +334,7 @@ yaspl_bootstrap_library(
         "//libraries/data:set",
         "//libraries/data:set-multi-dict",
         "//libraries/data:unique-dict",
+        "//libraries/yaspl:math-operations",
     ],
 )
 
@@ -343,6 +350,7 @@ yaspl_bootstrap_library(
         "//libraries/data:numbers",
         "//libraries/data:set",
         "//libraries/data:tuples",
+        "//libraries/yaspl:math-operations",
     ],
 )
 

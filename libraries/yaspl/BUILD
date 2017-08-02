@@ -8,6 +8,7 @@ yaspl_bootstrap_library(
     name = "intermediate-to-register",
     srcs = ["intermediate-to-register.yaspl"],
     deps = [
+        ":math-operations",
         ":module-environment",
         ":top-level-objects",
         "//libraries:intermediate-language",

@@ -7,33 +7,13 @@
   (lowered-register-language)
   (numbers)
   (prim)
-  (prim-language) {
-    #:types
-      BinOp
-      ComparisonOp
-      NumericOp
-    #:patterns
-      and
-      comparison-bin-op
-      equal
-      greater-than
-      greater-than-or-equal
-      less-than
-      less-than-or-equal
-      logical-bin-op
-      mul
-      not-equal
-      numeric-bin-op
-      or
-      plus
-      sub
-  }
   (register-language) {
     #:types
       UnaryOp
     #:patterns
       truncate-unsigned-int64->unsigned-int8
   }
+  (yaspl math-operations)
 }
 (export
   #:types ()
@@ -85,10 +65,18 @@
 
 (define (Reg) (print-instruction [i : (Instruction Reg)] [print-reg : (Reg -> Bytes)]) : (JoinList Bytes)
   (case i
-    [(bin-op-inst out op right)
+    [(numeric-op-inst out op right)
      (varargs append-jl*
        (single-jl (print-reg out))
-       (varargs join-list #" = (" (print-bin-op op) #" ")
+       (varargs join-list #" = (" (numeric-bin-op->bytes op) #" ")
+       (single-jl (print-reg out))
+       (single-jl #" ")
+       (single-jl (print-reg right))
+       (single-jl #")\n"))]
+    [(comparison-op-inst out op right)
+     (varargs append-jl*
+       (single-jl (print-reg out))
+       (varargs join-list #" = (" (comparison-bin-op->bytes op) #" ")
        (single-jl (print-reg out))
        (single-jl #" ")
        (single-jl (print-reg right))
@@ -96,7 +84,7 @@
     [(numeric-op-immediate out op v)
      (varargs append-jl*
        (single-jl (print-reg out))
-       (varargs join-list #" = (" (print-numeric-op op) #" ")
+       (varargs join-list #" = (" (numeric-bin-op->bytes op) #" ")
        (single-jl (print-reg out))
        (single-jl #" ")
        (single-jl (integer->decimal-bytes (s32->s64 v)))
@@ -178,28 +166,6 @@
   (case op
     [(truncate-unsigned-int64->unsigned-int8) #"truncate"]))
 
-(define (print-bin-op [op : BinOp]) : Bytes
-  (case op
-    [(numeric-bin-op op) (print-numeric-op op)]
-    [(logical-bin-op (and)) #"and"]
-    [(logical-bin-op (or)) #"or"]
-    [(comparison-bin-op c) (print-comparison-op c)]))
-
-(define (print-numeric-op [op : NumericOp]) : Bytes
-  (case op
-    [(plus) #"+"]
-    [(mul) #"*"]
-    [(sub) #"-"]))
-
-(define (print-comparison-op [op : ComparisonOp]) : Bytes
-  (case op
-    [(less-than) #"<"]
-    [(less-than-or-equal) #"<="]
-    [(greater-than) #">"]
-    [(greater-than-or-equal) #">="]
-    [(equal) #"="]
-    [(not-equal) #"!="]))
-
 (define (Reg) (print-terminal [t : (Terminal Reg)] [print-reg : (Reg -> Bytes)]) : (JoinList Bytes)
   (case t
     [(return reg)
@@ -240,7 +206,7 @@
     [(cond-jump/false-fall-through (comparison-condition op reg1 reg2) t-block-num f-block-num)
      (varargs join-list
        #"cond-jump ("
-       (print-comparison-op op)
+       (comparison-bin-op->bytes op)
        #" "
        (print-reg reg1)
        #" "

@@ -33,30 +33,12 @@
   (maybe)
   (numbers)
   (prim)
-  (prim-language) {
-    #:values
-      sub
-    #:patterns
-      and
-      comparison-bin-op
-      equal
-      greater-than
-      greater-than-or-equal
-      less-than
-      less-than-or-equal
-      logical-bin-op
-      mul
-      not-equal
-      numeric-bin-op
-      or
-      plus
-      sub
-  }
   (register-language) {
     #:patterns
       truncate-unsigned-int64->unsigned-int8
   }
   (set)
+  (yaspl math-operations)
   (yaspl x86-64-assembly) {
     #:types
       [BasicBlock a:BasicBlock]
@@ -131,6 +113,10 @@
       setl
       setle
       setne
+      shlq
+      shlq/imm
+      shrq
+      shrq/imm
       [sil a:sil]
       subq
       [syscall a:syscall]
@@ -154,7 +140,7 @@
       (varargs list
         (push (rbp))
         (move (rbp) (rsp))
-        (numeric-op-immediate (rsp) (sub) (s32 (* extra-temporaries 8))))
+        (numeric-op-immediate (rsp) (sub-op) (s32 (* extra-temporaries 8))))
       (rename-registers/block-map blocks assignment))))
 
 (define (Reg) (add-entry-block [insts : (List (Instruction Reg))] [blocks : (BlockMap Reg)]) :
@@ -285,32 +271,56 @@
      (single-jl (movq (mem (a:rbp) (* (+ index 1) (- 0 8))) (reg (convert-register out))))]
     [(unary-op-inst out (truncate-unsigned-int64->unsigned-int8) in)
      (single-jl (movzbq (reg (convert-register in)) (convert-register out)))]
-    [(bin-op-inst out (numeric-bin-op (plus)) in)
+    [(numeric-op-inst out (add-op) in)
      (single-jl (addq (reg (convert-register in)) (convert-register out)))]
-    [(numeric-op-immediate out (plus) v)
+    [(numeric-op-immediate out (add-op) v)
      (single-jl (addq (rmi-imm (imm-s32 v)) (convert-register out)))]
-    [(bin-op-inst out (numeric-bin-op (sub)) in)
+    [(numeric-op-inst out (sub-op) in)
      (single-jl (subq (reg (convert-register in)) (convert-register out)))]
-    [(numeric-op-immediate out (sub) v)
+    [(numeric-op-immediate out (sub-op) v)
      (single-jl (subq (rmi-imm (imm-s32 v)) (convert-register out)))]
-    [(bin-op-inst out (numeric-bin-op (mul)) in)
+    [(numeric-op-inst out (mult-op) in)
      (single-jl (imulq (convert-register in) (convert-register out)))]
-    [(numeric-op-immediate out (mul) v)
+    [(numeric-op-immediate out (mult-op) v)
      (single-jl (imulq/imm v (reg (convert-register out)) (convert-register out)))]
-    [(bin-op-inst out (logical-bin-op (and)) in)
+    [(numeric-op-inst out (quotient-op) in)
+     (panic #"Quotient NYI")]
+    [(numeric-op-immediate out (quotient-op) v)
+     (panic #"Quotient doesnt support immediate operations")]
+    [(numeric-op-inst out (remainder-op) in)
+     (panic #"Remainder NYI")]
+    [(numeric-op-immediate out (remainder-op) v)
+     (panic #"Remainder doesnt support immediate operations")]
+    [(numeric-op-inst out (bitwise-and-op) in)
      (single-jl (andq (reg (convert-register in)) (convert-register out)))]
-    [(bin-op-inst out (logical-bin-op (or)) in)
+    [(numeric-op-immediate out (bitwise-and-op) v)
+     (panic #"And doesn't support immediate operations")]
+    [(numeric-op-inst out (bitwise-ior-op) in)
      (single-jl (orq (convert-register in) (convert-register out)))]
-    [(bin-op-inst out (comparison-bin-op op) in)
+    [(numeric-op-immediate out (bitwise-ior-op) v)
+     (panic #"Or doesn't support immediate operations")]
+    [(numeric-op-inst out (logical-shift-left-op) in)
+     ;; TODO check that 'in' is RCX
+     (single-jl (shlq (convert-register out)))]
+    [(numeric-op-immediate out (logical-shift-left-op) v)
+     ;; TODO check that 'v' is actually within u8 bounds
+     (single-jl (shlq/imm (u8 (s32->s64 v)) (convert-register out)))]
+    [(numeric-op-inst out (logical-shift-right-op) in)
+     ;; TODO check that 'in' is RCX
+     (single-jl (shrq (convert-register out)))]
+    [(numeric-op-immediate out (logical-shift-right-op) v)
+     ;; TODO check that 'v' is actually within u8 bounds
+     (single-jl (shrq/imm (u8 (s32->s64 v)) (convert-register out)))]
+    [(comparison-op-inst out op in)
      (varargs join-list
        (cmpq (reg (convert-register in)) (reg (convert-register out)))
        (case op
-         [(equal) (sete (convert-register/8 out))]
-         [(not-equal) (setne (convert-register/8 out))]
-         [(less-than) (setl (convert-register/8 out))]
-         [(greater-than) (setg (convert-register/8 out))]
-         [(less-than-or-equal) (setle (convert-register/8 out))]
-         [(greater-than-or-equal) (setge (convert-register/8 out))])
+         [(equal-op) (sete (convert-register/8 out))]
+         [(not-equal-op) (setne (convert-register/8 out))]
+         [(less-than-op) (setl (convert-register/8 out))]
+         [(greater-than-op) (setg (convert-register/8 out))]
+         [(less-than-or-equal-op) (setle (convert-register/8 out))]
+         [(greater-than-or-equal-op) (setge (convert-register/8 out))])
        (movzbq (reg (convert-register/8 out)) (convert-register out)))]
     ;; TODO check that these are the right registers
     [(compare-memory out _ _ _)
@@ -345,12 +355,12 @@
      (varargs join-list
        (cmpq (reg (convert-register reg2)) (reg (convert-register reg1)))
        ((case c
-         [(equal) je]
-         [(not-equal) jne]
-         [(less-than) jg]
-         [(greater-than) jl]
-         [(less-than-or-equal) jle]
-         [(greater-than-or-equal) jge])
+         [(equal-op) je]
+         [(not-equal-op) jne]
+         [(less-than-op) jg]
+         [(greater-than-op) jl]
+         [(less-than-or-equal-op) jle]
+         [(greater-than-or-equal-op) jge])
         (make-block-label block-prefix t-block-num)))]
     ;; TODO check that these are the right registers
     [(cond-jump/false-fall-through (memory-compare-condition negated? _ _ _) t-block-num f-block-num)
