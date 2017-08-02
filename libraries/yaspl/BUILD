@@ -26,6 +26,11 @@ yaspl_bootstrap_library(
 )
 
 yaspl_bootstrap_library(
+    name = "math-operations",
+    srcs = ["math-operations.yaspl"],
+)
+
+yaspl_bootstrap_library(
     name = "module-environment",
     srcs = ["module-environment.yaspl"],
     deps = [

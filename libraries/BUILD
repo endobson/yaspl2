@@ -528,6 +528,7 @@ yaspl_bootstrap_library(
         "//libraries/data:list",
         "//libraries/data:set",
         "//libraries/data:tuples",
+        "//libraries/yaspl:math-operations",
         "//libraries/yaspl:top-level-objects",
     ],
 )
@@ -544,6 +545,7 @@ yaspl_library(
         "//libraries/data:join-list",
         "//libraries/data:list",
         "//libraries/data:numbers",
+        "//libraries/yaspl:math-operations",
         "//libraries/yaspl:top-level-objects",
     ],
 )
@@ -734,6 +736,7 @@ yaspl_bootstrap_library(
         "//libraries/data:join-list",
         "//libraries/data:list",
         "//libraries/data:tuples",
+        "//libraries/yaspl:math-operations",
     ],
 )
 
@@ -977,6 +980,7 @@ yaspl_bootstrap_library(
         "//libraries/data:join-list",
         "//libraries/data:list",
         "//libraries/data:numbers",
+        "//libraries/yaspl:math-operations",
         "//libraries/yaspl:x86-64-assembly",
     ],
 )
