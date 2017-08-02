@@ -2,98 +2,13 @@
 #:import {
   (bytes)
   (dict)
-  (intermediate-language) {
-    #:types
-      BytesConstant
-      CaseClause
-      ClosureConstant
-      Expression
-      [FunctionDefinition i:FunctionDefinition]
-      [Module i:Module]
-      Pattern
-      TypeDefinition
-      VariantDefinition
-      VariantField
-    #:values
-      [module-bytes i:module-bytes]
-      [module-closures i:module-closures]
-      [module-definitions i:module-definitions]
-      [module-name i:module-name]
-      [module-types i:module-types]
-    #:patterns
-      abstraction-pattern
-      begin-expr
-      boolean-literal
-      bytes-constant
-      bytes-pattern
-      call-closure-expr
-      case-clause
-      case-expr
-      closure-constant
-      create-closure-expr
-      [function-definition i:function-definition]
-      if-expr
-      ignore-pattern
-      int-literal
-      int-pattern
-      let-expr
-      make-array-expr
-      type-definition
-      var-expr
-      variable-pattern
-      variant-definition
-      variant-field
-  }
+  (intermediate-language)
   (join-list)
   (list)
   (maybe)
   (module-name)
   (prim)
-  (stack-machine) {
-    #:types
-      GenState
-      StackCmd
-    #:values
-      add-boolean-literal
-      add-bytes-cmp
-      add-int-cmp
-      add-int-literal
-      alloc-variant-cmd
-      boolean-jmp
-      boolean-lit-cmd
-      call-function
-      catch-all-case
-      create-closure
-      dup-cmd
-      dup-temporary
-      gen-state
-      ignore-value
-      initial-variables
-      load-free-var
-      load-global
-      make-varargs-array
-      name-temporary
-      no-catch-all-case
-      pop-cmd
-      remove-temporaries
-      return
-      stack-basic-block
-      stack-function
-      swap-cmd
-      tmp-slot
-      uncond-jmp
-      unscope-variable
-      var-slot
-      variable-ref
-      variant-case
-      variant-ref
-      variant-ref-cmd
-      variant-switch
-    #:patterns
-      gen-state
-      tmp-slot
-      var-slot
-  }
+  (stack-machine)
   (tuples)
   (yaspl module-environment)
   (yaspl top-level-objects)
@@ -112,14 +27,14 @@
     (local-var)
     (free-var [offset : Int])) )
 
-(define (module-to-top-level-objects [imod : i:Module] [env : ModuleEnvironment]) : (List TopLevelObject)
+(define (module-to-top-level-objects [mod : Module] [env : ModuleEnvironment]) : (List TopLevelObject)
   (append
-    (compile-type-definitions imod)
+    (compile-type-definitions mod)
     (append
-      (compile-function-definitions imod env)
+      (compile-function-definitions mod env)
       (append
-        (compile-closures imod)
-        (compile-byte-constants imod)))))
+        (compile-closures mod)
+        (compile-byte-constants mod)))))
 
 (define (environment-value-ref [env : Environment] [name : Bytes]) : (Maybe VarReference)
   (dict-ref (environment-value-bindings env) name))
@@ -147,8 +62,8 @@
      (add-all-free-vars (environment-value-set env name (free-var index)) names (+ 1 index))]))
 
 
-(define (compile-type-definitions [imod : i:Module]) : (List TopLevelObject)
-  (compile-type-definitions/list (i:module-name imod) (i:module-types imod) (empty)))
+(define (compile-type-definitions [mod : Module]) : (List TopLevelObject)
+  (compile-type-definitions/list (module-name mod) (module-types mod) (empty)))
 
 (define (compile-type-definitions/list
           [mod-name : ModName]
@@ -272,18 +187,18 @@
         (cons (dup-cmd (- (* 2 args) (* 2 (+ arg-number 1)))) cmds))))
 
 
-(define (compile-byte-constants [imod : i:Module]) : (List TopLevelObject)
-  (map (let ([mod-name (i:module-name imod)])
+(define (compile-byte-constants [mod : Module]) : (List TopLevelObject)
+  (map (let ([mod-name (module-name mod)])
          (lambda ([b : BytesConstant])
             (case b
               [(bytes-constant name value)
                (bytes-tlo
                  (mangle-name (bytes-append (varargs list (mangled-mod-name mod-name) #"_" name)))
                  value)])))
-       (i:module-bytes imod)))
+       (module-bytes mod)))
 
-(define (compile-closures [imod : i:Module]) : (List TopLevelObject)
-  (compile-closures/list (i:module-name imod) (i:module-closures imod)))
+(define (compile-closures [mod : Module]) : (List TopLevelObject)
+  (compile-closures/list (module-name mod) (module-closures mod)))
 
 (define (compile-closures/list
           [mod-name : ModName]
@@ -298,12 +213,12 @@
          (mangle-name (bytes-append (varargs list (mangled-mod-name mod-name) #"_" fun-name))))
        (compile-closures/list mod-name pairs))]))
 
-(define (compile-function-definitions [imod : i:Module] [env : ModuleEnvironment]) : (List TopLevelObject)
-  (compile-function-definitions/list (i:module-name imod) (i:module-definitions imod) env))
+(define (compile-function-definitions [mod : Module] [env : ModuleEnvironment]) : (List TopLevelObject)
+  (compile-function-definitions/list (module-name mod) (module-definitions mod) env))
 
 (define (compile-function-definitions/list
           [mod-name : ModName]
-          [funs : (List i:FunctionDefinition)]
+          [funs : (List FunctionDefinition)]
           [env : ModuleEnvironment]) : (List TopLevelObject)
   (case funs
     [(empty) (empty)]
@@ -313,10 +228,10 @@
 
 (define (compile-function-definition
           [mod-name : ModName]
-          [fun : i:FunctionDefinition]
+          [fun : FunctionDefinition]
           [env : ModuleEnvironment]) : TopLevelObject
   (case fun
-    [(i:function-definition name pre-type arg-names free-vars body)
+    [(function-definition name pre-type arg-names free-vars body)
      (stack-function-tlo
        (stack-function
          (mangle-name (bytes-append (varargs list (mangled-mod-name mod-name) #"_" name)))
@@ -357,6 +272,14 @@
          (environment-value-set env name (local-var))
          (name-temporary name
            (compile-expression expr env state))))]
+    [(prim-numeric-bin-op op left right)
+     (add-bin-numeric-cmd op
+       (compile-expression right env
+         (compile-expression left env state)))]
+    [(prim-comparison-bin-op op left right)
+     (add-bin-comparison-cmd op
+       (compile-expression right env
+         (compile-expression left env state)))]
     [(var-expr v)
      (case (environment-value-ref env v)
        [(just (local-var)) (variable-ref v state)]

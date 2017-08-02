@@ -253,6 +253,7 @@ yaspl_bootstrap_library(
         ":resolved-imports-language",
         ":types",
         "//libraries/data:list",
+        "//libraries/yaspl:math-operations",
     ],
 )
 
