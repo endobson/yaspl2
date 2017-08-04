@@ -17,7 +17,7 @@
 (export
   #:types (LiveOutState)
   #:values (live-variables print-blocks print-graph blocks->live-out-states live-out-state->bytes
-            input-registers output-registers move-live-out-state def-live-out-state)
+            input-registers dirtied-registers move-live-out-state def-live-out-state)
   #:patterns (def-live-out-state move-live-out-state))
 (types
   (define-type (BlockState Reg)
@@ -234,18 +234,10 @@
   (case i
     [(move out src)
      (move-point-state (input-registers i reg-cmp) out src)]
-    [(function-call-inst _ _ _ conflicts)
-     (def-point-state
-       (input-registers i reg-cmp)
-       (set-add-all (output-registers i reg-cmp) conflicts))]
-    [(compare-memory out size v1 v2)
-     (def-point-state
-       (input-registers i reg-cmp)
-       (set-add-all (output-registers i reg-cmp) (varargs list size v1 v2)))]
     [_
      (def-point-state
        (input-registers i reg-cmp)
-       (output-registers i reg-cmp))]))
+       (dirtied-registers i reg-cmp))]))
 
 (define (Reg) (input-registers [inst : (Instruction Reg)] [reg-cmp : (Reg Reg -> Ordering)]) : (Set Reg)
   (case inst
@@ -261,10 +253,14 @@
      (make-set reg-cmp)]
     [(store-least-significant-byte loc offset val)
      (set-add (set-add (make-set reg-cmp) loc) val)]
+    [(store-least-significant-byte-repeated loc val amount)
+     (set-add (set-add (set-add (make-set reg-cmp) loc) val) amount)]
     [(load-zero-extended-byte output loc offset)
      (set-add (make-set reg-cmp) loc)]
     [(store-8byte loc offset val)
      (set-add (set-add (make-set reg-cmp) loc) val)]
+    [(store-8byte-repeated loc val amount)
+     (set-add (set-add (set-add (make-set reg-cmp) loc) val) amount)]
     [(load-8byte output loc offset)
      (set-add (make-set reg-cmp) loc)]
     [(compare-memory out size v1 v2)
@@ -289,10 +285,47 @@
          [(direct-call f) input]
          [(indirect-function-call f) (set-add input f)]))]))
 
-(define (Reg) (output-registers [inst : (Instruction Reg)] [reg-cmp : (Reg Reg -> Ordering)]) : (Set Reg)
-  (case (output-register inst)
-    [(nothing) (make-set reg-cmp)]
-    [(just reg) (set-add (make-set reg-cmp) reg)]))
+(define (Reg) (dirtied-registers [inst : (Instruction Reg)] [reg-cmp : (Reg Reg -> Ordering)]) : (Set Reg)
+  (match-define empty-set (make-set reg-cmp))
+  (case inst
+    [(int-literal output _)
+     (set-add empty-set output)]
+    [(symbol-address output _)
+     (set-add empty-set output)]
+    [(move dest src)
+     (set-add empty-set dest)]
+    [(push reg)
+     empty-set]
+    [(pop reg)
+     (set-add empty-set reg)]
+    [(store-least-significant-byte loc offset val)
+     empty-set]
+    [(store-least-significant-byte-repeated loc val amount)
+     (set-add (set-add empty-set loc) amount)]
+    [(load-zero-extended-byte output loc offset)
+     (set-add empty-set output)]
+    [(store-8byte loc offset val)
+     empty-set]
+    [(store-8byte-repeated loc val amount)
+     (set-add (set-add empty-set loc) amount)]
+    [(load-8byte output loc offset)
+     (set-add empty-set output)]
+    [(compare-memory output size v1 v2)
+     (set-add (set-add (set-add (set-add empty-set output) size) v1) v2)]
+    [(store-temporary index val)
+     empty-set]
+    [(load-temporary output index)
+     (set-add empty-set output)]
+    [(numeric-op-inst output _ input)
+     (set-add empty-set output)]
+    [(comparison-op-inst output _ input)
+     (set-add empty-set output)]
+    [(numeric-op-immediate output _ _)
+     (set-add empty-set output)]
+    [(unary-op-inst output _ input)
+     (set-add empty-set output)]
+    [(function-call-inst output f args conflicts)
+     (set-add-all (set-add empty-set output) conflicts)]))
 
 (define (Reg) (initial-live-in/terminal [t : (Terminal Reg)] [reg-cmp : (Reg Reg -> Ordering)]) : (Set Reg)
   (case t

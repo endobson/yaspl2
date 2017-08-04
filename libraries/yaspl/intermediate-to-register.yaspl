@@ -31,6 +31,7 @@
       comparison-condition
       [cond-jump r:cond-jump]
       eight-byte-mem-op
+      [fill-memory-inst r:fill-memory-inst]
       [function-call-inst r:function-call-inst]
       [function-definition r:function-definition]
       [halt r:halt]
@@ -39,6 +40,7 @@
       [jump r:jump]
       memory-compare-condition
       negated-var-condition
+      [numeric-op-immediate-inst r:numeric-op-immediate-inst]
       [pointer-ref-inst r:pointer-ref-inst]
       [pointer-set!-inst r:pointer-set!-inst]
       [return r:return]
@@ -189,6 +191,64 @@
                    (r:pointer-set!-inst (eight-byte-mem-op) array-var 0 array-size-var)))
                (match-define acc (fill-array array-var 8 args env acc))
                (tuple2 array-var acc)])])])]
+    [(make-array-expr size val)
+     (match-define (tuple2 size-var acc) (convert-expr size env acc))
+     (match-define (tuple2 val-var acc) (convert-expr val env acc))
+     (match-define (tuple2 incr-size-var acc) (fresh-var acc #"incr-size"))
+     (match-define (tuple2 byte-size-var acc) (fresh-var acc #"bytes-size"))
+     (match-define (tuple2 array-var acc) (fresh-var acc #"arr"))
+     (match-define acc
+       (add-instruction acc (r:numeric-op-immediate-inst incr-size-var (add-op) size-var (s32 1))))
+     (match-define acc
+       (add-instruction acc (r:numeric-op-immediate-inst byte-size-var (mult-op) incr-size-var (s32 8))))
+     (match-define acc
+       (add-instruction acc (r:heap-allocate-inst array-var byte-size-var)))
+     (match-define acc
+       (add-instruction acc (r:pointer-set!-inst (eight-byte-mem-op) array-var 0 size-var)))
+     (match-define acc
+       (add-instruction acc (r:fill-memory-inst (eight-byte-mem-op) array-var 0 val-var size-var)))
+     (tuple2 array-var acc)]
+    [(array-length-expr array)
+     (match-define (tuple2 array-var acc) (convert-expr array env acc))
+     (match-define (tuple2 size-var acc) (fresh-var acc #"size"))
+     (match-define acc
+       (add-instruction acc (r:pointer-ref-inst size-var (eight-byte-mem-op) array-var 0)))
+     (tuple2 size-var acc)]
+    [(array-ref-expr array index)
+     (match-define (tuple2 array-var acc) (convert-expr array env acc))
+     (match-define (tuple2 index-var acc) (convert-expr index env acc))
+     (match-define (tuple2 offset-var acc) (fresh-var acc #"offset"))
+     (match-define (tuple2 scaled-offset-var acc) (fresh-var acc #"scaled-offset"))
+     (match-define (tuple2 ptr-var acc) (fresh-var acc #"ptr"))
+     (match-define (tuple2 val-var acc) (fresh-var acc #"val"))
+     (match-define acc
+       (add-instruction acc (r:numeric-op-immediate-inst offset-var (add-op) index-var (s32 1))))
+     (match-define acc
+       (add-instruction acc (r:numeric-op-immediate-inst scaled-offset-var (mult-op) index-var (s32 8))))
+     (match-define acc
+       (add-instruction acc (r:bin-op-inst ptr-var (numeric-bin-op (add-op)) array-var scaled-offset-var)))
+     (match-define acc
+       (add-instruction acc (r:pointer-ref-inst val-var (eight-byte-mem-op) ptr-var 0)))
+     (tuple2 val-var acc)]
+    [(array-set!-expr array index val)
+     (match-define (tuple2 array-var acc) (convert-expr array env acc))
+     (match-define (tuple2 index-var acc) (convert-expr index env acc))
+     (match-define (tuple2 val-var acc) (convert-expr val env acc))
+     (match-define (tuple2 offset-var acc) (fresh-var acc #"offset"))
+     (match-define (tuple2 scaled-offset-var acc) (fresh-var acc #"scaled-offset"))
+     (match-define (tuple2 ptr-var acc) (fresh-var acc #"ptr"))
+     (match-define (tuple2 void-var acc) (fresh-var acc #"void"))
+     (match-define acc
+       (add-instruction acc (r:numeric-op-immediate-inst offset-var (add-op) index-var (s32 1))))
+     (match-define acc
+       (add-instruction acc (r:numeric-op-immediate-inst scaled-offset-var (mult-op) index-var (s32 8))))
+     (match-define acc
+       (add-instruction acc (r:bin-op-inst ptr-var (numeric-bin-op (add-op)) array-var scaled-offset-var)))
+     (match-define acc
+       (add-instruction acc (r:pointer-set!-inst (eight-byte-mem-op) ptr-var 0 val-var)))
+     (match-define acc
+       (add-instruction acc (r:int-literal void-var 0)))
+     (tuple2 void-var acc)]
     [(if-expr cond then else)
      (match-define (tuple2 branch-var acc)
        (convert-expr cond env acc))
