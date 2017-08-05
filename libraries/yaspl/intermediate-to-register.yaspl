@@ -45,6 +45,7 @@
       [pointer-set!-inst r:pointer-set!-inst]
       [return r:return]
       [symbol-address-inst r:symbol-address-inst]
+      [tail-call r:tail-call]
   }
   (tuples)
   (yaspl math-operations)
@@ -142,18 +143,21 @@
     [(let-expr name e body)
      (match-define (tuple2 v acc) (convert-expr e env acc))
      (convert-expr body (env-set env name v) acc)]
-    [(call-closure-expr op args)
-     (case (convert-expr op env acc)
-       [(tuple2 closure-var acc)
-        (case (convert-exprs args env acc)
-          [(tuple2 arg-vars acc)
-           (case (fresh-var acc #"res")
-             [(tuple2 result-var acc)
-              (tuple2
-                result-var
-                (add-instruction
-                  acc
-                  (r:function-call-inst result-var (closure-call closure-var) arg-vars)))])])])]
+    [(call-closure-expr tail-position op args)
+     (match-define (tuple2 closure-var acc) (convert-expr op env acc))
+     (match-define (tuple2 arg-vars acc) (convert-exprs args env acc))
+     (match-define (tuple2 result-var acc) (fresh-var acc #"res"))
+     (if tail-position
+         (case (fresh-block-number acc)
+           [(tuple2 dead-block-num acc)
+            (match-define acc (add-terminal acc (r:tail-call (closure-call closure-var) arg-vars)))
+            ;; This result var is unscoped but should never be used.
+            (tuple2 result-var (start-block dead-block-num (empty) acc))])
+         (tuple2
+           result-var
+           (add-instruction
+             acc
+             (r:function-call-inst result-var (closure-call closure-var) arg-vars))))]
     [(prim-numeric-bin-op op left right)
      (match-define (tuple2 left-var acc) (convert-expr left env acc))
      (match-define (tuple2 right-var acc) (convert-expr right env acc))

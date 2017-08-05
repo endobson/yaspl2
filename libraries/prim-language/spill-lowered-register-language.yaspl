@@ -70,18 +70,8 @@
   (match-define (basic-block instructions terminal) b)
   (match-define reg-sets
     (cons
-      (let ([empty-set (make-set reg-cmp)])
-        (case terminal
-          [(return reg) (set-add empty-set reg)]
-          [(halt) empty-set]
-          [(jump _) empty-set]
-          [(fall-through _) empty-set]
-          [(cond-jump/false-fall-through c t f)
-           (case c
-             [(reg-condition r) (set-add empty-set r)]
-             [(negated-reg-condition r) (set-add empty-set r)]
-             [(comparison-condition _ reg1 reg2) (set-add (set-add empty-set reg1) reg2)]
-             [(memory-compare-condition _ _ reg1 reg2) (set-add (set-add empty-set reg1) reg2)])]))
+      ;; Should also have initial-defined/terminal but it is currently redundent
+      (initial-live-in/terminal terminal reg-cmp)
       (append
         (map (lambda ([i : (Instruction Reg)]) (input-registers i reg-cmp)) instructions)
         (map (lambda ([i : (Instruction Reg)]) (dirtied-registers i reg-cmp)) instructions))))
@@ -147,6 +137,16 @@
        (tuple3 t loads next-var)]
       [(jump _)
        (tuple3 t loads next-var)]
+      [(tail-call f args)
+       ;; Currently assume that all args are fixed regs and so don't need to be spilled
+       (match-define (tuple3 f loads next-var)
+         (case f
+           [(indirect-function-call reg)
+            (match-define (tuple3 new-reg loads next-var) (maybe-spill-reg reg spilled loads next-var))
+            (tuple3 (indirect-function-call new-reg) loads next-var)]
+           [_
+            (tuple3 f loads next-var)]))
+       (tuple3 (tail-call f args) loads next-var)]
       [(fall-through _)
        (tuple3 t loads next-var)]
       [(return reg)

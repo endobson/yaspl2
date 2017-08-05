@@ -41,6 +41,7 @@
       [store-least-significant-byte-repeated l:store-least-significant-byte-repeated]
       [symbol-address l:symbol-address]
       [syscall l:syscall]
+      [tail-call l:tail-call]
       [unary-op-inst l:unary-op-inst]
       [unvalidated-block-map-add-block l:unvalidated-block-map-add-block]
       [validate-block-map l:validate-block-map]
@@ -94,6 +95,7 @@
       [return r:return]
       [symbol-address-inst r:symbol-address-inst]
       [syscall r:syscall]
+      [tail-call r:tail-call]
       [unary-op-inst r:unary-op-inst]
       [var-condition r:var-condition]
   }
@@ -504,6 +506,33 @@
        acc)]
     [(r:halt)
      (tuple3 (empty) (ann-term (l:halt)) acc)]
+    [(r:tail-call f args)
+     (match-define (tuple2 arg-insts arg-regs)
+       (put-arguments-in-registers args (varargs list (rdi) (rsi) (rdx) (rcx) (r8) (r9)) (r10)))
+     (tuple3
+       (append
+         arg-insts
+         (append
+           (case f
+             [(r:direct-call f) (empty)]
+             [(r:indirect-function-call f) (empty)]
+             [(r:closure-call c)
+              (varargs list (l:move (fixed-reg (r11)) (temporary-reg c)))]
+             [(r:syscall s) (varargs list (l:int-literal (fixed-reg (rax)) (syscall-number s)))])
+           (map
+             (lambda ([p : (Tuple2 X8664Register r:Var)])
+               (case p
+                 [(tuple2 reg var)
+                  (l:move (fixed-reg reg) (temporary-reg var))]))
+             saved-register-pairs)))
+       (l:tail-call
+         (case f
+           [(r:direct-call f) (l:direct-call f)]
+           [(r:indirect-function-call f) (l:indirect-function-call (temporary-reg f))]
+           [(r:closure-call _) (l:closure-call (fixed-reg (r11)))]
+           [(r:syscall _) (l:syscall (fixed-reg (rax)))])
+         arg-regs)
+       acc)]
     [(r:jump index args)
      (tuple3
        (move-args (match-args index args blocks))

@@ -36,12 +36,12 @@
             load-zero-extended-byte store-least-significant-byte store-least-significant-byte-repeated
             unary-op-inst load-temporary store-temporary
             function-call-inst syscall indirect-function-call closure-call symbol-address
-            halt compare-memory memory-compare-condition numeric-op-immediate direct-call)
+            halt tail-call compare-memory memory-compare-condition numeric-op-immediate direct-call)
   #:patterns (int-literal symbol-address load-temporary store-temporary push pop
               load-zero-extended-byte store-least-significant-byte
               store-least-significant-byte-repeated load-8byte store-8byte store-8byte-repeated
               compare-memory move function-call-inst unary-op-inst numeric-op-inst comparison-op-inst
-              return halt jump fall-through cond-jump/false-fall-through
+              return halt tail-call jump fall-through cond-jump/false-fall-through
               reg-condition negated-reg-condition comparison-condition memory-compare-condition
               syscall indirect-function-call closure-call direct-call
               function-definition assigned-registers-function-definition
@@ -112,6 +112,7 @@
   (define-type (Terminal Reg)
     (return [reg : Reg])
     (halt)
+    (tail-call [f : (FunctionKind Reg)] [args : (List Reg)])
     (jump [block : Int])
     (fall-through [block : Int])
     (cond-jump/false-fall-through [cond : (Condition Reg)] [true : Int] [false : Int])))
@@ -178,15 +179,20 @@
     [(unary-op-inst out op in)
      (unary-op-inst (rename out) op (rename in))]
     [(function-call-inst out f args conflicts)
-     (function-call-inst (rename out)
-                         (case f
-                           [(direct-call f) (direct-call f)]
-                           [(indirect-function-call f) (indirect-function-call (rename f))]
-                           [(closure-call c) (closure-call (rename c))]
-                           [(syscall n) (syscall (rename n))])
+     (function-call-inst (rename out) (rename-registers/function-kind f rename)
                          (map rename args) (map rename conflicts))]
     [(numeric-op-immediate out op amt)
      (numeric-op-immediate (rename out) op amt)]))
+
+
+(define (RegA RegB) (rename-registers/function-kind
+                      [f : (FunctionKind RegA)]
+                      [rename : (RegA -> RegB)]) : (FunctionKind RegB)
+  (case f
+    [(direct-call f) (direct-call f)]
+    [(indirect-function-call f) (indirect-function-call (rename f))]
+    [(closure-call c) (closure-call (rename c))]
+    [(syscall n) (syscall (rename n))]))
 
 (define (RegA RegB) (rename-registers/terminal
                       [t : (Terminal RegA)]
@@ -196,6 +202,8 @@
      (return (rename r))]
     [(halt)
      (halt)]
+    [(tail-call f args)
+     (tail-call (rename-registers/function-kind f rename) (map rename args))]
     [(jump block)
      (jump block)]
     [(fall-through block)
@@ -362,6 +370,7 @@
     (case t
       [(return _) (empty)]
       [(halt) (empty)]
+      [(tail-call _ _) (empty)]
       [(jump b) (varargs list b)]
       [(fall-through b) (varargs list b)]
       [(cond-jump/false-fall-through _ t f) (varargs list t f)])))
@@ -370,6 +379,7 @@
   (case t
     [(return _) (nothing)]
     [(halt) (nothing)]
+    [(tail-call _ _) (nothing)]
     [(jump b) (nothing)]
     [(fall-through b) (just b)]
     [(cond-jump/false-fall-through _ _ f) (just f)]))
