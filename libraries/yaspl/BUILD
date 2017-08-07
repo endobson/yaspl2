@@ -16,6 +16,7 @@ yaspl_bootstrap_library(
         "//libraries:module-name",
         "//libraries/data:bytes",
         "//libraries/data:dict",
+        "//libraries/data:either",
         "//libraries/data:list",
         "//libraries/data:maybe",
         "//libraries/data:numbers",

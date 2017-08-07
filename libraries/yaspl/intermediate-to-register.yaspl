@@ -2,6 +2,7 @@
 #:import {
   (bytes)
   (dict)
+  (either)
   (intermediate-language)
   (intermediate-to-stack) {
     #:values
@@ -28,6 +29,8 @@
       [bin-op-inst r:bin-op-inst]
       closure-call
       closure-convention
+      compare-mem-arg-ptr
+      compare-mem-arg-val
       comparison-condition
       [cond-jump r:cond-jump]
       eight-byte-mem-op
@@ -167,9 +170,9 @@
        (add-instruction
          acc
          (r:bin-op-inst out-var (numeric-bin-op op) left-var right-var)))]
-    [(prim-comparison-bin-op op left right)
-     (match-define (tuple2 left-var acc) (convert-expr left env acc))
-     (match-define (tuple2 right-var acc) (convert-expr right env acc))
+    [(prim-comparison-bin-op op l r)
+     (match-define (tuple2 left-var acc) (convert-expr l env acc))
+     (match-define (tuple2 right-var acc) (convert-expr r env acc))
      (match-define (tuple2 out-var acc) (fresh-var acc #"cmp"))
      (tuple2
        out-var
@@ -328,15 +331,17 @@
     [(variable-pattern var)
      (tuple2 (env-set env var value) acc)]
     [(int-pattern exp)
-     (match-define (tuple2 exp-var acc) (fresh-var acc #"intpat"))
-     (match-define acc (add-instruction acc (r:int-literal exp-var exp)))
+     ;; TODO handle int patterns that are larger than S32
      (match-define (tuple2 continue-block acc) (fresh-block-number acc))
      (tuple2
        env
        (start-block
          continue-block
          (empty)
-         (add-terminal acc (r:cond-jump (comparison-condition (not-equal-op) exp-var value)
+         (add-terminal acc (r:cond-jump (comparison-condition
+                                          (not-equal-op)
+                                          (compare-mem-arg-val value)
+                                          (right (s32 exp)))
                                         fail-block (empty) continue-block (empty)))))]
     [(bytes-pattern name)
      (case (env-global-ref env name)
@@ -363,18 +368,16 @@
     [(abstraction-pattern name patterns)
      (case (env-pattern-tag-ref env name)
        [(nothing) (panic #"No tag for abstraction")]
-       [(just tag)
-        (match-define (tuple2 expected-tag acc) (fresh-var acc #"exp-tag"))
-        (match-define (tuple2 actual-tag acc) (fresh-var acc #"actual-tag"))
-        (match-define acc (add-instruction acc (r:int-literal expected-tag tag)))
-        (match-define acc
-          (add-instruction acc (r:pointer-ref-inst actual-tag (eight-byte-mem-op) value 0)))
+       [(just expected-tag)
+        ;; TODO ensure that expected tag is in S32
         (match-define (tuple2 continue-block acc) (fresh-block-number acc))
         (match-define acc
           (start-block
             continue-block
             (empty)
-            (add-terminal acc (r:cond-jump (comparison-condition (not-equal-op) expected-tag actual-tag)
+            (add-terminal acc (r:cond-jump (comparison-condition (not-equal-op)
+                                                                 (compare-mem-arg-ptr value)
+                                                                 (right (s32 expected-tag)))
                                            fail-block (empty) continue-block (empty)))))
         (convert-sub-patterns patterns value 8 fail-block env acc)])]))
 
