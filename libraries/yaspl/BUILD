@@ -66,6 +66,7 @@ yaspl_bootstrap_library(
         ":top-level-objects",
         ":x86-64-assembly",
         "//libraries:x86-64-stack-machine",
+        "//libraries/data:bytes",
         "//libraries/data:either",
         "//libraries/data:list",
         "//libraries/data:tuples",
