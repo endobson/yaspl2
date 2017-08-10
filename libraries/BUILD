@@ -246,14 +246,23 @@ yaspl_library(
 )
 
 yaspl_bootstrap_library(
+    name = "intermediate-expression",
+    srcs = ["intermediate-expression.yaspl"],
+    deps = [
+        "//libraries/data:list",
+        "//libraries/yaspl:math-operations",
+    ],
+)
+
+yaspl_bootstrap_library(
     name = "intermediate-language",
     srcs = ["intermediate-language.yaspl"],
     deps = [
+        ":intermediate-expression",
         ":module-name",
         ":resolved-imports-language",
         ":types",
         "//libraries/data:list",
-        "//libraries/yaspl:math-operations",
     ],
 )
 
@@ -678,6 +687,7 @@ yaspl_bootstrap_library(
     srcs = ["source-to-intermediate-language.yaspl"],
     deps = [
         ":free-variables",
+        ":intermediate-expression",
         ":intermediate-language",
         ":module-name",
         ":resolved-imports-language",
@@ -715,6 +725,7 @@ yaspl_bootstrap_library(
     name = "intermediate-to-stack",
     srcs = ["intermediate-to-stack.yaspl"],
     deps = [
+        ":intermediate-expression",
         ":intermediate-language",
         ":module-name",
         ":stack-machine",

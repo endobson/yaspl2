@@ -11,6 +11,7 @@ yaspl_bootstrap_library(
         ":math-operations",
         ":module-environment",
         ":top-level-objects",
+        "//libraries:intermediate-expression",
         "//libraries:intermediate-language",
         "//libraries:intermediate-to-stack",
         "//libraries:module-name",
