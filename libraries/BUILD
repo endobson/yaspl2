@@ -482,10 +482,12 @@ yaspl_bootstrap_library(
     name = "module-signature",
     srcs = ["module-signature.yaspl"],
     deps = [
+        ":intermediate-expression",
         ":module-name",
         ":types",
         "//libraries/data:dict",
         "//libraries/data:list",
+        "//libraries/data:maybe",
     ],
 )
 
@@ -536,6 +538,7 @@ yaspl_bootstrap_library(
         "//libraries/data:bytes",
         "//libraries/data:dict",
         "//libraries/data:list",
+        "//libraries/data:maybe",
         "//libraries/data:set",
         "//libraries/data:tuples",
         "//libraries/yaspl:math-operations",
