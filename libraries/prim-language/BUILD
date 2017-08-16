@@ -22,7 +22,6 @@ yaspl_bootstrap_library(
     deps = [
         ":lower-x86-64",
         ":lowered-live-variables",
-        ":register-language",
         "//libraries/data:boolean",
         "//libraries/data:bytes",
         "//libraries/data:dict",
@@ -32,6 +31,7 @@ yaspl_bootstrap_library(
         "//libraries/data:set",
         "//libraries/data:tuples",
         "//libraries/data:undirected-graph",
+        "//libraries/yaspl:var",
     ],
 )
 
@@ -68,6 +68,7 @@ yaspl_bootstrap_library(
         "//libraries/data:set",
         "//libraries/data:tuples",
         "//libraries/yaspl:math-operations",
+        "//libraries/yaspl:var",
     ],
 )
 
@@ -192,6 +193,7 @@ yaspl_library(
         "//libraries/data:maybe",
         "//libraries/data:set",
         "//libraries/data:tuples",
+        "//libraries/yaspl:var",
     ],
 )
 
@@ -254,6 +256,7 @@ yaspl_library(
         "//libraries/data:list",
         "//libraries/data:numbers",
         "//libraries/yaspl:math-operations",
+        "//libraries/yaspl:var",
     ],
 )
 
@@ -273,6 +276,7 @@ yaspl_library(
         "//libraries/data:set",
         "//libraries/data:tuples",
         "//libraries/yaspl:math-operations",
+        "//libraries/yaspl:var",
     ],
 )
 
@@ -282,14 +286,12 @@ yaspl_bootstrap_library(
     deps = [
         ":prim-language",
         ":syscalls",
-        "//libraries/data:bytes",
         "//libraries/data:dict",
         "//libraries/data:either",
         "//libraries/data:list",
         "//libraries/data:maybe",
-        "//libraries/data:numbers",
-        "//libraries/data:ordering",
         "//libraries/yaspl:math-operations",
+        "//libraries/yaspl:var",
     ],
 )
 
@@ -301,6 +303,7 @@ yaspl_bootstrap_library(
         "//libraries/data:dict",
         "//libraries/data:list",
         "//libraries/data:tuples",
+        "//libraries/yaspl:var",
     ],
 )
 
@@ -320,6 +323,7 @@ yaspl_bootstrap_library(
         "//libraries/data:either",
         "//libraries/data:maybe",
         "//libraries/data:tuples",
+        "//libraries/yaspl:var",
         "//libraries/yaspl:x86-64-assembly",
     ],
 )
@@ -356,6 +360,7 @@ yaspl_bootstrap_library(
         "//libraries/data:set",
         "//libraries/data:tuples",
         "//libraries/yaspl:math-operations",
+        "//libraries/yaspl:var",
     ],
 )
 
@@ -366,13 +371,13 @@ yaspl_bootstrap_library(
         ":lower-x86-64",
         ":lowered-live-variables",
         ":lowered-register-language",
-        ":register-language",
         "//libraries/data:dict",
         "//libraries/data:either",
         "//libraries/data:list",
         "//libraries/data:maybe",
         "//libraries/data:set",
         "//libraries/data:tuples",
+        "//libraries/yaspl:var",
     ],
 )
 

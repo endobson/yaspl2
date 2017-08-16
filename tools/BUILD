@@ -54,6 +54,7 @@ yaspl_library(
         "//libraries/prim-language:register-language-compiler",
         "//libraries/yaspl:top-level-objects",
         "//libraries/yaspl:top-level-objects-to-x86-64",
+        "//libraries/yaspl:var",
         "//libraries/yaspl:x86-64-assembly",
         "//libraries/yaspl:x86-64-assembly-printer",
     ],

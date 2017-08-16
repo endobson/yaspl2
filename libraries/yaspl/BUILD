@@ -11,6 +11,7 @@ yaspl_bootstrap_library(
         ":math-operations",
         ":module-environment",
         ":top-level-objects",
+        ":var",
         "//libraries:intermediate-expression",
         "//libraries:intermediate-language",
         "//libraries:intermediate-to-stack",
@@ -83,6 +84,17 @@ yaspl_bootstrap_library(
         "//libraries:stack-machine",
         "//libraries/data:list",
         "//libraries/prim-language:register-language",
+    ],
+)
+
+yaspl_bootstrap_library(
+    name = "var",
+    srcs = ["var.yaspl"],
+    deps = [
+        "//libraries/data:bytes",
+        "//libraries/data:list",
+        "//libraries/data:numbers",
+        "//libraries/data:ordering",
     ],
 )
 

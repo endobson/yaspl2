@@ -63,11 +63,6 @@
       [FunctionDefinition r:FunctionDefinition]
       [Instruction r:Instruction]
       [Terminal r:Terminal]
-      [Var r:Var]
-    #:values
-      var
-      var->bytes
-      var-cmp
     #:patterns
       [basic-block r:basic-block]
       [bin-op-inst r:bin-op-inst]
@@ -107,6 +102,7 @@
   (syscalls)
   (tuples)
   (yaspl math-operations)
+  (yaspl var)
 }
 (export
   #:types (Reg X8664Register)
@@ -136,7 +132,7 @@
     (r15))
   (define-type Reg
     (fixed-reg [r : X8664Register])
-    (temporary-reg [r : r:Var])))
+    (temporary-reg [r : Var])))
 
 (define (empty-blocks [entry-block-num : Int]) : (l:UnvalidatedBlockMap Reg)
   (l:empty-unvalidated-block-map entry-block-num))
@@ -347,7 +343,7 @@
     [(right validated-new-blocks)
      (l:function-definition name 0 validated-new-blocks)]))
 
-(define (args/registers [args : (List r:Var)] [registers : (List X8664Register)]
+(define (args/registers [args : (List Var)] [registers : (List X8664Register)]
                         [overflow-register : X8664Register])
   : (List (l:Instruction Reg))
   (case registers
@@ -361,7 +357,7 @@
           (l:move (temporary-reg arg) (fixed-reg reg))
           (args/registers args registers overflow-register))])]))
 
-(define (args/extra-registers [args : (List r:Var)] [offset : Int] [overflow-register : X8664Register])
+(define (args/extra-registers [args : (List Var)] [offset : Int] [overflow-register : X8664Register])
   : (List (l:Instruction Reg))
   (case args
     [(empty) (empty)]
@@ -372,13 +368,13 @@
 
 
 (define (make-entry-block [convention : r:CallingConvention] [blocks : (Dict Int r:BasicBlock)]
-                          [saved-register-pairs : (List (Tuple2 X8664Register r:Var))])
+                          [saved-register-pairs : (List (Tuple2 X8664Register Var))])
   : (l:BasicBlock Reg)
   (match-define arg-registers (varargs list (rdi) (rsi) (rdx) (rcx) (r8) (r9)))
   (match-define overflow-arg-register (r10))
   (match-define save-register-instructions
     (map
-      (lambda ([p : (Tuple2 X8664Register r:Var)])
+      (lambda ([p : (Tuple2 X8664Register Var)])
         (case p
           [(tuple2 reg var)
            (l:move (temporary-reg var) (fixed-reg reg))]))
@@ -407,16 +403,16 @@
                 [(nothing) (panic #"Wrong number of free vars")]
                 [(just free-vars+offsets)
                  (map
-                   (lambda ([t : (Tuple2 r:Var Int)])
+                   (lambda ([t : (Tuple2 Var Int)])
                      (case t
                        [(tuple2 v offset)
                         (l:load-8byte (temporary-reg v) (fixed-reg (r11)) offset)]))
                    free-vars+offsets)])))
           ((lambda () : (l:Terminal Reg) (l:jump entry-block-num))))])]))
 
-(define (compute-saved-register-pairs [next-var : Int]) : (Tuple2 (List (Tuple2 X8664Register r:Var)) Int)
+(define (compute-saved-register-pairs [next-var : Int]) : (Tuple2 (List (Tuple2 X8664Register Var)) Int)
   (foldl
-    (lambda ([reg : X8664Register] [acc : (Tuple2 (List (Tuple2 X8664Register r:Var)) Int)])
+    (lambda ([reg : X8664Register] [acc : (Tuple2 (List (Tuple2 X8664Register Var)) Int)])
       (case acc
         [(tuple2 pairs next-var)
          (tuple2
@@ -426,13 +422,13 @@
            (+ 1 next-var))]))
     (set->list (callee-saved-temporary-x86-64-registers))
     (tuple2
-      ((lambda () : (List (Tuple2 X8664Register r:Var)) (empty)))
+      ((lambda () : (List (Tuple2 X8664Register Var)) (empty)))
       next-var)))
 
 
 (define (lower-block [index : Int]  [b : r:BasicBlock]
                      [blocks : (Dict Int r:BasicBlock)]
-                     [saved-register-pairs : (List (Tuple2 X8664Register r:Var))]
+                     [saved-register-pairs : (List (Tuple2 X8664Register Var))]
                      [acc : (Tuple2 Int (l:UnvalidatedBlockMap Reg))])
   : (Tuple2 Int (l:UnvalidatedBlockMap Reg))
   (match-define (r:basic-block _ instructions terminal) b)
@@ -449,8 +445,8 @@
           end-insts)
         terminal))))
 
-(define (match-args [index : Int] [args : (List r:Var)] [blocks : (Dict Int r:BasicBlock)])
-  : (List (Tuple2 r:Var r:Var))
+(define (match-args [index : Int] [args : (List Var)] [blocks : (Dict Int r:BasicBlock)])
+  : (List (Tuple2 Var Var))
   (case (dict-ref blocks index)
     [(nothing) (panic #"No block")]
     [(just (r:basic-block block-args _ _))
@@ -458,18 +454,18 @@
        [(nothing) (panic #"Args don't match")]
        [(just v) v])]))
 
-(define (move-args [args : (List (Tuple2 r:Var r:Var))]) : (List (l:Instruction Reg))
-  (match-define moves (dict-add-all ((lambda () : (Dict r:Var r:Var) (make-dict var-cmp))) args))
+(define (move-args [args : (List (Tuple2 Var Var))]) : (List (l:Instruction Reg))
+  (match-define moves (dict-add-all ((lambda () : (Dict Var Var) (make-dict var-cmp))) args))
   (if (has-cycle? moves)
       (panic #"Cannot currently perform permutation of args when jumping to block")
       (move-args/dict moves (empty))))
 
 
 ;; TODO implement this to avoid the posibility of infinite loops
-(define (has-cycle? [args : (Dict r:Var r:Var)]) : Boolean
+(define (has-cycle? [args : (Dict Var Var)]) : Boolean
   #f)
 
-(define (move-args/dict [args : (Dict r:Var r:Var)] [list : (List (l:Instruction Reg))]) :
+(define (move-args/dict [args : (Dict Var Var)] [list : (List (l:Instruction Reg))]) :
   (List (l:Instruction Reg))
   (case (dict-split args)
     [(nothing) list]
@@ -478,8 +474,8 @@
      (move-args/dict args (cons (l:move (temporary-reg dest) (temporary-reg src)) list))]))
 
 
-(define (move-args/dict* [args : (Dict r:Var r:Var)] [src : r:Var] [list : (List (l:Instruction Reg))]) :
-  (Tuple2 (Dict r:Var r:Var) (List (l:Instruction Reg)))
+(define (move-args/dict* [args : (Dict Var Var)] [src : Var] [list : (List (l:Instruction Reg))]) :
+  (Tuple2 (Dict Var Var) (List (l:Instruction Reg)))
   (case (dict-ref args src)
     [(nothing) (tuple2 args list)]
     [(just src2)
@@ -491,7 +487,7 @@
   t)
 
 (define (lower-terminal [t : r:Terminal] [blocks : (Dict Int r:BasicBlock)]
-                        [saved-register-pairs : (List (Tuple2 X8664Register r:Var))]
+                        [saved-register-pairs : (List (Tuple2 X8664Register Var))]
                         [acc : (Tuple2 Int (l:UnvalidatedBlockMap Reg))])
   : (Tuple3 (List (l:Instruction Reg)) (l:Terminal Reg) (Tuple2 Int (l:UnvalidatedBlockMap Reg)))
   (case t
@@ -499,7 +495,7 @@
      (tuple3
        (append
          (map
-           (lambda ([p : (Tuple2 X8664Register r:Var)])
+           (lambda ([p : (Tuple2 X8664Register Var)])
              (case p
                [(tuple2 reg var)
                 (l:move (fixed-reg reg) (temporary-reg var))]))
@@ -524,7 +520,7 @@
               (varargs list (l:move (fixed-reg (r11)) (temporary-reg c)))]
              [(r:syscall s) (varargs list (l:int-literal (fixed-reg (rax)) (syscall-number s)))])
            (map
-             (lambda ([p : (Tuple2 X8664Register r:Var)])
+             (lambda ([p : (Tuple2 X8664Register Var)])
                (case p
                  [(tuple2 reg var)
                   (l:move (fixed-reg reg) (temporary-reg var))]))
@@ -590,7 +586,7 @@
 
 ;; TODO make this not use the heap so that it can be used from the GC system
 (define (put-arguments-in-registers
-          [args : (List r:Var)]
+          [args : (List Var)]
           [regs : (List X8664Register)]
           [overflow-register : X8664Register]) :
   (Tuple2 (List (l:Instruction Reg)) (List Reg))
@@ -617,7 +613,7 @@
              (cons (fixed-reg reg) arg-regs))])])]))
 
 (define (put-arguments-in-memory
-          [args : (List r:Var)]
+          [args : (List Var)]
           [offset : Int]
           [overflow-register : X8664Register]) :
   (List (l:Instruction Reg))
