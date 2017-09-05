@@ -36,42 +36,40 @@ def _bin_impl(ctx):
 def _lib_impl(ctx):
   if (len(ctx.attr.srcs) != 1):
     fail("Must supply exactly one source file: Got %s" % len(ctx.attr.srcs), "srcs")
-  src_name = ctx.files.srcs[0].basename
+  src_file = ctx.files.srcs[0]
+  src_name = src_file.basename
   if (not(src_name.endswith(".rkt"))):
     fail("Source file must end in .rkt", "srcs")
   if (not(src_name.rpartition(".rkt")[0] == ctx.label.name)):
     fail("Source file must match rule name", "srcs")
 
-  # This generated file is needed because the racket compiler
-  # wants the source file to be in the same directory as the
-  # previously generated files.
-  gen_rkt = ctx.new_file("%s.gen.rkt" % ctx.label.name)
-
-  ctx.template_action(
-    template=ctx.files.srcs[0],
-    output=gen_rkt,
-    substitutions={}
-  )
-
   zos = set()
   for target in ctx.attr.deps:
     zos = zos | set(target.racket_transitive_zos)
 
+  arguments = []
+  arguments += ["-l", "racket/base"]
+  arguments += ["-l", "racket/file"]
+  arguments += ["-l", "compiler/compiler"]
+  # The file needs to be in the same directory as the .zos because thats how the racket compiler works.
+  if (src_file.root != ctx.bin_dir):
+    arguments += [
+      "-e",
+      "(define gen-path (build-path \"%s\" \"%s\"))" %
+           (ctx.bin_dir.path, src_file.short_path)]
+    arguments += [
+      "-e",
+      "(begin" +
+      "  (make-parent-directory* gen-path) " +
+      "  (make-file-or-directory-link (path->complete-path \"%s\") gen-path))" % src_file.path]
+    arguments += [
+      "-e",
+      "((compile-zos #f #:module? #t) (list gen-path) \"%s\")" % ctx.outputs.zo.dirname]
+
   ctx.action(
     executable=ctx.executable._racket_bin,
-    arguments = [
-      "-l", "racket/base",
-      "-l", "compiler/compiler",
-      "-e",
-      "((compile-zos #f #:module? #t)" +
-      " (list \"%s\")" % gen_rkt.path +
-      " \"%s\"" % ctx.outputs.zo.dirname + ")",
-      "-e",
-      "(rename-file-or-directory " +
-      "  \"%s\"" % ctx.outputs.zo.path.replace("_rkt.zo", ".gen_rkt.zo") +
-      "  \"%s\")" % ctx.outputs.zo.path
-    ],
-    inputs=[ctx.files.srcs[0], gen_rkt] + ctx.files._lib_deps + ctx.files.deps + list(zos),
+    arguments = arguments,
+    inputs=ctx.files.srcs + ctx.files._lib_deps + ctx.files.deps + list(zos),
     outputs=[ctx.outputs.zo],
   )
 
