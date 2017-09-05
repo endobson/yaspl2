@@ -1,9 +1,10 @@
 workspace(name = "yaspl")
 
-git_repository(
+http_archive(
   name = "minimal_racket",
-  commit = "6b434b9e5f2b03e5977f1061a951e35684cdd22f",
-  remote = "https://github.com/endobson/minimal-racket.git"
+  sha256 = "746e3d5ede446e2df83ab35ea948d923cee64f18e451434f778102fab63b13ed",
+  strip_prefix = "minimal-racket-fc92a4ffa49c883a7d326a0ebe0f66e69f0fe547",
+  urls = ["https://github.com/endobson/minimal-racket/archive/fc92a4ffa49c883a7d326a0ebe0f66e69f0fe547.tar.gz"]
 )
 
 http_file(
@@ -28,6 +29,12 @@ http_file(
   name = "racket_minimal_x86_64_6_6_osx",
   url = "http://mirror.racket-lang.org/installers/6.6/racket-minimal-6.6-x86_64-macosx.tgz",
   sha256 = "4689ae798bdd39e1559ee000267529b08a5d75a6968e380e86477e129ecea95f"
+)
+
+http_file(
+  name = "racket_minimal_x86_64_6_10_osx",
+  url = "http://mirror.racket-lang.org/installers/6.10/racket-minimal-6.10-x86_64-macosx.tgz",
+  sha256 = "0cdd6aeb4986602ccfa9c5910d8fc6a8b0325a5153aedd3d72b6127abfb0a70e"
 )
 
 http_file(

@@ -106,11 +106,11 @@ _racket_bin_attrs = {
   ),
   "deps": attr.label_list(allow_files=racket_zo_file_type),
   "_lib_deps": attr.label(
-    default=Label("@minimal_racket//osx/v6.6:racket-src-osx"),
+    default=Label("@minimal_racket//osx/v6.10:racket-src-osx"),
     cfg="data"
   ),
   "_racket_bin": attr.label(
-    default=Label("@minimal_racket//osx/v6.6:bin/racket"),
+    default=Label("@minimal_racket//osx/v6.10:bin/racket"),
     executable=True,
     allow_files=True,
     cfg="data"
@@ -131,11 +131,11 @@ _racket_lib_attrs = {
     providers = ["racket_transitive_zos"],
   ),
   "_lib_deps": attr.label(
-    default=Label("@minimal_racket//osx/v6.6:racket-src-osx"),
+    default=Label("@minimal_racket//osx/v6.10:racket-src-osx"),
     cfg="host"
   ),
   "_racket_bin": attr.label(
-    default=Label("@minimal_racket//osx/v6.6:bin/racket"),
+    default=Label("@minimal_racket//osx/v6.10:bin/racket"),
     executable=True,
     allow_files=True,
     cfg="host",
