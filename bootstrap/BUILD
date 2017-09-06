@@ -1,4 +1,4 @@
-load("//:racket.bzl", "racket_binary", "racket_library")
+load("@minimal_racket//:racket.bzl", "racket_binary", "racket_library")
 
 package(
     default_visibility = ["//visibility:public"],
