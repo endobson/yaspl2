@@ -2,13 +2,13 @@ yaspl_provider = provider()
 yaspl_src_provider = provider()
 
 def _dependent_srcs(ctx):
-  dependent_srcs = set(order="compile")
+  dependent_srcs = depset(order="postorder")
   for dep in ctx.attr.deps:
     dependent_srcs += dep[yaspl_src_provider].files
   return dependent_srcs
 
 def _dependent_objects(ctx):
-  dependent_objects = set(order="compile")
+  dependent_objects = depset(order="postorder")
   for dep in ctx.attr.deps:
     dependent_objects += dep[yaspl_provider].transitive_objects
   return dependent_objects
