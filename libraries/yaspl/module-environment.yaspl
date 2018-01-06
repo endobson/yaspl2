@@ -21,13 +21,17 @@
 (types
   (define-type ModuleEnvironment
     (module-environment
-      [symbol-bindings : (Dict Bytes Bytes)]
+      [value-bindings : (Dict Bytes ValueInfo)]
       [variant-bindings : (Dict Bytes VariantInfo)]))
   (define-type VariantInfo
-    (variant-info [tag : Int])))
+    (variant-info [tag : Int]))
+  (define-type ValueInfo
+    (value-info [symbol : Bytes])))
 
 (define (module-environment-global-ref [env : ModuleEnvironment] [name : Bytes]) : (Maybe Bytes)
-  (dict-ref (module-environment-symbol-bindings env) name))
+  (case (dict-ref (module-environment-value-bindings env) name)
+    [(just v) (just (value-info-symbol v))]
+    [(nothing) (nothing)]))
 
 (define (module-environment-tag-ref [env : ModuleEnvironment] [name : Bytes]) : (Maybe Int)
   (case (dict-ref (module-environment-variant-bindings env) name)
@@ -43,7 +47,7 @@
         (make-dict bytes-cmp) imod)
       imod)))
 
-(define (setup-value-environment [imod : Module]) : (Dict Bytes Bytes)
+(define (setup-value-environment [imod : Module]) : (Dict Bytes ValueInfo)
   (add-all-imported-functions
     (add-type-definitions-functions/top
       (add-locally-defined-functions
@@ -68,17 +72,17 @@
            (variant-info tag)])))
     env))
 
-(define (add-all-imported-functions [env : (Dict Bytes Bytes)] [imod : Module])
-  : (Dict Bytes Bytes)
+(define (add-all-imported-functions [env : (Dict Bytes ValueInfo)] [imod : Module])
+  : (Dict Bytes ValueInfo)
   (match-define (imports _ values _) (module-imports imod))
   (merge-dicts
     (dict-value-map values
       (lambda ([v : ValueSignature])
-        (value-signature-symbol v)))
+        (value-info (value-signature-symbol v))))
     env))
 
-(define (add-locally-defined-functions [env : (Dict Bytes Bytes)] [imod : Module])
-  : (Dict Bytes Bytes)
+(define (add-locally-defined-functions [env : (Dict Bytes ValueInfo)] [imod : Module])
+  : (Dict Bytes ValueInfo)
   (let ([var-names (map function-definition-name (module-definitions imod))])
     (let ([mangled-names (get-mangled-names (module-name imod) (module-definitions imod))])
       (add-all-globals env var-names mangled-names))))
@@ -99,23 +103,23 @@
        (mangle-name (bytes-append (varargs list (mangled-mod-name mod-name) #"_" name)))
        (i-get-mangled-names mod-name names))]))
 
-(define (add-locally-defined-closures [env : (Dict Bytes Bytes)] [imod : Module])
-  : (Dict Bytes Bytes)
+(define (add-locally-defined-closures [env : (Dict Bytes ValueInfo)] [imod : Module])
+  : (Dict Bytes ValueInfo)
   (let ([var-names (map closure-constant-name (module-closures imod))])
     (let ([mangled-names (i-get-mangled-names (module-name imod) var-names)])
       (add-all-globals env var-names mangled-names))))
 
-(define (add-locally-defined-bytes [env : (Dict Bytes Bytes)] [imod : Module])
-  : (Dict Bytes Bytes)
+(define (add-locally-defined-bytes [env : (Dict Bytes ValueInfo)] [imod : Module])
+  : (Dict Bytes ValueInfo)
   (let ([var-names (map bytes-constant-name (module-bytes imod))])
     (let ([mangled-names (i-get-mangled-names (module-name imod) var-names)])
       (add-all-globals env var-names mangled-names))))
 
 
-(define (add-all-globals [env : (Dict Bytes Bytes)]
+(define (add-all-globals [env : (Dict Bytes ValueInfo)]
                          [var-names : (List Bytes)]
                          [mangled-names : (List Bytes)])
-  : (Dict Bytes Bytes)
+  : (Dict Bytes ValueInfo)
   (case var-names
     [(empty) env]
     [(cons var-name var-names)
@@ -123,13 +127,13 @@
        [(empty) (panic #"var-names not the same length as mangled-names")]
        [(cons mangled-name mangled-names)
         (add-all-globals
-          (dict-add env var-name mangled-name) var-names mangled-names)])]))
+          (dict-add env var-name (value-info mangled-name)) var-names mangled-names)])]))
 
-(define (add-type-definitions-functions/top [env : (Dict Bytes Bytes)] [imod : Module])
-  : (Dict Bytes Bytes)
+(define (add-type-definitions-functions/top [env : (Dict Bytes ValueInfo)] [imod : Module])
+  : (Dict Bytes ValueInfo)
   (let ([mod-name (module-name imod)])
     (foldl
-      (lambda ([def : TypeDefinition] [env : (Dict Bytes Bytes)])
+      (lambda ([def : TypeDefinition] [env : (Dict Bytes ValueInfo)])
         (case def
           [(type-definition name _ _ _ (cons variant (empty)))
            (case variant
@@ -144,10 +148,10 @@
 
 
 (define (add-variant-definitions-constructors
-          [env : (Dict Bytes Bytes)]
+          [env : (Dict Bytes ValueInfo)]
           [mod-name : ModName]
           [type-name : Bytes]
-          [defs : (List VariantDefinition)]) : (Dict Bytes Bytes)
+          [defs : (List VariantDefinition)]) : (Dict Bytes ValueInfo)
   (case defs
     [(empty) env]
     [(cons def defs)
@@ -158,25 +162,26 @@
        defs)]))
 
 (define (add-variant-definition-constructor
-          [env : (Dict Bytes Bytes)]
+          [env : (Dict Bytes ValueInfo)]
           [mod-name : ModName]
           [type-name : Bytes]
-          [def : VariantDefinition]) : (Dict Bytes Bytes)
+          [def : VariantDefinition]) : (Dict Bytes ValueInfo)
   (case def
     [(variant-definition name _ _)
      (dict-add
        env
        name
-       (mangle-name
-         (bytes-append
-           (varargs list (mangled-mod-name mod-name) #"_" type-name #"_" name #"_closure"))))]))
+       (value-info
+         (mangle-name
+           (bytes-append
+             (varargs list (mangled-mod-name mod-name) #"_" type-name #"_" name #"_closure")))))]))
 
 (define (add-variant-definition-accessors
-          [env : (Dict Bytes Bytes)]
+          [env : (Dict Bytes ValueInfo)]
           [mod-name : ModName]
           [type-name : Bytes]
           [variant-name : Bytes]
-          [fields : (List VariantField)]) : (Dict Bytes Bytes)
+          [fields : (List VariantField)]) : (Dict Bytes ValueInfo)
   (case fields
     [(empty) env]
     [(cons (variant-field name _) fields)
@@ -184,9 +189,11 @@
        (dict-add
          env
          (bytes-append (cons variant-name (cons #"-" (cons name (empty)))))
-         (mangle-name
-           (bytes-append
-             (varargs list (mangled-mod-name mod-name) #"_" type-name #"_" variant-name #"_" name #"_closure"))))
+         (value-info
+           (mangle-name
+             (bytes-append
+               (varargs list (mangled-mod-name mod-name) #"_" type-name #"_" variant-name #"_" name
+                        #"_closure")))))
        mod-name
        type-name
        variant-name
