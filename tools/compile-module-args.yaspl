@@ -1,0 +1,60 @@
+#:module (tools compile-module-args)
+#:import {
+  (compiler)
+  (either)
+  (io)
+  (list)
+  (module-signature)
+  (module-signature-serialization)
+  (prim)
+  (source-language)
+}
+(export
+  #:types (CompileModuleArgs)
+  #:values (parse-compile-module-args handle-failure-result)
+  #:patterns (compile-module-args))
+(types
+  (define-type CompileModuleArgs
+    (compile-module-args
+      [main-module : Module]
+      [output-directory : Bytes]
+      [signatures : (List ModuleSignature)])))
+
+(define (parse-signature-files [files : (List Bytes)]) : (Either Bytes (List ModuleSignature))
+  (case files
+    [(empty) (right (empty))]
+    [(cons name files)
+     (case (deserialize-module-signature (call-with-input-file name read-all-bytes))
+       [(left v) (left v)]
+       [(right sig)
+        (case (parse-signature-files files)
+          [(left v) (left v)]
+          [(right sigs) (right (cons sig sigs))])])]))
+
+(define (parse-compile-module-args [args : (List Bytes)]) : (Either Bytes CompileModuleArgs)
+  (case args
+    [(empty)
+     (left #"No binary!?")]
+    [(cons _ (empty))
+     (left #"No module file provided.")]
+    [(cons _ (cons _ (empty)))
+     (left #"No output directory provided.")]
+    [(cons _ (cons main-module-file (cons output-directory signature-files)))
+     (case (parse-module-file main-module-file)
+       [(left v) (left v)]
+       [(right main-module)
+        (case (parse-signature-files signature-files)
+          [(left v) (left v)]
+          [(right signatures)
+           (right (compile-module-args main-module output-directory signatures))])])]))
+
+(define (handle-failure-result [msg : Bytes] [stderr : OutputPort]) : Int
+  (begin
+    (write-line msg stderr)
+    1))
+
+(define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Int
+  (case (parse-compile-module-args (array->list args))
+    [(left v) (handle-failure-result v stderr)]
+    [(right (compile-module-args mod output-dir sigs))
+     0]))

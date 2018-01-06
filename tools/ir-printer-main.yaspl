@@ -20,8 +20,6 @@
       x86-64-register->bytes
   }
   (lowered-live-variables)
-  (module-signature)
-  (module-signature-serialization)
   (prim)
   (print-lowered-register-language) {
     #:values
@@ -36,6 +34,7 @@
       [function-definition r:function-definition]
   }
   (register-language-compiler)
+  (tools compile-module-args)
   (tuples)
   (yaspl top-level-objects)
   (yaspl top-level-objects-to-x86-64)
@@ -46,141 +45,114 @@
 (export)
 (types)
 
-(define (parse-signature-files [files : (List Bytes)]) : (Either Bytes (List ModuleSignature))
-  (case files
-    [(empty) (right (empty))]
-    [(cons name files)
-     (case (deserialize-module-signature (call-with-input-file name read-all-bytes))
-       [(left v) (left v)]
-       [(right sig)
-        (case (parse-signature-files files)
-          [(left v) (left v)]
-          [(right sigs) (right (cons sig sigs))])])]))
-
-(define (handle-failure-result [msg : Bytes] [stderr : OutputPort]) : Int
-  (begin
-    (write-line msg stderr)
-    1))
-
 (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Int
-  (case (array->list args)
-    [(empty)
-     (handle-failure-result #"No binary!?" stderr)]
-    [(cons _ (empty))
-     (handle-failure-result #"No module file provided." stderr)]
-    [(cons _ (cons _ (empty)))
-     (handle-failure-result #"No output directory provided." stderr)]
-    [(cons _ (cons main-module-file (cons output-directory signature-files)))
-     (case (parse-module-file main-module-file)
+  (case (parse-compile-module-args (array->list args))
+    [(left v) (handle-failure-result v stderr)]
+    [(right (compile-module-args main-module output-directory signatures))
+     (case (compile-main-module main-module signatures)
        [(left v) (handle-failure-result v stderr)]
-       [(right main-module)
-        (case (parse-signature-files signature-files)
-          [(left v) (handle-failure-result v stderr)]
-          [(right signatures)
-           (case (compile-main-module main-module signatures)
-             [(left v) (handle-failure-result v stderr)]
-             [(right (tuple2 objects _))
-              (match-define (assembly-fragments text-fragments _) (convert-objects objects))
-              (begin
-                (make-directory output-directory)
-                (for-each
-                  (lambda ([o : TopLevelObject]) : Void
-                    (case o
-                      [(register-function-tlo fun)
-                       (match-define (r:function-definition orig-name _ _ _ _) fun)
-                       (match-define file-name-base
-                         (bytes-append (interleave (bytes-split orig-name #"/") #"_")))
-                       (match-define make-file-name
-                         (lambda ([suffix : Bytes])
-                           (bytes-append (varargs list output-directory #"/" file-name-base suffix))))
-                       (begin
-                         (call-with-output-file
-                           (make-file-name #".reg")
-                           (lambda ([port : OutputPort])
-                             (write-all-bytes (r:print-function fun) port)))
-                         (case (compile-function fun)
-                           [(left v) (panic v)]
-                           [(right (tuple2 lowered text))
-                            (match-define live (live-variables lowered reg-cmp))
-                            (begin
-                              (call-with-output-file
-                                (make-file-name #".lower")
-                                (lambda ([port : OutputPort])
-                                  (write-all-bytes (l:print-function lowered reg->bytes) port)))
-                              (call-with-output-file
-                                (make-file-name #".lower-orig")
-                                (lambda ([port : OutputPort])
-                                  (write-all-bytes (l:print-function (lower-function fun) reg->bytes) port)))
-                              (call-with-output-file
-                                (make-file-name #".orig-trace")
-                                (lambda ([port : OutputPort])
-                                  (for-each
-                                    (lambda ([v : ColorTrace])
-                                      (write-line (color-trace->bytes v) port))
-                                    (determine-color-traces
-                                      (initial-state
-                                       (blocks->live-out-states
-                                         (live-variables (lower-function fun) reg-cmp)))))))
+       [(right (tuple2 objects _))
+        (match-define (assembly-fragments text-fragments _) (convert-objects objects))
+        (begin
+          (make-directory output-directory)
+          (for-each
+            (lambda ([o : TopLevelObject]) : Void
+              (case o
+                [(register-function-tlo fun)
+                 (match-define (r:function-definition orig-name _ _ _ _) fun)
+                 (match-define file-name-base
+                   (bytes-append (interleave (bytes-split orig-name #"/") #"_")))
+                 (match-define make-file-name
+                   (lambda ([suffix : Bytes])
+                     (bytes-append (varargs list output-directory #"/" file-name-base suffix))))
+                 (begin
+                   (call-with-output-file
+                     (make-file-name #".reg")
+                     (lambda ([port : OutputPort])
+                       (write-all-bytes (r:print-function fun) port)))
+                   (case (compile-function fun)
+                     [(left v) (panic v)]
+                     [(right (tuple2 lowered text))
+                      (match-define live (live-variables lowered reg-cmp))
+                      (begin
+                        (call-with-output-file
+                          (make-file-name #".lower")
+                          (lambda ([port : OutputPort])
+                            (write-all-bytes (l:print-function lowered reg->bytes) port)))
+                        (call-with-output-file
+                          (make-file-name #".lower-orig")
+                          (lambda ([port : OutputPort])
+                            (write-all-bytes (l:print-function (lower-function fun) reg->bytes) port)))
+                        (call-with-output-file
+                          (make-file-name #".orig-trace")
+                          (lambda ([port : OutputPort])
+                            (for-each
+                              (lambda ([v : ColorTrace])
+                                (write-line (color-trace->bytes v) port))
+                              (determine-color-traces
+                                (initial-state
+                                 (blocks->live-out-states
+                                   (live-variables (lower-function fun) reg-cmp)))))))
 
-                              (call-with-output-file
-                                (make-file-name #".assem")
-                                (lambda ([port : OutputPort])
-                                  (let ([bytes (bytes-append
-                                                 (jl->list (assembly-commands->bytes
-                                                   (jl->list (text-fragment->commands text)))))])
-                                    (write-all-bytes bytes port))))
-                              (call-with-output-file
-                                (make-file-name #".block-live")
-                                (lambda ([port : OutputPort])
-                                  (write-all-bytes
-                                    (print-blocks live reg->bytes)
-                                    port)))
-                              (call-with-output-file
-                                (make-file-name #".live-out")
-                                (lambda ([port : OutputPort])
-                                  (for-each
-                                    (lambda ([ls : (LiveOutState Reg)])
-                                      (write-line (live-out-state->bytes ls reg->bytes) port))
-                                    (blocks->live-out-states live))))
-                              (call-with-output-file
-                                (make-file-name #".final-trace")
-                                (lambda ([port : OutputPort])
-                                  (for-each
-                                    (lambda ([v : ColorTrace])
-                                      (write-line (color-trace->bytes v) port))
-                                    (determine-color-traces
-                                      (initial-state
-                                       (blocks->live-out-states live))))))
-                              (case (color-graph (initial-state (blocks->live-out-states live)))
-                                [(left _) (void)]
-                                [(right dict)
-                                 (call-with-output-file
-                                   (make-file-name #".final-assignments")
-                                   (lambda ([port : OutputPort])
-                                     (for-each
-                                       (lambda ([v : Bytes])
-                                         (write-line v port))
-                                       (dict-map
-                                         dict
-                                         (lambda ([v : Var] [reg : X8664Register])
-                                           (bytes-append
-                                             (varargs list
-                                               (var->bytes v) #" => " (x86-64-register->bytes reg))))))))])
-                              (call-with-output-file
-                                (make-file-name #".assignments")
-                                (lambda ([port : OutputPort])
-                                  (for-each
-                                    (lambda ([v : ColorTrace])
-                                      (write-line (color-trace->bytes v) port))
-                                    (determine-color-traces (initial-state
-                                                                      (blocks->live-out-states
-                                                                        live))))))
-                              (call-with-output-file
-                                (make-file-name #".graph")
-                                (lambda ([port : OutputPort])
-                                  (write-all-bytes
-                                    (print-graph live reg-cmp reg->bytes (all-fixed-registers))
-                                    port))))]))]
-                      [_ (void)]))
-                  objects)
-                0)])])])]))
+                        (call-with-output-file
+                          (make-file-name #".assem")
+                          (lambda ([port : OutputPort])
+                            (let ([bytes (bytes-append
+                                           (jl->list (assembly-commands->bytes
+                                             (jl->list (text-fragment->commands text)))))])
+                              (write-all-bytes bytes port))))
+                        (call-with-output-file
+                          (make-file-name #".block-live")
+                          (lambda ([port : OutputPort])
+                            (write-all-bytes
+                              (print-blocks live reg->bytes)
+                              port)))
+                        (call-with-output-file
+                          (make-file-name #".live-out")
+                          (lambda ([port : OutputPort])
+                            (for-each
+                              (lambda ([ls : (LiveOutState Reg)])
+                                (write-line (live-out-state->bytes ls reg->bytes) port))
+                              (blocks->live-out-states live))))
+                        (call-with-output-file
+                          (make-file-name #".final-trace")
+                          (lambda ([port : OutputPort])
+                            (for-each
+                              (lambda ([v : ColorTrace])
+                                (write-line (color-trace->bytes v) port))
+                              (determine-color-traces
+                                (initial-state
+                                 (blocks->live-out-states live))))))
+                        (case (color-graph (initial-state (blocks->live-out-states live)))
+                          [(left _) (void)]
+                          [(right dict)
+                           (call-with-output-file
+                             (make-file-name #".final-assignments")
+                             (lambda ([port : OutputPort])
+                               (for-each
+                                 (lambda ([v : Bytes])
+                                   (write-line v port))
+                                 (dict-map
+                                   dict
+                                   (lambda ([v : Var] [reg : X8664Register])
+                                     (bytes-append
+                                       (varargs list
+                                         (var->bytes v) #" => " (x86-64-register->bytes reg))))))))])
+                        (call-with-output-file
+                          (make-file-name #".assignments")
+                          (lambda ([port : OutputPort])
+                            (for-each
+                              (lambda ([v : ColorTrace])
+                                (write-line (color-trace->bytes v) port))
+                              (determine-color-traces (initial-state
+                                                                (blocks->live-out-states
+                                                                  live))))))
+                        (call-with-output-file
+                          (make-file-name #".graph")
+                          (lambda ([port : OutputPort])
+                            (write-all-bytes
+                              (print-graph live reg-cmp reg->bytes (all-fixed-registers))
+                              port))))]))]
+                [_ (void)]))
+            objects)
+          0)])]))

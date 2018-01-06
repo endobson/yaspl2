@@ -32,13 +32,36 @@ yaspl_library(
 )
 
 yaspl_library(
-    name = "ir-printer-main",
-    srcs = ["ir-printer-main.yaspl"],
+    name = "compile-module-args",
+    srcs = ["compile-module-args.yaspl"],
     deps = [
         "//libraries:compiler_lib",
         "//libraries:io",
+        "//libraries:source-language",
         "//libraries:module-signature",
         "//libraries:module-signature-serialization",
+        "//libraries/data:either",
+        "//libraries/data:list",
+    ],
+)
+
+yaspl_library(
+    name = "intermediate-html-printer-main",
+    srcs = ["intermediate-html-printer.yaspl"],
+    deps = [
+        ":compile-module-args",
+        "//libraries/data:either",
+        "//libraries/data:list",
+    ],
+)
+
+yaspl_library(
+    name = "ir-printer-main",
+    srcs = ["ir-printer-main.yaspl"],
+    deps = [
+        ":compile-module-args",
+        "//libraries:compiler_lib",
+        "//libraries:io",
         "//libraries/data:bytes",
         "//libraries/data:dict",
         "//libraries/data:either",
