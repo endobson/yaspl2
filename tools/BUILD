@@ -1,4 +1,5 @@
 load("//libraries:yaspl.bzl", "yaspl_library", "yaspl_binary")
+load("@minimal_racket//:racket.bzl", "racket_binary", "racket_library")
 
 yaspl_binary(
     name = "rewrite-imports",
@@ -18,6 +19,12 @@ yaspl_binary(
     main_module = "ir_printer_main",
     visibility = ["//visibility:public"],
     deps = [":ir-printer-main"],
+)
+
+racket_binary(
+    name = "fs-event",
+    main_module = ":fs-event-main.rkt",
+    deps = [":fs-event-main"],
 )
 
 yaspl_library(
@@ -43,6 +50,11 @@ yaspl_library(
         "//libraries/data:either",
         "//libraries/data:list",
     ],
+)
+
+racket_library(
+    name = "fs-event-main",
+    srcs = ["fs-event-main.rkt"],
 )
 
 yaspl_library(
