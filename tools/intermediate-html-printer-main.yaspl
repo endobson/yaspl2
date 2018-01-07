@@ -1,15 +1,61 @@
 #:module (tools intermediate-html-printer-main)
 #:import {
+  (data indexed-set)
   (either)
+  (formats xml)
+  (io)
   (list)
+  (maybe)
+  (module-name)
+  (module-signature)
   (prim)
+  (prim-implementation)
+  (resolved-imports-language) {
+    #:values
+      import-resolution-errors->bytes
+      resolve-imports
+  }
+  (source-to-intermediate-language) {
+    #:values
+      source->intermediate
+  }
   (tools compile-module-args)
+  (validator)
+  (yaspl debug intermediate-to-html)
 }
 (export)
 (types)
 
+(define (index-sigs [sigs : (List ModuleSignature)]) : (IndexedSet ModuleSignature ModName)
+  (foldl
+    (lambda ([sig : ModuleSignature] [acc : (IndexedSet ModuleSignature ModName)])
+      (indexed-set-add acc sig))
+    sigs
+    (indexed-set-add
+      (make-indexed-set module-signature-name mod-name-cmp)
+      (prim-signature))))
+
+
 (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Int
   (case (parse-compile-module-args (array->list args))
     [(left v) (handle-failure-result v stderr)]
-    [(right (compile-module-args output-path main-module signatures))
-     0]))
+    [(right (compile-module-args mod output-path sigs))
+     (match-define sigs (index-sigs sigs))
+     (case (resolve-imports mod sigs)
+       [(left v)
+        (handle-failure-result (import-resolution-errors->bytes v) stderr)]
+       [(right res-mod)
+        (case (validate-module res-mod sigs)
+          [(just v)
+           (handle-failure-result (module-errors->bytes v) stderr)]
+          [(nothing)
+           (case (source->intermediate res-mod)
+             [(left v) (handle-failure-result v stderr)]
+             [(right intermediate)
+              (match-define html (intermediate-to-html intermediate))
+              (begin
+                (call-with-output-file
+                  output-path
+                  (lambda ([port : OutputPort])
+                    (write-all-bytes (document->xml-bytes html) port)))
+                0)])])])]))

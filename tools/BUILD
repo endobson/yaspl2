@@ -21,6 +21,13 @@ yaspl_binary(
     deps = [":ir-printer-main"],
 )
 
+yaspl_binary(
+    name = "intermediate-html-printer",
+    main_module = "tools_intermediate_html_printer_main",
+    visibility = ["//visibility:public"],
+    deps = [":intermediate-html-printer-main"],
+)
+
 racket_binary(
     name = "fs-event",
     main_module = ":fs-event-main.rkt",
@@ -63,7 +70,18 @@ yaspl_library(
     deps = [
         ":compile-module-args",
         "//libraries/data:either",
+        "//libraries/data:indexed-set",
         "//libraries/data:list",
+        "//libraries/data:maybe",
+        "//libraries/formats:xml",
+        "//libraries:io",
+        "//libraries:validator",
+        "//libraries:source-to-intermediate-language",
+        "//libraries:resolved-imports-language",
+        "//libraries:module-signature",
+        "//libraries:module-name",
+        "//libraries:prim-implementation",
+        "//libraries/yaspl/debug:intermediate-to-html",
     ],
 )
 
