@@ -3,20 +3,20 @@ load("@minimal_racket//:racket.bzl", "racket_binary", "racket_library")
 
 yaspl_binary(
     name = "rewrite-imports",
-    main_module = "rewrite_imports",
+    main_module = "tools_rewrite_imports",
     deps = [":rewrite-imports-main"],
 )
 
 yaspl_binary(
     name = "aspect-linter",
-    main_module = "aspect_linter_main",
+    main_module = "tools_aspect_linter_main",
     visibility = ["//visibility:public"],
     deps = [":aspect-linter-main"],
 )
 
 yaspl_binary(
     name = "ir-printer",
-    main_module = "ir_printer_main",
+    main_module = "tools_ir_printer_main",
     visibility = ["//visibility:public"],
     deps = [":ir-printer-main"],
 )
@@ -59,7 +59,7 @@ racket_library(
 
 yaspl_library(
     name = "intermediate-html-printer-main",
-    srcs = ["intermediate-html-printer.yaspl"],
+    srcs = ["intermediate-html-printer-main.yaspl"],
     deps = [
         ":compile-module-args",
         "//libraries/data:either",
