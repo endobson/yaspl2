@@ -24,3 +24,13 @@ yaspl_library(
         "//libraries/data:list",
     ],
 )
+
+yaspl_library(
+    name = "html",
+    srcs = ["html.yaspl"],
+    deps = [
+        ":xml",
+        "//libraries/data:join-list",
+        "//libraries/data:list",
+    ],
+)
