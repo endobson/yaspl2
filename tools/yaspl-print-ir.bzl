@@ -15,9 +15,8 @@ def _yaspl_print_ir_impl(target, ctx):
     inputs = [src_file] + input_signatures,
     outputs = [directory],
     executable = ctx.executable._ir_printer,
-    arguments = [src_file.path, directory.path] + input_signature_paths
+    arguments = [directory.path, src_file.path] + input_signature_paths
   )
-
 
   return [
     OutputGroupInfo(ir = depset([directory]))
