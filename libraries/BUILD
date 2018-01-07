@@ -207,9 +207,7 @@ yaspl_library(
         ":ip",
         ":print-stack-function_lib",
         ":stack-machine",
-        ":svg",
         ":tcp",
-        ":xml",
         "//libraries/algorithms:depth-first-search",
         "//libraries/data:bytes",
         "//libraries/data:dict",
@@ -219,6 +217,8 @@ yaspl_library(
         "//libraries/data:maybe",
         "//libraries/data:numbers",
         "//libraries/data:tuples",
+        "//libraries/formats:xml",
+        "//libraries/formats:svg",
         "//libraries/prim-language:register-language",
         "//libraries/yaspl:top-level-objects",
         "//libraries/yaspl:top-level-objects-to-x86-64",
@@ -755,17 +755,6 @@ yaspl_bootstrap_library(
     ],
 )
 
-yaspl_library(
-    name = "svg",
-    srcs = ["svg.yaspl"],
-    deps = [
-        ":xml",
-        "//libraries/data:join-list",
-        "//libraries/data:list",
-        "//libraries/data:numbers",
-    ],
-)
-
 yaspl_test(
     name = "tail-call-test",
     size = "small",
@@ -997,16 +986,6 @@ yaspl_bootstrap_library(
         "//libraries/data:numbers",
         "//libraries/yaspl:math-operations",
         "//libraries/yaspl:x86-64-assembly",
-    ],
-)
-
-yaspl_library(
-    name = "xml",
-    srcs = ["xml.yaspl"],
-    deps = [
-        "//libraries/data:bytes",
-        "//libraries/data:join-list",
-        "//libraries/data:list",
     ],
 )
 
