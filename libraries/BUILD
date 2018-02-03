@@ -264,6 +264,7 @@ yaspl_bootstrap_library(
         ":resolved-imports-language",
         ":types",
         "//libraries/data:list",
+        "//libraries/data:tuples",
     ],
 )
 
@@ -733,6 +734,7 @@ yaspl_bootstrap_library(
         ":intermediate-language",
         ":module-name",
         ":stack-machine",
+        ":types",
         "//libraries/data:bytes",
         "//libraries/data:dict",
         "//libraries/data:join-list",

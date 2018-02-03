@@ -10,8 +10,10 @@ yaspl_library(
     deps = [
         "//libraries:module-name",
         "//libraries:intermediate-language",
+        "//libraries:types",
         "//libraries/data:list",
         "//libraries/data:join-list",
+        "//libraries/data:tuples",
         "//libraries/formats:html",
         "//libraries/formats:xml",
     ],
