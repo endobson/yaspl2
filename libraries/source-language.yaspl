@@ -118,7 +118,10 @@
     (type-app-pre-type [constructor : Bytes] [args : (List PreType)]))
   ;; TODO make this have type variables because the type variables here scope over the body
   (define-type FunctionDefinition
-    (function-definition [name : Bytes] [type : PreType] [args : (List Bytes)] [body : Block]))
+    (function-definition [name : Bytes]
+                         [type : PreType]
+                         [args : (List (Tuple2 Bytes PreType))]
+                         [body : Block]))
   (define-type Block
     (block [definitions : (List BlockDefinition)] [expr : Expression]))
   (define-type BlockDefinition
@@ -417,61 +420,53 @@
                        (cons (node (cons (symbol-sexp function-name) args))
                              (cons (symbol-sexp #":")
                                    (cons result-type body))))))
-     (case (leftmost-error (map parse-arg-type args))
+     (case (leftmost-error (map parse-arg args))
        [(left v) (left v)]
-       [(right arg-types)
-        (case (leftmost-error (map parse-arg-name args))
+       [(right parsed-args)
+        (case (leftmost-error (map parse-type-var-symbol type-vars))
           [(left v) (left v)]
-          [(right arg-names)
-           (case (leftmost-error (map parse-type-var-symbol type-vars))
-             [(left v) (left v)]
-             [(right type-vars)
-              (case (parse-pre-type result-type)
-                [(left v) (left v)]
-                [(right result-type)
-                 (case (parse-block #t body (empty))
-                   [(left v) (left v)]
-                   [(right body)
-                    (right
-                      (function-definition
-                        function-name
-                        (fun-pre-type type-vars arg-types result-type)
-                        arg-names
-                        body))])])])])])]
-    [(node (cons (symbol-sexp #"define")
-                 (cons (node (cons (symbol-sexp function-name) args))
-                       (cons (symbol-sexp #":")
-                             (cons result-type body)))))
-     (case (leftmost-error (map parse-arg-type args))
-       [(left v) (left v)]
-       [(right arg-types)
-        (case (leftmost-error (map parse-arg-name args))
-          [(left v) (left v)]
-          [(right arg-names)
+          [(right type-vars)
            (case (parse-pre-type result-type)
              [(left v) (left v)]
              [(right result-type)
               (case (parse-block #t body (empty))
                 [(left v) (left v)]
                 [(right body)
-                 (right
-                   (function-definition
-                     function-name
-                     (fun-pre-type (empty) arg-types result-type)
-                     arg-names
-                     body))])])])])]
+                 (let ([arg-types
+                        (map (lambda ([t : (Tuple2 Bytes PreType)])
+                               (case t [(tuple2 _ t) t]))
+                             parsed-args)])
+                   (right
+                     (function-definition
+                       function-name
+                       (fun-pre-type type-vars arg-types result-type)
+                       parsed-args
+                       body)))])])])])]
+    [(node (cons (symbol-sexp #"define")
+                 (cons (node (cons (symbol-sexp function-name) args))
+                       (cons (symbol-sexp #":")
+                             (cons result-type body)))))
+     (case (leftmost-error (map parse-arg args))
+       [(left v) (left v)]
+       [(right parsed-args)
+        (case (parse-pre-type result-type)
+          [(left v) (left v)]
+          [(right result-type)
+           (case (parse-block #t body (empty))
+             [(left v) (left v)]
+             [(right body)
+              (let ([arg-types
+                     (map (lambda ([t : (Tuple2 Bytes PreType)])
+                            (case t [(tuple2 _ t) t]))
+                          parsed-args)])
+                (right
+                  (function-definition
+                    function-name
+                    (fun-pre-type (empty) arg-types result-type)
+                    parsed-args
+                    body)))])])])]
     [_ (left #"Not a valid function definition")]))
 
-(define (parse-arg-type [sexp : Sexp]) : (Either Bytes PreType)
-  (case sexp
-    [(bracket-node (cons (symbol-sexp _) (cons (symbol-sexp #":") (cons type (empty)))))
-     (parse-pre-type type)]
-    [_ (left #"Not a valid argument")]))
-(define (parse-arg-name [sexp : Sexp]) : (Either Bytes Bytes)
-  (case sexp
-    [(bracket-node (cons (symbol-sexp name) (cons (symbol-sexp #":") (cons _ (empty)))))
-     (right name)]
-    [_ (left #"Not a valid argument")]))
 (define (parse-arg [sexp : Sexp]) : (Either Bytes (Tuple2 Bytes PreType))
   (case sexp
     [(bracket-node (cons (symbol-sexp name) (cons (symbol-sexp #":") (cons type (empty)))))
