@@ -552,6 +552,7 @@ yaspl_library(
     name = "pretty-print",
     srcs = ["pretty-print.yaspl"],
     deps = [
+        "//libraries/data:boolean",
         "//libraries/data:join-list",
         "//libraries/data:list",
         "//libraries/data:maybe",

@@ -1,5 +1,6 @@
 #:module (pretty-printer)
 #:import {
+  (data boolean)
   (join-list)
   (list)
   (maybe)
@@ -8,7 +9,7 @@
 }
 (export
   #:types (Doc)
-  #:values (pretty-print doc-text doc-flush doc-append)
+  #:values (pretty-print doc-text doc-flush doc-append doc-choice)
   #:patterns ())
 (types
   (define-type Doc
@@ -23,48 +24,59 @@
   (define-type Layout
     (layout
       [height : Int]
+      [max-width : Int]
       [last-line-offset : Int]
       [content : Content])))
 
-
 (define (pretty-print [doc : Doc]) : (Maybe (JoinList Bytes))
-  (match-define num-columns 80)
-  (case (doc->layouts doc)
+  (case (sort (doc->layouts doc)
+              (lambda ([l : Layout] [r : Layout])
+                    (case (tuple2 l r)
+                      [(tuple2 (layout hl _ _ _) (layout hr _ _ _))
+                       (< hl hr)])))
     [(empty) (nothing)]
-    [(cons (layout _ _ content) _) (just (render-content content))]))
+    [(cons (layout _ _ _ content) _) (just (render-content content))]))
 
 (define (doc->layouts [doc : Doc]) : (List Layout)
-  (case doc
-    [(doc-text text)
-     (varargs list (layout 0 (bytes-length text) (content-text text)))]
-    [(doc-flush doc)
-     (map layout-flush (doc->layouts doc))]
-    [(doc-choice a b)
-     (append (doc->layouts a) (doc->layouts b))]
-    [(doc-append l r)
-     (match-define l-layouts (doc->layouts l))
-     (match-define r-layouts (doc->layouts r))
-     (append*
-       (map
-         (lambda ([l-layout : Layout])
+  (pareto-frontier
+    (filter layout-valid?
+      (case doc
+        [(doc-text text)
+         (varargs list (layout 0 (bytes-length text) (bytes-length text) (content-text text)))]
+        [(doc-flush doc)
+         (map layout-flush (doc->layouts doc))]
+        [(doc-choice a b)
+         (append (doc->layouts a) (doc->layouts b))]
+        [(doc-append l r)
+         (match-define l-layouts (doc->layouts l))
+         (match-define r-layouts (doc->layouts r))
+         (append*
            (map
-             (lambda ([r-layout : Layout])
-               (layout-append l-layout r-layout))
-             r-layouts))
-         l-layouts))]))
+             (lambda ([l-layout : Layout])
+               (map
+                 (lambda ([r-layout : Layout])
+                   (layout-append l-layout r-layout))
+                 r-layouts))
+             l-layouts))]))))
+
+
 
 (define (layout-flush [l : Layout]) : Layout
   (case l
-    [(layout height _ content)
-     (layout (+ 1 height) 0 (content-flush content))]))
+    [(layout height max-width _ content)
+     (layout (+ 1 height) max-width 0 (content-flush content))]))
+
+(define (max [x : Int] [y : Int]) : Int
+  (if (< x y) y x))
 
 (define (layout-append [l-layout : Layout] [r-layout : Layout]) : Layout
   (case (tuple2 l-layout r-layout)
     [(tuple2
-       (layout l-height l-last-line-offset l-content)
-       (layout r-height r-last-line-offset r-content))
+       (layout l-height l-max-width l-last-line-offset l-content)
+       (layout r-height r-max-width r-last-line-offset r-content))
      (layout
        (+ l-height r-height)
+       (max l-max-width (+ l-last-line-offset r-max-width))
        (+ l-last-line-offset r-last-line-offset)
        (content-append l-content r-content))]))
 
@@ -96,3 +108,32 @@
         (case (content->bytes* r indent)
           [(tuple2 indent text-r)
            (tuple2 indent (append-jl text-l text-r))])])]))
+
+(define (layout-valid? [l : Layout]) : Boolean
+  (match-define num-columns 80)
+  (case l
+    [(layout _ max-width _ _)
+     (<= max-width num-columns)]))
+
+(define (layout-<= [l1 : Layout] [l2 : Layout]) : Boolean
+  (match-define (layout height1 max-width1 last-line1 _) l1)
+  (match-define (layout height2 max-width2 last-line2 _) l2)
+  (and
+    (<= height1 height2)
+    (and
+      (<= max-width1 max-width2)
+      (<= last-line1 last-line2))))
+
+(define (pareto-frontier-add [l : Layout] [layouts : (List Layout)]) : (List Layout)
+  (if (ormap (lambda ([other : Layout]) (layout-<= other l)) layouts)
+      layouts
+      (cons l (filter (lambda ([other : Layout]) (not (layout-<= l other))) layouts))))
+
+(define (pareto-frontier [layouts : (List Layout)]) : (List Layout)
+  (pareto-frontier* layouts (empty)))
+
+(define (pareto-frontier* [input : (List Layout)] [frontier : (List Layout)]) : (List Layout)
+  (case input
+    [(empty) frontier]
+    [(cons l layouts)
+     (pareto-frontier* layouts (pareto-frontier-add l frontier))]))
