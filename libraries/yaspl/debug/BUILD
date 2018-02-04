@@ -8,11 +8,11 @@ yaspl_library(
     name = "intermediate-to-html",
     srcs = ["intermediate-to-html.yaspl"],
     deps = [
-        "//libraries:module-name",
         "//libraries:intermediate-language",
+        "//libraries:module-name",
         "//libraries:types",
-        "//libraries/data:list",
         "//libraries/data:join-list",
+        "//libraries/data:list",
         "//libraries/data:tuples",
         "//libraries/formats:html",
         "//libraries/formats:xml",
