@@ -549,6 +549,31 @@ yaspl_bootstrap_library(
 )
 
 yaspl_library(
+    name = "pretty-print",
+    srcs = ["pretty-print.yaspl"],
+    deps = [
+        "//libraries/data:join-list",
+        "//libraries/data:list",
+        "//libraries/data:maybe",
+        "//libraries/data:tuples",
+    ],
+)
+
+yaspl_test(
+    name = "pretty-print-test",
+    srcs = ["pretty-print-test.yaspl"],
+    main_module = "pretty_print_test",
+    deps = [
+        ":pretty-print",
+        ":yunit",
+        "//libraries/data:bytes",
+        "//libraries/data:join-list",
+        "//libraries/data:list",
+        "//libraries/data:maybe",
+    ],
+)
+
+yaspl_library(
     name = "print-stack-function_lib",
     srcs = ["print-stack-function.yaspl"],
     deps = [

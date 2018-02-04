@@ -1,0 +1,98 @@
+#:module (pretty-printer)
+#:import {
+  (join-list)
+  (list)
+  (maybe)
+  (prim)
+  (tuples)
+}
+(export
+  #:types (Doc)
+  #:values (pretty-print doc-text doc-flush doc-append)
+  #:patterns ())
+(types
+  (define-type Doc
+    (doc-choice [a : Doc] [b : Doc])
+    (doc-text [text : Bytes])
+    (doc-flush [d : Doc])
+    (doc-append [left : Doc] [right : Doc]))
+  (define-type Content
+    (content-text [text : Bytes])
+    (content-flush [c : Content])
+    (content-append [left : Content] [right : Content]))
+  (define-type Layout
+    (layout
+      [height : Int]
+      [last-line-offset : Int]
+      [content : Content])))
+
+
+(define (pretty-print [doc : Doc]) : (Maybe (JoinList Bytes))
+  (match-define num-columns 80)
+  (case (doc->layouts doc)
+    [(empty) (nothing)]
+    [(cons (layout _ _ content) _) (just (render-content content))]))
+
+(define (doc->layouts [doc : Doc]) : (List Layout)
+  (case doc
+    [(doc-text text)
+     (varargs list (layout 0 (bytes-length text) (content-text text)))]
+    [(doc-flush doc)
+     (map layout-flush (doc->layouts doc))]
+    [(doc-choice a b)
+     (append (doc->layouts a) (doc->layouts b))]
+    [(doc-append l r)
+     (match-define l-layouts (doc->layouts l))
+     (match-define r-layouts (doc->layouts r))
+     (append*
+       (map
+         (lambda ([l-layout : Layout])
+           (map
+             (lambda ([r-layout : Layout])
+               (layout-append l-layout r-layout))
+             r-layouts))
+         l-layouts))]))
+
+(define (layout-flush [l : Layout]) : Layout
+  (case l
+    [(layout height _ content)
+     (layout (+ 1 height) 0 (content-flush content))]))
+
+(define (layout-append [l-layout : Layout] [r-layout : Layout]) : Layout
+  (case (tuple2 l-layout r-layout)
+    [(tuple2
+       (layout l-height l-last-line-offset l-content)
+       (layout r-height r-last-line-offset r-content))
+     (layout
+       (+ l-height r-height)
+       (+ l-last-line-offset r-last-line-offset)
+       (content-append l-content r-content))]))
+
+(define (make-spaces [amount : Int]) : Bytes
+  (match-define bytes (make-bytes amount))
+  (make-spaces! bytes 0))
+
+(define (make-spaces! [bytes : Bytes] [index : Int]) : Bytes
+  (if (= index (bytes-length bytes))
+      bytes
+      (begin
+        (bytes-set! bytes index (u8 32))
+        (make-spaces! bytes (+ 1 index)))))
+
+(define (render-content [c : Content]) : (JoinList Bytes)
+  (case (content->bytes* c 0)
+    [(tuple2 _ bytes) bytes]))
+
+(define (content->bytes* [c : Content] [indent : Int]) : (Tuple2 Int (JoinList Bytes))
+  (case c
+    [(content-text t) (tuple2 (+ indent (bytes-length t)) (single-jl t))]
+    [(content-flush c)
+     (case (content->bytes* c indent)
+       [(tuple2 _ text)
+        (tuple2 indent (append-jl text (varargs join-list #"\n" (make-spaces indent))))])]
+    [(content-append l r)
+     (case (content->bytes* l indent)
+       [(tuple2 indent text-l)
+        (case (content->bytes* r indent)
+          [(tuple2 indent text-r)
+           (tuple2 indent (append-jl text-l text-r))])])]))
