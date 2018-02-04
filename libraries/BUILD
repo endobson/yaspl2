@@ -256,6 +256,17 @@ yaspl_bootstrap_library(
 )
 
 yaspl_bootstrap_library(
+    name = "intermediate-expression-printer",
+    srcs = ["intermediate-expression-printer.yaspl"],
+    deps = [
+        ":intermediate-expression",
+        ":pretty-print",
+        "//libraries/data:list",
+        "//libraries/data:numbers",
+    ],
+)
+
+yaspl_bootstrap_library(
     name = "intermediate-language",
     srcs = ["intermediate-language.yaspl"],
     deps = [
@@ -548,7 +559,7 @@ yaspl_bootstrap_library(
     ],
 )
 
-yaspl_library(
+yaspl_bootstrap_library(
     name = "pretty-print",
     srcs = ["pretty-print.yaspl"],
     deps = [
