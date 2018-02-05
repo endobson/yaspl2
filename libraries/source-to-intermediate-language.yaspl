@@ -122,7 +122,7 @@
   (define-type Environment
     (environment
       [type-bindings : (Dict Bytes Type)]
-      [local-variables : (Set Bytes)]))
+      [local-variables : (Dict Bytes Bytes)]))
   (define-type State
     (state [funcs : (List i:FunctionDefinition)] [bytes : (List i:BytesConstant)] [counter : Int])))
 
@@ -136,7 +136,7 @@
         (let ([type-env (context-types context)])
           (case (convert-function-definitions
                   definitions
-                  (environment type-env (make-set bytes-cmp))
+                  (environment type-env (make-dict bytes-cmp))
                   (state (empty) (empty) 0))
             [(state funcs byte-constants _)
              (right
@@ -251,13 +251,21 @@
     [(variant-field name pre-type)
      (i:variant-field name (convert-type env pre-type))]))
 
-(define (environment-add-local [env : Environment] [local : Bytes]) : Environment
+(define (environment-add-local [env : Environment] [local : Bytes] [state : State])
+  : (Tuple2 Environment State)
   (match-define (environment types locals) env)
-  (environment types (set-add locals local)))
+  (tuple2
+    (environment types (dict-set locals local local))
+    state))
 
-(define (environment-add-locals [env : Environment] [new-locals : (List Bytes)]) : Environment
-  (match-define (environment types locals) env)
-  (environment types (set-add-all locals new-locals)))
+(define (environment-add-locals [env : Environment] [locals : (List Bytes)] [state : State])
+  : (Tuple2 Environment State)
+  (case locals
+    [(empty) (tuple2 env state)]
+    [(cons local locals)
+     (case (environment-add-local env local state)
+       [(tuple2 env state)
+        (environment-add-locals env locals state)])]))
 
 (define (environment-add-type-vars [env : Environment] [type-vars : (List Bytes)]) : Environment
   (match-define (environment types locals) env)
@@ -296,7 +304,8 @@
      (match-define new-type
        (convert-type (environment-type-bindings env)
                      (fun-pre-type type-vars arg-types result-type)))
-     (match-define env (environment-add-type-vars (environment-add-locals env arg-names) type-vars))
+     (match-define env (environment-add-type-vars env type-vars))
+     (match-define (tuple2 env acc) (environment-add-locals env arg-names acc))
      (case (convert-block defs body env acc)
        [(tuple2 i:body acc)
         (add-function
@@ -331,9 +340,11 @@
                   (add-bytes-constant constant-name v acc)))])]
     [(boolean-literal v) (tuple2 (i:boolean-literal v) acc)]
     [(var-expr v)
-     (if (set-member? (environment-local-variables env) v)
-         (tuple2 (i:local-var-expr v) acc)
-         (tuple2 (i:global-var-expr v) acc))]
+     (case (dict-ref (environment-local-variables env) v)
+       [(nothing)
+        (tuple2 (i:global-var-expr v) acc)]
+       [(just v)
+        (tuple2 (i:local-var-expr v) acc)])]
     [(if-expr c t f)
      (case (convert-expression c env acc)
        [(tuple2 ic acc)
@@ -351,9 +362,11 @@
     [(let-expr name expr body)
      (case (convert-expression expr env acc)
        [(tuple2 iexpr acc)
-        (case (convert-expression body (environment-add-local env name) acc)
-          [(tuple2 ibody acc)
-           (tuple2 (i:let-expr name iexpr ibody) acc)])])]
+        (case (environment-add-local env name acc)
+          [(tuple2 env acc)
+           (case (convert-expression body env acc)
+             [(tuple2 ibody acc)
+              (tuple2 (i:let-expr name iexpr ibody) acc)])])])]
     [(case-expr expr clauses)
      (case (convert-expression expr env acc)
        [(tuple2 iexpr acc)
@@ -363,27 +376,29 @@
     [(lambda-expr args+tys _ body)
      (let ([args (map parse-arg-name args+tys)])
        (let ([fv (free-variables/expr body (set-add-all (make-set bytes-cmp) args) (make-set bytes-cmp))])
-         (case (convert-expression body (environment-add-locals env args) acc)
-           [(tuple2 ibody acc)
-            (case (get-next-index acc)
-              [(tuple2 index acc)
-               (match-define closure-name
-                 (bytes-append (cons #"lambda_" (cons (integer->decimal-bytes index) (empty)))))
-               (match-define free-local-variables
-                 (set->list (set-intersect (environment-local-variables env) fv)))
-               ;; TODO use a real type
-               (tuple2
-                 (i:create-closure-expr closure-name (map i:local-var-expr free-local-variables))
-                 (add-function
-                   (i:function-definition
-                     closure-name (var-type #"bogus")
-                     (map (lambda ([t : (Tuple2 Bytes PreType)])
-                            (case t
-                              [(tuple2 n t)
-                               (tuple2 n (convert-type (environment-type-bindings env) t))]))
-                          args+tys)
-                     free-local-variables ibody)
-                   acc))])])))]
+         (case (environment-add-locals env args acc)
+           [(tuple2 env acc)
+            (case (convert-expression body env acc)
+              [(tuple2 ibody acc)
+               (case (get-next-index acc)
+                 [(tuple2 index acc)
+                  (match-define closure-name
+                    (bytes-append (cons #"lambda_" (cons (integer->decimal-bytes index) (empty)))))
+                  (match-define free-local-variables
+                    (set->list (set-intersect (dict-keys (environment-local-variables env)) fv)))
+                  ;; TODO use a real type
+                  (tuple2
+                    (i:create-closure-expr closure-name (map i:local-var-expr free-local-variables))
+                    (add-function
+                      (i:function-definition
+                        closure-name (var-type #"bogus")
+                        (map (lambda ([t : (Tuple2 Bytes PreType)])
+                               (case t
+                                 [(tuple2 n t)
+                                  (tuple2 n (convert-type (environment-type-bindings env) t))]))
+                             args+tys)
+                        free-local-variables ibody)
+                      acc))])])])))]
     [(app-expr tail-position op args)
      (case (convert-expression op env acc)
        [(tuple2 iop acc)
@@ -401,11 +416,13 @@
   : (Tuple2 i:CaseClause State)
   (case clause
     [(case-clause pat (block defs expr))
-     (case (convert-block defs expr (environment-add-locals env (pattern-bound-vars pat)) acc)
-       [(tuple2 iexpr acc)
-        (case (convert-pattern pat acc)
-          [(tuple2 ipat acc)
-           (tuple2 (i:case-clause ipat iexpr) acc)])])]))
+     (case (environment-add-locals env (pattern-bound-vars pat) acc)
+       [(tuple2 env acc)
+        (case (convert-block defs expr env acc)
+          [(tuple2 iexpr acc)
+           (case (convert-pattern pat acc)
+             [(tuple2 ipat acc)
+              (tuple2 (i:case-clause ipat iexpr) acc)])])])]))
 
 (define (convert-pattern [pat : Pattern] [acc : State]) : (Tuple2 i:Pattern State)
   (case pat
@@ -475,9 +492,11 @@
        [(tuple2 iexpr acc)
         (case (convert-pattern pat acc)
           [(tuple2 ipat acc)
-           (case (convert-block defs body (environment-add-locals env (pattern-bound-vars pat)) acc)
-             [(tuple2 ibody acc)
-              (tuple2 (i:case-expr iexpr (varargs list (i:case-clause ipat ibody))) acc)])])])]))
+           (case (environment-add-locals env (pattern-bound-vars pat) acc)
+             [(tuple2 env acc)
+              (case (convert-block defs body env acc)
+                [(tuple2 ibody acc)
+                 (tuple2 (i:case-expr iexpr (varargs list (i:case-clause ipat ibody))) acc)])])])])]))
 
 (define (add-function [func : i:FunctionDefinition] [acc : State]) : State
   (case acc
