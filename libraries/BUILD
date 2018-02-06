@@ -393,6 +393,7 @@ yaspl_bootstrap_library(
         "//libraries/data:tuples",
         "//libraries/yaspl:intermediate-to-register",
         "//libraries/yaspl:module-environment",
+        "//libraries/yaspl:optimize-intermediate",
         "//libraries/yaspl:top-level-object-optimizer",
         "//libraries/yaspl:top-level-objects",
     ],

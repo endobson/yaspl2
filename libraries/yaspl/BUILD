@@ -51,6 +51,14 @@ yaspl_bootstrap_library(
 )
 
 yaspl_bootstrap_library(
+    name = "optimize-intermediate",
+    srcs = ["optimize-intermediate.yaspl"],
+    deps = [
+        "//libraries:intermediate-language",
+    ],
+)
+
+yaspl_bootstrap_library(
     name = "top-level-object-optimizer",
     srcs = ["top-level-object-optimizer.yaspl"],
     deps = [
