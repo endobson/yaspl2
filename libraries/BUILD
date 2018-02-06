@@ -252,6 +252,7 @@ yaspl_bootstrap_library(
     deps = [
         "//libraries/data:list",
         "//libraries/yaspl:math-operations",
+        "//libraries/yaspl:var",
     ],
 )
 
@@ -263,6 +264,7 @@ yaspl_bootstrap_library(
         ":pretty-print",
         "//libraries/data:list",
         "//libraries/data:numbers",
+        "//libraries/yaspl:var",
     ],
 )
 
@@ -276,6 +278,7 @@ yaspl_bootstrap_library(
         ":types",
         "//libraries/data:list",
         "//libraries/data:tuples",
+        "//libraries/yaspl:var",
     ],
 )
 
@@ -745,6 +748,7 @@ yaspl_bootstrap_library(
         "//libraries/data:numbers",
         "//libraries/data:set",
         "//libraries/data:tuples",
+        "//libraries/yaspl:var",
     ],
 )
 
@@ -780,6 +784,7 @@ yaspl_bootstrap_library(
         "//libraries/data:tuples",
         "//libraries/yaspl:module-environment",
         "//libraries/yaspl:top-level-objects",
+        "//libraries/yaspl:var",
     ],
 )
 
@@ -792,6 +797,7 @@ yaspl_bootstrap_library(
         "//libraries/data:list",
         "//libraries/data:tuples",
         "//libraries/yaspl:math-operations",
+        "//libraries/yaspl:var",
     ],
 )
 

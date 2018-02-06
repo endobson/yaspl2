@@ -14,6 +14,7 @@
   (types)
   (yaspl module-environment)
   (yaspl top-level-objects)
+  (yaspl var)
 }
 (export
   #:types ()
@@ -23,7 +24,7 @@
 (types
   (define-type Environment
     (environment
-      [value-bindings : (Dict Bytes VarReference)]
+      [value-bindings : (Dict Var VarReference)]
       [module-env : ModuleEnvironment]))
   (define-type VarReference
     (local-var)
@@ -38,11 +39,11 @@
         (compile-closures mod)
         (compile-byte-constants mod)))))
 
-(define (environment-value-ref [env : Environment] [name : Bytes]) : (Maybe VarReference)
+(define (environment-value-ref [env : Environment] [name : Var]) : (Maybe VarReference)
   (dict-ref (environment-value-bindings env) name))
 (define (environment-global-ref [env : Environment] [name : Bytes]) : (Maybe Bytes)
   (module-environment-global-ref (environment-module-env env) name))
-(define (environment-value-set [env : Environment] [name : Bytes] [val : VarReference])
+(define (environment-value-set [env : Environment] [name : Var] [val : VarReference])
   : Environment
   (case env
     [(environment vals mod)
@@ -50,13 +51,13 @@
 (define (environment-tag-ref [env : Environment] [name : Bytes]) : (Maybe Int)
   (module-environment-tag-ref (environment-module-env env) name))
 
-(define (add-all-locals [env : Environment] [names : (List Bytes)])
+(define (add-all-locals [env : Environment] [names : (List Var)])
   : Environment
   (case names
     [(empty) env]
     [(cons name names) (add-all-locals (environment-value-set env name (local-var)) names)]))
 
-(define (add-all-free-vars [env : Environment] [names : (List Bytes)] [index : Int])
+(define (add-all-free-vars [env : Environment] [names : (List Var)] [index : Int])
   : Environment
   (case names
     [(empty) env]
@@ -251,7 +252,7 @@
   (case fun
     [(function-definition name _ args free-vars body)
      (let ([arg-names
-            (map (lambda ([t : (Tuple2 Bytes Type)]) (case t [(tuple2 n _) n])) args)])
+            (map (lambda ([t : (Tuple2 Var Type)]) (case t [(tuple2 n _) n])) args)])
        (stack-function-tlo
          (stack-function
            (mangle-name (bytes-append (varargs list (mangled-mod-name mod-name) #"_" name)))
@@ -260,7 +261,7 @@
            ;; variables.
            (case (compile-expression
                    body
-                   (add-all-free-vars (add-all-locals (environment (make-dict bytes-cmp) env) arg-names) free-vars 0)
+                   (add-all-free-vars (add-all-locals (environment (make-dict var-cmp) env) arg-names) free-vars 0)
                    (gen-state (initial-variables arg-names) (empty-jl) 0 (empty-jl)))
              [(gen-state _ cmds label blocks)
               (jl->list
@@ -306,7 +307,7 @@
        [(just (free-var offset))
         (load-free-var offset state)]
        [(nothing)
-        (panic (bytes-append (cons #"Unbound local variable: " (cons v (empty)))))])]
+        (panic (bytes-append (cons #"Unbound local variable: " (cons (var->bytes v) (empty)))))])]
     [(global-var-expr v)
      (case (environment-global-ref env v)
        [(just sym)
@@ -565,7 +566,7 @@
         (run-extractions/state extractions state)))))
 
 (define (run-extractions/state
-          [extractions : (List (Tuple2 Bytes (List (Tuple2 Int Int))))]
+          [extractions : (List (Tuple2 Var (List (Tuple2 Int Int))))]
           [state : GenState]) : GenState
   (case extractions
     [(empty) (ignore-value state)]
@@ -577,7 +578,7 @@
            (extract-path (reverse path) (dup-temporary state)))))]))
 
 (define (cleanup-extractions/state
-          [extractions : (List (Tuple2 Bytes (List (Tuple2 Int Int))))]
+          [extractions : (List (Tuple2 Var (List (Tuple2 Int Int))))]
           [state : GenState]) : GenState
   (case extractions
     [(empty) state]
@@ -607,7 +608,7 @@
        [_ (panic #"swap-var: Not a valid state")])]))
 
 (define (run-extractions/env
-          [extractions : (List (Tuple2 Bytes (List (Tuple2 Int Int))))]
+          [extractions : (List (Tuple2 Var (List (Tuple2 Int Int))))]
           [env : Environment]) : Environment
   (case extractions
     [(empty) env]
@@ -619,8 +620,8 @@
 (define (compute-extractions
           [patterns : (List (Tuple2 Pattern (List (Tuple2 Int Int))))]
           [env : Environment]
-          [acc-extractions : (List (Tuple2 Bytes (List (Tuple2 Int Int))))])
-  : (List (Tuple2 Bytes (List (Tuple2 Int Int))))
+          [acc-extractions : (List (Tuple2 Var (List (Tuple2 Int Int))))])
+  : (List (Tuple2 Var (List (Tuple2 Int Int))))
   (case patterns
     [(empty) acc-extractions]
     [(cons (tuple2 pattern path) patterns)

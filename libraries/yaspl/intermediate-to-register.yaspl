@@ -64,7 +64,7 @@
 (types
   (define-type Environment
     (environment
-      [vars : (Dict Bytes Var)]
+      [vars : (Dict Var Var)]
       [module-env : ModuleEnvironment])))
 
 
@@ -80,8 +80,8 @@
             (register-function-tlo (convert-function (module-name mod) f env)))
           (module-definitions mod))))))
 
-
-(define (env-ref [env : Environment] [name : Bytes]) : (Maybe Var)
+;; TODO investigate if this can be simplified now that intermediate language has vars.
+(define (env-ref [env : Environment] [name : Var]) : (Maybe Var)
   (dict-ref (environment-vars env) name))
 
 (define (env-global-ref [env : Environment] [name : Bytes]) : (Maybe Bytes)
@@ -89,7 +89,7 @@
 (define (env-pattern-tag-ref [env : Environment] [name : Bytes]) : (Maybe Int)
   (module-environment-tag-ref (environment-module-env env) name))
 
-(define (env-set [env : Environment] [name : Bytes] [var : Var]) : Environment
+(define (env-set [env : Environment] [name : Var] [var : Var]) : Environment
   (case env
     [(environment vars module-env)
      (environment (dict-set vars name var) module-env)]))
@@ -102,16 +102,16 @@
   (match-define (tuple2 start-block-num acc) (fresh-block-number* acc))
 
   (match-define (tuple2 freshened-args acc)
-    (map-state fresh-name* arg-names acc))
+    (map-state fresh-name2* arg-names acc))
   (match-define (tuple2 freshened-free-vars acc)
-    (map-state fresh-name* free-vars acc))
+    (map-state fresh-name2* free-vars acc))
   (match-define freshened-args+free-vars (append freshened-args freshened-free-vars))
 
-  (match-define acc (start-block start-block-num (map new-arg freshened-args+free-vars) acc))
-  (match-define env (environment (make-dict bytes-cmp) env))
+  (match-define acc (start-block start-block-num (map new-arg2 freshened-args+free-vars) acc))
+  (match-define env (environment (make-dict var-cmp) env))
   (match-define env
     (foldl
-      (lambda ([t : (Tuple2 Bytes Var)] [env : Environment])
+      (lambda ([t : (Tuple2 Var Var)] [env : Environment])
         (case t
           [(tuple2 name var) (env-set env name var)]))
       freshened-args+free-vars
@@ -139,7 +139,7 @@
        [(just var) (tuple2 var acc)]
        [(nothing)
         (panic (bytes-append
-                 (varargs list #"Unbound local variable when converting to register: " v)))])]
+                 (varargs list #"Unbound local variable when converting to register: " (var->bytes v))))])]
     [(global-var-expr v)
      (case (env-global-ref env v)
        [(just sym)
@@ -317,7 +317,6 @@
        join-var
        (start-block join-block (varargs list join-var) acc))]))
 
-
 (define (convert-clauses [clauses : (List CaseClause)] [value : Var] [join-block : Int]
                          [env : Environment] [acc : Accumulator]) : BlockAccumulator
   (case clauses
@@ -454,6 +453,6 @@
           [(tuple2 vs s)
            (tuple2 (cons v vs) s)])])]))
 
-(define (parse-arg-name [t : (Tuple2 Bytes Type)]) : Bytes
+(define (parse-arg-name [t : (Tuple2 Var Type)]) : Var
   (case t
     [(tuple2 n _) n]))
