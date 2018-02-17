@@ -121,8 +121,8 @@
      (panic #"leaq of register is non sensical")]
     [(leaq (rmi-imm _) _)
      (panic #"leaq of immediate is non sensical")]
-    [(movb (rmi-register reg1) (rmi-scaled-memory reg2 scale reg3 offset))
-     (mc-bytes* (single-byte-op/RM/scaled-mem #x88 #f reg1 reg2 scale reg3 offset))]
+    [(movb reg1 (rmi-scaled-memory reg2 scale reg3 offset))
+     (mc-bytes* (single-byte-op/RM/scaled-mem/8 #x88 #f reg1 reg2 scale reg3 offset))]
     [(movb _ (rmi-imm _))
      (panic #"movb to immediate is nonsensical")]
     [(movb _ _)
@@ -154,7 +154,7 @@
     [(movq/imm imm reg)
      (mc-bytes* (single-byte-op-s64/IO #xB8 #t imm reg))]
     [(movzbq reg1 reg2)
-     (mc-bytes* (double-byte-op/MR #xB6 #t reg1 reg2))]
+     (mc-bytes* (double-byte-op/MR/8 #xB6 #t reg1 reg2))]
     [(movzbq/mem (rmi-register reg1) _)
      (panic #"movzbq of non 8 bit register is not allowed")]
     [(movzbq/mem (rmi-imm _) _)
@@ -201,17 +201,17 @@
     [(repne-scasq) (mc-bytes* (varargs bytes #xF2 #x48 #xAF))]
     [(ret) (mc-bytes* (varargs bytes #xC3))]
     [(sete reg)
-     (mc-bytes* (double-byte-op/M #x94 0 #f reg))]
+     (mc-bytes* (double-byte-op/M/8 #x94 0 #f reg))]
     [(setg reg)
-     (mc-bytes* (double-byte-op/M #x9F 0 #f reg))]
+     (mc-bytes* (double-byte-op/M/8 #x9F 0 #f reg))]
     [(setge reg)
-     (mc-bytes* (double-byte-op/M #x9D 0 #f reg))]
+     (mc-bytes* (double-byte-op/M/8 #x9D 0 #f reg))]
     [(setl reg)
-     (mc-bytes* (double-byte-op/M #x9C 0 #f reg))]
+     (mc-bytes* (double-byte-op/M/8 #x9C 0 #f reg))]
     [(setle reg)
-     (mc-bytes* (double-byte-op/M #x9E 0 #f reg))]
+     (mc-bytes* (double-byte-op/M/8 #x9E 0 #f reg))]
     [(setne reg)
-     (mc-bytes* (double-byte-op/M #x95 0 #f reg))]
+     (mc-bytes* (double-byte-op/M/8 #x95 0 #f reg))]
     [(shlq reg)
      (mc-bytes* (single-byte-op/M #xD3 4 #t reg))]
     [(shlq/imm v reg)
@@ -467,6 +467,25 @@
   (single-byte-op/RM/scaled-mem opcode rexW reg3 reg1 scale reg2 displacement))
 
 
+(define (single-byte-op/RM/scaled-mem/8
+          [opcode : Int] [rexW : Boolean]
+          [reg1 : Register8]
+          [reg2 : Register] [scale : Scale] [reg3 : Register] [displacement : S32]) : Bytes
+  (let ([reg (register8->byte reg1)])
+    (let ([base (register->byte reg2)])
+      (let ([index (register->byte reg3)])
+        (add-maybe-byte
+          (rex-byte rexW (>= reg 8) (>= index 8) (>= base 8))
+          (let ([v (varargs bytes
+                     opcode
+                     (mod-rm-byte #x02 reg #x04)
+                     (sib-byte scale reg3 reg2)
+                     0 0 0 0)])
+            (begin
+              (bytes-set!/s32-le v 3 displacement)
+              v)))))))
+
+
 (define (single-byte-op/IMR [opcode : Int] [rexW : Boolean] [imm : S32]
                             [reg1 : Register] [reg2 : Register]) : Bytes
   (let ([reg (register->byte reg2)])
@@ -491,6 +510,17 @@
           opcode
           (mod-rm-byte #x03 reg rm))))))
 
+(define (double-byte-op/MR/8 [opcode : Int] [rexW : Boolean] [reg1 : Register8] [reg2 : Register]) : Bytes
+  (let ([rm (register8->byte reg1)])
+    (let ([reg (register->byte reg2)])
+      (add-maybe-byte
+        (rex-byte rexW (>= reg 8) #f (>= rm 8))
+        (varargs bytes
+          #x0F
+          opcode
+          (mod-rm-byte #x03 reg rm))))))
+
+
 (define (double-byte-op/MR/scaled-mem
           [opcode : Int] [rexW : Boolean]
           [reg1 : Register] [scale : Scale] [reg2 : Register] [displacement : S32]
@@ -511,8 +541,8 @@
               v)))))))
 
 
-(define (double-byte-op/M [opcode : Int] [op-ext : Int] [rexW : Boolean] [reg : Register]) : Bytes
-  (let ([rm (register->byte reg)])
+(define (double-byte-op/M/8 [opcode : Int] [op-ext : Int] [rexW : Boolean] [reg : Register8]) : Bytes
+  (let ([rm (register8->byte reg)])
     (add-maybe-byte
       (rex-byte rexW #f #f (>= rm 8))
       (varargs bytes
@@ -553,9 +583,8 @@
       (bitwise-and (register->byte base) #x07))))
 
 ;; TODO make this return a U8
-(define (register->byte [reg : Register]) : Int
+(define (register8->byte [reg : Register8]) : Int
   (case reg
-    ;; 8 Bit registers
     [(al) 0]
     [(ah) 4]
     [(bl) 3]
@@ -575,7 +604,11 @@
     [(r12b) 12]
     [(r13b) 13]
     [(r14b) 14]
-    [(r15b) 15]
+    [(r15b) 15]))
+
+;; TODO make this return a U8
+(define (register->byte [reg : Register]) : Int
+  (case reg
     ;; 16 bit registers
     [(ax) 0]
     [(bx) 3]
