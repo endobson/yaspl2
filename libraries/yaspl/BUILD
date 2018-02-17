@@ -54,7 +54,14 @@ yaspl_bootstrap_library(
     name = "optimize-intermediate",
     srcs = ["optimize-intermediate.yaspl"],
     deps = [
+        "//libraries/data:bytes",
+        "//libraries/data:dict",
+        "//libraries/data:list",
+        "//libraries/data:maybe",
         "//libraries:intermediate-language",
+        "//libraries:resolved-imports-language",
+        "//libraries:module-signature",
+        "//libraries:intermediate-expression",
     ],
 )
 

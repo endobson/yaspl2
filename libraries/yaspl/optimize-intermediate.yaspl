@@ -1,13 +1,111 @@
 #:module (yaspl optimize-intermediate)
 #:import {
+  (bytes)
+  (dict)
+  (intermediate-expression)
   (intermediate-language)
+  (list)
+  (maybe)
+  (module-signature)
+  (prim)
+  (resolved-imports-language) {
+    #:patterns
+      imports
+  }
 }
 (export
   #:types ()
   #:values (optimize-intermediate-module)
   #:patterns ())
-(types)
+(types
+  (define-type OptimizeEnvironment
+    (optimize-environment
+      [inlineable : (Dict Bytes InlineableFunction)])))
 
+(define (make-optimize-environment [mod : Module]) : OptimizeEnvironment
+  (optimize-environment
+    (add-all-imported-functions
+      (make-dict bytes-cmp)
+      mod)))
+
+(define (add-all-imported-functions [env : (Dict Bytes InlineableFunction)] [mod : Module])
+  : (Dict Bytes InlineableFunction)
+  (match-define (imports _ values _) (module-imports mod))
+  (merge-dicts
+    (dict-filter-map values
+      (lambda ([k : Bytes] [v : ValueSignature])
+        (case v
+          [(value-signature _ symbol inlineable)
+           inlineable])))
+    env))
 
 (define (optimize-intermediate-module [mod : Module]) : Module
-  mod)
+  (match-define (module names imports exports types definitions closures bytes) mod)
+  (module names imports exports types
+          (optimize-function-definitions definitions (make-optimize-environment mod))
+          closures bytes))
+
+(define (optimize-function-definitions [functions : (List FunctionDefinition)]
+                                       [env : OptimizeEnvironment])
+  : (List FunctionDefinition)
+  (map
+    (lambda ([f : FunctionDefinition]) (optimize-function-definition f env))
+    functions))
+
+(define (optimize-function-definition [function : FunctionDefinition]
+                                      [env : OptimizeEnvironment])
+  : FunctionDefinition
+  (match-define (function-definition name type args free-vars body) function)
+  (function-definition name type args free-vars (optimize-expr body env)))
+
+
+(define (optimize-expr [expr : Expression] [env : OptimizeEnvironment]) : Expression
+  (match-define recur (lambda ([e : Expression]) (optimize-expr e env)))
+  (match-define recur-clause (lambda ([c : CaseClause]) (optimize-clause c env)))
+  (case expr
+    [(int-literal _) expr]
+    [(boolean-literal _) expr]
+    [(local-var-expr _) expr]
+    [(global-var-expr _) expr]
+    [(if-expr c t f)
+     (if-expr (recur c) (recur t) (recur f))]
+    [(begin-expr exprs last-expr)
+     (begin-expr (map recur exprs) last-expr)]
+    [(create-closure-expr fun-name args)
+     (create-closure-expr fun-name (map recur args))]
+    [(call-closure-expr tail-position op args)
+     (match-define opt-args (map recur args))
+     (case (expr->inlineable op env)
+       [(nothing)
+        (call-closure-expr tail-position (recur op) opt-args)]
+       [(just (hoas-linear-inlineable-function f))
+        (f opt-args)])]
+    [(let-expr name expr body)
+     (let-expr name (recur expr) (recur body))]
+    [(case-expr expr clauses)
+     (case-expr (recur expr) (map recur-clause clauses))]
+    [(array-expr args)
+     (array-expr (map recur args))]
+    [(make-array-expr size expr)
+     (make-array-expr (recur size) (recur expr))]
+    [(array-length-expr arr)
+     (array-length-expr (recur arr))]
+    [(array-ref-expr arr off)
+     (array-ref-expr (recur arr) (recur off))]
+    [(array-set!-expr arr off val)
+     (array-set!-expr (recur arr) (recur off) (recur val))]
+    [(prim-numeric-bin-op op l r)
+     (prim-numeric-bin-op op (recur l) (recur r))]
+    [(prim-comparison-bin-op op l r)
+     (prim-comparison-bin-op op (recur l) (recur r))]))
+
+(define (optimize-clause [clause : CaseClause] [env : OptimizeEnvironment]) : CaseClause
+  (case clause
+    [(case-clause pattern expr)
+     (case-clause pattern (optimize-expr expr env))]))
+
+(define (expr->inlineable [expr : Expression] [env : OptimizeEnvironment]) : (Maybe InlineableFunction)
+  (case expr
+    [(global-var-expr v)
+     (dict-ref (optimize-environment-inlineable env) v)]
+    [_ (nothing)]))

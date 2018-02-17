@@ -550,6 +550,7 @@ yaspl_bootstrap_library(
         ":module-name",
         ":module-signature",
         ":stack-machine",
+        ":intermediate-expression",
         ":types",
         "//libraries/data:bytes",
         "//libraries/data:dict",
