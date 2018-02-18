@@ -331,7 +331,6 @@ yaspl_bootstrap_library(
     srcs = ["lexer.yaspl"],
     deps = [
         ":byte-escapes",
-        ":io",
         "//libraries/data:boolean",
         "//libraries/data:bytes",
         "//libraries/data:either",
