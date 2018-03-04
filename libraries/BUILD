@@ -250,6 +250,7 @@ yaspl_bootstrap_library(
     name = "intermediate-expression",
     srcs = ["intermediate-expression.yaspl"],
     deps = [
+        ":types",
         "//libraries/data:list",
         "//libraries/yaspl:math-operations",
         "//libraries/yaspl:var",
@@ -547,10 +548,10 @@ yaspl_bootstrap_library(
     name = "prim-implementation",
     srcs = ["prim-implementation.yaspl"],
     deps = [
+        ":intermediate-expression",
         ":module-name",
         ":module-signature",
         ":stack-machine",
-        ":intermediate-expression",
         ":types",
         "//libraries/data:bytes",
         "//libraries/data:dict",
