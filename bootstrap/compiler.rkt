@@ -59,6 +59,7 @@
 (define define-sym (datum->syntax #'define 'define))
 (define app-sym (datum->syntax #'#%plain-app '#%plain-app))
 (define lambda-sym (datum->syntax #'lambda 'lambda))
+(define let-sym (datum->syntax #'let 'let))
 (define vector-sym (datum->syntax #'vector 'vector))
 (define vector-ref-sym (datum->syntax #'vector-ref 'vector-ref))
 (define variant-val-sym (datum->syntax #'variant-val 'variant-val))
@@ -119,8 +120,13 @@
 
             (cons
               (with-syntax ([vs (generate-temporaries (variant&-fields variant))])
-                `(,define-sym (,constructor-id . ,#'vs)
-                   (,app-sym ,variant-val-sym ',variant-name (,app-sym ,vector-sym . ,#'vs))))
+                (if (zero? (length (syntax->list #'vs)))
+                    (let ([v (generate-temporary constructor-id)])
+                      `(,define-sym ,constructor-id
+                         (,let-sym ([,v (,app-sym ,variant-val-sym ',variant-name (,app-sym ,vector-sym))])
+                           (,lambda-sym () ,v))))
+                    `(,define-sym (,constructor-id . ,#'vs)
+                       (,app-sym ,variant-val-sym ',variant-name (,app-sym ,vector-sym . ,#'vs)))))
               (for/list ([field (variant&-fields variant)] [index (in-naturals)])
                 (define field-name (variant-field&-name field))
                 (define field-id (generate-temporary field-name))
