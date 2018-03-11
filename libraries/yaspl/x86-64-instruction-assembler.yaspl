@@ -121,12 +121,16 @@
      (panic #"leaq of register is non sensical")]
     [(leaq (rmi-imm _) _)
      (panic #"leaq of immediate is non sensical")]
+    [(movb reg1 (rmi-direct-memory reg2))
+     (mc-bytes* (single-byte-op/RM/mem/8 #x88 #f reg1 reg2))]
+    [(movb reg1 (rmi-displaced-memory reg2 offset))
+     (mc-bytes* (single-byte-op/RM/displaced-mem/8 #x88 #f reg1 reg2 offset))]
+    [(movb reg1 (rmi-register reg2))
+     (panic #"movb to register is not yet supported")]
     [(movb reg1 (rmi-scaled-memory reg2 scale reg3 offset))
      (mc-bytes* (single-byte-op/RM/scaled-mem/8 #x88 #f reg1 reg2 scale reg3 offset))]
     [(movb _ (rmi-imm _))
      (panic #"movb to immediate is nonsensical")]
-    [(movb _ _)
-     (panic #"movb variant is not yet supported")]
     [(movq (rmi-imm (imm-s32 imm)) (rmi-register reg))
      (mc-bytes* (single-byte-op/IM #xC7 0 #t imm reg))]
     [(movq (rmi-imm (imm-s32 imm)) (rmi-direct-memory reg))
@@ -161,8 +165,8 @@
      (panic #"movzbq of immediate is not allowed")]
     [(movzbq/mem (rmi-direct-memory reg1) reg2)
      (mc-bytes* (double-byte-op/MR/mem #xB6 #t reg1 reg2))]
-    [(movzbq/mem (rmi-displaced-memory _ _) _)
-     (panic #"movzbq of displaced memory not yet supported")]
+    [(movzbq/mem (rmi-displaced-memory reg1 offset) reg2)
+     (mc-bytes* (double-byte-op/MR/displaced-mem #xB6 #t reg1 offset reg2))]
     [(movzbq/mem (rmi-scaled-memory reg1 scale reg2 offset) reg3)
      (mc-bytes* (double-byte-op/MR/scaled-mem #xB6 #t reg1 scale reg2 offset reg3))]
     [(nop) (mc-bytes* (varargs bytes #x90))]
@@ -421,6 +425,15 @@
 (define (single-byte-op/MR/mem [opcode : Int] [rexW : Boolean] [reg1 : Register] [reg2 : Register]) : Bytes
   (single-byte-op/RM/mem opcode rexW reg2 reg1))
 
+(define (single-byte-op/RM/mem/8 [opcode : Int] [rexW : Boolean] [reg1 : Register8] [reg2 : Register]) : Bytes
+  (let ([reg (register8->byte reg1)])
+    (let ([rm (register->byte reg2)])
+      (add-maybe-byte
+        (rex-byte* rexW (>= reg 8) #f (>= rm 8) reg1)
+        (varargs bytes
+          opcode
+          (mod-rm-byte #x00 reg rm))))))
+
 ;; Doesn't support rsp or r12. This is because the instruction set doesn't support them.
 (define (single-byte-op/RM/displaced-mem
           [opcode : Int] [rexW : Boolean]
@@ -442,6 +455,22 @@
           [reg1 : Register] [displacement : S32]
           [reg2 : Register]) : Bytes
   (single-byte-op/RM/displaced-mem opcode rexW reg2 reg1 displacement))
+
+(define (single-byte-op/RM/displaced-mem/8
+          [opcode : Int] [rexW : Boolean]
+          [reg1 : Register8]
+          [reg2 : Register] [displacement : S32]) : Bytes
+  (let ([reg (register8->byte reg1)])
+    (let ([rm (register->byte reg2)])
+      (add-maybe-byte
+        (rex-byte* rexW (>= reg 8) #f (>= rm 8) reg1)
+        (let ([v (varargs bytes
+                   opcode
+                   (mod-rm-byte #x02 reg rm)
+                   0 0 0 0)])
+          (begin
+            (bytes-set!/s32-le v 2 displacement)
+            v))))))
 
 (define (single-byte-op/RM/scaled-mem
           [opcode : Int] [rexW : Boolean]
@@ -529,6 +558,23 @@
           #x0F
           opcode
           (mod-rm-byte #x00 reg rm))))))
+
+(define (double-byte-op/MR/displaced-mem
+          [opcode : Int] [rexW : Boolean]
+          [reg1 : Register] [displacement : S32]
+          [reg2 : Register]) : Bytes
+  (let ([rm (register->byte reg1)])
+    (let ([reg (register->byte reg2)])
+      (add-maybe-byte
+        (rex-byte rexW (>= reg 8) #f (>= rm 8))
+        (let ([v (varargs bytes
+                   #x0F
+                   opcode
+                   (mod-rm-byte #x02 reg rm)
+                   0 0 0 0)])
+          (begin
+            (bytes-set!/s32-le v 3 displacement)
+            v))))))
 
 (define (double-byte-op/MR/scaled-mem
           [opcode : Int] [rexW : Boolean]
