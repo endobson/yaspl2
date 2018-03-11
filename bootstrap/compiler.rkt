@@ -172,12 +172,15 @@
     [(list)
      (compile-expr pat-env env body)]
     [(cons (match-def& pattern expr) defs)
-     #`(let ([val #,(compile-expr pat-env env expr)])
-         #,(let-values ([(triple-function vars env) (compile-pattern/simple-match pattern pat-env env)])
-             #`(#,app-sym #,triple-function
-                  val
-                  (#,lambda-sym (#,@vars) #,(compile-block pat-env env defs body))
-                  (#,lambda-sym () (error 'match)))))]))
+     (define vars (pattern-variables pattern))
+     (define body-vars (generate-temporaries vars))
+     (define body-env
+       (for/fold ([env env]) ([var (in-list vars)] [id (in-list body-vars)])
+         (hash-set env var id)))
+     #`(let ([val #,(compile-expr pat-env env expr)]
+             [succ (#,lambda-sym (#,@body-vars) #,(compile-block pat-env body-env defs body))])
+         (#,app-sym #,(compile-pattern pattern pat-env vars)
+          val succ (#,lambda-sym () (error 'match))))]))
 
 ;; env is hash table to expressions which evaluate to the value
 (define (compile-expr pat-env env expr)
@@ -227,32 +230,29 @@
      (define form
        (for/fold ([form #'(error 'end-of-case)]) ([clause (in-list (reverse clauses))])
          (match-define (case-clause& pattern (block& defs expr)) clause)
-         (let-values ([(triple-function vars env) (compile-pattern/simple-match pattern pat-env env)])
-           (define body (compile-block pat-env env defs expr))
-            #`(#,app-sym #,triple-function
-                 val
-                 (#,lambda-sym (#,@vars) #,body)
-                 (#,lambda-sym () #,form)))))
-       #`(let ([val #,(compile-expr pat-env env expr)]) #,form)]))
+         (define vars (pattern-variables pattern))
+         (define body-vars (generate-temporaries vars))
+         (define body-env
+           (for/fold ([env env]) ([var (in-list vars)] [id (in-list body-vars)])
+             (hash-set env var id)))
+         (define body (compile-block pat-env body-env defs expr))
+         #`(#,app-sym #,(compile-pattern pattern pat-env vars)
+            val
+            (#,lambda-sym (#,@body-vars) #,body)
+            (#,lambda-sym () #,form))))
 
-;; Pattern (Hash Symbol Symbol) (Hash Symbol Indentifier) -> (Values Syntax (Hash Symbol Identifier))
-(define (compile-pattern p pat-env env)
-  (define (recur p env)
+     #`(let ([val #,(compile-expr pat-env env expr)]) #,form)]))
+
+(define (pattern-variables p)
+  (define (recur p acc)
     (match p
-      [(bytes-pattern& bytes)
-       (values bytes env)]
-      [(byte-pattern& byte)
-       (values byte env)]
+      [(bytes-pattern& bytes) acc]
+      [(byte-pattern& byte) acc]
       [(variable-pattern& var)
-       (define id (generate-temporary var))
-       (values id (hash-set env var id))]
+       (cons var acc)]
       [(ignore-pattern&)
-       (values #'_ env)]
+       acc]
       [(abstraction-pattern& pattern-binding pats)
-       (let-values
-         ([(vs env)
-           (for/fold ([vs empty] [env env]) ([pat (in-list (reverse pats))])
-             (let-values ([(v env) (recur pat env)])
-                (values (cons v vs) env)))])
-         (values `(,#'variant-val ',(hash-ref pat-env pattern-binding) (list ,@vs)) env))]))
-  (recur p env))
+       (for/fold ([acc acc]) ([pat (in-list pats)])
+         (recur pat acc))]))
+  (recur p empty))

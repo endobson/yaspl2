@@ -4,88 +4,48 @@
   "machine-structs.rkt"
   "parser-structs.rkt"
   racket/list
-  racket/unsafe/ops
   racket/syntax
   racket/match)
 
-(provide compile-pattern/simple-match)
+(provide compile-pattern)
 
+(define (convert p pat-env temp-env val fail succ)
+  (match p
+    [(bytes-pattern& bytes)
+     #`(if (equal? #,val #,bytes)
+           #,succ
+           #,fail)]
+    [(byte-pattern& byte)
+     #`(if (equal? #,val #,byte)
+           #,succ
+           #,fail)]
+    [(variable-pattern& var)
+     (define var-temp (hash-ref temp-env var))
+     #`(let ([#,var-temp #,val])
+         #,succ)]
+    [(ignore-pattern&)
+     succ]
+    [(abstraction-pattern& pattern-binding pats)
+     #`(if (equal? (variant-val-variant-name #,val) '#,(hash-ref pat-env pattern-binding))
+           #,(for/fold ([succ succ]) ([pat (in-list pats)] [index (in-naturals)])
+               (define field-temp (generate-temporary 'field))
+               #`(let ([#,field-temp (vector-ref (variant-val-fields #,val) '#,index)])
+                   #,(convert pat pat-env temp-env field-temp fail succ)))
+           #,fail)]))
 
-(struct pat-fields (matcher-id bindings vars))
+;; Pattern (Hash Symbol Symbol) (Listof Symbol) -> Syntax
+;; The resulting syntax is a function that takes in a value and a success continuation and failure
+;; continuation. The success continuation should be called with the values for the patterns with the
+;; given symbols. The failure continuation takes no arguments.
+(define (compile-pattern pat pat-env vars)
+  (define temp-env
+    (for/hash ([var (in-list vars)])
+      (values var (generate-temporary var))))
 
-(define (convert p pat-env)
-  (define (convert* p) (convert p pat-env))
-    (match p
-      [(bytes-pattern& bytes)
-       (define matcher-id (generate-temporary))
-       (define matcher
-         #`(lambda (v sk fk) (if (and (bytes? v) (equal? v #,bytes)) (sk) (fk))))
-       (pat-fields
-         matcher-id
-         (list #`(#,matcher-id #,matcher))
-         (list))]
-      [(byte-pattern& byte)
-       (define matcher-id (generate-temporary))
-       (define matcher
-         #`(lambda (v sk fk) (if (and (exact-integer? v) (equal? v #,byte)) (sk) (fk))))
-       (pat-fields
-         matcher-id
-         (list #`(#,matcher-id #,matcher))
-         (list))]
-      [(variable-pattern& var)
-       (define matcher-id (generate-temporary))
-       (define matcher #`(lambda (v sk fk) (sk v)))
-       (pat-fields
-         matcher-id
-         (list #`(#,matcher-id #,matcher))
-         (list (cons var (generate-temporary var))))]
+  (define val (generate-temporary #'val))
+  (define success (generate-temporary #'success))
+  (define fail (generate-temporary #'fail))
 
-      [(ignore-pattern&)
-       (define matcher-id (generate-temporary))
-       (define matcher #`(lambda (v sk fk) (sk)))
-       (pat-fields
-         matcher-id
-         (list #`(#,matcher-id #,matcher))
-         (list))]
-
-      [(abstraction-pattern& pattern-binding pats)
-       (define fields-list (map convert* pats))
-       (define field-temps (generate-temporaries pats))
-       (let-values
-         ([(form vars)
-           (let loop ([fields-list fields-list] [field-temps field-temps] [i 0] [vars empty])
-             (if (empty? fields-list)
-                 (values
-                   #`(sk #,@(map cdr vars))
-                   vars)
-                 (match (first fields-list)
-                   [(pat-fields matcher-id bindings new-vars)
-                    (let-values ([(form full-vars)
-                                  (loop (rest fields-list) (rest field-temps) (add1 i) (append new-vars vars))])
-                      (values
-                        #`(#,matcher-id
-                           (vector-ref (variant-val-fields v) '#,i)
-                           (lambda (#,@(map cdr new-vars)) #,form)
-                           fk)
-                        full-vars))])))])
-         (define matcher
-           #`(lambda (v sk fk)
-               (if (equal? (variant-val-variant-name v) '#,(hash-ref pat-env pattern-binding))
-                   #,form
-                   (fk))))
-         (define matcher-id (generate-temporary))
-         (pat-fields
-           matcher-id
-           (cons #`(#,matcher-id #,matcher) (map pat-fields-bindings fields-list))
-           vars))]))
-
-
-;; Pattern (Hash Symbol Symbol) (Hash Symbol Indentifier) -> (Values Syntax (Hash Symbol Identifier))
-(define (compile-pattern/simple-match pat pat-env env)
-  (match (convert pat pat-env)
-    [(pat-fields matcher-id bindings vars)
-     (values
-       #`(letrec (#,@(flatten bindings)) #,matcher-id)
-       (map cdr vars)
-       (for/fold ([env env]) ([var vars])
-         (hash-set env (car var) (cdr var))))]))
+  #`(lambda (#,val #,success #,fail)
+      #,(convert pat pat-env temp-env val #`(#,fail)
+                 #`(#,success #,@(for/list ([v (in-list vars)]) (hash-ref temp-env v))))))
