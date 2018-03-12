@@ -75,7 +75,6 @@ yaspl_bootstrap_library(
     name = "lowered-register-language",
     srcs = ["lowered-register-language.yaspl"],
     deps = [
-        ":register-language",
         "//libraries/algorithms:find-chains",
         "//libraries/data:dict",
         "//libraries/data:either",
@@ -116,7 +115,6 @@ yaspl_bootstrap_library(
     deps = [
         ":lower-x86-64",
         ":lowered-register-language",
-        ":register-language",
         "//libraries/data:bytes",
         "//libraries/data:dict",
         "//libraries/data:either",
@@ -230,7 +228,6 @@ yaspl_library(
     srcs = ["print-lowered-register-language.yaspl"],
     deps = [
         ":lowered-register-language",
-        ":register-language",
         "//libraries/data:bytes",
         "//libraries/data:dict",
         "//libraries/data:either",
