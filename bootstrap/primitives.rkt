@@ -168,7 +168,7 @@
   [(a) (panic [bytes : Bytes]) : (type-var a) #:error bytes]
 
   [(make-bytes [size : Byte]) : Bytes (make-bytes size)]
-  [(bytes-ref [b : Bytes] [index : Byte]) : Byte (bytes-ref b index)]
+  [(bytes-ref [b : Bytes] [index : Byte]) : U8 (bytes-ref b index)]
   [(bytes-set! [b : Bytes] [index : Byte] [v : U8]) : Void (bytes-set! b index v)]
   [(bytes-length [b : Bytes]) : Byte (bytes-length b)]
 
