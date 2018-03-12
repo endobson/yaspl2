@@ -332,7 +332,6 @@ yaspl_bootstrap_library(
     srcs = ["lexer.yaspl"],
     deps = [
         ":byte-escapes",
-        "//libraries/data:boolean",
         "//libraries/data:bytes",
         "//libraries/data:either",
         "//libraries/data:numbers",
@@ -404,7 +403,6 @@ yaspl_bootstrap_library(
     srcs = ["linker.yaspl"],
     deps = [
         ":mach-o_lib",
-        "//libraries/data:boolean",
         "//libraries/data:bytes",
         "//libraries/data:either",
         "//libraries/data:indexed-set",
@@ -428,7 +426,6 @@ yaspl_bootstrap_library(
     srcs = ["mach-o.yaspl"],
     deps = [
         ":io",
-        "//libraries/data:boolean",
         "//libraries/data:bytes",
         "//libraries/data:either",
         "//libraries/data:list",
@@ -568,7 +565,6 @@ yaspl_bootstrap_library(
     name = "pretty-print",
     srcs = ["pretty-print.yaspl"],
     deps = [
-        "//libraries/data:boolean",
         "//libraries/data:join-list",
         "//libraries/data:list",
         "//libraries/data:maybe",

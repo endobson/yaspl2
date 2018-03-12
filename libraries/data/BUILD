@@ -8,7 +8,6 @@ yaspl_bootstrap_library(
     name = "assoc-list",
     srcs = ["assoc-list.yaspl"],
     deps = [
-        ":boolean",
         ":list",
         ":maybe",
         ":tuples",
@@ -39,11 +38,6 @@ yaspl_binary(
     deps = [
         ":assoc-test-driver-main",
     ],
-)
-
-yaspl_bootstrap_library(
-    name = "boolean",
-    srcs = ["boolean.yaspl"],
 )
 
 yaspl_bootstrap_library(
@@ -147,7 +141,6 @@ yaspl_test(
     srcs = ["list-test.yaspl"],
     main_module = "list_test",
     deps = [
-        ":boolean",
         ":bytes",
         ":list",
         ":maybe",
@@ -280,7 +273,6 @@ yaspl_test(
     srcs = ["set-test.yaspl"],
     main_module = "set_test",
     deps = [
-        ":boolean",
         ":list",
         ":numbers",
         ":set",

@@ -110,8 +110,9 @@
 (define-primitives
   (supported-primitives primitive-module-signature)
 
-  [(or [x : Boolean] (y : Boolean)) : Boolean (or x y)]
-  [(and [x : Boolean] (y : Boolean)) : Boolean (and x y)]
+  [(or [x : Boolean] [y : Boolean]) : Boolean (or x y)]
+  [(and [x : Boolean] [y : Boolean]) : Boolean (and x y)]
+  [(not [x : Boolean]) : Boolean (not x)]
 
 
   [(u8 [v : S64]) : U8

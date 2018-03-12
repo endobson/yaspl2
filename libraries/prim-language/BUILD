@@ -22,7 +22,6 @@ yaspl_bootstrap_library(
     deps = [
         ":lower-x86-64",
         ":lowered-live-variables",
-        "//libraries/data:boolean",
         "//libraries/data:bytes",
         "//libraries/data:dict",
         "//libraries/data:either",
@@ -267,7 +266,6 @@ yaspl_library(
         ":prim-language",
         ":register-language",
         ":register-language-builder",
-        "//libraries/data:boolean",
         "//libraries/data:bytes",
         "//libraries/data:dict",
         "//libraries/data:list",
@@ -333,7 +331,6 @@ yaspl_bootstrap_library(
     srcs = ["simplify-lowered-register-language.yaspl"],
     deps = [
         ":lowered-register-language",
-        "//libraries/data:boolean",
         "//libraries/data:dict",
         "//libraries/data:either",
         "//libraries/data:list",
