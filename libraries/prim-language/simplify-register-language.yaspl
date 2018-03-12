@@ -24,6 +24,7 @@
   #:patterns ())
 (types
   (define-type AbstractValue
+    (av-negated [v : Var])
     (av-comparison [op : ComparisonBinOp] [left : Var] [right : Var])
     (av-memory-comparison [size : Var] [v1 : Var] [v2 : Var])
     (av-int [val : Int])
@@ -61,13 +62,13 @@
              [_ ((lambda () : (Maybe (Tuple2 Var Boolean)) (nothing)))])
        [(nothing) b]
        [(just (tuple2 v negated?))
-        (case (dict-ref abstract-values v)
-          [(just (av-comparison c l r))
+        (case (abstract-value-resolve abstract-values v)
+          [(av-comparison c l r)
            (basic-block args instructions
              (cond-jump
                (comparison-condition (if negated? (negate-comparison c) c) (compare-mem-arg-val l) (left r))
                t t-args f f-args))]
-          [(just (av-memory-comparison size v1 v2))
+          [(av-memory-comparison size v1 v2)
            (basic-block args instructions
              (cond-jump
                (memory-compare-condition negated? size v1 v2)
@@ -209,32 +210,32 @@
       (lambda ([i : Instruction])
         (case i
           [(function-call-inst v (closure-call c) args)
-           (case (dict-ref abstract-values c)
-             [(just (av-symbol sym))
+           (case (abstract-value-resolve abstract-values c)
+             [(av-symbol sym)
               (case (dict-ref known-closures sym)
                 [(nothing) i]
                 [(just fun-sym)
                  (function-call-inst v (direct-call fun-sym) args)])]
              [_ i])]
           [(function-call-inst v (indirect-function-call f) args)
-           (case (dict-ref abstract-values f)
-             [(just (av-symbol fun-sym))
+           (case (abstract-value-resolve abstract-values f)
+             [(av-symbol fun-sym)
               (function-call-inst v (direct-call fun-sym) args)]
              [_ i])]
           [_ i]))
       instructions)
     (case terminal
       [(tail-call (closure-call c) args)
-       (case (dict-ref abstract-values c)
-         [(just (av-symbol sym))
+       (case (abstract-value-resolve abstract-values c)
+         [(av-symbol sym)
           (case (dict-ref known-closures sym)
             [(nothing) terminal]
             [(just fun-sym)
              (tail-call (direct-call fun-sym) args)])]
          [_ terminal])]
       [(tail-call (indirect-function-call f) args)
-       (case (dict-ref abstract-values f)
-         [(just (av-symbol fun-sym))
+       (case (abstract-value-resolve abstract-values f)
+         [(av-symbol fun-sym)
           (tail-call (direct-call fun-sym) args)]
          [_ terminal])]
       [_ terminal])))
@@ -258,47 +259,50 @@
           ;; TODO Handle more operations
           ;; TODO do constant folding
           [(bin-op-inst v (numeric-bin-op (add-op)) left right)
-           (case (tuple2 (dict-ref abstract-values left) (dict-ref abstract-values right))
-             [(tuple2 (just (av-int lv)) _)
+           (case (tuple2 (abstract-value-resolve abstract-values left)
+                         (abstract-value-resolve abstract-values right))
+             [(tuple2 (av-int lv) _)
               (case (maybe-s32 lv)
                 [(nothing) i]
                 [(just lv)
                  (numeric-op-immediate-inst v (add-op) right lv)])]
-             [(tuple2 _ (just (av-int rv)))
+             [(tuple2 _ (av-int rv))
               (case (maybe-s32 rv)
                 [(nothing) i]
                 [(just rv)
                  (numeric-op-immediate-inst v (add-op) left rv)])]
              [_ i])]
           [(bin-op-inst v (numeric-bin-op (sub-op)) left right)
-           (case (dict-ref abstract-values right)
-             [(just (av-int rv))
+           (case (abstract-value-resolve abstract-values right)
+             [(av-int rv)
               (case (maybe-s32 rv)
                 [(nothing) i]
                 [(just rv)
                  (numeric-op-immediate-inst v (sub-op) left rv)])]
              [_ i])]
           [(bin-op-inst v (numeric-bin-op (mult-op)) left right)
-           (case (tuple2 (dict-ref abstract-values left) (dict-ref abstract-values right))
-             [(tuple2 (just (av-int lv)) _)
+           (case (tuple2 (abstract-value-resolve abstract-values left)
+                         (abstract-value-resolve abstract-values right))
+             [(tuple2 (av-int lv) _)
               (case (maybe-s32 lv)
                 [(nothing) i]
                 [(just lv)
                  (numeric-op-immediate-inst v (mult-op) right lv)])]
-             [(tuple2 _ (just (av-int rv)))
+             [(tuple2 _ (av-int rv))
               (case (maybe-s32 rv)
                 [(nothing) i]
                 [(just rv)
                  (numeric-op-immediate-inst v (mult-op) left rv)])]
              [_ i])]
           [(bin-op-inst v (comparison-bin-op op) left right)
-           (case (tuple2 (dict-ref abstract-values left) (dict-ref abstract-values right))
-             [(tuple2 _ (just (av-int rv)))
+           (case (tuple2 (abstract-value-resolve abstract-values left)
+                         (abstract-value-resolve abstract-values right))
+             [(tuple2 _ (av-int rv))
               (case (maybe-s32 rv)
                 [(nothing) i]
                 [(just rv)
                  (comparison-op-immediate-inst v op left rv)])]
-             [(tuple2 (just (av-int lv)) _)
+             [(tuple2 (av-int lv) _)
               (case (maybe-s32 lv)
                 [(nothing) i]
                 [(just lv)
@@ -310,8 +314,8 @@
       [(cond-jump cond t t-args f f-args)
        (case cond
          [(comparison-condition op l (left r))
-          (case (dict-ref abstract-values r)
-            [(just (av-int rv))
+          (case (abstract-value-resolve abstract-values r)
+            [(av-int rv)
              (case (maybe-s32 rv)
                [(just rv)
                 (cond-jump (comparison-condition op l (right rv)) t t-args f f-args)]
@@ -352,6 +356,8 @@
                   (dict-set acc var (av-memory-comparison size v1 v2))]
                  [(symbol-address-inst var v)
                   (dict-set acc var (av-symbol v))]
+                 [(unary-op-inst var (boolean-not) v)
+                  (dict-set acc var (av-negated v))]
                  [_
                   (case (output-var i)
                     [(nothing) acc]
@@ -359,3 +365,16 @@
              instructions
              acc))]))
     ((lambda () : (Dict Var AbstractValue) (make-dict var-cmp)))))
+
+(define (abstract-value-resolve [abstract-values : (Dict Var AbstractValue)] [v : Var])
+  : AbstractValue
+  (case (dict-ref abstract-values v)
+    [(just (av-negated var))
+     (case (abstract-value-resolve abstract-values var)
+       [(av-comparison op left right)
+        (av-comparison (negate-comparison op) left right)]
+       ;; TODO support negated memory comparison
+       [_ (av-unknown)])]
+    [(just val)
+     val]
+    [(nothing) (panic #"No abstract value for var")]))
