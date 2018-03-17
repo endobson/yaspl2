@@ -18,7 +18,6 @@ yaspl_bootstrap_library(
         "//libraries/data:bytes",
         "//libraries/data:dict",
         "//libraries/data:either",
-        "//libraries/data:join-list",
         "//libraries/data:list",
         "//libraries/data:maybe",
         "//libraries/data:numbers",

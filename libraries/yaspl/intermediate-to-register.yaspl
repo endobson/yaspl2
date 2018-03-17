@@ -5,7 +5,6 @@
   (either)
   (intermediate-expression)
   (intermediate-language)
-  (join-list)
   (list)
   (maybe)
   (module-name)
@@ -22,7 +21,6 @@
     #:types
       [FunctionDefinition r:FunctionDefinition]
     #:values
-      [basic-block r:basic-block]
       [bin-op-inst r:bin-op-inst]
       boolean-not
       closure-call
@@ -73,13 +71,11 @@
 
 (define (module-to-top-level-objects [mod : Module]) : (List TopLevelObject)
   (append
-    (compile-type-definitions mod)
-    (append
-      (compile-constants mod)
-      (map
-        (lambda ([f : FunctionDefinition])
-          (register-function-tlo (convert-function (module-name mod) f)))
-        (module-definitions mod)))))
+    (compile-constants mod)
+    (map
+      (lambda ([f : FunctionDefinition])
+        (register-function-tlo (convert-function (module-name mod) f)))
+      (module-definitions mod))))
 
 ;; TODO investigate if this can be simplified now that intermediate language has vars.
 (define (env-ref [env : Environment] [name : Var]) : (Maybe Var)
@@ -349,6 +345,31 @@
            (r:pointer-set!-inst (eight-byte-mem-op) closure-var (fixed-pointer-offset 0) symbol-var))))
      (match-define acc (fill-array closure-var 8 exprs env acc))
      (tuple2 closure-var acc)]
+    [(make-variant-expr tag fields)
+     (match-define (tuple2 size-var acc) (fresh-var acc #"size"))
+     (match-define (tuple2 tag-var acc) (fresh-var acc #"tag"))
+     (match-define (tuple2 variant-var acc) (fresh-var acc #"variant"))
+
+     (match-define acc
+       (add-instruction acc (r:int-literal size-var (+ 8 (* 8 (length fields))))))
+     (match-define acc
+       (add-instruction acc (r:heap-allocate-inst variant-var size-var)))
+     (match-define acc
+       (add-instruction acc (r:int-literal tag-var tag)))
+     (match-define acc
+       (add-instruction acc
+         (r:pointer-set!-inst (eight-byte-mem-op) variant-var
+                              (fixed-pointer-offset 0) tag-var)))
+     (match-define acc (fill-array variant-var 8 fields env acc))
+     (tuple2 variant-var acc)]
+    [(variant-field-ref-expr expr field-index)
+     (match-define (tuple2 variant-var acc) (convert-expr expr env acc))
+     (match-define (tuple2 field-var acc) (fresh-var acc #"field"))
+     (match-define acc
+       (add-instruction acc
+         (r:pointer-ref-inst field-var (eight-byte-mem-op) variant-var
+                             (fixed-pointer-offset (+ 8 (* 8 field-index))))))
+     (tuple2 field-var acc)]
     [(case-expr expr clauses)
      (match-define (tuple2 value-var acc) (convert-expr expr env acc))
      (match-define (tuple2 join-block acc) (fresh-block-number acc))
@@ -517,151 +538,6 @@
          (mangle-name (bytes-append (varargs list (mangled-mod-name mod-name) #"_" name)))
          (mangle-name (bytes-append (varargs list (mangled-mod-name mod-name) #"_" fun-name))))
        (compile-constants* mod-name constants))]))
-
-(define (compile-type-definitions [mod : Module]) : (List TopLevelObject)
-  (match-define mod-name (module-name mod))
-  (jl->list
-    (concat-jl
-      (map
-        (lambda ([type-def : TypeDefinition])
-          (case type-def
-            [(type-definition type-name _ _ _ (cons variant (empty)))
-             (append-jl
-               (compile-variant-definition/constructor mod-name type-name variant)
-               (compile-variant-definition/accessors mod-name type-name variant))]
-            [(type-definition type-name _ _ _ variants)
-             (concat-jl
-               (map
-                 (lambda ([variant : VariantDefinition])
-                   (compile-variant-definition/constructor mod-name type-name variant))
-                 variants))]))
-        (module-types mod)))))
-
-(define (compile-variant-definition/constructor
-          [mod-name : ModName]
-          [type-name : Bytes]
-          [def : VariantDefinition]) : (JoinList TopLevelObject)
-  (match-define (variant-definition name variant-tag fields) def)
-  (match-define base-name (bytes-append (varargs list type-name #"_" name)))
-  (match-define top-name (top-level-name mod-name base-name))
-  (match-define mangled-name (mangle-top-level-name top-name))
-  (case fields
-    [(empty)
-     (match-define const-name (bytes-append (varargs list mangled-name #"_const")))
-     (match-define variant-var (var #"variant" 0))
-     (single-jl
-       (register-function-tlo
-         (r:function-definition
-           mangled-name
-           (closure-convention 0 0 0)
-           (dict-add
-             (make-dict int-cmp)
-             0
-             (r:basic-block
-               (empty)
-               (varargs list
-                 (r:symbol-address-inst variant-var const-name))
-               (r:return variant-var)))
-           1
-           1)))]
-    [_
-     (match-define variant-var (var #"variant" 0))
-     (match-define tag-var (var #"tag" 0))
-     (match-define size-var (var #"size" 0))
-     (single-jl
-       (register-function-tlo
-         (r:function-definition
-           mangled-name
-           (closure-convention (length fields) 0 0)
-           (dict-add
-             (make-dict int-cmp)
-             0
-             (r:basic-block
-               (build-list (length fields) (lambda ([index : Int]) (var #"arg" index)))
-               (append
-                 (varargs list
-                   (r:int-literal size-var (+ 8 (* 8 (length fields))))
-                   (r:heap-allocate-inst variant-var size-var)
-                   (r:int-literal tag-var variant-tag)
-                   (r:pointer-set!-inst (eight-byte-mem-op) variant-var (fixed-pointer-offset 0)
-                                        tag-var))
-                 (build-list
-                   (length fields)
-                   (lambda ([index : Int])
-                     (r:pointer-set!-inst (eight-byte-mem-op) variant-var
-                                          (fixed-pointer-offset (+ 8 (* 8 index)))
-                                          (var #"arg" index)))))
-               (r:return variant-var)))
-           (+ 1 (length fields))
-           1)))]))
-
-
-(define (compile-variant-definition/accessors
-          [mod-name : ModName]
-          [type-name : Bytes]
-          [variant : VariantDefinition])
-  : (JoinList TopLevelObject)
-  (case variant
-    [(variant-definition variant-name variant-tag fields)
-     (compile-variant-definition/accessors*
-       mod-name
-       type-name
-       variant-name
-       0
-       fields)]))
-
-(define (compile-variant-definition/accessors*
-          [mod-name : ModName]
-          [type-name : Bytes]
-          [variant-name : Bytes]
-          [field-index : Int]
-          [fields : (List VariantField)])
-  : (JoinList TopLevelObject)
-  (case fields
-    [(empty) (empty-jl)]
-    [(cons (variant-field field-name _) fields)
-     (append-jl
-       (compile-variant-definition-accessor
-         mod-name
-         type-name
-         variant-name
-         field-name
-         field-index)
-       (compile-variant-definition/accessors*
-         mod-name
-         type-name
-         variant-name
-         (+ field-index 1)
-         fields))]))
-
-(define (compile-variant-definition-accessor
-          [mod-name : ModName]
-          [type-name : Bytes]
-          [variant-name : Bytes]
-          [field-name : Bytes]
-          [field-index : Int]) : (JoinList TopLevelObject)
-  (match-define base-name
-    (bytes-append (varargs list type-name #"_" variant-name #"_" field-name)))
-  (match-define top-name (top-level-name mod-name base-name))
-  (match-define mangled-name (mangle-top-level-name top-name))
-  (match-define variant-var (var #"variant" 0))
-  (match-define output-var (var #"output" 0))
-  (varargs join-list
-    (register-function-tlo
-      (r:function-definition
-        mangled-name
-        (closure-convention 1 0 0)
-        (dict-add
-          (make-dict int-cmp)
-          0
-          (r:basic-block
-            (varargs list variant-var)
-            (varargs list
-              (r:pointer-ref-inst output-var (eight-byte-mem-op) variant-var
-                                  (fixed-pointer-offset (+ 8 (* 8 field-index)))))
-            (r:return output-var)))
-        1
-        1))))
 
 ;; TODO remove initial y once starting with an 'l' is not an issue
 (define (mangle-name [name : Bytes]) : Bytes

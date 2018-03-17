@@ -26,7 +26,9 @@
       [int-pattern i:int-pattern]
       [let-expr i:let-expr]
       [local-var-expr i:local-var-expr]
+      [make-variant-expr i:make-variant-expr]
       [variable-pattern i:variable-pattern]
+      [variant-field-ref-expr i:variant-field-ref-expr]
   }
   (intermediate-language) {
     #:types
@@ -179,7 +181,9 @@
                (convert-imports imports)
                (convert-exports exports type-env (context-values context) global-env)
                (convert-type-definitions name types type-env)
-               funcs
+               (append
+                 funcs
+                 (create-datatype-definitions name type-functions))
                (append
                  (create-closures definitions type-functions (empty))
                  byte-constants)))])])]))
@@ -281,6 +285,43 @@
            acc)]))
     types
     acc))
+
+(define (create-datatype-definitions [mod-name : ModName] [funs : (List DatatypeFunction)])
+  : (List i:FunctionDefinition)
+  (filter-map
+    (lambda ([fun : DatatypeFunction]) : (Maybe i:FunctionDefinition)
+      (case fun
+        [(variant-constructor type-name variant-name (empty) tag)
+         (match-define const-name
+           (bytes-append (varargs list type-name #"_" variant-name #"_const")))
+         (just
+           (i:function-definition
+             (bytes-append (varargs list type-name #"_" variant-name))
+             (var-type #"bogus")
+             (empty)
+             (empty)
+             (i:global-var-expr (top-level-name mod-name const-name))))]
+        [(variant-constructor type-name variant-name field-names tag)
+         (match-define args
+           (build-list (length field-names) (lambda ([index : Int]) (var #"arg" index))))
+         (just
+           (i:function-definition
+             (bytes-append (varargs list type-name #"_" variant-name))
+             (var-type #"bogus")
+             args
+             (empty)
+             (i:make-variant-expr tag (map i:local-var-expr args))))]
+        [(variant-accessor type-name variant-name field-name index)
+         (match-define arg (var #"arg" 0))
+         (just
+           (i:function-definition
+             (bytes-append (varargs list type-name #"_" variant-name #"_" field-name))
+             (var-type #"bogus")
+             (varargs list arg)
+             (empty)
+             (i:variant-field-ref-expr (i:local-var-expr arg) index)))]))
+    funs))
+
 
 (define (convert-type-definitions
           [mod-name : ModName]
