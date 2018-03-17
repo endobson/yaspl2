@@ -221,6 +221,7 @@ yaspl_library(
         "//libraries/formats:svg",
         "//libraries/formats:xml",
         "//libraries/prim-language:register-language",
+        "//libraries/prim-language:print-register-language",
         "//libraries/yaspl:top-level-objects",
         "//libraries/yaspl:top-level-objects-to-x86-64",
         "//libraries/yaspl:x86-64-assembly",

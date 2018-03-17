@@ -15,10 +15,23 @@
   (maybe)
   (numbers)
   (prim)
+  (print-register-language)
   (print-stack-function)
   (register-language) {
+    #:types
+      [BasicBlock r:BasicBlock]
+      FunctionDefinition
+      Terminal
+    #:values
+      [basic-block-terminal r:basic-block-terminal]
     #:patterns
+      [basic-block r:basic-block]
+      [cond-jump r:cond-jump]
       function-definition
+      [halt r:halt]
+      [jump r:jump]
+      [return r:return]
+      [tail-call r:tail-call]
   }
   (stack-machine)
   (tcp)
@@ -39,9 +52,9 @@
 (define (top-level-object->node [object : TopLevelObject]) : (Maybe Node)
   (case object
     [(stack-function-tlo (stack-function name _ _))
-     (just (div (link (single-jl name) (text-node/escape (single-jl name)))))]
-    [(register-function-tlo (function-definition name _ _ _ _))
      (nothing)]
+    [(register-function-tlo (function-definition name _ _ _ _))
+     (just (div (link (single-jl name) (text-node/escape (single-jl name)))))]
     [(bytes-tlo name _)
      (nothing)]
     [(trivial-variant-tlo name _)
@@ -61,19 +74,18 @@
     [(bytes-fragment name _)
      (div (link (single-jl name) (text-node/escape (single-jl name))))]))
 
-
-(define (find-function [name : Bytes] [objects : (List TopLevelObject)]) : (Maybe StackFunction)
+(define (find-function [name : Bytes] [objects : (List TopLevelObject)])
+  : (Maybe FunctionDefinition)
   (case objects
     [(empty) (nothing)]
-    [(cons (stack-function-tlo func) objects)
+    [(cons (register-function-tlo func) objects)
      (case func
-       [(stack-function func-name _ _)
+       [(function-definition func-name _ _ _ _)
         (if (bytes=? name func-name)
             (just func)
             (find-function name objects))])]
     [(cons _ objects)
      (find-function name objects)]))
-
 
 (define (find-fragment [name : Bytes] [fragments : AssemblyFragments])
   : (Maybe (Either TextFragment ConstFragment))
@@ -141,7 +153,7 @@
                                     [(right const) (const-fragment->commands const)]))))))
                  (empty)))))])))
 
-(define (serve-stack-response
+(define (serve-register-response
           [objects : (List TopLevelObject)]
           [name : Bytes]) : HttpResponse
   (if (= (bytes-length name) 0)
@@ -157,70 +169,63 @@
              (head (empty))
              (body
                (cons
-                 (pre (code (text-node/escape (function->bytes function))))
+                 (pre (code (text-node/escape (single-jl (print-function function)))))
                  (empty)))))])))
-(define (terminal->successors [term : StackTerminal]) : (List Int)
-  (case term
-    [(boolean-jmp true false) (varargs list true false)]
-    [(uncond-jmp index) (varargs list index)]
-    [(variant-switch cases) (variant-cases->successors cases)]
-    [(return _) (empty)]
-    [(tail-call _ _) (empty)]
-    [(known-tail-call _ _ _) (empty)]))
 
-(define (variant-cases->successors [cases : VariantCases]) : (List Int)
-  (case cases
-    [(no-catch-all-case) (empty)]
-    [(catch-all-case index) (varargs list index)]
-    [(variant-case _ index cases)
-     (cons index (variant-cases->successors cases))]))
+(define (terminal->successors [term : Terminal]) : (List Int)
+  (case term
+    [(r:return _) (empty)]
+    [(r:halt) (empty)]
+    [(r:cond-jump cond t t-args f f-args)
+     (varargs list t f)]
+    [(r:tail-call _ _) (empty)]
+    [(r:jump i args) (varargs list i)]))
 
 (define (panic/int-list [bytes : Bytes]) : (List Int)
   (panic bytes))
 (define (panic/int [bytes : Bytes]) : Int
   (panic bytes))
-(define (panic/stack-basic-block-list [bytes : Bytes]) : (List StackBasicBlock)
+(define (panic/basic-block-list [bytes : Bytes]) : (List r:BasicBlock)
   (panic bytes))
-(define (panic/dict-int-stack-basic-block-list [bytes : Bytes]) : (Dict Int (List StackBasicBlock))
+(define (panic/dict-int-basic-block-list [bytes : Bytes]) : (Dict Int (List r:BasicBlock))
   (panic bytes))
-(define (empty/stack-basic-block-list) : (List StackBasicBlock)
+(define (empty/basic-block-list) : (List r:BasicBlock)
   (empty))
-(define (make-dict/int-stack-basic-block-list) : (Dict Int (List StackBasicBlock))
+(define (make-dict/int-basic-block-list) : (Dict Int (List r:BasicBlock))
   (make-dict int-cmp))
-
 
 (define (make-blocks-by-depth
           [depths : (Dict Int Int)]
-          [blocks : (List StackBasicBlock)])
-  : (Dict Int (List StackBasicBlock))
+          [blocks : (Dict Int r:BasicBlock)])
+  : (Dict Int (List r:BasicBlock))
   (foldl
-    (lambda ([entry : (Tuple2 Int Int)] [acc : (Dict Int (List StackBasicBlock))])
+    (lambda ([entry : (Tuple2 Int Int)] [acc : (Dict Int (List r:BasicBlock))])
       (case entry
         [(tuple2 index depth)
-         (case (list-ref blocks index)
-           [(nothing) (panic/dict-int-stack-basic-block-list #"Bad index")]
+         (case (dict-ref blocks index)
+           [(nothing) (panic/dict-int-basic-block-list #"Bad index")]
            [(just block)
             (dict-update
               acc
               depth
-              (lambda ([blocks : (List StackBasicBlock)]) (cons block blocks))
-              (empty/stack-basic-block-list))])]))
+              (lambda ([blocks : (List r:BasicBlock)]) (cons block blocks))
+              (empty/basic-block-list))])]))
     (dict-map depths (lambda ([key : Int] [value : Int]) (tuple2 key value)))
-    (make-dict/int-stack-basic-block-list)))
+    (make-dict/int-basic-block-list)))
 
-(define (layer-blocks [blocks : (List StackBasicBlock)]) : (List (List StackBasicBlock))
+(define (layer-blocks [blocks : (Dict Int r:BasicBlock)]) : (List (List r:BasicBlock))
   (let ([succ
           (lambda ([index : Int])
-            (case (list-ref blocks index)
+            (case (dict-ref blocks index)
               [(nothing) (panic/int-list #"Bad index")]
-              [(just block) (terminal->successors (stack-basic-block-terminal block))]))])
+              [(just block) (terminal->successors (r:basic-block-terminal block))]))])
     (let ([ordered-indices (depth-first-search succ (varargs list 0) int-cmp)])
       (let ([depths (compute-depths succ ordered-indices (dict-add (make-dict int-cmp) 0 0))])
         (let ([max-depth (max* 0 (dict-values depths))])
           (let ([blocks-by-depth (make-blocks-by-depth depths blocks)])
             (let ([ref (lambda ([depth : Int])
                          (case (dict-ref blocks-by-depth depth)
-                           [(nothing) (panic/stack-basic-block-list #"Bad index")]
+                           [(nothing) (panic/basic-block-list #"Bad index")]
                            [(just blocks) blocks]))])
               (build-list (+ max-depth 1) ref))))))))
 
@@ -245,16 +250,15 @@
                 (succ v)
                 acc)))]))
 
-
-(define (layout-blocks [blocks : (List (List StackBasicBlock))]) : (List Node)
+(define (layout-blocks [blocks : (List (List r:BasicBlock))]) : (List Node)
   (case
     (foldl
-      (lambda ([blocks : (List StackBasicBlock)] [acc : (Tuple2 Int (List Node))])
+      (lambda ([blocks : (List r:BasicBlock)] [acc : (Tuple2 Int (List Node))])
         (case acc
           [(tuple2 y-offset nodes)
            (case
              (foldl
-               (lambda ([block : StackBasicBlock] [acc : (Tuple3 Int Int (List Node))])
+               (lambda ([block : r:BasicBlock] [acc : (Tuple3 Int Int (List Node))])
                  (case acc
                    [(tuple3 x-offset max-height nodes)
                     (case (block->graphic-block block)
@@ -277,19 +281,16 @@
     [(tuple2 _ nodes) nodes]))
 
 
-
-
-(define (block->graphic-block [block : StackBasicBlock]) : GraphicBlock
+(define (block->graphic-block [block : r:BasicBlock]) : GraphicBlock
   (graphic-block
     (+ 15 (* 8 (basic-block-width block)))
     (+ 2 (* 15 (basic-block-size block)))
     (html-body (varargs list (block->node block)))))
 
-
 (define (empty/node) : (List Node)
   (empty))
 
-(define (serve-stack-graphic-response
+(define (serve-register-graphic-response
           [objects : (List TopLevelObject)]
           [name : Bytes]) : HttpResponse
   (if (= (bytes-length name) 0)
@@ -299,32 +300,23 @@
           (body (filter-map top-level-object->node objects))))
       (case (find-function name objects)
         [(nothing) (not-found)]
-        [(just (stack-function _ _ basic-blocks))
+        [(just (function-definition _ _ basic-blocks _ _))
          (svg-ok-response
            (svg (layout-blocks (layer-blocks basic-blocks))))])))
 
-(define (block->node [block : StackBasicBlock]) : Node
-  (let ([make-line (lambda ([text : (JoinList Bytes)]) (snoc-jl text #"\n"))])
-    (case block
-      [(stack-basic-block cmds terminal)
-       (pre*
-         (varargs list
-           (attribute/escape #"style" (single-jl #"margin: 0px 0px")))
-         (code (text-node/escape
-                 (append-jl
-                   (concat-jl (map make-line (map command->bytes cmds)))
-                   (make-line (terminal->bytes terminal))))))])))
+(define (block->node [block : r:BasicBlock]) : Node
+  (pre*
+    (varargs list
+      (attribute/escape #"style" (single-jl #"margin: 0px 0px")))
+    (code (text-node/escape
+            ;; TODO use real block number
+            (print-basic-block 0 block)))))
 
-
-
-(define (basic-block-size [block : StackBasicBlock]) : Int
+(define (basic-block-size [block : r:BasicBlock]) : Int
   (case block
-    [(stack-basic-block cmds _)
-     (+ 1 (length cmds))]))
+    [(r:basic-block _ instructions _)
+     (+ 2 (length instructions))]))
 
-(define (jl-bytes-length [v : (JoinList Bytes)]) : Int
-  (foldl (lambda ([v : Bytes] [sum : Int]) (+ sum (bytes-length v)))
-         (jl->list v) 0))
 (define (max [v1 : Int] [v2 : Int]) : Int
   (if (< v1 v2) v2 v1))
 (define (max* [v : Int] [vs : (List Int)]) : Int
@@ -332,11 +324,9 @@
     [(empty) v]
     [(cons v2 vs) (max* (max v v2) vs)]))
 
-(define (basic-block-width [block : StackBasicBlock]) : Int
-  (case block
-    [(stack-basic-block cmds terminal)
-     (max* (jl-bytes-length (terminal->bytes terminal))
-           (map jl-bytes-length (map command->bytes cmds)))]))
+(define (basic-block-width [block : r:BasicBlock]) : Int
+  ;; TODO make this a better estimate
+  50)
 
 
 (define (serve-index-response) : HttpResponse
@@ -345,8 +335,8 @@
       (head (empty))
       (body
         (varargs list
-           (div (link (single-jl #"/stack/") (text-node/escape (single-jl #"stack"))))
-           (div (link (single-jl #"/stack-graphic/") (text-node/escape (single-jl #"stack-graphic"))))
+           (div (link (single-jl #"/register/") (text-node/escape (single-jl #"register"))))
+           (div (link (single-jl #"/register-graphic/") (text-node/escape (single-jl #"register-graphic"))))
            (div (link (single-jl #"/assembly/") (text-node/escape (single-jl #"assembly")))))))))
 
 (define (make-request-handler
@@ -360,12 +350,12 @@
            (if (starts-with? path #"/assembly/")
                (let ([name (subbytes path 10 (bytes-length path))])
                  (serve-assembly-response fragments name))
-               (if (starts-with? path #"/stack/")
-                   (let ([name (subbytes path 7 (bytes-length path))])
-                     (serve-stack-response objects name))
-                   (if (starts-with? path #"/stack-graphic/")
-                       (let ([name (subbytes path 15 (bytes-length path))])
-                         (serve-stack-graphic-response objects name))
+               (if (starts-with? path #"/register/")
+                   (let ([name (subbytes path 10 (bytes-length path))])
+                     (serve-register-response objects name))
+                   (if (starts-with? path #"/register-graphic/")
+                       (let ([name (subbytes path 18 (bytes-length path))])
+                         (serve-register-graphic-response objects name))
                        (not-found)))))])))
 
 (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Int
