@@ -773,20 +773,13 @@ yaspl_bootstrap_library(
     name = "intermediate-to-stack",
     srcs = ["intermediate-to-stack.yaspl"],
     deps = [
-        ":intermediate-expression",
         ":intermediate-language",
         ":module-name",
         ":stack-machine",
-        ":types",
         "//libraries/data:bytes",
-        "//libraries/data:dict",
-        "//libraries/data:join-list",
         "//libraries/data:list",
-        "//libraries/data:maybe",
-        "//libraries/data:tuples",
         "//libraries/yaspl:module-environment",
         "//libraries/yaspl:top-level-objects",
-        "//libraries/yaspl:var",
     ],
 )
 
