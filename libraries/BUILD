@@ -778,6 +778,7 @@ yaspl_bootstrap_library(
         ":stack-machine",
         "//libraries/data:bytes",
         "//libraries/data:list",
+        "//libraries/data:join-list",
         "//libraries/yaspl:module-environment",
         "//libraries/yaspl:top-level-objects",
     ],

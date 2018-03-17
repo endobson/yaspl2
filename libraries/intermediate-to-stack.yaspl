@@ -2,6 +2,7 @@
 #:import {
   (bytes)
   (intermediate-language)
+  (join-list)
   (list)
   (module-name)
   (prim)
@@ -11,141 +12,120 @@
 }
 (export
   #:types ()
-  #:values (compile-type-definitions)
+  #:values (compile-variant-definition/constructor compile-variant-definition/accessors)
   #:patterns ())
 (types)
 
-(define (compile-type-definitions [mod : Module]) : (List TopLevelObject)
-  (compile-type-definitions/list (module-name mod) (module-types mod) (empty)))
 
-(define (compile-type-definitions/list
-          [mod-name : ModName]
-          [defs : (List TypeDefinition)]
-          [acc : (List TopLevelObject)]) : (List TopLevelObject)
-  (case defs
-    [(empty) acc]
-    [(cons def defs)
-     (compile-type-definitions/list
-       mod-name
-       defs
-       (compile-type-definition mod-name def acc))]))
-
-(define (compile-type-definition
-          [mod-name : ModName]
-          [def : TypeDefinition]
-          [acc : (List TopLevelObject)]) : (List TopLevelObject)
-  (case def
-    [(type-definition name _ _ _ (cons variant (empty)))
-     (compile-variant-definition mod-name name variant #t acc)]
-    [(type-definition name _ _ _ variants)
-     (compile-type-definition/variants mod-name name variants acc)]))
-
-(define (compile-type-definition/variants
+(define (compile-variant-definition/constructor
           [mod-name : ModName]
           [type-name : Bytes]
-          [variants : (List VariantDefinition)]
-          [acc : (List TopLevelObject)]) : (List TopLevelObject)
-  (case variants
-    [(empty) acc]
-    [(cons variant variants)
-     (compile-type-definition/variants
-       mod-name
-       type-name
-       variants
-       (compile-variant-definition mod-name type-name variant #f acc))]))
+          [def : VariantDefinition]) : (JoinList TopLevelObject)
+  (match-define (variant-definition name variant-tag fields) def)
+  (match-define mangled-name
+    (mangle-name (bytes-append (varargs list (mangled-mod-name mod-name) #"_" type-name #"_" name))))
+  (cons-jl
+    (trivial-closure-tlo
+      (bytes-append (varargs list mangled-name #"_closure"))
+      mangled-name)
+    (case fields
+      [(empty)
+       (match-define const-name (bytes-append (varargs list mangled-name #"_const")))
+       (varargs join-list
+         (trivial-variant-tlo const-name variant-tag)
+         (stack-function-tlo
+           (stack-function
+             mangled-name
+             (length fields)
+             (cons
+               (stack-basic-block
+                 (cons (load-global-cmd const-name) (empty))
+                 (return 0))
+               (empty)))))]
+      [_
+       (single-jl
+         (stack-function-tlo
+           (stack-function
+             mangled-name
+             (length fields)
+             (cons
+               (stack-basic-block
+                 (add-reversed-args
+                   0
+                   (length fields)
+                   (cons
+                     (alloc-variant-cmd variant-tag (length fields))
+                     (empty)))
+                 (return (length fields)))
+               (empty)))))])))
 
-(define (compile-variant-definition
-          [mod-name : ModName]
-          [type-name : Bytes]
-          [def : VariantDefinition]
-          [generate-accessors : Boolean]
-          [acc : (List TopLevelObject)]) : (List TopLevelObject)
-  (case def
-    [(variant-definition name variant-tag fields)
-     (let ([mangled-name
-            (mangle-name (bytes-append (varargs list (mangled-mod-name mod-name) #"_" type-name #"_" name)))])
-       (append
-         (case fields
-           [(empty)
-            (match-define const-name (bytes-append (varargs list mangled-name #"_const")))
-            (varargs list
-              (trivial-variant-tlo const-name variant-tag)
-              (stack-function-tlo
-                (stack-function
-                  mangled-name
-                  (length fields)
-                  (cons
-                    (stack-basic-block
-                      (cons (load-global-cmd const-name) (empty))
-                      (return 0))
-                    (empty)))))]
-           [_
-            (varargs list
-              (stack-function-tlo
-                (stack-function
-                  mangled-name
-                  (length fields)
-                  (cons
-                    (stack-basic-block
-                      (add-reversed-args
-                        0
-                        (length fields)
-                        (cons
-                          (alloc-variant-cmd variant-tag (length fields))
-                          (empty)))
-                      (return (length fields)))
-                    (empty)))))])
-         (cons
-           (trivial-closure-tlo
-             (bytes-append (varargs list mangled-name #"_closure"))
-             mangled-name)
-           (if generate-accessors
-               (compile-variant-definition/accessors
-                 mod-name
-                 type-name
-                 name
-                 variant-tag
-                 0
-                 fields
-                 acc)
-               acc))))]))
 
 (define (compile-variant-definition/accessors
+          [mod-name : ModName]
+          [type-name : Bytes]
+          [variant : VariantDefinition])
+  : (JoinList TopLevelObject)
+  (case variant
+    [(variant-definition variant-name variant-tag fields)
+     (compile-variant-definition/accessors*
+       mod-name
+       type-name
+       variant-name
+       variant-tag
+       0
+       fields)]))
+
+(define (compile-variant-definition/accessors*
           [mod-name : ModName]
           [type-name : Bytes]
           [variant-name : Bytes]
           [variant-tag : Int]
           [field-index : Int]
-          [fields : (List VariantField)]
-          [acc : (List TopLevelObject)]) : (List TopLevelObject)
+          [fields : (List VariantField)])
+  : (JoinList TopLevelObject)
   (case fields
-    [(empty) acc]
-    [(cons (variant-field name _) fields)
-     (compile-variant-definition/accessors
-       mod-name
-       type-name
-       variant-name
-       variant-tag
-       (+ field-index 1)
-       fields
-       (let ([mangled-name
-              (mangle-name
-                (bytes-append (varargs list (mangled-mod-name mod-name) #"_" type-name #"_" variant-name #"_" name)))])
-         (cons
-           (stack-function-tlo
-             (stack-function
-               mangled-name
-               1
-               (cons
-                 (stack-basic-block
-                   (add-reversed-args 0 1 (cons (variant-ref-cmd variant-tag field-index) (empty)))
-                   (return 1))
-                 (empty))))
-           (cons
-             (trivial-closure-tlo
-               (bytes-append (varargs list mangled-name #"_closure"))
-               mangled-name)
-             acc))))]))
+    [(empty) (empty-jl)]
+    [(cons (variant-field field-name _) fields)
+     (append-jl
+       (compile-variant-definition-accessor
+         mod-name
+         type-name
+         variant-name
+         field-name
+         variant-tag
+         field-index)
+       (compile-variant-definition/accessors*
+         mod-name
+         type-name
+         variant-name
+         variant-tag
+         (+ field-index 1)
+         fields))]))
+
+(define (compile-variant-definition-accessor
+          [mod-name : ModName]
+          [type-name : Bytes]
+          [variant-name : Bytes]
+          [field-name : Bytes]
+          [variant-tag : Int]
+          [field-index : Int]) : (JoinList TopLevelObject)
+  (let ([mangled-name
+         (mangle-name
+           (bytes-append (varargs list (mangled-mod-name mod-name) #"_" type-name #"_" variant-name
+                                  #"_" field-name)))])
+    (varargs join-list
+      (stack-function-tlo
+        (stack-function
+          mangled-name
+          1
+          (cons
+            (stack-basic-block
+              (add-reversed-args 0 1 (cons (variant-ref-cmd variant-tag field-index) (empty)))
+              (return 1))
+            (empty))))
+      (trivial-closure-tlo
+        (bytes-append (varargs list mangled-name #"_closure"))
+        mangled-name))))
 
 (define (add-reversed-args [arg-number : Int] [args : Int] [cmds : (List StackCmd)]) : (List StackCmd)
   (if (= arg-number args)
