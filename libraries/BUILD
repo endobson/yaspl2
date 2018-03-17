@@ -374,7 +374,6 @@ yaspl_bootstrap_library(
     deps = [
         ":intermediate-language",
         ":intermediate-to-module-signature",
-        ":intermediate-to-stack",
         ":io",
         ":module-name",
         ":module-signature",
