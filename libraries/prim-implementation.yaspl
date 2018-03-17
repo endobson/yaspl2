@@ -3,44 +3,42 @@
   (bytes)
   (dict)
   (intermediate-expression)
+  (intermediate-language)
   (list)
   (maybe)
   (module-name)
   (module-signature)
   (prim)
+  (resolved-imports-language) {
+    #:values
+      empty-imports
+  }
   (set)
-  (stack-machine)
   (tuples)
   (types)
+  (yaspl intermediate-to-register) {
+    #:values
+      [module-to-top-level-objects r:module-to-top-level-objects]
+  }
   (yaspl math-operations)
+  (yaspl module-environment)
   (yaspl top-level-objects)
+  (yaspl var)
 }
 (export
   #:types ()
   #:values (prim-signature prim-implementation prim-known-functions
             int-type boolean-type bytes-type void-type)
   #:patterns ())
-(types)
+(types
+  (define-type PrimOp
+    (prim-op [binding : Bytes] [name : Bytes] [type : Type]
+             [impl : ((List Expression) -> Expression)])))
 
 (define (value-signature* [t : Type] [symbol : Bytes]) : ValueSignature
   (value-signature t symbol (nothing)))
 
 
-(define (inline-numeric-op [op : NumericBinOp]) : (Maybe InlineableFunction)
-  (just (hoas-linear-inlineable-function
-          (lambda ([args : (List Expression)])
-            (case args
-              [(cons x (cons y (empty)))
-               (prim-numeric-bin-op op x y)]
-              [_ (panic #"numeric op inlined with not 2 arguments")])))))
-
-(define (inline-comparison-op [op : ComparisonBinOp]) : (Maybe InlineableFunction)
-  (just (hoas-linear-inlineable-function
-          (lambda ([args : (List Expression)])
-            (case args
-              [(cons x (cons y (empty)))
-               (prim-comparison-bin-op op x y)]
-              [_ (panic #"comparison op inlined with not 2 arguments")])))))
 
 (define (inline-logical-op [op : LogicalBinOp]) : (Maybe InlineableFunction)
   (just (hoas-linear-inlineable-function
@@ -91,41 +89,8 @@
                (bytes-length-expr b)]
               [_ (panic #"bytes-length inlined with not 1 argument")])))))
 
-(define (inline-array-ref) : (Maybe InlineableFunction)
-  (just (hoas-linear-inlineable-function
-          (lambda ([args : (List Expression)])
-            (case args
-              [(cons a (cons off (empty)))
-               (array-ref-expr a off)]
-              [_ (panic #"array-ref inlined with not 2 arguments")])))))
-
-(define (inline-array-set!) : (Maybe InlineableFunction)
-  (just (hoas-linear-inlineable-function
-          (lambda ([args : (List Expression)])
-            (case args
-              [(cons a (cons off (cons v (empty))))
-               (bytes-set!-expr a off v)]
-              [_ (panic #"array-set! inlined with not 3 arguments")])))))
-
-(define (inline-array-length) : (Maybe InlineableFunction)
-  (just (hoas-linear-inlineable-function
-          (lambda ([args : (List Expression)])
-            (case args
-              [(cons a (empty))
-               (array-length-expr a)]
-              [_ (panic #"array-length inlined with not 1 argument")])))))
-
-(define (inline-make-array) : (Maybe InlineableFunction)
-  (just (hoas-linear-inlineable-function
-          (lambda ([args : (List Expression)])
-            (case args
-              [(cons size (cons v (empty)))
-               (make-array-expr size v)]
-              [_ (panic #"make-array inlined with not 2 argument")])))))
-
 (define (prim-values) : (Dict Bytes ValueSignature)
-  (dict-add-all
-    (make-dict bytes-cmp)
+  (match-define runtime-sigs
     (varargs list
       (tuple2 #"u8" (value-signature* (fun1-type (int-type) (u8-type)) #"prim_u8_closure"))
       (tuple2 #"s32" (value-signature* (fun1-type (int-type) (s32-type)) #"prim_s32_closure"))
@@ -136,25 +101,6 @@
                                            (inline-no-op-cast-op (s32-type) (int-type))))
       (tuple2 #"u32->s64" (value-signature (fun1-type (u32-type) (int-type)) #"prim_u32_s64_closure"
                                            (inline-no-op-cast-op (u32-type) (int-type))))
-      (tuple2 #"+" (value-signature (math-2arg) #"prim_add_closure" (inline-numeric-op (add-op))))
-      (tuple2 #"-" (value-signature (math-2arg) #"prim_sub_closure" (inline-numeric-op (sub-op))))
-      (tuple2 #"*" (value-signature (math-2arg) #"prim_mult_closure" (inline-numeric-op (mult-op))))
-      (tuple2 #"=" (value-signature (logic-2arg) #"prim_equal_closure"
-                     (inline-comparison-op (equal-op))))
-      (tuple2 #"<" (value-signature (logic-2arg) #"prim_less_than_closure"
-                     (inline-comparison-op (less-than-op))))
-      (tuple2 #"<=" (value-signature (logic-2arg) #"prim_less_than_or_equal_closure"
-                      (inline-comparison-op (less-than-or-equal-op))))
-      (tuple2 #">" (value-signature (logic-2arg) #"prim_greater_than_closure"
-                      (inline-comparison-op (greater-than-op))))
-      (tuple2 #">=" (value-signature (logic-2arg) #"prim_greater_than_or_equal_closure"
-                      (inline-comparison-op (greater-than-or-equal-op))))
-      (tuple2 #"bitwise-and" (value-signature (math-2arg) #"prim_bitwise_and_closure"
-                               (inline-numeric-op (bitwise-and-op))))
-      (tuple2 #"bitwise-ior" (value-signature (math-2arg) #"prim_bitwise_ior_closure"
-                               (inline-numeric-op (bitwise-ior-op))))
-      (tuple2 #"logical-shift-left" (value-signature* (math-2arg) #"prim_logical_shift_left_closure"))
-      (tuple2 #"logical-shift-right" (value-signature* (math-2arg) #"prim_logical_shift_right_closure"))
       (tuple2 #"and" (value-signature (fun2-type (boolean-type) (boolean-type) (boolean-type))
                                       #"prim_and_closure" (inline-logical-op (and-op))))
       (tuple2 #"or" (value-signature (fun2-type (boolean-type) (boolean-type) (boolean-type))
@@ -242,37 +188,8 @@
                 (fun3-type (bytes-type) (fun0-type (void-type)) (mach-port-type) (void-type))
                 #"prim_mach_start_thread_closure"))
       (tuple2 #"void" (value-signature* (fun0-type (void-type)) #"prim_void_closure"))
-      (tuple2 #"quotient" (value-signature (math-2arg) #"prim_quotient_closure"
-                                           (inline-numeric-op (quotient-op))))
-      (tuple2 #"remainder" (value-signature (math-2arg) #"prim_remainder_closure"
-                                            (inline-numeric-op (remainder-op))))
       (tuple2 #"panic" (value-signature* (fun-type (varargs list #"a") (varargs list (bytes-type)) (var-type #"a"))
                                          #"prim_panic_closure"))
-      (tuple2 #"make-array"
-              (value-signature (fun-type (varargs list #"a") (varargs list (int-type) (var-type #"a"))
-                                        (array-type (var-type #"a")))
-                               #"prim_make_array_closure"
-                               (inline-make-array)))
-
-      (tuple2 #"array-length"
-              (value-signature (fun-type (varargs list #"a")
-                                        (varargs list (array-type (var-type #"a")))
-                                        (int-type))
-                               #"prim_array_length_closure"
-                               (inline-array-length)))
-      (tuple2 #"array-ref"
-              (value-signature (fun-type (varargs list #"a")
-                                         (varargs list (array-type (var-type #"a")) (int-type))
-                                         (var-type #"a"))
-                               #"prim_array_ref_closure"
-                               (inline-array-ref)))
-      (tuple2 #"array-set!"
-              (value-signature (fun-type (varargs list #"a")
-                                         (varargs list (array-type (var-type #"a")) (int-type)
-                                                       (var-type #"a"))
-                                         (void-type))
-                               #"prim_array_set_closure"
-                               (inline-array-set!)))
       (tuple2 #"u32/le-byte0" (value-signature* (fun1-type (u32-type) (u8-type))
                                                 #"prim_quad_le_byte0_closure"))
       (tuple2 #"u32/le-byte1" (value-signature* (fun1-type (u32-type) (u8-type))
@@ -292,8 +209,14 @@
       ;; TODO make this actually safe
       (tuple2 #"ioctl"
               (value-signature* (fun3-type (file-descriptor-type) (int-type) (bytes-type) (void-type))
-                                #"prim_ioctl_closure")))))
-
+                                #"prim_ioctl_closure"))))
+  (match-define prim-sigs
+    (map prim-op->signature (prim-ops)))
+  (dict-add-all
+    (dict-add-all
+      (make-dict bytes-cmp)
+      prim-sigs)
+    runtime-sigs))
 
 (define (prim-mod) : ModName
   (mod-name (varargs list #"prim")))
@@ -371,26 +294,20 @@
       (prim-known-functions (map value-signature-symbol (dict-values prim-closures))))))
 
 (define (prim-implementation) : (List TopLevelObject)
-  (append*
-    (varargs list
-      (bin-math-implementation #"prim_add" (add-op))
-      (bin-math-implementation #"prim_sub" (sub-op))
-      (bin-math-implementation #"prim_mult" (mult-op))
-      (bin-math-implementation #"prim_quotient" (quotient-op))
-      (bin-math-implementation #"prim_remainder" (remainder-op))
-      (bin-math-implementation #"prim_bitwise_and" (bitwise-and-op))
-      (bin-math-implementation #"prim_bitwise_ior" (bitwise-ior-op))
-      (bin-math-implementation #"prim_logical_shift_left" (logical-shift-left-op))
-      (bin-math-implementation #"prim_logical_shift_right" (logical-shift-right-op))
-      (bin-logic-math-implementation #"prim_less_than" (less-than-op))
-      (bin-logic-math-implementation #"prim_less_than_or_equal" (less-than-or-equal-op))
-      (bin-logic-math-implementation #"prim_equal" (equal-op))
-      (bin-logic-math-implementation #"prim_greater_than_or_equal" (greater-than-or-equal-op))
-      (bin-logic-math-implementation #"prim_greater_than" (greater-than-op))
-      (make-implementation #"prim_make_array" 2 (make-array-cmd))
-      (make-implementation #"prim_array_length" 1 (array-length-cmd))
-      (make-implementation #"prim_array_ref" 2 (array-ref-cmd))
-      (make-implementation #"prim_array_set" 3 (array-set!-cmd)))))
+  (match-define (tuple2 functions closures)
+    (unzip (map implement-prim-op (prim-ops))))
+
+  (match-define mod
+    (module
+      (prim-mod)
+      (empty-imports)
+      (exports (empty) (empty) (empty))
+      (empty)
+      functions
+      closures
+      (empty)))
+  (match-define env (make-module-environment mod))
+  (r:module-to-top-level-objects mod env))
 
 (define (prim-known-functions [closure-names : (List Bytes)]) : (Dict Bytes Bytes)
   (dict-add-all
@@ -404,30 +321,166 @@
              (make-set bytes-cmp)
              closure-names)))))
 
-(define (duplicate-args [offset : Int] [amount : Int] [cmds : (List StackCmd)]) : (List StackCmd)
-  (if (= 0 amount)
-      cmds
-      (duplicate-args offset (- amount 1) (cons (dup-cmd offset) cmds))))
 
-(define (make-implementation [name : Bytes] [num-args : Int] [cmd : StackCmd])
-  : (List TopLevelObject)
+(define (numeric-op-impl [op : NumericBinOp]) : ((List Expression) -> Expression)
+  (lambda ([args : (List Expression)])
+    (case args
+      [(cons x (cons y (empty)))
+       (prim-numeric-bin-op op x y)]
+      [_ (panic #"numeric op inlined with not 2 arguments")])))
+
+(define (comparison-op-impl [op : ComparisonBinOp]) : ((List Expression) -> Expression)
+  (lambda ([args : (List Expression)])
+    (case args
+      [(cons x (cons y (empty)))
+       (prim-comparison-bin-op op x y)]
+      [_ (panic #"comparison op inlined with not 2 arguments")])))
+
+(define (array-ref-impl) : ((List Expression) -> Expression)
+  (lambda ([args : (List Expression)])
+    (case args
+      [(cons a (cons off (empty)))
+       (array-ref-expr a off)]
+      [_ (panic #"array-ref inlined with not 2 arguments")])))
+
+(define (array-set!-impl) : ((List Expression) -> Expression)
+  (lambda ([args : (List Expression)])
+    (case args
+      [(cons a (cons off (cons v (empty))))
+       (bytes-set!-expr a off v)]
+      [_ (panic #"array-set! inlined with not 3 arguments")])))
+
+(define (array-length-impl) : ((List Expression) -> Expression)
+  (lambda ([args : (List Expression)])
+    (case args
+      [(cons a (empty))
+       (array-length-expr a)]
+      [_ (panic #"array-length inlined with not 1 argument")])))
+
+(define (make-array-impl) : ((List Expression) -> Expression)
+  (lambda ([args : (List Expression)])
+    (case args
+      [(cons size (cons v (empty)))
+       (make-array-expr size v)]
+      [_ (panic #"make-array inlined with not 2 argument")])))
+
+
+(define (fun-type->args [type : Type]) : (Tuple2 (List Bytes) (List Type))
+  (case type
+    [(fun-type tvars args result)
+     (tuple2 tvars args)]
+    [_ (panic #"Couldn't extract argument types")]))
+
+
+(define (prim-op->signature [p : PrimOp]) : (Tuple2 Bytes ValueSignature)
+  (match-define (prim-op binding name type impl) p)
+  (tuple2
+    binding
+    (value-signature
+      type
+      (bytes-append (varargs list #"yprim_" name #"_closure"))
+      (just (hoas-linear-inlineable-function impl)))))
+
+
+(define (implement-prim-op [op : PrimOp])
+  : (Tuple2 FunctionDefinition ClosureConstant)
+  (match-define (prim-op _ name type impl) op)
+  ;; TODO use the tvars somewhere
+  (match-define (tuple2 tvars arg-types) (fun-type->args type))
+  (match-define vars
+    (build-list (length arg-types) (lambda ([i : Int]) (var #"v" i))))
+
+  (tuple2
+    (function-definition
+      name
+      type
+      (case (zip vars arg-types)
+        [(nothing) (panic #"Args not the same length as vars")]
+        [(just typed-vars) typed-vars])
+      (empty)
+      (impl (map local-var-expr vars)))
+    (closure-constant (bytes-append (varargs list name #"_closure")) name)))
+
+
+(define (prim-op* [name : Bytes] [type : Type] [impl : ((List Expression) -> Expression)]) : PrimOp
+  (prim-op name name type impl))
+
+(define (prim-ops) : (List PrimOp)
   (varargs list
-    (stack-function-tlo
-      (stack-function
-        name
-        num-args
-        (cons
-          (stack-basic-block
-            (duplicate-args (if (> num-args 6) (+ num-args 7) (- num-args 1)) num-args (cons cmd (empty)))
-            (return num-args))
-          (empty))))
-    (trivial-closure-tlo
-      (bytes-append (varargs list name #"_closure"))
-      name)))
-
-(define (bin-math-implementation [name : Bytes] [op : NumericBinOp]) : (List TopLevelObject)
-  (make-implementation name 2 (bin-numeric-cmd op)))
-
-
-(define (bin-logic-math-implementation [name : Bytes] [op : ComparisonBinOp]) : (List TopLevelObject)
-  (make-implementation name 2 (bin-comparison-cmd op)))
+    (prim-op
+      #"+" #"add"
+      (math-2arg)
+      (numeric-op-impl (add-op)))
+    (prim-op
+      #"-" #"sub"
+      (math-2arg)
+      (numeric-op-impl (sub-op)))
+    (prim-op
+      #"*" #"mult"
+      (math-2arg)
+      (numeric-op-impl (mult-op)))
+    (prim-op*
+      #"quotient"
+      (math-2arg)
+      (numeric-op-impl (quotient-op)))
+    (prim-op*
+      #"remainder"
+      (math-2arg)
+      (numeric-op-impl (remainder-op)))
+    (prim-op
+      #"bitwise-and" #"bitwise_and"
+      (math-2arg)
+      (numeric-op-impl (bitwise-and-op)))
+    (prim-op
+      #"bitwise-ior" #"bitwise_ior"
+      (math-2arg)
+      (numeric-op-impl (bitwise-ior-op)))
+    (prim-op
+      #"logical-shift-left" #"logical_shift_left"
+      (math-2arg)
+      (numeric-op-impl (logical-shift-left-op)))
+    (prim-op
+      #"logical-shift-right" #"logical_shift_right"
+      (math-2arg)
+      (numeric-op-impl (logical-shift-right-op)))
+    (prim-op
+      #"<" #"less_than"
+      (logic-2arg)
+      (comparison-op-impl (less-than-op)))
+    (prim-op
+      #"<=" #"less_than_or_equal"
+      (logic-2arg)
+      (comparison-op-impl (less-than-or-equal-op)))
+    (prim-op
+      #"=" #"equal"
+      (logic-2arg)
+      (comparison-op-impl (equal-op)))
+    (prim-op
+      #">=" #"greater_than_or_equal"
+      (logic-2arg)
+      (comparison-op-impl (greater-than-or-equal-op)))
+    (prim-op
+      #">" #"greater_than"
+      (logic-2arg)
+      (comparison-op-impl (greater-than-op)))
+    (prim-op
+      #"make-array" #"make_array"
+      (fun-type (varargs list #"a") (varargs list (int-type) (var-type #"a"))
+                (array-type (var-type #"a")))
+      (make-array-impl))
+    (prim-op
+      #"array-length" #"array_length"
+      (fun-type (varargs list #"a") (varargs list (array-type (var-type #"a"))) (int-type))
+      (array-length-impl))
+    (prim-op
+      #"array-ref" #"array_ref"
+      (fun-type (varargs list #"a") (varargs list (array-type (var-type #"a")) (int-type))
+                (var-type #"a"))
+      (array-ref-impl))
+    (prim-op
+      #"array-set!" #"array_set"
+      (fun-type (varargs list #"a")
+                (varargs list (array-type (var-type #"a")) (int-type)
+                              (var-type #"a"))
+                (void-type))
+      (array-set!-impl))))

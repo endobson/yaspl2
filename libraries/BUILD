@@ -546,9 +546,10 @@ yaspl_bootstrap_library(
     srcs = ["prim-implementation.yaspl"],
     deps = [
         ":intermediate-expression",
+        ":intermediate-language",
+        ":resolved-imports-language",
         ":module-name",
         ":module-signature",
-        ":stack-machine",
         ":types",
         "//libraries/data:bytes",
         "//libraries/data:dict",
@@ -558,6 +559,9 @@ yaspl_bootstrap_library(
         "//libraries/data:tuples",
         "//libraries/yaspl:math-operations",
         "//libraries/yaspl:top-level-objects",
+        "//libraries/yaspl:module-environment",
+        "//libraries/yaspl:intermediate-to-register",
+        "//libraries/yaspl:var",
     ],
 )
 
