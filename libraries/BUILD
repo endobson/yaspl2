@@ -72,12 +72,6 @@ yaspl_binary(
     deps = [":main-stub_lib"],
 )
 
-yaspl_binary(
-    name = "print-stack-function",
-    main_module = "print_stack_function",
-    deps = [":print-stack-function_lib"],
-)
-
 yaspl_bootstrap_library(
     name = "assembler",
     srcs = ["assembler.yaspl"],
@@ -202,11 +196,10 @@ yaspl_library(
     name = "code-http-server_lib",
     srcs = ["code-http-server.yaspl"],
     deps = [
+        ":compiler_lib",
         ":http-server_lib",
         ":io",
         ":ip",
-        ":print-stack-function_lib",
-        ":stack-machine",
         ":tcp",
         "//libraries/algorithms:depth-first-search",
         "//libraries/data:bytes",
@@ -590,23 +583,6 @@ yaspl_test(
     ],
 )
 
-yaspl_library(
-    name = "print-stack-function_lib",
-    srcs = ["print-stack-function.yaspl"],
-    deps = [
-        ":compiler_lib",
-        ":io",
-        ":stack-machine",
-        "//libraries/data:bytes",
-        "//libraries/data:either",
-        "//libraries/data:join-list",
-        "//libraries/data:list",
-        "//libraries/data:numbers",
-        "//libraries/yaspl:math-operations",
-        "//libraries/yaspl:top-level-objects",
-    ],
-)
-
 yaspl_bootstrap_library(
     name = "resolved-imports-language",
     srcs = ["resolved-imports-language.yaspl"],
@@ -644,20 +620,6 @@ yaspl_test(
         "//libraries/data:indexed-set",
         "//libraries/data:list",
         "//libraries/data:maybe",
-    ],
-)
-
-yaspl_bootstrap_library(
-    name = "stack-machine-optimizer",
-    srcs = ["stack-machine-optimizer.yaspl"],
-    deps = [
-        ":stack-machine",
-        "//libraries/data:dict",
-        "//libraries/data:list",
-        "//libraries/data:maybe",
-        "//libraries/data:numbers",
-        "//libraries/data:set",
-        "//libraries/data:tuples",
     ],
 )
 
@@ -766,19 +728,6 @@ yaspl_bootstrap_library(
         "//libraries/data:list",
         "//libraries/data:maybe",
         "//libraries/yaspl:module-environment",
-    ],
-)
-
-yaspl_bootstrap_library(
-    name = "stack-machine",
-    srcs = ["stack-machine.yaspl"],
-    deps = [
-        "//libraries/data:bytes",
-        "//libraries/data:join-list",
-        "//libraries/data:list",
-        "//libraries/data:tuples",
-        "//libraries/yaspl:math-operations",
-        "//libraries/yaspl:var",
     ],
 )
 
@@ -1002,19 +951,6 @@ yaspl_bootstrap_library(
     ],
 )
 
-yaspl_bootstrap_library(
-    name = "x86-64-stack-machine",
-    srcs = ["x86-64-stack-machine.yaspl"],
-    deps = [
-        ":stack-machine",
-        "//libraries/data:bytes",
-        "//libraries/data:join-list",
-        "//libraries/data:list",
-        "//libraries/data:numbers",
-        "//libraries/yaspl:math-operations",
-        "//libraries/yaspl:x86-64-assembly",
-    ],
-)
 
 yaspl_library(
     name = "yunit",

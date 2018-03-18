@@ -70,7 +70,6 @@ yaspl_bootstrap_library(
     srcs = ["top-level-object-optimizer.yaspl"],
     deps = [
         ":top-level-objects",
-        "//libraries:stack-machine-optimizer",
         "//libraries/data:dict",
         "//libraries/data:list",
         "//libraries/prim-language:simplify-register-language",
@@ -83,7 +82,6 @@ yaspl_bootstrap_library(
     deps = [
         ":top-level-objects",
         ":x86-64-assembly",
-        "//libraries:x86-64-stack-machine",
         "//libraries/data:bytes",
         "//libraries/data:either",
         "//libraries/data:list",
@@ -97,7 +95,6 @@ yaspl_bootstrap_library(
     srcs = ["top-level-objects.yaspl"],
     deps = [
         "//libraries:module-signature",
-        "//libraries:stack-machine",
         "//libraries/data:list",
         "//libraries/prim-language:register-language",
     ],
