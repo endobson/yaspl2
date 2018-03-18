@@ -153,7 +153,6 @@ yaspl_library(
         "//libraries:mach-o-writer2_lib",
         "//libraries:sexp-parser",
         "//libraries/data:bytes",
-        "//libraries/data:dict",
         "//libraries/data:either",
         "//libraries/data:join-list",
         "//libraries/data:list",

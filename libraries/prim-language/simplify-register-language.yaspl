@@ -31,16 +31,13 @@
     (av-symbol [val : Bytes])
     (av-unknown)))
 
-(define (simplify-function-definition
-          [f : FunctionDefinition]
-          [known-functions : (Dict Bytes Bytes)]) : FunctionDefinition
+(define (simplify-function-definition [f : FunctionDefinition]) : FunctionDefinition
   (match-define (function-definition name entry-block blocks next-var-number next-block-number) f)
   (match-define abstract-values (compute-abstract-values blocks))
   (match-define new-blocks
     (remove-dead-instructions
       (optimize-constants abstract-values
-        (optimize-known-functions abstract-values known-functions
-          (optimize-conditional-jumps abstract-values blocks)))))
+        (optimize-conditional-jumps abstract-values blocks))))
   (function-definition name entry-block new-blocks next-var-number next-block-number))
 
 (define (optimize-conditional-jumps
@@ -193,55 +190,6 @@
     [(numeric-op-immediate-inst _ _ _ _) #t]
     [(comparison-op-immediate-inst _ _ _ _) #t]
     [(unary-op-inst _ _ _) #t]))
-
-(define (optimize-known-functions
-          [abstract-values : (Dict Var AbstractValue)]
-          [known-closures : (Dict Bytes Bytes)]
-          [blocks : (Dict Int BasicBlock)]) : (Dict Int BasicBlock)
-  (dict-value-map blocks
-    (lambda ([b : BasicBlock])
-      (optimize-known-functions/block abstract-values known-closures b))))
-
-(define (optimize-known-functions/block
-          [abstract-values : (Dict Var AbstractValue)]
-          [known-closures : (Dict Bytes Bytes)]
-          [b : BasicBlock]) : BasicBlock
-  (match-define (basic-block args instructions terminal) b)
-  (basic-block
-    args
-    (map
-      (lambda ([i : Instruction])
-        (case i
-          [(function-call-inst v (closure-call c) args)
-           (case (abstract-value-resolve abstract-values c)
-             [(av-symbol sym)
-              (case (dict-ref known-closures sym)
-                [(nothing) i]
-                [(just fun-sym)
-                 (function-call-inst v (direct-call fun-sym) args)])]
-             [_ i])]
-          [(function-call-inst v (indirect-function-call f) args)
-           (case (abstract-value-resolve abstract-values f)
-             [(av-symbol fun-sym)
-              (function-call-inst v (direct-call fun-sym) args)]
-             [_ i])]
-          [_ i]))
-      instructions)
-    (case terminal
-      [(tail-call (closure-call c) args)
-       (case (abstract-value-resolve abstract-values c)
-         [(av-symbol sym)
-          (case (dict-ref known-closures sym)
-            [(nothing) terminal]
-            [(just fun-sym)
-             (tail-call (direct-call fun-sym) args)])]
-         [_ terminal])]
-      [(tail-call (indirect-function-call f) args)
-       (case (abstract-value-resolve abstract-values f)
-         [(av-symbol fun-sym)
-          (tail-call (direct-call fun-sym) args)]
-         [_ terminal])]
-      [_ terminal])))
 
 (define (optimize-constants
           [abstract-values : (Dict Var AbstractValue)]

@@ -54,13 +54,17 @@ yaspl_bootstrap_library(
     name = "optimize-intermediate",
     srcs = ["optimize-intermediate.yaspl"],
     deps = [
+        ":module-environment",
         "//libraries:intermediate-expression",
         "//libraries:intermediate-language",
         "//libraries:module-signature",
+        "//libraries:module-name",
         "//libraries:resolved-imports-language",
         "//libraries/data:bytes",
         "//libraries/data:dict",
         "//libraries/data:list",
+        "//libraries/data:join-list",
+        "//libraries/data:tuples",
         "//libraries/data:maybe",
     ],
 )
@@ -70,7 +74,6 @@ yaspl_bootstrap_library(
     srcs = ["top-level-object-optimizer.yaspl"],
     deps = [
         ":top-level-objects",
-        "//libraries/data:dict",
         "//libraries/data:list",
         "//libraries/prim-language:simplify-register-language",
     ],

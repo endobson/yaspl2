@@ -4,14 +4,18 @@
   (dict)
   (intermediate-expression)
   (intermediate-language)
+  (join-list)
   (list)
   (maybe)
+  (module-name)
   (module-signature)
   (prim)
   (resolved-imports-language) {
     #:patterns
       imports
   }
+  (tuples)
+  (yaspl module-environment)
 }
 (export
   #:types ()
@@ -20,12 +24,20 @@
 (types
   (define-type OptimizeEnvironment
     (optimize-environment
-      [inlineable : (Dict Bytes InlineableFunction)])))
+      [inlineable : (Dict Bytes InlineableFunction)]
+      [known-functions : (Dict Bytes Bytes)])))
 
 (define (make-optimize-environment [mod : Module]) : OptimizeEnvironment
   (optimize-environment
     (add-all-imported-functions
       (make-dict bytes-cmp)
+      mod)
+    (add-all-datatype-known-functions
+      (add-all-defined-known-functions
+        (add-all-imported-known-functions
+          (make-dict bytes-cmp)
+          mod)
+        mod)
       mod)))
 
 (define (add-all-imported-functions [env : (Dict Bytes InlineableFunction)] [mod : Module])
@@ -35,9 +47,86 @@
     (dict-filter-map values
       (lambda ([k : Bytes] [v : ValueSignature])
         (case v
-          [(value-signature _ symbol inlineable)
+          [(value-signature _ symbol _ inlineable)
            inlineable])))
     env))
+
+(define (add-all-defined-known-functions [env : (Dict Bytes Bytes)] [mod : Module])
+  : (Dict Bytes Bytes)
+  (match-define mod-name (module-name mod))
+  (foldl
+    (lambda ([closure : ClosureConstant] [acc : (Dict Bytes Bytes)])
+      (case closure
+        [(closure-constant name fun-name)
+         (dict-add
+           acc name
+           (mangle-name (bytes-append (varargs list (mangled-mod-name mod-name) #"_" fun-name))))]))
+    (module-closures mod)
+    env))
+
+(define (add-all-imported-known-functions [env : (Dict Bytes Bytes)] [mod : Module])
+  : (Dict Bytes Bytes)
+  (match-define (imports _ values _) (module-imports mod))
+  (merge-dicts
+    (dict-filter-map values
+      (lambda ([k : Bytes] [v : ValueSignature])
+        (case v
+          [(value-signature _ symbol known _)
+           known])))
+    env))
+
+(define (add-all-datatype-known-functions [env : (Dict Bytes Bytes)] [mod : Module])
+  : (Dict Bytes Bytes)
+  (match-define mod-name (module-name mod))
+  (dict-add-all
+    env
+    (jl->list
+      (concat-jl
+        (map
+          (lambda ([type-def : TypeDefinition])
+            (case type-def
+              [(type-definition type-name _ _ _ (cons variant (empty)))
+               (cons-jl
+                 (variant-definition/constructor-known-function mod-name type-name variant)
+                 (variant-definition/accessor-known-functions mod-name type-name variant))]
+              [(type-definition type-name _ _ _ variants)
+               (list->jl
+                 (map
+                   (lambda ([variant : VariantDefinition])
+                     (variant-definition/constructor-known-function mod-name type-name variant))
+                   variants))]))
+          (module-types mod))))))
+
+(define (variant-definition/constructor-known-function
+          [mod-name : ModName]
+          [type-name : Bytes]
+          [def : VariantDefinition]) : (Tuple2 Bytes Bytes)
+  (match-define (variant-definition name variant-tag fields) def)
+  (tuple2
+    name
+    (mangle-name (bytes-append (varargs list (mangled-mod-name mod-name) #"_" type-name #"_" name)))))
+
+
+(define (variant-definition/accessor-known-functions
+          [mod-name : ModName]
+          [type-name : Bytes]
+          [variant : VariantDefinition]) : (JoinList (Tuple2 Bytes Bytes))
+  (match-define (variant-definition variant-name variant-tag fields) variant)
+  (list->jl
+    (map
+      (lambda ([field : VariantField])
+        (case field
+          [(variant-field field-name _)
+           (tuple2
+             (bytes-append (varargs list variant-name #"-" field-name))
+             (mangle-name
+               (bytes-append (varargs list (mangled-mod-name mod-name) #"_" type-name #"_" variant-name
+                                      #"_" field-name))))]))
+      fields)))
+
+
+
+
 
 (define (optimize-intermediate-module [mod : Module]) : Module
   (match-define (module names imports exports types definitions closures bytes) mod)
@@ -76,10 +165,16 @@
     [(call-closure-expr tail-position op args)
      (match-define opt-args (map recur args))
      (case (expr->inlineable op env)
-       [(nothing)
-        (call-closure-expr tail-position (recur op) opt-args)]
        [(just (hoas-linear-inlineable-function f))
-        (f opt-args)])]
+        (f opt-args)]
+       [(nothing)
+        (case (expr->known-function op env)
+          [(just fun-name)
+           (call-function-expr tail-position fun-name opt-args)]
+          [(nothing)
+           (call-closure-expr tail-position (recur op) opt-args)])])]
+    [(call-function-expr tail-position fun-name args)
+     (call-function-expr tail-position fun-name (map recur args))]
     [(let-expr name expr body)
      (let-expr name (recur expr) (recur body))]
     [(case-expr expr clauses)
@@ -120,4 +215,10 @@
   (case expr
     [(global-var-expr v)
      (dict-ref (optimize-environment-inlineable env) v)]
+    [_ (nothing)]))
+
+(define (expr->known-function [expr : Expression] [env : OptimizeEnvironment]) : (Maybe Bytes)
+  (case expr
+    [(global-var-expr v)
+     (dict-ref (optimize-environment-known-functions env) v)]
     [_ (nothing)]))

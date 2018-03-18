@@ -27,12 +27,15 @@
            (mod-name->sexp name)
            (node (dict-map values (lambda ([value : Bytes] [sig : ValueSignature]) : Sexp
                                     (case sig
-                                      [(value-signature type fun-name (just _))
+                                      [(value-signature type fun-name trivial-closure (just _))
                                        (panic #"NYI: Cannot serialize inlineable values")]
-                                      [(value-signature type fun-name (nothing))
+                                      [(value-signature type fun-name trivial-closure (nothing))
                                        (node (varargs list
                                                (bytes-sexp value)
                                                (type->sexp type)
+                                               (case trivial-closure
+                                                 [(nothing) (boolean-sexp #f)]
+                                                 [(just name) (bytes-sexp name)])
                                                (bytes-sexp fun-name)))]))))
            (node (dict-map patterns (lambda ([value : Bytes] [sig : PatternSignature])
                                       (case sig
@@ -57,14 +60,26 @@
                                      (bytes-sexp value)
                                      (bytes-sexp fun-name)))))))))]))
 
+(define (sexp->trivial-closure [s : Sexp]) : (Maybe Bytes)
+  (case s
+    [(bytes-sexp symbol) (just symbol)]
+    [(boolean-sexp _) (nothing)]
+    [_ (panic #"Bad trivial closure")]))
+
 (define (value-exports->dict [value-exports : (List Sexp)] [acc : (Dict Bytes ValueSignature)])
   : (Dict Bytes ValueSignature)
   (case value-exports
     [(empty) acc]
-    [(cons (node (cons (bytes-sexp k) (cons type (cons (bytes-sexp symbol) (empty))))) value-exports)
+    [(cons (node (cons (bytes-sexp k)
+                       (cons type
+                             (cons trivial-closure
+                                   (cons (bytes-sexp symbol) (empty)))))) value-exports)
      (case (sexp->type type)
        [(just type)
-        (value-exports->dict value-exports (dict-add acc k (value-signature type symbol (nothing))))]
+        (value-exports->dict
+          value-exports
+          (dict-add acc k (value-signature type symbol (sexp->trivial-closure trivial-closure)
+                                           (nothing))))]
        [(nothing)
         (panic #"Bad value-exports")])]
     [_
