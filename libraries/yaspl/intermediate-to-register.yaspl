@@ -5,10 +5,6 @@
   (either)
   (intermediate-expression)
   (intermediate-language)
-  (intermediate-to-stack) {
-    #:values
-      compile-variant-definition/accessors
-  }
   (join-list)
   (list)
   (maybe)
@@ -607,3 +603,73 @@
                  (r:return variant-var)))
              (+ 1 (length fields))
              1)))])))
+
+
+(define (compile-variant-definition/accessors
+          [mod-name : ModName]
+          [type-name : Bytes]
+          [variant : VariantDefinition])
+  : (JoinList TopLevelObject)
+  (case variant
+    [(variant-definition variant-name variant-tag fields)
+     (compile-variant-definition/accessors*
+       mod-name
+       type-name
+       variant-name
+       0
+       fields)]))
+
+(define (compile-variant-definition/accessors*
+          [mod-name : ModName]
+          [type-name : Bytes]
+          [variant-name : Bytes]
+          [field-index : Int]
+          [fields : (List VariantField)])
+  : (JoinList TopLevelObject)
+  (case fields
+    [(empty) (empty-jl)]
+    [(cons (variant-field field-name _) fields)
+     (append-jl
+       (compile-variant-definition-accessor
+         mod-name
+         type-name
+         variant-name
+         field-name
+         field-index)
+       (compile-variant-definition/accessors*
+         mod-name
+         type-name
+         variant-name
+         (+ field-index 1)
+         fields))]))
+
+(define (compile-variant-definition-accessor
+          [mod-name : ModName]
+          [type-name : Bytes]
+          [variant-name : Bytes]
+          [field-name : Bytes]
+          [field-index : Int]) : (JoinList TopLevelObject)
+  (match-define mangled-name (mangle-name
+    (bytes-append (varargs list (mangled-mod-name mod-name) #"_" type-name #"_" variant-name
+                           #"_" field-name))))
+  (match-define variant-var (var #"variant" 0))
+  (match-define output-var (var #"output" 0))
+  (varargs join-list
+    (trivial-closure-tlo
+      (bytes-append (varargs list mangled-name #"_closure"))
+      mangled-name)
+    (register-function-tlo
+      (r:function-definition
+        mangled-name
+        (closure-convention 1 0 0)
+        (dict-add
+          (make-dict int-cmp)
+          0
+          (r:basic-block
+            (varargs list variant-var)
+            (varargs list
+              (r:pointer-ref-inst output-var (eight-byte-mem-op) variant-var
+                                  (fixed-pointer-offset (+ 8 (* 8 field-index)))))
+            (r:return output-var)))
+        1
+        1))))
