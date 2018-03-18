@@ -8,7 +8,6 @@
   (intermediate-to-stack) {
     #:values
       compile-variant-definition/accessors
-      compile-variant-definition/constructor
   }
   (join-list)
   (list)
@@ -27,6 +26,7 @@
     #:types
       [FunctionDefinition r:FunctionDefinition]
     #:values
+      [basic-block r:basic-block]
       [bin-op-inst r:bin-op-inst]
       boolean-not
       closure-call
@@ -545,3 +545,65 @@
                    (compile-variant-definition/constructor mod-name type-name variant))
                  variants))]))
         (module-types mod)))))
+
+(define (compile-variant-definition/constructor
+          [mod-name : ModName]
+          [type-name : Bytes]
+          [def : VariantDefinition]) : (JoinList TopLevelObject)
+  (match-define (variant-definition name variant-tag fields) def)
+  (match-define mangled-name
+    (mangle-name (bytes-append (varargs list (mangled-mod-name mod-name) #"_" type-name #"_" name))))
+  (cons-jl
+    (trivial-closure-tlo
+      (bytes-append (varargs list mangled-name #"_closure"))
+      mangled-name)
+    (case fields
+      [(empty)
+       (match-define const-name (bytes-append (varargs list mangled-name #"_const")))
+       (match-define variant-var (var #"variant" 0))
+       (varargs join-list
+         (trivial-variant-tlo const-name variant-tag)
+         (register-function-tlo
+           (r:function-definition
+             mangled-name
+             (closure-convention 0 0 0)
+             (dict-add
+               (make-dict int-cmp)
+               0
+               (r:basic-block
+                 (empty)
+                 (varargs list
+                   (r:symbol-address-inst variant-var const-name))
+                 (r:return variant-var)))
+             1
+             1)))]
+      [_
+       (match-define variant-var (var #"variant" 0))
+       (match-define tag-var (var #"tag" 0))
+       (match-define size-var (var #"size" 0))
+       (single-jl
+         (register-function-tlo
+           (r:function-definition
+             mangled-name
+             (closure-convention (length fields) 0 0)
+             (dict-add
+               (make-dict int-cmp)
+               0
+               (r:basic-block
+                 (build-list (length fields) (lambda ([index : Int]) (var #"arg" index)))
+                 (append
+                   (varargs list
+                     (r:int-literal size-var (+ 8 (* 8 (length fields))))
+                     (r:heap-allocate-inst variant-var size-var)
+                     (r:int-literal tag-var variant-tag)
+                     (r:pointer-set!-inst (eight-byte-mem-op) variant-var (fixed-pointer-offset 0)
+                                          tag-var))
+                   (build-list
+                     (length fields)
+                     (lambda ([index : Int])
+                       (r:pointer-set!-inst (eight-byte-mem-op) variant-var
+                                            (fixed-pointer-offset (+ 8 (* 8 index)))
+                                            (var #"arg" index)))))
+                 (r:return variant-var)))
+             (+ 1 (length fields))
+             1)))])))
