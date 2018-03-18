@@ -546,7 +546,6 @@ yaspl_bootstrap_library(
         "//libraries/data:dict",
         "//libraries/data:list",
         "//libraries/data:maybe",
-        "//libraries/data:set",
         "//libraries/data:tuples",
         "//libraries/yaspl:math-operations",
         "//libraries/yaspl:top-level-objects",
