@@ -704,6 +704,7 @@ yaspl_bootstrap_library(
         ":module-name",
         ":resolved-imports-language",
         ":source-language",
+        ":top-level-name",
         ":type-checker",
         ":type-checker-context",
         ":types",
