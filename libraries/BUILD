@@ -213,8 +213,8 @@ yaspl_library(
         "//libraries/formats:html",
         "//libraries/formats:svg",
         "//libraries/formats:xml",
-        "//libraries/prim-language:register-language",
         "//libraries/prim-language:print-register-language",
+        "//libraries/prim-language:register-language",
         "//libraries/yaspl:top-level-objects",
         "//libraries/yaspl:top-level-objects-to-x86-64",
         "//libraries/yaspl:x86-64-assembly",
@@ -538,19 +538,19 @@ yaspl_bootstrap_library(
     deps = [
         ":intermediate-expression",
         ":intermediate-language",
-        ":resolved-imports-language",
         ":module-name",
         ":module-signature",
+        ":resolved-imports-language",
         ":types",
         "//libraries/data:bytes",
         "//libraries/data:dict",
         "//libraries/data:list",
         "//libraries/data:maybe",
         "//libraries/data:tuples",
-        "//libraries/yaspl:math-operations",
-        "//libraries/yaspl:top-level-objects",
-        "//libraries/yaspl:module-environment",
         "//libraries/yaspl:intermediate-to-register",
+        "//libraries/yaspl:math-operations",
+        "//libraries/yaspl:module-environment",
+        "//libraries/yaspl:top-level-objects",
         "//libraries/yaspl:var",
     ],
 )
@@ -947,7 +947,6 @@ yaspl_bootstrap_library(
         "//libraries/data:tuples",
     ],
 )
-
 
 yaspl_library(
     name = "yunit",
