@@ -541,6 +541,7 @@ yaspl_bootstrap_library(
         ":module-name",
         ":module-signature",
         ":resolved-imports-language",
+        ":top-level-name",
         ":types",
         "//libraries/data:bytes",
         "//libraries/data:dict",
@@ -745,6 +746,19 @@ yaspl_library(
     deps = [
         ":ip",
         "//libraries/data:tuples",
+    ],
+)
+
+yaspl_bootstrap_library(
+    name = "top-level-name",
+    srcs = ["top-level-name.yaspl"],
+    deps = [
+        ":module-name",
+        ":sexp-parser",
+        "//libraries/data:bytes",
+        "//libraries/data:list",
+        "//libraries/data:maybe",
+        "//libraries/data:ordering",
     ],
 )
 
