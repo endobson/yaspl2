@@ -244,6 +244,7 @@ yaspl_bootstrap_library(
     name = "intermediate-expression",
     srcs = ["intermediate-expression.yaspl"],
     deps = [
+        ":top-level-name",
         ":types",
         "//libraries/data:list",
         "//libraries/yaspl:math-operations",

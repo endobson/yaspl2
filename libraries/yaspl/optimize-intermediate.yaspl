@@ -14,8 +14,8 @@
     #:patterns
       imports
   }
+  (top-level-name)
   (tuples)
-  (yaspl module-environment)
 }
 (export
   #:types ()
@@ -25,7 +25,7 @@
   (define-type OptimizeEnvironment
     (optimize-environment
       [inlineable : (Dict Bytes InlineableFunction)]
-      [known-functions : (Dict Bytes Bytes)])))
+      [known-functions : (Dict Bytes TopLevelName)])))
 
 (define (make-optimize-environment [mod : Module]) : OptimizeEnvironment
   (optimize-environment
@@ -51,34 +51,30 @@
            inlineable])))
     env))
 
-(define (add-all-defined-known-functions [env : (Dict Bytes Bytes)] [mod : Module])
-  : (Dict Bytes Bytes)
+(define (add-all-defined-known-functions [env : (Dict Bytes TopLevelName)] [mod : Module])
+  : (Dict Bytes TopLevelName)
   (match-define mod-name (module-name mod))
   (foldl
-    (lambda ([closure : ClosureConstant] [acc : (Dict Bytes Bytes)])
+    (lambda ([closure : ClosureConstant] [acc : (Dict Bytes TopLevelName)])
       (case closure
         [(closure-constant name fun-name)
-         (dict-add
-           acc name
-           (mangle-name (bytes-append (varargs list (mangled-mod-name mod-name) #"_" fun-name))))]))
+         (dict-add acc name (top-level-name mod-name fun-name))]))
     (module-closures mod)
     env))
 
-(define (add-all-imported-known-functions [env : (Dict Bytes Bytes)] [mod : Module])
-  : (Dict Bytes Bytes)
+(define (add-all-imported-known-functions [env : (Dict Bytes TopLevelName)] [mod : Module])
+  : (Dict Bytes TopLevelName)
   (match-define (imports _ values _) (module-imports mod))
   (merge-dicts
     (dict-filter-map values
-      (lambda ([k : Bytes] [v : ValueSignature]) : (Maybe Bytes)
+      (lambda ([k : Bytes] [v : ValueSignature]) : (Maybe TopLevelName)
         (case v
           [(value-signature _ symbol known _)
-           (case known
-             [(just t) (just (mangle-top-level-name t))]
-             [(nothing) (nothing)])])))
+           known])))
     env))
 
-(define (add-all-datatype-known-functions [env : (Dict Bytes Bytes)] [mod : Module])
-  : (Dict Bytes Bytes)
+(define (add-all-datatype-known-functions [env : (Dict Bytes TopLevelName)] [mod : Module])
+  : (Dict Bytes TopLevelName)
   (match-define mod-name (module-name mod))
   (dict-add-all
     env
@@ -102,17 +98,17 @@
 (define (variant-definition/constructor-known-function
           [mod-name : ModName]
           [type-name : Bytes]
-          [def : VariantDefinition]) : (Tuple2 Bytes Bytes)
+          [def : VariantDefinition]) : (Tuple2 Bytes TopLevelName)
   (match-define (variant-definition name variant-tag fields) def)
   (tuple2
     name
-    (mangle-name (bytes-append (varargs list (mangled-mod-name mod-name) #"_" type-name #"_" name)))))
+    (top-level-name mod-name (bytes-append (varargs list type-name #"_" name)))))
 
 
 (define (variant-definition/accessor-known-functions
           [mod-name : ModName]
           [type-name : Bytes]
-          [variant : VariantDefinition]) : (JoinList (Tuple2 Bytes Bytes))
+          [variant : VariantDefinition]) : (JoinList (Tuple2 Bytes TopLevelName))
   (match-define (variant-definition variant-name variant-tag fields) variant)
   (list->jl
     (map
@@ -121,9 +117,9 @@
           [(variant-field field-name _)
            (tuple2
              (bytes-append (varargs list variant-name #"-" field-name))
-             (mangle-name
-               (bytes-append (varargs list (mangled-mod-name mod-name) #"_" type-name #"_" variant-name
-                                      #"_" field-name))))]))
+             (top-level-name
+               mod-name
+               (bytes-append (varargs list type-name #"_" variant-name #"_" field-name))))]))
       fields)))
 
 
@@ -219,7 +215,7 @@
      (dict-ref (optimize-environment-inlineable env) v)]
     [_ (nothing)]))
 
-(define (expr->known-function [expr : Expression] [env : OptimizeEnvironment]) : (Maybe Bytes)
+(define (expr->known-function [expr : Expression] [env : OptimizeEnvironment]) : (Maybe TopLevelName)
   (case expr
     [(global-var-expr v)
      (dict-ref (optimize-environment-known-functions env) v)]
