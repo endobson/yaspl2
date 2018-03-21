@@ -24,57 +24,63 @@
 (types
   (define-type OptimizeEnvironment
     (optimize-environment
-      [inlineable : (Dict Bytes InlineableFunction)]
-      [known-functions : (Dict Bytes TopLevelName)])))
+      [inlineable : (Dict TopLevelName InlineableFunction)]
+      [known-functions : (Dict TopLevelName TopLevelName)])))
 
 (define (make-optimize-environment [mod : Module]) : OptimizeEnvironment
   (optimize-environment
     (add-all-imported-functions
-      (make-dict bytes-cmp)
+      (make-dict top-level-name-cmp)
       mod)
     (add-all-datatype-known-functions
       (add-all-defined-known-functions
         (add-all-imported-known-functions
-          (make-dict bytes-cmp)
+          (make-dict top-level-name-cmp)
           mod)
         mod)
       mod)))
 
-(define (add-all-imported-functions [env : (Dict Bytes InlineableFunction)] [mod : Module])
-  : (Dict Bytes InlineableFunction)
+(define (add-all-imported-functions [env : (Dict TopLevelName InlineableFunction)] [mod : Module])
+  : (Dict TopLevelName InlineableFunction)
   (match-define (imports _ values _) (module-imports mod))
-  (merge-dicts
-    (dict-filter-map values
-      (lambda ([k : Bytes] [v : ValueSignature])
-        (case v
-          [(value-signature _ symbol _ inlineable)
-           inlineable])))
+  (dict-fold
+    values
+    (lambda ([k : Bytes] [v : ValueSignature] [env : (Dict TopLevelName InlineableFunction)])
+      (case v
+        [(value-signature _ symbol _ inlineable)
+         (case inlineable
+           [(just inline) (dict-add env symbol inline)]
+           [(nothing) env])]))
     env))
 
-(define (add-all-defined-known-functions [env : (Dict Bytes TopLevelName)] [mod : Module])
-  : (Dict Bytes TopLevelName)
+(define (add-all-defined-known-functions [env : (Dict TopLevelName TopLevelName)] [mod : Module])
+  : (Dict TopLevelName TopLevelName)
   (match-define mod-name (module-name mod))
   (foldl
-    (lambda ([closure : ClosureConstant] [acc : (Dict Bytes TopLevelName)])
+    (lambda ([closure : ClosureConstant] [acc : (Dict TopLevelName TopLevelName)])
       (case closure
         [(closure-constant name fun-name)
-         (dict-add acc name (top-level-name mod-name fun-name))]))
+         (dict-add acc (top-level-name mod-name name) (top-level-name mod-name fun-name))]))
     (module-closures mod)
     env))
 
-(define (add-all-imported-known-functions [env : (Dict Bytes TopLevelName)] [mod : Module])
-  : (Dict Bytes TopLevelName)
+(define (add-all-imported-known-functions [env : (Dict TopLevelName TopLevelName)] [mod : Module])
+  : (Dict TopLevelName TopLevelName)
   (match-define (imports _ values _) (module-imports mod))
-  (merge-dicts
-    (dict-filter-map values
-      (lambda ([k : Bytes] [v : ValueSignature]) : (Maybe TopLevelName)
-        (case v
-          [(value-signature _ symbol known _)
-           known])))
+  (dict-fold
+    values
+    (lambda ([k : Bytes] [v : ValueSignature] [env : (Dict TopLevelName TopLevelName)])
+      (case v
+        [(value-signature _ symbol known _)
+         (case known
+           [(just known)
+            ;; There might be multiple imports for the same symbol so use set instead of add
+            (dict-set env symbol known)]
+           [(nothing) env])]))
     env))
 
-(define (add-all-datatype-known-functions [env : (Dict Bytes TopLevelName)] [mod : Module])
-  : (Dict Bytes TopLevelName)
+(define (add-all-datatype-known-functions [env : (Dict TopLevelName TopLevelName)] [mod : Module])
+  : (Dict TopLevelName TopLevelName)
   (match-define mod-name (module-name mod))
   (dict-add-all
     env
@@ -98,17 +104,17 @@
 (define (variant-definition/constructor-known-function
           [mod-name : ModName]
           [type-name : Bytes]
-          [def : VariantDefinition]) : (Tuple2 Bytes TopLevelName)
+          [def : VariantDefinition]) : (Tuple2 TopLevelName TopLevelName)
   (match-define (variant-definition name variant-tag fields) def)
   (tuple2
-    name
+    (top-level-name mod-name name)
     (top-level-name mod-name (bytes-append (varargs list type-name #"_" name)))))
 
 
 (define (variant-definition/accessor-known-functions
           [mod-name : ModName]
           [type-name : Bytes]
-          [variant : VariantDefinition]) : (JoinList (Tuple2 Bytes TopLevelName))
+          [variant : VariantDefinition]) : (JoinList (Tuple2 TopLevelName TopLevelName))
   (match-define (variant-definition variant-name variant-tag fields) variant)
   (list->jl
     (map
@@ -116,15 +122,13 @@
         (case field
           [(variant-field field-name _)
            (tuple2
-             (bytes-append (varargs list variant-name #"-" field-name))
+             (top-level-name
+               mod-name
+               (bytes-append (varargs list variant-name #"-" field-name)))
              (top-level-name
                mod-name
                (bytes-append (varargs list type-name #"_" variant-name #"_" field-name))))]))
       fields)))
-
-
-
-
 
 (define (optimize-intermediate-module [mod : Module]) : Module
   (match-define (module names imports exports types definitions closures bytes) mod)

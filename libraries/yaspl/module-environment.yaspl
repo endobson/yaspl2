@@ -16,23 +16,15 @@
 }
 (export
   #:types (ModuleEnvironment)
-  #:values (module-environment-tag-ref module-environment-global-ref make-module-environment
+  #:values (module-environment-tag-ref make-module-environment
             mangle-name mangled-mod-name mangle-top-level-name)
   #:patterns ())
 (types
   (define-type ModuleEnvironment
     (module-environment
-      [value-bindings : (Dict Bytes ValueInfo)]
       [variant-bindings : (Dict Bytes VariantInfo)]))
   (define-type VariantInfo
-    (variant-info [tag : Int]))
-  (define-type ValueInfo
-    (value-info [name : TopLevelName])))
-
-(define (module-environment-global-ref [env : ModuleEnvironment] [name : Bytes]) : (Maybe TopLevelName)
-  (case (dict-ref (module-environment-value-bindings env) name)
-    [(just v) (just (value-info-name v))]
-    [(nothing) (nothing)]))
+    (variant-info [tag : Int])))
 
 (define (module-environment-tag-ref [env : ModuleEnvironment] [name : Bytes]) : (Maybe Int)
   (case (dict-ref (module-environment-variant-bindings env) name)
@@ -42,24 +34,10 @@
 
 (define (make-module-environment [imod : Module]) : ModuleEnvironment
   (module-environment
-    (setup-value-environment imod)
     (add-all-imported-patterns
       (add-type-definitions-variant-infos/top
         (make-dict bytes-cmp) imod)
       imod)))
-
-(define (setup-value-environment [imod : Module]) : (Dict Bytes ValueInfo)
-  (add-all-imported-functions
-    (add-type-definitions-functions/top
-      (add-locally-defined-functions
-        (add-locally-defined-closures
-          (add-locally-defined-bytes
-            (make-dict bytes-cmp)
-            imod)
-          imod)
-        imod)
-      imod)
-    imod))
 
 (define (add-all-imported-patterns [env : (Dict Bytes VariantInfo)] [imod : Module])
   : (Dict Bytes VariantInfo)
@@ -72,135 +50,6 @@
           [(pattern-signature _ tag _ _ _ _)
            (variant-info tag)])))
     env))
-
-(define (add-all-imported-functions [env : (Dict Bytes ValueInfo)] [imod : Module])
-  : (Dict Bytes ValueInfo)
-  (match-define (imports _ values _) (module-imports imod))
-  (merge-dicts
-    (dict-value-map values
-      (lambda ([v : ValueSignature])
-        (value-info (value-signature-value v))))
-    env))
-
-(define (add-locally-defined-functions [env : (Dict Bytes ValueInfo)] [imod : Module])
-  : (Dict Bytes ValueInfo)
-  (let ([var-names (map function-definition-name (module-definitions imod))])
-    (let ([top-level-names (get-function-top-level-names (module-name imod) (module-definitions imod))])
-      (add-all-globals env var-names top-level-names))))
-
-(define (get-function-top-level-names [mod-name : ModName] [funs : (List FunctionDefinition)])
-  : (List TopLevelName)
-  (case funs
-    [(empty) (empty)]
-    [(cons (function-definition name _ _ _ _) funs)
-     (cons
-       (top-level-name mod-name name)
-       (get-function-top-level-names mod-name funs))]))
-
-(define (get-top-level-names [mod-name : ModName] [names : (List Bytes)]) : (List TopLevelName)
-  (case names
-    [(empty) (empty)]
-    [(cons name names)
-     (cons
-       (top-level-name mod-name name)
-       (get-top-level-names mod-name names))]))
-
-(define (add-locally-defined-closures [env : (Dict Bytes ValueInfo)] [imod : Module])
-  : (Dict Bytes ValueInfo)
-  (let ([var-names (map closure-constant-name (module-closures imod))])
-    (let ([top-level-names (get-top-level-names (module-name imod) var-names)])
-      (add-all-globals env var-names top-level-names))))
-
-(define (add-locally-defined-bytes [env : (Dict Bytes ValueInfo)] [imod : Module])
-  : (Dict Bytes ValueInfo)
-  (let ([var-names (map bytes-constant-name (module-bytes imod))])
-    (let ([top-level-names (get-top-level-names (module-name imod) var-names)])
-      (add-all-globals env var-names top-level-names))))
-
-
-(define (add-all-globals [env : (Dict Bytes ValueInfo)]
-                         [var-names : (List Bytes)]
-                         [top-level-names : (List TopLevelName)])
-  : (Dict Bytes ValueInfo)
-  (case var-names
-    [(empty) env]
-    [(cons var-name var-names)
-     (case top-level-names
-       [(empty) (panic #"var-names not the same length as mangled-names")]
-       [(cons top-level-name top-level-names)
-        (add-all-globals
-          (dict-add env var-name (value-info top-level-name)) var-names top-level-names)])]))
-
-(define (add-type-definitions-functions/top [env : (Dict Bytes ValueInfo)] [imod : Module])
-  : (Dict Bytes ValueInfo)
-  (let ([mod-name (module-name imod)])
-    (foldl
-      (lambda ([def : TypeDefinition] [env : (Dict Bytes ValueInfo)])
-        (case def
-          [(type-definition name _ _ _ (cons variant (empty)))
-           (case variant
-             [(variant-definition variant-name _ fields)
-              (add-variant-definition-accessors
-                (add-variant-definition-constructor env mod-name name variant)
-                mod-name name variant-name fields)])]
-          [(type-definition name _ _ _ variants)
-           (add-variant-definitions-constructors env mod-name name variants)]))
-      (module-types imod)
-      env)))
-
-
-(define (add-variant-definitions-constructors
-          [env : (Dict Bytes ValueInfo)]
-          [mod-name : ModName]
-          [type-name : Bytes]
-          [defs : (List VariantDefinition)]) : (Dict Bytes ValueInfo)
-  (case defs
-    [(empty) env]
-    [(cons def defs)
-     (add-variant-definitions-constructors
-       (add-variant-definition-constructor env mod-name type-name def)
-       mod-name
-       type-name
-       defs)]))
-
-(define (add-variant-definition-constructor
-          [env : (Dict Bytes ValueInfo)]
-          [mod-name : ModName]
-          [type-name : Bytes]
-          [def : VariantDefinition]) : (Dict Bytes ValueInfo)
-  (case def
-    [(variant-definition name _ _)
-     (dict-add
-       env
-       name
-       (value-info
-         (top-level-name
-           mod-name
-           (bytes-append
-             (varargs list type-name #"_" name #"_closure")))))]))
-
-(define (add-variant-definition-accessors
-          [env : (Dict Bytes ValueInfo)]
-          [mod-name : ModName]
-          [type-name : Bytes]
-          [variant-name : Bytes]
-          [fields : (List VariantField)]) : (Dict Bytes ValueInfo)
-  (case fields
-    [(empty) env]
-    [(cons (variant-field name _) fields)
-     (add-variant-definition-accessors
-       (dict-add
-         env
-         (bytes-append (cons variant-name (cons #"-" (cons name (empty)))))
-         (value-info
-           (top-level-name
-             mod-name
-             (bytes-append
-               (varargs list type-name #"_" variant-name #"_" name #"_closure")))))
-       mod-name
-       type-name
-       variant-name
-       fields)]))
 
 (define (add-type-definitions-variant-infos/top [env : (Dict Bytes VariantInfo)] [imod : Module])
   : (Dict Bytes VariantInfo)

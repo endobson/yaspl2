@@ -32,35 +32,44 @@
     #:types
       [BytesConstant i:BytesConstant]
       ClosureConstant
-      [Export i:Export]
       [Exports i:Exports]
       [FunctionDefinition i:FunctionDefinition]
       [Module i:Module]
+      [PatternExport i:PatternExport]
       [TypeDefinition i:TypeDefinition]
-      [TypedExport i:TypedExport]
+      [TypeExport i:TypeExport]
+      [ValueExport i:ValueExport]
       [VariantDefinition i:VariantDefinition]
       [VariantField i:VariantField]
     #:values
       bytes-constant
       closure-constant
-      [export i:export]
       [exports i:exports]
       [function-definition i:function-definition]
       [module i:module]
+      [pattern-export i:pattern-export]
       [type-definition i:type-definition]
-      [typed-export i:typed-export]
+      [type-export i:type-export]
+      [value-export i:value-export]
       [variant-definition i:variant-definition]
       [variant-field i:variant-field]
   }
   (list)
   (maybe)
   (module-name)
+  (module-signature)
   (numbers)
   (prim)
   (resolved-imports-language) {
     #:types
       Module
+    #:values
+      module-definitions
+      module-imports
+      module-name
+      module-types
     #:patterns
+      imports
       module
   }
   (set)
@@ -79,6 +88,7 @@
       VariantField
     #:values
       fun-pre-type
+      function-definition-name
     #:patterns
       abstraction-pattern
       app-expr
@@ -125,6 +135,7 @@
     (environment
       [type-bindings : (Dict Bytes Type)]
       [local-variables : (Dict Bytes Var)]
+      [global-variables : (Dict Bytes TopLevelName)]
       [module-name : ModName]))
   (define-type State
     (state [funcs : (List i:FunctionDefinition)] [bytes : (List i:BytesConstant)] [counter : Int])))
@@ -136,17 +147,18 @@
     [(right context)
      (case mod
        [(module name imports exports types definitions)
+        (match-define global-env (setup-value-environment mod))
         (let ([type-env (context-types context)])
           (case (convert-function-definitions
                   definitions
-                  (environment type-env (make-dict bytes-cmp) name)
+                  (environment type-env (make-dict bytes-cmp) global-env name)
                   (state (empty) (empty) 0))
             [(state funcs byte-constants _)
              (right
                (i:module
                  name
                  imports
-                 (convert-exports exports type-env (context-values context))
+                 (convert-exports exports type-env (context-values context) global-env)
                  (convert-type-definitions name types type-env)
                  funcs
                  (create-closures definitions (empty))
@@ -155,26 +167,39 @@
 (define (convert-exports
           [exports : Exports]
           [type-env : (Dict Bytes Type)]
-          [value-env : (Dict Bytes Type)]) : i:Exports
+          [value-env : (Dict Bytes Type)]
+          [global-env : (Dict Bytes TopLevelName)]) : i:Exports
   (case exports
     [(exports types values patterns)
      (i:exports
-       (map (lambda ([e : Export]) (convert-typed-export e type-env)) types)
-       (map (lambda ([e : Export]) (convert-typed-export e value-env)) values)
-       (map convert-export patterns))]))
+       (map (lambda ([e : Export]) (convert-type-export e type-env)) types)
+       (map (lambda ([e : Export]) (convert-value-export e value-env global-env)) values)
+       (map convert-pattern-export patterns))]))
 
-(define (convert-typed-export [export : Export] [env : (Dict Bytes Type)]) : i:TypedExport
+(define (convert-type-export [export : Export] [env : (Dict Bytes Type)]) : i:TypeExport
   (case export
     [(export local exported)
      (case (dict-ref env local)
        [(nothing) (panic #"Export not in environment")]
-       [(just t) (i:typed-export local exported t)])]))
+       [(just t) (i:type-export exported t)])]))
 
-
-(define (convert-export [export : Export]) : i:Export
+(define (convert-value-export [export : Export]
+                              [env : (Dict Bytes Type)]
+                              [global-env : (Dict Bytes TopLevelName)]) : i:ValueExport
   (case export
     [(export local exported)
-     (i:export local exported)]))
+     (case (dict-ref env local)
+       [(nothing) (panic #"Export not in environment")]
+       [(just type)
+        (case (dict-ref global-env local)
+          [(nothing) (panic #"Export not in environment")]
+          [(just top-level)
+           (i:value-export exported top-level type)])])]))
+
+(define (convert-pattern-export [export : Export]) : i:PatternExport
+  (case export
+    [(export local exported)
+     (i:pattern-export local exported)]))
 
 (define (create-closures
           [funs : (List FunctionDefinition)]
@@ -256,11 +281,11 @@
 
 (define (environment-add-local [env : Environment] [local : Bytes] [state : State])
   : (Tuple3 Environment Var State)
-  (match-define (environment types locals name) env)
+  (match-define (environment types locals globals name) env)
   (match-define (tuple2 index state) (get-next-index state))
   (match-define v (var local index))
   (tuple3
-    (environment types (dict-set locals local (var local index)) name)
+    (environment types (dict-set locals local (var local index)) globals name)
     v
     state))
 
@@ -274,8 +299,8 @@
         (environment-add-locals env locals state)])]))
 
 (define (environment-add-type-vars [env : Environment] [type-vars : (List Bytes)]) : Environment
-  (match-define (environment types locals name) env)
-  (environment (add-type-vars type-vars types) locals name))
+  (match-define (environment types locals globals name) env)
+  (environment (add-type-vars type-vars types) locals globals name))
 
 (define (pattern-bound-vars [p : Pattern]) : (List Bytes)
   (pattern-bound-vars* p (empty)))
@@ -349,15 +374,19 @@
        [(tuple2 index acc)
         (let ([constant-name
                 (bytes-append (cons #"bytes-" (cons (integer->decimal-bytes index) (empty))))])
-          (tuple2 (i:global-var-expr constant-name)
+          (tuple2 (i:global-var-expr (top-level-name (environment-module-name env) constant-name))
                   (add-bytes-constant constant-name v acc)))])]
     [(boolean-literal v) (tuple2 (i:boolean-literal v) acc)]
     [(var-expr v)
      (case (dict-ref (environment-local-variables env) v)
-       [(nothing)
-        (tuple2 (i:global-var-expr v) acc)]
        [(just v)
-        (tuple2 (i:local-var-expr v) acc)])]
+        (tuple2 (i:local-var-expr v) acc)]
+       [(nothing)
+        (case (dict-ref (environment-global-variables env) v)
+          [(just v)
+           (tuple2 (i:global-var-expr v) acc)]
+          [(nothing)
+           (panic #"Unbound variable")])])]
     [(if-expr c t f)
      (case (convert-expression c env acc)
        [(tuple2 ic acc)
@@ -566,3 +595,119 @@
     [(empty) type-bindings]
     [(cons type-var type-vars)
      (add-type-vars type-vars (dict-add type-bindings type-var (var-type type-var)))]))
+
+
+(define (setup-value-environment [mod : Module]) : (Dict Bytes TopLevelName)
+  (add-all-imported-functions
+    (add-type-definitions-functions/top
+      (add-locally-defined-functions
+        (make-dict bytes-cmp)
+        mod)
+      mod)
+    mod))
+
+(define (add-all-imported-functions [env : (Dict Bytes TopLevelName)] [mod : Module])
+  : (Dict Bytes TopLevelName)
+  (match-define (imports _ values _) (module-imports mod))
+  (merge-dicts
+    (dict-value-map values
+      (lambda ([v : ValueSignature])
+        (value-signature-value v)))
+    env))
+
+(define (add-locally-defined-functions [env : (Dict Bytes TopLevelName)] [mod : Module])
+  : (Dict Bytes TopLevelName)
+  (let ([var-names (map function-definition-name (module-definitions mod))])
+    (let ([top-level-names (get-function-top-level-names (module-name mod) (module-definitions mod))])
+      (add-all-globals env var-names top-level-names))))
+
+(define (get-function-top-level-names [mod-name : ModName] [funs : (List FunctionDefinition)])
+  : (List TopLevelName)
+  (case funs
+    [(empty) (empty)]
+    [(cons (function-definition name _ _ _ _) funs)
+     (cons
+       (top-level-name mod-name name)
+       (get-function-top-level-names mod-name funs))]))
+
+(define (add-all-globals [env : (Dict Bytes TopLevelName)]
+                         [var-names : (List Bytes)]
+                         [top-level-names : (List TopLevelName)])
+  : (Dict Bytes TopLevelName)
+  (case var-names
+    [(empty) env]
+    [(cons var-name var-names)
+     (case top-level-names
+       [(empty) (panic #"var-names not the same length as mangled-names")]
+       [(cons top-level-name top-level-names)
+        (add-all-globals
+          (dict-add env var-name top-level-name) var-names top-level-names)])]))
+
+(define (add-type-definitions-functions/top [env : (Dict Bytes TopLevelName)] [mod : Module])
+  : (Dict Bytes TopLevelName)
+  (let ([mod-name (module-name mod)])
+    (foldl
+      (lambda ([def : TypeDefinition] [env : (Dict Bytes TopLevelName)])
+        (case def
+          [(type-definition name _ (cons variant (empty)))
+           (case variant
+             [(variant-definition variant-name fields)
+              (add-variant-definition-accessors
+                (add-variant-definition-constructor env mod-name name variant)
+                mod-name name variant-name fields)])]
+          [(type-definition name _ variants)
+           (add-variant-definitions-constructors env mod-name name variants)]))
+      (module-types mod)
+      env)))
+
+
+(define (add-variant-definitions-constructors
+          [env : (Dict Bytes TopLevelName)]
+          [mod-name : ModName]
+          [type-name : Bytes]
+          [defs : (List VariantDefinition)]) : (Dict Bytes TopLevelName)
+  (case defs
+    [(empty) env]
+    [(cons def defs)
+     (add-variant-definitions-constructors
+       (add-variant-definition-constructor env mod-name type-name def)
+       mod-name
+       type-name
+       defs)]))
+
+(define (add-variant-definition-constructor
+          [env : (Dict Bytes TopLevelName)]
+          [mod-name : ModName]
+          [type-name : Bytes]
+          [def : VariantDefinition]) : (Dict Bytes TopLevelName)
+  (case def
+    [(variant-definition name _)
+     (dict-add
+       env
+       name
+       (top-level-name
+         mod-name
+         (bytes-append
+           (varargs list type-name #"_" name #"_closure"))))]))
+
+(define (add-variant-definition-accessors
+          [env : (Dict Bytes TopLevelName)]
+          [mod-name : ModName]
+          [type-name : Bytes]
+          [variant-name : Bytes]
+          [fields : (List VariantField)]) : (Dict Bytes TopLevelName)
+  (case fields
+    [(empty) env]
+    [(cons (variant-field name _) fields)
+     (add-variant-definition-accessors
+       (dict-add
+         env
+         (bytes-append (cons variant-name (cons #"-" (cons name (empty)))))
+         (top-level-name
+           mod-name
+           (bytes-append
+             (varargs list type-name #"_" variant-name #"_" name #"_closure"))))
+       mod-name
+       type-name
+       variant-name
+       fields)]))
