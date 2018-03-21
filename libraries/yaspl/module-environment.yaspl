@@ -27,11 +27,11 @@
   (define-type VariantInfo
     (variant-info [tag : Int]))
   (define-type ValueInfo
-    (value-info [symbol : Bytes])))
+    (value-info [name : TopLevelName])))
 
-(define (module-environment-global-ref [env : ModuleEnvironment] [name : Bytes]) : (Maybe Bytes)
+(define (module-environment-global-ref [env : ModuleEnvironment] [name : Bytes]) : (Maybe TopLevelName)
   (case (dict-ref (module-environment-value-bindings env) name)
-    [(just v) (just (value-info-symbol v))]
+    [(just v) (just (value-info-name v))]
     [(nothing) (nothing)]))
 
 (define (module-environment-tag-ref [env : ModuleEnvironment] [name : Bytes]) : (Maybe Int)
@@ -79,56 +79,57 @@
   (merge-dicts
     (dict-value-map values
       (lambda ([v : ValueSignature])
-        (value-info (value-signature-symbol v))))
+        (value-info (value-signature-value v))))
     env))
 
 (define (add-locally-defined-functions [env : (Dict Bytes ValueInfo)] [imod : Module])
   : (Dict Bytes ValueInfo)
   (let ([var-names (map function-definition-name (module-definitions imod))])
-    (let ([mangled-names (get-mangled-names (module-name imod) (module-definitions imod))])
-      (add-all-globals env var-names mangled-names))))
+    (let ([top-level-names (get-function-top-level-names (module-name imod) (module-definitions imod))])
+      (add-all-globals env var-names top-level-names))))
 
-(define (get-mangled-names [mod-name : ModName] [funs : (List FunctionDefinition)]) : (List Bytes)
+(define (get-function-top-level-names [mod-name : ModName] [funs : (List FunctionDefinition)])
+  : (List TopLevelName)
   (case funs
     [(empty) (empty)]
     [(cons (function-definition name _ _ _ _) funs)
      (cons
-       (mangle-name (bytes-append (varargs list (mangled-mod-name mod-name) #"_" name)))
-       (get-mangled-names mod-name funs))]))
+       (top-level-name mod-name name)
+       (get-function-top-level-names mod-name funs))]))
 
-(define (i-get-mangled-names [mod-name : ModName] [names : (List Bytes)]) : (List Bytes)
+(define (get-top-level-names [mod-name : ModName] [names : (List Bytes)]) : (List TopLevelName)
   (case names
     [(empty) (empty)]
     [(cons name names)
      (cons
-       (mangle-name (bytes-append (varargs list (mangled-mod-name mod-name) #"_" name)))
-       (i-get-mangled-names mod-name names))]))
+       (top-level-name mod-name name)
+       (get-top-level-names mod-name names))]))
 
 (define (add-locally-defined-closures [env : (Dict Bytes ValueInfo)] [imod : Module])
   : (Dict Bytes ValueInfo)
   (let ([var-names (map closure-constant-name (module-closures imod))])
-    (let ([mangled-names (i-get-mangled-names (module-name imod) var-names)])
-      (add-all-globals env var-names mangled-names))))
+    (let ([top-level-names (get-top-level-names (module-name imod) var-names)])
+      (add-all-globals env var-names top-level-names))))
 
 (define (add-locally-defined-bytes [env : (Dict Bytes ValueInfo)] [imod : Module])
   : (Dict Bytes ValueInfo)
   (let ([var-names (map bytes-constant-name (module-bytes imod))])
-    (let ([mangled-names (i-get-mangled-names (module-name imod) var-names)])
-      (add-all-globals env var-names mangled-names))))
+    (let ([top-level-names (get-top-level-names (module-name imod) var-names)])
+      (add-all-globals env var-names top-level-names))))
 
 
 (define (add-all-globals [env : (Dict Bytes ValueInfo)]
                          [var-names : (List Bytes)]
-                         [mangled-names : (List Bytes)])
+                         [top-level-names : (List TopLevelName)])
   : (Dict Bytes ValueInfo)
   (case var-names
     [(empty) env]
     [(cons var-name var-names)
-     (case mangled-names
+     (case top-level-names
        [(empty) (panic #"var-names not the same length as mangled-names")]
-       [(cons mangled-name mangled-names)
+       [(cons top-level-name top-level-names)
         (add-all-globals
-          (dict-add env var-name (value-info mangled-name)) var-names mangled-names)])]))
+          (dict-add env var-name (value-info top-level-name)) var-names top-level-names)])]))
 
 (define (add-type-definitions-functions/top [env : (Dict Bytes ValueInfo)] [imod : Module])
   : (Dict Bytes ValueInfo)
@@ -173,9 +174,10 @@
        env
        name
        (value-info
-         (mangle-name
+         (top-level-name
+           mod-name
            (bytes-append
-             (varargs list (mangled-mod-name mod-name) #"_" type-name #"_" name #"_closure")))))]))
+             (varargs list type-name #"_" name #"_closure")))))]))
 
 (define (add-variant-definition-accessors
           [env : (Dict Bytes ValueInfo)]
@@ -191,10 +193,10 @@
          env
          (bytes-append (cons variant-name (cons #"-" (cons name (empty)))))
          (value-info
-           (mangle-name
+           (top-level-name
+             mod-name
              (bytes-append
-               (varargs list (mangled-mod-name mod-name) #"_" type-name #"_" variant-name #"_" name
-                        #"_closure")))))
+               (varargs list type-name #"_" variant-name #"_" name #"_closure")))))
        mod-name
        type-name
        variant-name
