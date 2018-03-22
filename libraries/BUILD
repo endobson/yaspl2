@@ -616,6 +616,7 @@ yaspl_test(
         ":module-signature",
         ":resolved-imports-language",
         ":source-language",
+        ":top-level-name",
         ":types",
         ":yunit",
         "//libraries/data:bytes",

@@ -21,7 +21,7 @@
 
 (define (serialize-module-signature [sig : ModuleSignature]) : Bytes
   (case sig
-    [(module-signature name values patterns type-bindings)
+    [(module-signature name values patterns type-bindings top-level-sigs)
      (print-sexp
        (node
          (varargs list
@@ -54,7 +54,16 @@
            (node (dict-map type-bindings
                            (lambda ([name : Bytes] [type : Type])
                              (node (varargs list (bytes-sexp name)
-                                                 (type->sexp type)))))))))]))
+                                                 (type->sexp type))))))
+           (node (dict-map top-level-sigs
+                           (lambda ([name : TopLevelName] [sig : TopLevelSignature])
+                             (case sig
+                               [(top-level-signature trivial-closure)
+                                (node (varargs list
+                                        (top-level-name->sexp name)
+                                        (case trivial-closure
+                                          [(nothing) (boolean-sexp #f)]
+                                          [(just name) (top-level-name->sexp name)])))])))))))]))
 
 (define (sexp->trivial-closure [s : Sexp]) : (Maybe TopLevelName)
   (case s
@@ -143,6 +152,21 @@
     [_ (panic #"Not a valid pattern-exports")]))
 
 
+(define (top-level-sigs->dict
+          [top-level-sigs : (List Sexp)]
+          [acc : (Dict TopLevelName TopLevelSignature)])
+  : (Dict TopLevelName TopLevelSignature)
+  (case top-level-sigs
+    [(empty) acc]
+    [(cons (node (cons name (cons trivial-closure (empty)))) top-level-sigs)
+     (case (sexp->top-level-name name)
+       [(just name)
+        (top-level-sigs->dict
+          top-level-sigs
+          (dict-add acc name (top-level-signature (sexp->trivial-closure trivial-closure))))]
+       [(nothing) (panic #"Not a valid top-level-sigs")])]
+    [_ (panic #"Not a valid top-level-sigs")]))
+
 (define (deserialize-module-signature [bytes : Bytes]) : (Either Bytes ModuleSignature)
   (case (parse-single-sexp bytes)
     [(left v) (left v)]
@@ -150,7 +174,8 @@
                         (cons (node value-exports)
                               (cons (node pattern-exports)
                                     (cons (node type-bindings)
-                                          (empty)))))))
+                                          (cons (node top-level-sigs)
+                                                (empty))))))))
      (case (sexp->mod-name name)
        [(nothing) (left #"Bad mod-name")]
        [(just name)
@@ -159,6 +184,7 @@
             name
             (value-exports->dict value-exports (make-dict bytes-cmp))
             (pattern-exports->dict pattern-exports (make-dict bytes-cmp))
-            (type-exports->dict type-bindings (make-dict bytes-cmp))))])]
+            (type-exports->dict type-bindings (make-dict bytes-cmp))
+            (top-level-sigs->dict top-level-sigs (make-dict top-level-name-cmp))))])]
     [(right _)
      (left #"Unexpected sexp shape")]))
