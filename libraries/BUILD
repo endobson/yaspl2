@@ -726,16 +726,13 @@ yaspl_bootstrap_library(
     srcs = ["intermediate-to-module-signature.yaspl"],
     deps = [
         ":intermediate-language",
-        ":module-name",
         ":module-signature",
         ":top-level-name",
         ":types",
         "//libraries/data:bytes",
         "//libraries/data:dict",
-        "//libraries/data:join-list",
         "//libraries/data:list",
         "//libraries/data:maybe",
-        "//libraries/data:tuples",
     ],
 )
 

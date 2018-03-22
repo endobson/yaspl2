@@ -161,7 +161,7 @@
                  (convert-exports exports type-env (context-values context) global-env)
                  (convert-type-definitions name types type-env)
                  funcs
-                 (create-closures definitions (empty))
+                 (create-closures definitions types (empty))
                  byte-constants))]))])]))
 
 (define (convert-exports
@@ -203,13 +203,87 @@
 
 (define (create-closures
           [funs : (List FunctionDefinition)]
+          [types : (List TypeDefinition)]
           [acc : (List ClosureConstant)]) : (List ClosureConstant)
-  (case funs
+  (create-closures/functions funs
+    (create-closures/types types acc)))
+
+(define (create-closures/functions
+          [funs : (List FunctionDefinition)]
+          [acc : (List ClosureConstant)]) : (List ClosureConstant)
+  (foldl
+    (lambda ([f : FunctionDefinition] [acc : (List ClosureConstant)])
+      (case f
+        [(function-definition name _ args _ body)
+         (cons (closure-constant name (bytes-append (varargs list name #"-code"))) acc)]))
+    funs
+    acc))
+
+
+(define (create-closures/types
+          [types : (List TypeDefinition)]
+          [acc : (List ClosureConstant)]) : (List ClosureConstant)
+  (foldl
+    (lambda ([def : TypeDefinition] [acc : (List ClosureConstant)])
+      (case def
+        [(type-definition name _ (cons variant (empty)))
+         (case variant
+           [(variant-definition variant-name fields)
+            (create-closures/variant-definition-accessors
+              (create-closures/variant-definition-constructor acc name variant)
+              name variant-name fields)])]
+        [(type-definition name _ variants)
+         (create-closures/variant-definitions-constructors acc name variants)]))
+    types
+    acc))
+
+
+(define (create-closures/variant-definitions-constructors
+          [acc : (List ClosureConstant)]
+          [type-name : Bytes]
+          [defs : (List VariantDefinition)]) : (List ClosureConstant)
+  (case defs
     [(empty) acc]
-    [(cons (function-definition name _ args _ body) funs)
-     (create-closures
-       funs
-       (cons (closure-constant name (bytes-append (varargs list name #"-code"))) acc))]))
+    [(cons def defs)
+     (create-closures/variant-definitions-constructors
+       (create-closures/variant-definition-constructor acc type-name def)
+       type-name
+       defs)]))
+
+(define (create-closures/variant-definition-constructor
+          [acc : (List ClosureConstant)]
+          [type-name : Bytes]
+          [def : VariantDefinition]) : (List ClosureConstant)
+  (case def
+    [(variant-definition name _)
+     (cons
+       (closure-constant
+         (bytes-append
+           (varargs list type-name #"_" name #"_closure"))
+         (bytes-append
+           (varargs list type-name #"_" name)))
+       acc)]))
+
+(define (create-closures/variant-definition-accessors
+          [acc : (List ClosureConstant)]
+          [type-name : Bytes]
+          [variant-name : Bytes]
+          [fields : (List VariantField)]) : (List ClosureConstant)
+  (case fields
+    [(empty) acc]
+    [(cons (variant-field name _) fields)
+     (create-closures/variant-definition-accessors
+       (cons
+         (closure-constant
+           (bytes-append
+             (varargs list type-name #"_" variant-name #"_" name #"_closure"))
+           (bytes-append
+             (varargs list type-name #"_" variant-name #"_" name)))
+         acc)
+       type-name
+       variant-name
+       fields)]))
+
 
 (define (convert-type-definitions
           [mod-name : ModName]

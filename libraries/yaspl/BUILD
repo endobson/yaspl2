@@ -56,16 +56,12 @@ yaspl_bootstrap_library(
     deps = [
         "//libraries:intermediate-expression",
         "//libraries:intermediate-language",
-        "//libraries:module-name",
         "//libraries:module-signature",
         "//libraries:resolved-imports-language",
         "//libraries:top-level-name",
-        "//libraries/data:bytes",
         "//libraries/data:dict",
-        "//libraries/data:join-list",
         "//libraries/data:list",
         "//libraries/data:maybe",
-        "//libraries/data:tuples",
     ],
 )
 

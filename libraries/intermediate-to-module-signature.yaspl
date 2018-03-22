@@ -3,14 +3,11 @@
   (bytes)
   (dict)
   (intermediate-language)
-  (join-list)
   (list)
   (maybe)
-  (module-name)
   (module-signature)
   (prim)
   (top-level-name)
-  (tuples)
   (types)
 }
 (export
@@ -82,9 +79,7 @@
                                              type-signature)))]))
 
 (define (make-static-info [mod : Module]) : (Dict TopLevelName TopLevelSignature)
-  (merge-dicts
-    (make-type-definition-static-info mod)
-    (make-closure-static-info mod)))
+  (make-closure-static-info mod))
 
 
 (define (make-closure-static-info [mod : Module]) : (Dict TopLevelName TopLevelSignature)
@@ -99,93 +94,3 @@
            (top-level-signature (just (top-level-name mod-name fun-name))))]))
     (module-closures mod)
     ((lambda () : (Dict TopLevelName TopLevelSignature) (make-dict top-level-name-cmp)))))
-
-
-(define (make-type-definition-static-info [mod : Module]) : (Dict TopLevelName TopLevelSignature)
-  (match-define mod-name (module-name mod))
-  (dict-add-all
-    (make-dict top-level-name-cmp)
-    (jl->list
-      (concat-jl
-        (map
-          (lambda ([type-def : TypeDefinition])
-            (case type-def
-              [(type-definition type-name _ _ _ (cons variant (empty)))
-               (cons-jl
-                 (compile-variant-definition/constructor mod-name type-name variant)
-                 (compile-variant-definition/accessors mod-name type-name variant))]
-              [(type-definition type-name _ _ _ variants)
-               (list->jl
-                 (map
-                   (lambda ([variant : VariantDefinition])
-                     (compile-variant-definition/constructor mod-name type-name variant))
-                   variants))]))
-          (module-types mod))))))
-
-(define (compile-variant-definition/constructor
-          [mod-name : ModName]
-          [type-name : Bytes]
-          [def : VariantDefinition]) : (Tuple2 TopLevelName TopLevelSignature)
-  (match-define (variant-definition name variant-tag fields) def)
-  (match-define fun-name (bytes-append (varargs list type-name #"_" name)))
-  (match-define top-fun-name (top-level-name mod-name fun-name))
-  (match-define closure-name (bytes-append (varargs list type-name #"_" name #"_closure")))
-  (match-define top-closure-name (top-level-name mod-name closure-name))
-  (tuple2
-    top-closure-name
-    (top-level-signature (just top-fun-name))))
-
-
-(define (compile-variant-definition/accessors
-          [mod-name : ModName]
-          [type-name : Bytes]
-          [variant : VariantDefinition])
-  : (JoinList (Tuple2 TopLevelName TopLevelSignature))
-  (case variant
-    [(variant-definition variant-name variant-tag fields)
-     (compile-variant-definition/accessors*
-       mod-name
-       type-name
-       variant-name
-       0
-       fields)]))
-
-(define (compile-variant-definition/accessors*
-          [mod-name : ModName]
-          [type-name : Bytes]
-          [variant-name : Bytes]
-          [field-index : Int]
-          [fields : (List VariantField)])
-  : (JoinList (Tuple2 TopLevelName TopLevelSignature))
-  (case fields
-    [(empty) (empty-jl)]
-    [(cons (variant-field field-name _) fields)
-     (cons-jl
-       (compile-variant-definition-accessor
-         mod-name
-         type-name
-         variant-name
-         field-name
-         field-index)
-       (compile-variant-definition/accessors*
-         mod-name
-         type-name
-         variant-name
-         (+ field-index 1)
-         fields))]))
-
-(define (compile-variant-definition-accessor
-          [mod-name : ModName]
-          [type-name : Bytes]
-          [variant-name : Bytes]
-          [field-name : Bytes]
-          [field-index : Int]) : (Tuple2 TopLevelName TopLevelSignature)
-  (match-define fun-name
-    (bytes-append (varargs list type-name #"_" variant-name #"_" field-name)))
-  (match-define closure-name
-    (bytes-append (varargs list type-name #"_" variant-name #"_" field-name #"_closure")))
-  (match-define top-fun-name (top-level-name mod-name fun-name))
-  (match-define top-closure-name (top-level-name mod-name closure-name))
-  (tuple2
-    top-closure-name
-    (top-level-signature (just top-fun-name))))
