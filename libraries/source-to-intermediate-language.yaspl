@@ -139,8 +139,15 @@
   (define-type State
     (state [funcs : (List i:FunctionDefinition)] [bytes : (List i:BytesConstant)] [counter : Int]))
   (define-type DatatypeFunction
-    (variant-constructor [type-name : Bytes] [variant-name : Bytes])
-    (variant-accessor [type-name : Bytes] [variant-name : Bytes] [field-name : Bytes])))
+    (variant-constructor
+      [type-name : Bytes]
+      [variant-name : Bytes]
+      [tag : Int])
+    (variant-accessor
+      [type-name : Bytes]
+      [variant-name : Bytes]
+      [field-name : Bytes]
+      [field-offset : Int])))
 
 (define (source->intermediate [mod : Module])
   : (Either Bytes i:Module)
@@ -231,13 +238,13 @@
     (map
       (lambda ([f : DatatypeFunction])
         (case f
-          [(variant-constructor type-name variant-name)
+          [(variant-constructor type-name variant-name _)
            (closure-constant
              (bytes-append
                (varargs list type-name #"_" variant-name #"_closure"))
              (bytes-append
                (varargs list type-name #"_" variant-name)))]
-          [(variant-accessor type-name variant-name field-name)
+          [(variant-accessor type-name variant-name field-name _)
            (closure-constant
              (bytes-append
                (varargs list type-name #"_" variant-name #"_" field-name #"_closure"))
@@ -689,7 +696,7 @@
   (foldl
     (lambda ([f : DatatypeFunction] [env : (Dict Bytes TopLevelName)])
       (case f
-        [(variant-constructor type-name variant-name)
+        [(variant-constructor type-name variant-name _)
          (dict-add
            env
            variant-name
@@ -697,7 +704,7 @@
              mod-name
              (bytes-append
                (varargs list type-name #"_" variant-name #"_closure"))))]
-        [(variant-accessor type-name variant-name field-name)
+        [(variant-accessor type-name variant-name field-name _)
          (dict-add
            env
            (bytes-append (varargs list variant-name #"-" field-name))
@@ -719,10 +726,10 @@
          (case variant
            [(variant-definition variant-name fields)
             (variant-definition->accessors
-              (variant-definition->constructor acc env name variant)
-              env name variant-name fields)])]
+              (variant-definition->constructor acc env 0 name variant)
+              env 0 name variant-name fields)])]
         [(type-definition name _ variants)
-         (variant-definitions->constructors acc env name variants)]))
+         (variant-definitions->constructors acc env 0 name variants)]))
     defs
     ((lambda () : (List DatatypeFunction) (empty)))))
 
@@ -730,31 +737,35 @@
 (define (variant-definitions->constructors
           [acc : (List DatatypeFunction)]
           [env : (Dict Bytes Type)]
+          [tag : Int]
           [type-name : Bytes]
           [defs : (List VariantDefinition)]) : (List DatatypeFunction)
   (case defs
     [(empty) acc]
     [(cons def defs)
      (variant-definitions->constructors
-       (variant-definition->constructor acc env type-name def)
+       (variant-definition->constructor acc env tag type-name def)
        env
+       (+ 1 tag)
        type-name
        defs)]))
 
 (define (variant-definition->constructor
           [acc : (List DatatypeFunction)]
           [env : (Dict Bytes Type)]
+          [tag : Int]
           [type-name : Bytes]
           [def : VariantDefinition]) : (List DatatypeFunction)
   (case def
     [(variant-definition name fields)
      (cons
-       (variant-constructor type-name name)
+       (variant-constructor type-name name tag)
        acc)]))
 
 (define (variant-definition->accessors
           [acc : (List DatatypeFunction)]
           [env : (Dict Bytes Type)]
+          [offset : Int]
           [type-name : Bytes]
           [variant-name : Bytes]
           [fields : (List VariantField)]) : (List DatatypeFunction)
@@ -763,9 +774,10 @@
     [(cons (variant-field name type) fields)
      (variant-definition->accessors
        (cons
-         (variant-accessor type-name variant-name name)
+         (variant-accessor type-name variant-name name offset)
          acc)
        env
+       (+ offset 1)
        type-name
        variant-name
        fields)]))
