@@ -67,7 +67,6 @@
       module-definitions
       module-imports
       module-name
-      module-types
     #:patterns
       imports
       module
@@ -138,7 +137,10 @@
       [global-variables : (Dict Bytes TopLevelName)]
       [module-name : ModName]))
   (define-type State
-    (state [funcs : (List i:FunctionDefinition)] [bytes : (List i:BytesConstant)] [counter : Int])))
+    (state [funcs : (List i:FunctionDefinition)] [bytes : (List i:BytesConstant)] [counter : Int]))
+  (define-type DatatypeFunction
+    (variant-constructor [type-name : Bytes] [variant-name : Bytes])
+    (variant-accessor [type-name : Bytes] [variant-name : Bytes] [field-name : Bytes])))
 
 (define (source->intermediate [mod : Module])
   : (Either Bytes i:Module)
@@ -147,22 +149,24 @@
     [(right context)
      (case mod
        [(module name imports exports types definitions)
-        (match-define global-env (setup-value-environment mod))
-        (let ([type-env (context-types context)])
-          (case (convert-function-definitions
-                  definitions
-                  (environment type-env (make-dict bytes-cmp) global-env name)
-                  (state (empty) (empty) 0))
-            [(state funcs byte-constants _)
-             (right
-               (i:module
-                 name
-                 imports
-                 (convert-exports exports type-env (context-values context) global-env)
-                 (convert-type-definitions name types type-env)
-                 funcs
-                 (create-closures definitions types (empty))
-                 byte-constants))]))])]))
+        (match-define type-env (context-types context))
+        (match-define type-functions
+          (type-definitions->functions type-env types))
+        (match-define global-env (setup-value-environment mod type-functions))
+        (case (convert-function-definitions
+                definitions
+                (environment type-env (make-dict bytes-cmp) global-env name)
+                (state (empty) (empty) 0))
+          [(state funcs byte-constants _)
+           (right
+             (i:module
+               name
+               imports
+               (convert-exports exports type-env (context-values context) global-env)
+               (convert-type-definitions name types type-env)
+               funcs
+               (create-closures definitions type-functions (empty))
+               byte-constants))])])]))
 
 (define (convert-exports
           [exports : Exports]
@@ -203,7 +207,7 @@
 
 (define (create-closures
           [funs : (List FunctionDefinition)]
-          [types : (List TypeDefinition)]
+          [types : (List DatatypeFunction)]
           [acc : (List ClosureConstant)]) : (List ClosureConstant)
   (create-closures/functions funs
     (create-closures/types types acc)))
@@ -221,69 +225,26 @@
 
 
 (define (create-closures/types
-          [types : (List TypeDefinition)]
+          [types : (List DatatypeFunction)]
           [acc : (List ClosureConstant)]) : (List ClosureConstant)
-  (foldl
-    (lambda ([def : TypeDefinition] [acc : (List ClosureConstant)])
-      (case def
-        [(type-definition name _ (cons variant (empty)))
-         (case variant
-           [(variant-definition variant-name fields)
-            (create-closures/variant-definition-accessors
-              (create-closures/variant-definition-constructor acc name variant)
-              name variant-name fields)])]
-        [(type-definition name _ variants)
-         (create-closures/variant-definitions-constructors acc name variants)]))
-    types
+  (append
+    (map
+      (lambda ([f : DatatypeFunction])
+        (case f
+          [(variant-constructor type-name variant-name)
+           (closure-constant
+             (bytes-append
+               (varargs list type-name #"_" variant-name #"_closure"))
+             (bytes-append
+               (varargs list type-name #"_" variant-name)))]
+          [(variant-accessor type-name variant-name field-name)
+           (closure-constant
+             (bytes-append
+               (varargs list type-name #"_" variant-name #"_" field-name #"_closure"))
+             (bytes-append
+               (varargs list type-name #"_" variant-name #"_" field-name)))]))
+      types)
     acc))
-
-
-(define (create-closures/variant-definitions-constructors
-          [acc : (List ClosureConstant)]
-          [type-name : Bytes]
-          [defs : (List VariantDefinition)]) : (List ClosureConstant)
-  (case defs
-    [(empty) acc]
-    [(cons def defs)
-     (create-closures/variant-definitions-constructors
-       (create-closures/variant-definition-constructor acc type-name def)
-       type-name
-       defs)]))
-
-(define (create-closures/variant-definition-constructor
-          [acc : (List ClosureConstant)]
-          [type-name : Bytes]
-          [def : VariantDefinition]) : (List ClosureConstant)
-  (case def
-    [(variant-definition name _)
-     (cons
-       (closure-constant
-         (bytes-append
-           (varargs list type-name #"_" name #"_closure"))
-         (bytes-append
-           (varargs list type-name #"_" name)))
-       acc)]))
-
-(define (create-closures/variant-definition-accessors
-          [acc : (List ClosureConstant)]
-          [type-name : Bytes]
-          [variant-name : Bytes]
-          [fields : (List VariantField)]) : (List ClosureConstant)
-  (case fields
-    [(empty) acc]
-    [(cons (variant-field name _) fields)
-     (create-closures/variant-definition-accessors
-       (cons
-         (closure-constant
-           (bytes-append
-             (varargs list type-name #"_" variant-name #"_" name #"_closure"))
-           (bytes-append
-             (varargs list type-name #"_" variant-name #"_" name)))
-         acc)
-       type-name
-       variant-name
-       fields)]))
-
 
 (define (convert-type-definitions
           [mod-name : ModName]
@@ -671,13 +632,16 @@
      (add-type-vars type-vars (dict-add type-bindings type-var (var-type type-var)))]))
 
 
-(define (setup-value-environment [mod : Module]) : (Dict Bytes TopLevelName)
+(define (setup-value-environment [mod : Module]
+                                 [datatype-funs : (List DatatypeFunction)])
+  : (Dict Bytes TopLevelName)
   (add-all-imported-functions
-    (add-type-definitions-functions/top
+    (add-datatype-functions
       (add-locally-defined-functions
         (make-dict bytes-cmp)
         mod)
-      mod)
+      (module-name mod)
+      datatype-funs)
     mod))
 
 (define (add-all-imported-functions [env : (Dict Bytes TopLevelName)] [mod : Module])
@@ -717,71 +681,91 @@
         (add-all-globals
           (dict-add env var-name top-level-name) var-names top-level-names)])]))
 
-(define (add-type-definitions-functions/top [env : (Dict Bytes TopLevelName)] [mod : Module])
-  : (Dict Bytes TopLevelName)
-  (let ([mod-name (module-name mod)])
-    (foldl
-      (lambda ([def : TypeDefinition] [env : (Dict Bytes TopLevelName)])
-        (case def
-          [(type-definition name _ (cons variant (empty)))
-           (case variant
-             [(variant-definition variant-name fields)
-              (add-variant-definition-accessors
-                (add-variant-definition-constructor env mod-name name variant)
-                mod-name name variant-name fields)])]
-          [(type-definition name _ variants)
-           (add-variant-definitions-constructors env mod-name name variants)]))
-      (module-types mod)
-      env)))
-
-
-(define (add-variant-definitions-constructors
+(define (add-datatype-functions
           [env : (Dict Bytes TopLevelName)]
           [mod-name : ModName]
+          [funs : (List DatatypeFunction)])
+  : (Dict Bytes TopLevelName)
+  (foldl
+    (lambda ([f : DatatypeFunction] [env : (Dict Bytes TopLevelName)])
+      (case f
+        [(variant-constructor type-name variant-name)
+         (dict-add
+           env
+           variant-name
+           (top-level-name
+             mod-name
+             (bytes-append
+               (varargs list type-name #"_" variant-name #"_closure"))))]
+        [(variant-accessor type-name variant-name field-name)
+         (dict-add
+           env
+           (bytes-append (varargs list variant-name #"-" field-name))
+           (top-level-name
+             mod-name
+             (bytes-append
+               (varargs list type-name #"_" variant-name #"_" field-name #"_closure"))))]))
+    funs
+    env))
+
+(define (type-definitions->functions
+          [env : (Dict Bytes Type)]
+          [defs : (List TypeDefinition)])
+  : (List DatatypeFunction)
+  (foldl
+    (lambda ([def : TypeDefinition] [acc : (List DatatypeFunction)])
+      (case def
+        [(type-definition name _ (cons variant (empty)))
+         (case variant
+           [(variant-definition variant-name fields)
+            (variant-definition->accessors
+              (variant-definition->constructor acc env name variant)
+              env name variant-name fields)])]
+        [(type-definition name _ variants)
+         (variant-definitions->constructors acc env name variants)]))
+    defs
+    ((lambda () : (List DatatypeFunction) (empty)))))
+
+
+(define (variant-definitions->constructors
+          [acc : (List DatatypeFunction)]
+          [env : (Dict Bytes Type)]
           [type-name : Bytes]
-          [defs : (List VariantDefinition)]) : (Dict Bytes TopLevelName)
+          [defs : (List VariantDefinition)]) : (List DatatypeFunction)
   (case defs
-    [(empty) env]
+    [(empty) acc]
     [(cons def defs)
-     (add-variant-definitions-constructors
-       (add-variant-definition-constructor env mod-name type-name def)
-       mod-name
+     (variant-definitions->constructors
+       (variant-definition->constructor acc env type-name def)
+       env
        type-name
        defs)]))
 
-(define (add-variant-definition-constructor
-          [env : (Dict Bytes TopLevelName)]
-          [mod-name : ModName]
+(define (variant-definition->constructor
+          [acc : (List DatatypeFunction)]
+          [env : (Dict Bytes Type)]
           [type-name : Bytes]
-          [def : VariantDefinition]) : (Dict Bytes TopLevelName)
+          [def : VariantDefinition]) : (List DatatypeFunction)
   (case def
-    [(variant-definition name _)
-     (dict-add
-       env
-       name
-       (top-level-name
-         mod-name
-         (bytes-append
-           (varargs list type-name #"_" name #"_closure"))))]))
+    [(variant-definition name fields)
+     (cons
+       (variant-constructor type-name name)
+       acc)]))
 
-(define (add-variant-definition-accessors
-          [env : (Dict Bytes TopLevelName)]
-          [mod-name : ModName]
+(define (variant-definition->accessors
+          [acc : (List DatatypeFunction)]
+          [env : (Dict Bytes Type)]
           [type-name : Bytes]
           [variant-name : Bytes]
-          [fields : (List VariantField)]) : (Dict Bytes TopLevelName)
+          [fields : (List VariantField)]) : (List DatatypeFunction)
   (case fields
-    [(empty) env]
-    [(cons (variant-field name _) fields)
-     (add-variant-definition-accessors
-       (dict-add
-         env
-         (bytes-append (cons variant-name (cons #"-" (cons name (empty)))))
-         (top-level-name
-           mod-name
-           (bytes-append
-             (varargs list type-name #"_" variant-name #"_" name #"_closure"))))
-       mod-name
+    [(empty) acc]
+    [(cons (variant-field name type) fields)
+     (variant-definition->accessors
+       (cons
+         (variant-accessor type-name variant-name name)
+         acc)
+       env
        type-name
        variant-name
        fields)]))
