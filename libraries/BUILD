@@ -377,10 +377,7 @@ yaspl_bootstrap_library(
         ":sexp-parser",
         ":source-language",
         ":source-to-intermediate-language",
-        ":top-level-name",
         ":validator",
-        "//libraries/data:bytes",
-        "//libraries/data:dict",
         "//libraries/data:either",
         "//libraries/data:indexed-set",
         "//libraries/data:list",
@@ -739,7 +736,6 @@ yaspl_bootstrap_library(
         "//libraries/data:list",
         "//libraries/data:maybe",
         "//libraries/data:tuples",
-        "//libraries/yaspl:module-environment",
     ],
 )
 
