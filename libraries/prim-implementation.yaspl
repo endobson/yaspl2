@@ -37,13 +37,6 @@
   (prim-op-sig binding name t (nothing)))
 
 
-(define (value-signature* [t : Type] [base-name : Bytes] [inline : (Maybe InlineableFunction)])
-  : ValueSignature
-  (match-define closure-name
-    (prim-name (bytes-append (varargs list base-name #"_closure"))))
-  (value-signature t closure-name inline))
-
-
 (define (inline-logical-op [op : LogicalBinOp]) : (Maybe InlineableFunction)
   (just (hoas-linear-inlineable-function
           (lambda ([args : (List Expression)])
@@ -212,16 +205,14 @@
     (prim-op-sig* #"ioctl" #"ioctl"
                   (fun3-type (file-descriptor-type) (int-type) (bytes-type) (void-type)))))
 
-(define (prim-values) : (Dict Bytes ValueSignature)
-  (match-define sigs
-    (append (runtime-prim-sigs)
-            (map prim-op->prim-op-sig (prim-ops))))
-
+(define (prim-values [sigs : (List PrimOpSig)]) : (Dict Bytes ValueSignature)
   (foldl
     (lambda ([sig : PrimOpSig] [acc : (Dict Bytes ValueSignature)])
       (case sig
-        [(prim-op-sig binding name type inline)
-         (dict-add acc binding (value-signature* type name inline))]))
+        [(prim-op-sig binding name type _)
+         (match-define closure-name
+           (prim-name (bytes-append (varargs list name #"_closure"))))
+         (dict-add acc binding (value-signature type closure-name))]))
     sigs
     ((lambda () : (Dict Bytes ValueSignature) (make-dict bytes-cmp)))))
 
@@ -278,39 +269,41 @@
   (fun2-type (int-type) (int-type) (boolean-type)))
 
 (define (prim-signature) : ModuleSignature
-  (let ([prim-closures (prim-values)])
-    (module-signature (prim-mod)
-      prim-closures
+  (match-define sigs
+    (append (runtime-prim-sigs)
+            (map prim-op->prim-op-sig (prim-ops))))
+  (module-signature (prim-mod)
+    (prim-values sigs)
+    (make-dict bytes-cmp)
+    (dict-add-all
       (make-dict bytes-cmp)
-      (dict-add-all
-        (make-dict bytes-cmp)
-        (varargs list
-          (tuple2 #"U8" (u8-type))
-          (tuple2 #"S32" (s32-type))
-          (tuple2 #"U32" (u32-type))
-          (tuple2 #"Bytes" (bytes-type))
-          (tuple2 #"Byte" (int-type))
-          (tuple2 #"Int" (int-type))
-          (tuple2 #"Void" (void-type))
-          (tuple2 #"Boolean" (boolean-type))
-          (tuple2 #"Array" (type-constructor (prim-mod) #"Array" (cons (star-kind) (empty))))
-          (tuple2 #"InputPort" (file-descriptor-type))
-          (tuple2 #"OutputPort" (file-descriptor-type))
-          (tuple2 #"Socket" (file-descriptor-type))
-          (tuple2 #"MachPort" (mach-port-type))))
-      (dict-fold
-        prim-closures
-        (lambda ([binding : Bytes] [sig : ValueSignature] [acc : (Dict TopLevelName TopLevelSignature)])
-          : (Dict TopLevelName TopLevelSignature)
-          (case sig
-            [(value-signature _ name inlineable)
-             (match-define (top-level-name mod closure-base) name)
-             (match-define fun-base (subbytes closure-base 0 (- (bytes-length closure-base) 8)))
-             (match-define top-fun-name (top-level-name mod fun-base))
-             (dict-set
-               (dict-set acc name (top-level-signature (just top-fun-name) (nothing)))
-               top-fun-name (top-level-signature (nothing) inlineable))]))
-        ((lambda () : (Dict TopLevelName TopLevelSignature) (make-dict top-level-name-cmp)))))))
+      (varargs list
+        (tuple2 #"U8" (u8-type))
+        (tuple2 #"S32" (s32-type))
+        (tuple2 #"U32" (u32-type))
+        (tuple2 #"Bytes" (bytes-type))
+        (tuple2 #"Byte" (int-type))
+        (tuple2 #"Int" (int-type))
+        (tuple2 #"Void" (void-type))
+        (tuple2 #"Boolean" (boolean-type))
+        (tuple2 #"Array" (type-constructor (prim-mod) #"Array" (cons (star-kind) (empty))))
+        (tuple2 #"InputPort" (file-descriptor-type))
+        (tuple2 #"OutputPort" (file-descriptor-type))
+        (tuple2 #"Socket" (file-descriptor-type))
+        (tuple2 #"MachPort" (mach-port-type))))
+    (foldl
+      (lambda ([sig : PrimOpSig] [acc : (Dict TopLevelName TopLevelSignature)])
+        : (Dict TopLevelName TopLevelSignature)
+        (case sig
+          [(prim-op-sig binding name _ inlineable)
+           (match-define closure-name (bytes-append (varargs list name #"_closure")))
+           (match-define top-fun-name (prim-name name))
+           (match-define top-closure-name (prim-name closure-name))
+           (dict-set
+             (dict-set acc top-closure-name (top-level-signature (just top-fun-name) (nothing)))
+             top-fun-name (top-level-signature (nothing) inlineable))]))
+      sigs
+      ((lambda () : (Dict TopLevelName TopLevelSignature) (make-dict top-level-name-cmp))))))
 
 (define (prim-implementation) : (List TopLevelObject)
   (match-define (tuple2 functions closures)
