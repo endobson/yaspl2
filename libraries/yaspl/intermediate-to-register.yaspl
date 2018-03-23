@@ -59,7 +59,6 @@
   (tuples)
   (types)
   (yaspl math-operations)
-  (yaspl module-environment)
   (yaspl top-level-objects)
   (yaspl var)
 }
@@ -70,11 +69,10 @@
 (types
   (define-type Environment
     (environment
-      [vars : (Dict Var Var)]
-      [module-env : ModuleEnvironment])))
+      [vars : (Dict Var Var)])))
 
 
-(define (module-to-top-level-objects [mod : Module] [env : ModuleEnvironment]) : (List TopLevelObject)
+(define (module-to-top-level-objects [mod : Module]) : (List TopLevelObject)
   (append
     (compile-type-definitions mod)
     (append
@@ -83,22 +81,19 @@
         (compile-byte-constants mod)
         (map
           (lambda ([f : FunctionDefinition])
-            (register-function-tlo (convert-function (module-name mod) f env)))
+            (register-function-tlo (convert-function (module-name mod) f)))
           (module-definitions mod))))))
 
 ;; TODO investigate if this can be simplified now that intermediate language has vars.
 (define (env-ref [env : Environment] [name : Var]) : (Maybe Var)
   (dict-ref (environment-vars env) name))
 
-(define (env-pattern-tag-ref [env : Environment] [name : Bytes]) : (Maybe Int)
-  (module-environment-tag-ref (environment-module-env env) name))
-
 (define (env-set [env : Environment] [name : Var] [var : Var]) : Environment
   (case env
-    [(environment vars module-env)
-     (environment (dict-set vars name var) module-env)]))
+    [(environment vars)
+     (environment (dict-set vars name var))]))
 
-(define (convert-function [mod-name : ModName] [f : FunctionDefinition] [env : ModuleEnvironment]) :
+(define (convert-function [mod-name : ModName] [f : FunctionDefinition]) :
   r:FunctionDefinition
   (match-define (function-definition name _ args free-vars body) f)
   (match-define arg-names (map parse-arg-name args))
@@ -112,7 +107,7 @@
   (match-define freshened-args+free-vars (append freshened-args freshened-free-vars))
 
   (match-define acc (start-block start-block-num (map new-arg2 freshened-args+free-vars) acc))
-  (match-define env (environment (make-dict var-cmp) env))
+  (match-define env (environment (make-dict var-cmp)))
   (match-define env
     (foldl
       (lambda ([t : (Tuple2 Var Var)] [env : Environment])
@@ -420,21 +415,18 @@
          (empty)
          (add-terminal acc (r:cond-jump (memory-compare-condition #t size-var bytes-var value)
                                         fail-block (empty) continue-block (empty)))))]
-    [(abstraction-pattern name patterns)
-     (case (env-pattern-tag-ref env name)
-       [(nothing) (panic #"No tag for abstraction")]
-       [(just expected-tag)
-        ;; TODO ensure that expected tag is in S32
-        (match-define (tuple2 continue-block acc) (fresh-block-number acc))
-        (match-define acc
-          (start-block
-            continue-block
-            (empty)
-            (add-terminal acc (r:cond-jump (comparison-condition (not-equal-op)
-                                                                 (compare-mem-arg-ptr value)
-                                                                 (right (s32 expected-tag)))
-                                           fail-block (empty) continue-block (empty)))))
-        (convert-sub-patterns patterns value 8 fail-block env acc)])]))
+    [(abstraction-pattern name tag patterns)
+     ;; TODO ensure that expected tag is in S32
+     (match-define (tuple2 continue-block acc) (fresh-block-number acc))
+     (match-define acc
+       (start-block
+         continue-block
+         (empty)
+         (add-terminal acc (r:cond-jump (comparison-condition (not-equal-op)
+                                                              (compare-mem-arg-ptr value)
+                                                              (right (s32 tag)))
+                                        fail-block (empty) continue-block (empty)))))
+     (convert-sub-patterns patterns value 8 fail-block env acc)]))
 
 (define (convert-sub-patterns
           [patterns : (List Pattern)] [ptr : Var] [offset : Int] [fail-block : Int]

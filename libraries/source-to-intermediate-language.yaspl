@@ -136,6 +136,7 @@
   (define-type Environment
     (environment
       [type-bindings : (Dict Bytes Type)]
+      [variant-bindings : (Dict Bytes Int)]
       [local-variables : (Dict Bytes Var)]
       [global-variables : (Dict Bytes TopLevelName)]
       [module-name : ModName]))
@@ -163,9 +164,10 @@
         (match-define type-functions
           (type-definitions->functions type-env types))
         (match-define global-env (setup-value-environment mod type-functions))
+        (match-define variant-bindings (setup-variant-bindings imports type-functions))
         (case (convert-function-definitions
                 definitions
-                (environment type-env (make-dict bytes-cmp) global-env name)
+                (environment type-env variant-bindings (make-dict bytes-cmp) global-env name)
                 (state (empty) (empty) 0))
           [(state funcs byte-constants _)
            (right
@@ -331,11 +333,11 @@
 
 (define (environment-add-local [env : Environment] [local : Bytes] [state : State])
   : (Tuple3 Environment Var State)
-  (match-define (environment types locals globals name) env)
+  (match-define (environment types variants locals globals name) env)
   (match-define (tuple2 index state) (get-next-index state))
   (match-define v (var local index))
   (tuple3
-    (environment types (dict-set locals local (var local index)) globals name)
+    (environment types variants (dict-set locals local (var local index)) globals name)
     v
     state))
 
@@ -349,8 +351,8 @@
         (environment-add-locals env locals state)])]))
 
 (define (environment-add-type-vars [env : Environment] [type-vars : (List Bytes)]) : Environment
-  (match-define (environment types locals globals name) env)
-  (environment (add-type-vars type-vars types) locals globals name))
+  (match-define (environment types variants locals globals name) env)
+  (environment (add-type-vars type-vars types) variants locals globals name))
 
 (define (pattern-bound-vars [p : Pattern]) : (List Bytes)
   (pattern-bound-vars* p (empty)))
@@ -541,9 +543,12 @@
     [(ignore-pattern)
      (tuple2 (i:ignore-pattern) acc)]
     [(abstraction-pattern name pats)
-     (case (convert-patterns pats env acc)
-       [(tuple2 ipats acc)
-        (tuple2 (i:abstraction-pattern name ipats) acc)])]))
+     (case (dict-ref (environment-variant-bindings env) name)
+       [(nothing) (panic #"Unbound abstraction pattern")]
+       [(just tag)
+        (case (convert-patterns pats env acc)
+          [(tuple2 ipats acc)
+           (tuple2 (i:abstraction-pattern name tag ipats) acc)])])]))
 
 (define (convert-patterns [pats : (List Pattern)] [env : Environment] [acc : State]) : (Tuple2 (List i:Pattern) State)
   (case pats
@@ -646,6 +651,40 @@
     [(cons type-var type-vars)
      (add-type-vars type-vars (dict-add type-bindings type-var (var-type type-var)))]))
 
+
+(define (setup-variant-bindings [imports : Imports] [datatype-funs : (List DatatypeFunction)])
+  : (Dict Bytes Int)
+  (add-all-imported-patterns
+    (add-datatype-patterns
+      (make-dict bytes-cmp)
+      datatype-funs)
+    imports))
+
+(define (add-all-imported-patterns [env : (Dict Bytes Int)] [imports : Imports])
+  : (Dict Bytes Int)
+  (match-define (imports _ _ patterns _) imports)
+  (merge-dicts
+    (dict-value-map
+      patterns
+      (lambda ([p : PatternSignature])
+        (case p
+          [(pattern-signature _ tag _ _ _ _)
+           tag])))
+    env))
+
+(define (add-datatype-patterns
+          [env : (Dict Bytes Int)]
+          [funs : (List DatatypeFunction)])
+  : (Dict Bytes Int)
+  (foldl
+    (lambda ([f : DatatypeFunction] [env : (Dict Bytes Int)])
+      (case f
+        [(variant-constructor type-name variant-name tag)
+         (dict-add env variant-name tag)]
+        [(variant-accessor type-name variant-name field-name _)
+         env]))
+    funs
+    env))
 
 (define (setup-value-environment [mod : Module]
                                  [datatype-funs : (List DatatypeFunction)])

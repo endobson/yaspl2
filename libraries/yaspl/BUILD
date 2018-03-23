@@ -9,7 +9,6 @@ yaspl_bootstrap_library(
     srcs = ["intermediate-to-register.yaspl"],
     deps = [
         ":math-operations",
-        ":module-environment",
         ":top-level-objects",
         ":var",
         "//libraries:intermediate-expression",
@@ -34,19 +33,6 @@ yaspl_bootstrap_library(
 yaspl_bootstrap_library(
     name = "math-operations",
     srcs = ["math-operations.yaspl"],
-)
-
-yaspl_bootstrap_library(
-    name = "module-environment",
-    srcs = ["module-environment.yaspl"],
-    deps = [
-        "//libraries:intermediate-language",
-        "//libraries:module-signature",
-        "//libraries/data:bytes",
-        "//libraries/data:dict",
-        "//libraries/data:list",
-        "//libraries/data:maybe",
-    ],
 )
 
 yaspl_bootstrap_library(
