@@ -42,7 +42,6 @@ yaspl_bootstrap_library(
     deps = [
         "//libraries:intermediate-language",
         "//libraries:module-signature",
-        "//libraries:resolved-imports-language",
         "//libraries/data:bytes",
         "//libraries/data:dict",
         "//libraries/data:list",
@@ -57,7 +56,6 @@ yaspl_bootstrap_library(
         "//libraries:intermediate-expression",
         "//libraries:intermediate-language",
         "//libraries:module-signature",
-        "//libraries:resolved-imports-language",
         "//libraries:top-level-name",
         "//libraries/data:dict",
         "//libraries/data:list",
