@@ -21,7 +21,7 @@
 
 (define (make-optimize-environment [mod : Module]) : OptimizeEnvironment
   (optimize-environment
-    (add-all-imported-functions
+    (add-all-imported-inlineable-functions
       (make-dict top-level-name-cmp)
       mod)
     (add-all-defined-known-functions
@@ -30,16 +30,18 @@
         mod)
       mod)))
 
-(define (add-all-imported-functions [env : (Dict TopLevelName InlineableFunction)] [mod : Module])
+(define (add-all-imported-inlineable-functions
+          [env : (Dict TopLevelName InlineableFunction)]
+          [mod : Module])
   : (Dict TopLevelName InlineableFunction)
-  (match-define (imports values _) (module-imports mod))
+  (match-define (imports _ static-info) (module-imports mod))
   (dict-fold
-    values
-    (lambda ([k : Bytes] [v : ValueSignature] [env : (Dict TopLevelName InlineableFunction)])
+    static-info
+    (lambda ([k : TopLevelName] [v : TopLevelSignature] [env : (Dict TopLevelName InlineableFunction)])
       (case v
-        [(value-signature _ symbol inlineable)
+        [(top-level-signature _ inlineable)
          (case inlineable
-           [(just inline) (dict-add env symbol inline)]
+           [(just inline) (dict-add env k inline)]
            [(nothing) env])]))
     env))
 
@@ -61,7 +63,7 @@
     static-info
     (lambda ([k : TopLevelName] [v : TopLevelSignature] [env : (Dict TopLevelName TopLevelName)])
       (case v
-        [(top-level-signature known)
+        [(top-level-signature known _)
          (case known
            [(just known)
             ;; There might be multiple imports for the same symbol so use set instead of add
@@ -104,18 +106,18 @@
     [(create-closure-expr fun-name args)
      (create-closure-expr fun-name (map recur args))]
     [(call-closure-expr tail-position op args)
+     (case (expr->known-function op env)
+       [(just fun-name)
+        (recur (call-function-expr tail-position fun-name args))]
+       [(nothing)
+        (call-closure-expr tail-position (recur op) (map recur args))])]
+    [(call-function-expr tail-position fun-name args)
      (match-define opt-args (map recur args))
-     (case (expr->inlineable op env)
+     (case (dict-ref (optimize-environment-inlineable env) fun-name)
        [(just (hoas-linear-inlineable-function f))
         (f opt-args)]
        [(nothing)
-        (case (expr->known-function op env)
-          [(just fun-name)
-           (call-function-expr tail-position fun-name opt-args)]
-          [(nothing)
-           (call-closure-expr tail-position (recur op) opt-args)])])]
-    [(call-function-expr tail-position fun-name args)
-     (call-function-expr tail-position fun-name (map recur args))]
+        (call-function-expr tail-position fun-name opt-args)])]
     [(let-expr name expr body)
      (let-expr name (recur expr) (recur body))]
     [(case-expr expr clauses)
@@ -151,12 +153,6 @@
   (case clause
     [(case-clause pattern expr)
      (case-clause pattern (optimize-expr expr env))]))
-
-(define (expr->inlineable [expr : Expression] [env : OptimizeEnvironment]) : (Maybe InlineableFunction)
-  (case expr
-    [(global-var-expr v)
-     (dict-ref (optimize-environment-inlineable env) v)]
-    [_ (nothing)]))
 
 (define (expr->known-function [expr : Expression] [env : OptimizeEnvironment]) : (Maybe TopLevelName)
   (case expr
