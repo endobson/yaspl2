@@ -76,13 +76,11 @@
   (append
     (compile-type-definitions mod)
     (append
-      (compile-closures mod)
-      (append
-        (compile-byte-constants mod)
-        (map
-          (lambda ([f : FunctionDefinition])
-            (register-function-tlo (convert-function (module-name mod) f)))
-          (module-definitions mod))))))
+      (compile-constants mod)
+      (map
+        (lambda ([f : FunctionDefinition])
+          (register-function-tlo (convert-function (module-name mod) f)))
+        (module-definitions mod)))))
 
 ;; TODO investigate if this can be simplified now that intermediate language has vars.
 (define (env-ref [env : Environment] [name : Var]) : (Maybe Var)
@@ -498,31 +496,28 @@
   (case t
     [(tuple2 n _) n]))
 
-(define (compile-closures [mod : Module]) : (List TopLevelObject)
-  (compile-closures/list (module-name mod) (module-closures mod)))
+(define (compile-constants [mod : Module]) : (List TopLevelObject)
+  (compile-constants* (module-name mod) (module-constants mod)))
 
-(define (compile-closures/list
+(define (compile-constants*
           [mod-name : ModName]
-          [pairs : (List ClosureConstant)])
+          [constants : (List ConstantDefinition)])
   : (List TopLevelObject)
-  (case pairs
+  (case constants
     [(empty) (empty)]
-    [(cons (closure-constant name fun-name) pairs)
+    [(cons (bytes-constant name value) constants)
+     (cons
+       (bytes-tlo
+          (mangle-name (bytes-append (varargs list (mangled-mod-name mod-name) #"_" name)))
+          value)
+       (compile-constants* mod-name constants))]
+    [(cons (closure-constant name fun-name) constants)
      (cons
        (trivial-closure-tlo
          (mangle-name (bytes-append (varargs list (mangled-mod-name mod-name) #"_" name)))
          (mangle-name (bytes-append (varargs list (mangled-mod-name mod-name) #"_" fun-name)))
          (top-level-name mod-name fun-name))
-       (compile-closures/list mod-name pairs))]))
-
-(define (compile-byte-constants [mod : Module]) : (List TopLevelObject)
-  (map (lambda ([b : BytesConstant])
-         (case b
-           [(bytes-constant name value)
-            (bytes-tlo
-              (mangle-name (bytes-append (varargs list (mangled-mod-name (module-name mod)) #"_" name)))
-              value)]))
-       (module-bytes mod)))
+       (compile-constants* mod-name constants))]))
 
 (define (compile-type-definitions [mod : Module]) : (List TopLevelObject)
   (match-define mod-name (module-name mod))
