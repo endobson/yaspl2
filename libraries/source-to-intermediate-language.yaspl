@@ -44,6 +44,7 @@
     #:values
       bytes-constant
       closure-constant
+      trivial-variant-constant
       [exports i:exports]
       [function-definition i:function-definition]
       [imports i:imports]
@@ -90,6 +91,7 @@
     #:values
       fun-pre-type
       function-definition-name
+      variant-field-name
     #:patterns
       abstraction-pattern
       app-expr
@@ -145,6 +147,8 @@
     (variant-constructor
       [type-name : Bytes]
       [variant-name : Bytes]
+      ;; TODO include something more useful than field names here
+      [fields : (List Bytes)]
       [tag : Int])
     (variant-accessor
       [type-name : Bytes]
@@ -244,23 +248,38 @@
 (define (create-closures/types
           [types : (List DatatypeFunction)]
           [acc : (List i:ConstantDefinition)]) : (List i:ConstantDefinition)
-  (append
-    (map
-      (lambda ([f : DatatypeFunction])
-        (case f
-          [(variant-constructor type-name variant-name _)
+  (foldl
+    (lambda ([f : DatatypeFunction] [acc : (List i:ConstantDefinition)])
+      (case f
+        [(variant-constructor type-name variant-name (empty) tag)
+         (cons
+           (trivial-variant-constant
+             (bytes-append (varargs list type-name #"_" variant-name #"_const"))
+             tag)
+           (cons
+             (closure-constant
+               (bytes-append
+                 (varargs list type-name #"_" variant-name #"_closure"))
+               (bytes-append
+                 (varargs list type-name #"_" variant-name)))
+             acc))]
+        [(variant-constructor type-name variant-name _ _)
+         (cons
            (closure-constant
              (bytes-append
                (varargs list type-name #"_" variant-name #"_closure"))
              (bytes-append
-               (varargs list type-name #"_" variant-name)))]
-          [(variant-accessor type-name variant-name field-name _)
+               (varargs list type-name #"_" variant-name)))
+           acc)]
+        [(variant-accessor type-name variant-name field-name _)
+         (cons
            (closure-constant
              (bytes-append
                (varargs list type-name #"_" variant-name #"_" field-name #"_closure"))
              (bytes-append
-               (varargs list type-name #"_" variant-name #"_" field-name)))]))
-      types)
+               (varargs list type-name #"_" variant-name #"_" field-name)))
+           acc)]))
+    types
     acc))
 
 (define (convert-type-definitions
@@ -679,7 +698,7 @@
   (foldl
     (lambda ([f : DatatypeFunction] [env : (Dict Bytes Int)])
       (case f
-        [(variant-constructor type-name variant-name tag)
+        [(variant-constructor type-name variant-name _ tag)
          (dict-add env variant-name tag)]
         [(variant-accessor type-name variant-name field-name _)
          env]))
@@ -743,7 +762,7 @@
   (foldl
     (lambda ([f : DatatypeFunction] [env : (Dict Bytes TopLevelName)])
       (case f
-        [(variant-constructor type-name variant-name _)
+        [(variant-constructor type-name variant-name _ _)
          (dict-add
            env
            variant-name
@@ -806,7 +825,9 @@
   (case def
     [(variant-definition name fields)
      (cons
-       (variant-constructor type-name name tag)
+       (variant-constructor type-name name
+                            (map variant-field-name fields)
+                            tag)
        acc)]))
 
 (define (variant-definition->accessors
