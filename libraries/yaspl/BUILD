@@ -15,7 +15,6 @@ yaspl_bootstrap_library(
         "//libraries:intermediate-language",
         "//libraries:module-name",
         "//libraries:top-level-name",
-        "//libraries:types",
         "//libraries/data:bytes",
         "//libraries/data:dict",
         "//libraries/data:either",

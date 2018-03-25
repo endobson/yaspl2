@@ -275,7 +275,6 @@ yaspl_bootstrap_library(
         ":types",
         "//libraries/data:dict",
         "//libraries/data:list",
-        "//libraries/data:tuples",
         "//libraries/yaspl:var",
     ],
 )
