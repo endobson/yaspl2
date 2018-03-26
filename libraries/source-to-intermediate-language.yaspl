@@ -56,7 +56,12 @@
       [type-export i:type-export]
       [value-export i:value-export]
       [variant-definition i:variant-definition]
+      [variant-definition-name i:variant-definition-name]
       [variant-field i:variant-field]
+      [variant-field-type i:variant-field-type]
+    #:patterns
+      [type-definition i:type-definition]
+      [variant-definition i:variant-definition]
   }
   (list)
   (maybe)
@@ -170,6 +175,7 @@
           (type-definitions->functions type-env types))
         (match-define global-env (setup-value-environment mod type-functions))
         (match-define variant-bindings (setup-variant-bindings imports type-functions))
+        (match-define type-definitions (convert-type-definitions name types type-env))
         (case (convert-function-definitions
                 definitions
                 (environment type-env variant-bindings (make-dict bytes-cmp) global-env name)
@@ -179,8 +185,8 @@
              (i:module
                name
                (convert-imports imports)
-               (convert-exports exports type-env (context-values context) global-env)
-               (convert-type-definitions name types type-env)
+               (convert-exports exports type-env (context-values context) global-env type-definitions)
+               type-definitions
                (append
                  funcs
                  (create-datatype-definitions name type-functions))
@@ -197,13 +203,14 @@
           [exports : Exports]
           [type-env : (Dict Bytes Type)]
           [value-env : (Dict Bytes Type)]
-          [global-env : (Dict Bytes TopLevelName)]) : i:Exports
+          [global-env : (Dict Bytes TopLevelName)]
+          [type-defs : (List i:TypeDefinition)]) : i:Exports
   (case exports
     [(exports types values patterns)
      (i:exports
        (map (lambda ([e : Export]) (convert-type-export e type-env)) types)
        (map (lambda ([e : Export]) (convert-value-export e value-env global-env)) values)
-       (map convert-pattern-export patterns))]))
+       (convert-pattern-exports patterns type-defs))]))
 
 (define (convert-type-export [export : Export] [env : (Dict Bytes Type)]) : i:TypeExport
   (case export
@@ -225,10 +232,40 @@
           [(just top-level)
            (i:value-export exported top-level type)])])]))
 
-(define (convert-pattern-export [export : Export]) : i:PatternExport
-  (case export
-    [(export local exported)
-     (i:pattern-export local exported)]))
+(define (convert-pattern-exports
+          [exports : (List Export)]
+          [type-defs : (List i:TypeDefinition)])
+  : (List i:PatternExport)
+  (let ([export-map (foldl
+                      (lambda ([export : Export] [acc : (Dict Bytes Bytes)])
+                        (case export
+                          [(export local exported)
+                           (dict-add acc local exported)]))
+                      exports
+                      ((lambda () : (Dict Bytes Bytes) (make-dict bytes-cmp))))])
+    (foldl
+      (lambda ([t : i:TypeDefinition] [acc : (List i:PatternExport)])
+        (case t
+          [(i:type-definition _ _ type-vars self-type variants)
+           (match-define type-sig (type-signature (map i:variant-definition-name variants)))
+           (foldl
+             (lambda ([v : i:VariantDefinition] [acc : (List i:PatternExport)])
+               (case v
+                 [(i:variant-definition name tag fields)
+                  (case (dict-ref export-map name)
+                    [(nothing) acc]
+                    [(just exported-name)
+                     (cons
+                       (i:pattern-export
+                         exported-name
+                         (pattern-signature name tag type-vars self-type
+                                            (map i:variant-field-type fields)
+                                            type-sig))
+                       acc)])]))
+             variants
+             acc)]))
+      type-defs
+      ((lambda () : (List i:PatternExport) (empty))))))
 
 (define (create-closures
           [funs : (List FunctionDefinition)]
