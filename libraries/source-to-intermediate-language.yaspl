@@ -38,11 +38,8 @@
       [Imports i:Imports]
       [Module i:Module]
       [PatternExport i:PatternExport]
-      [TypeDefinition i:TypeDefinition]
       [TypeExport i:TypeExport]
       [ValueExport i:ValueExport]
-      [VariantDefinition i:VariantDefinition]
-      [VariantField i:VariantField]
     #:values
       bytes-constant
       closure-constant
@@ -52,16 +49,8 @@
       [module i:module]
       [pattern-export i:pattern-export]
       trivial-variant-constant
-      [type-definition i:type-definition]
       [type-export i:type-export]
       [value-export i:value-export]
-      [variant-definition i:variant-definition]
-      [variant-definition-name i:variant-definition-name]
-      [variant-field i:variant-field]
-      [variant-field-type i:variant-field-type]
-    #:patterns
-      [type-definition i:type-definition]
-      [variant-definition i:variant-definition]
   }
   (list)
   (maybe)
@@ -161,7 +150,27 @@
       [type-name : Bytes]
       [variant-name : Bytes]
       [field-name : Bytes]
-      [field-offset : Int])))
+      [field-offset : Int]))
+
+  ;; TODO remove these/make them not needed
+  (define-type i-TypeDefinition
+    (i-type-definition
+      [name : Bytes]
+      ;; This is what the name is bound to in the type environment
+      [type-binding : Type]
+      [type-vars : (List Bytes)]
+      ;; This is what the variants return
+      [constructed-type : Type]
+      [variants : (List i-VariantDefinition)]))
+  (define-type i-VariantDefinition
+    (i-variant-definition
+      [name : Bytes]
+      [tag : Int]
+      [fields : (List i-VariantField)]))
+  (define-type i-VariantField
+    (i-variant-field
+      [name : Bytes]
+      [type : Type])))
 
 (define (source->intermediate [mod : Module])
   : (Either Bytes i:Module)
@@ -186,7 +195,6 @@
                name
                (convert-imports imports)
                (convert-exports exports type-env (context-values context) global-env type-definitions)
-               type-definitions
                (append
                  funcs
                  (create-datatype-definitions name type-functions))
@@ -204,7 +212,7 @@
           [type-env : (Dict Bytes Type)]
           [value-env : (Dict Bytes Type)]
           [global-env : (Dict Bytes TopLevelName)]
-          [type-defs : (List i:TypeDefinition)]) : i:Exports
+          [type-defs : (List i-TypeDefinition)]) : i:Exports
   (case exports
     [(exports types values patterns)
      (i:exports
@@ -234,7 +242,7 @@
 
 (define (convert-pattern-exports
           [exports : (List Export)]
-          [type-defs : (List i:TypeDefinition)])
+          [type-defs : (List i-TypeDefinition)])
   : (List i:PatternExport)
   (let ([export-map (foldl
                       (lambda ([export : Export] [acc : (Dict Bytes Bytes)])
@@ -244,14 +252,14 @@
                       exports
                       ((lambda () : (Dict Bytes Bytes) (make-dict bytes-cmp))))])
     (foldl
-      (lambda ([t : i:TypeDefinition] [acc : (List i:PatternExport)])
+      (lambda ([t : i-TypeDefinition] [acc : (List i:PatternExport)])
         (case t
-          [(i:type-definition _ _ type-vars self-type variants)
-           (match-define type-sig (type-signature (map i:variant-definition-name variants)))
+          [(i-type-definition _ _ type-vars self-type variants)
+           (match-define type-sig (type-signature (map i-variant-definition-name variants)))
            (foldl
-             (lambda ([v : i:VariantDefinition] [acc : (List i:PatternExport)])
+             (lambda ([v : i-VariantDefinition] [acc : (List i:PatternExport)])
                (case v
-                 [(i:variant-definition name tag fields)
+                 [(i-variant-definition name tag fields)
                   (case (dict-ref export-map name)
                     [(nothing) acc]
                     [(just exported-name)
@@ -259,7 +267,7 @@
                        (i:pattern-export
                          exported-name
                          (pattern-signature name tag type-vars self-type
-                                            (map i:variant-field-type fields)
+                                            (map i-variant-field-type fields)
                                             type-sig))
                        acc)])]))
              variants
@@ -364,7 +372,7 @@
           [mod-name : ModName]
           [types : (List TypeDefinition)]
           [env : (Dict Bytes Type)])
-  : (List i:TypeDefinition)
+  : (List i-TypeDefinition)
   (map
     (lambda ([def : TypeDefinition]) (convert-type-definition mod-name def env))
     types))
@@ -383,11 +391,11 @@
           [mod-name : ModName]
           [type : TypeDefinition]
           [env : (Dict Bytes Type)])
-  : i:TypeDefinition
+  : i-TypeDefinition
   (case type
     [(type-definition name type-vars variants)
      (let ([type-vars (simplify-type-vars type-vars)])
-       (i:type-definition
+       (i-type-definition
          name
          (lookup-type env name)
          type-vars
@@ -400,7 +408,7 @@
           [variants : (List VariantDefinition)]
           [index : Int]
           [env : (Dict Bytes Type)])
-  : (List i:VariantDefinition)
+  : (List i-VariantDefinition)
   (case variants
     [(empty) (empty)]
     [(cons v vs)
@@ -412,10 +420,10 @@
           [variant : VariantDefinition]
           [index : Int]
           [env : (Dict Bytes Type)])
-  : i:VariantDefinition
+  : i-VariantDefinition
   (case variant
     [(variant-definition name fields)
-     (i:variant-definition
+     (i-variant-definition
        name
        index
        (map (lambda ([f : VariantField]) (convert-variant-field f env)) fields))]))
@@ -423,10 +431,10 @@
 (define (convert-variant-field
           [field : VariantField]
           [env : (Dict Bytes Type)])
-  : i:VariantField
+  : i-VariantField
   (case field
     [(variant-field name pre-type)
-     (i:variant-field name (convert-type env pre-type))]))
+     (i-variant-field name (convert-type env pre-type))]))
 
 (define (environment-add-local [env : Environment] [local : Bytes] [state : State])
   : (Tuple3 Environment Var State)
