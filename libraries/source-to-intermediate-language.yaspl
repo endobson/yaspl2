@@ -51,6 +51,10 @@
       trivial-variant-constant
       [type-export i:type-export]
       [value-export i:value-export]
+    #:patterns
+      bytes-constant
+      closure-constant
+      trivial-variant-constant
   }
   (list)
   (maybe)
@@ -190,6 +194,10 @@
                 (environment type-env variant-bindings (make-dict bytes-cmp) global-env name)
                 (state (empty) (empty) 0))
           [(state funcs byte-constants _)
+           (match-define constants
+             (append
+               (create-closures definitions type-functions (empty))
+               byte-constants))
            (right
              (i:module
                name
@@ -198,9 +206,12 @@
                (append
                  funcs
                  (create-datatype-definitions name type-functions))
-               (append
-                 (create-closures definitions type-functions (empty))
-                 byte-constants)))])])]))
+               constants
+               (create-static-info
+                 name
+                 constants
+                 funcs
+                 type-functions)))])])]))
 
 (define (convert-imports [i : Imports]) : i:Imports
   (case i
@@ -934,3 +945,31 @@
        type-name
        variant-name
        fields)]))
+
+(define (create-static-info
+          [name : ModName]
+          [constants : (List i:ConstantDefinition)]
+          [funcs : (List i:FunctionDefinition)]
+          [datatype-funs : (List DatatypeFunction)]) : (Dict TopLevelName TopLevelSignature)
+  (add-constants-static-info
+    name
+    constants
+    (make-dict top-level-name-cmp)))
+
+(define (add-constants-static-info
+          [mod-name : ModName]
+          [constants : (List i:ConstantDefinition)]
+          [acc : (Dict TopLevelName TopLevelSignature)])
+  : (Dict TopLevelName TopLevelSignature)
+  (foldl
+    (lambda ([const : i:ConstantDefinition] [acc : (Dict TopLevelName TopLevelSignature)])
+      (case const
+        [(closure-constant name fun-name)
+         (dict-add acc (top-level-name mod-name name)
+                   (top-level-signature (just (top-level-name mod-name fun-name)) (nothing)))]
+        [(bytes-constant _ _)
+         acc]
+        [(trivial-variant-constant name _)
+         acc]))
+    constants
+    acc))

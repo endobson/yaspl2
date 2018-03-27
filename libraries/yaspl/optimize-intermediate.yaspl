@@ -21,22 +21,23 @@
 
 (define (make-optimize-environment [mod : Module]) : OptimizeEnvironment
   (optimize-environment
-    (add-all-imported-inlineable-functions
-      (make-dict top-level-name-cmp)
-      mod)
-    (add-all-defined-known-functions
-      (add-all-imported-known-functions
-        (make-dict top-level-name-cmp)
-        mod)
-      mod)))
+    (add-all-inlineable-functions
+      (imports-static-info (module-imports mod))
+      (add-all-inlineable-functions
+        (module-static-info mod)
+        (make-dict top-level-name-cmp)))
+    (add-all-known-functions
+      (imports-static-info (module-imports mod))
+      (add-all-known-functions
+        (module-static-info mod)
+        (make-dict top-level-name-cmp)))))
 
-(define (add-all-imported-inlineable-functions
-          [env : (Dict TopLevelName InlineableFunction)]
-          [mod : Module])
+(define (add-all-inlineable-functions
+          [sigs : (Dict TopLevelName TopLevelSignature)]
+          [env : (Dict TopLevelName InlineableFunction)])
   : (Dict TopLevelName InlineableFunction)
-  (match-define (imports static-info) (module-imports mod))
   (dict-fold
-    static-info
+    sigs
     (lambda ([k : TopLevelName] [v : TopLevelSignature] [env : (Dict TopLevelName InlineableFunction)])
       (case v
         [(top-level-signature _ inlineable)
@@ -45,26 +46,12 @@
            [(nothing) env])]))
     env))
 
-(define (add-all-defined-known-functions [env : (Dict TopLevelName TopLevelName)] [mod : Module])
+(define (add-all-known-functions
+          [sigs : (Dict TopLevelName TopLevelSignature)]
+          [env : (Dict TopLevelName TopLevelName)])
   : (Dict TopLevelName TopLevelName)
-  (match-define mod-name (module-name mod))
-  (foldl
-    (lambda ([constant : ConstantDefinition] [acc : (Dict TopLevelName TopLevelName)])
-      (case constant
-        [(closure-constant name fun-name)
-         (dict-add acc (top-level-name mod-name name) (top-level-name mod-name fun-name))]
-        [(bytes-constant _ _)
-         acc]
-        [(trivial-variant-constant _ _)
-         acc]))
-    (module-constants mod)
-    env))
-
-(define (add-all-imported-known-functions [env : (Dict TopLevelName TopLevelName)] [mod : Module])
-  : (Dict TopLevelName TopLevelName)
-  (match-define (imports static-info) (module-imports mod))
   (dict-fold
-    static-info
+    sigs
     (lambda ([k : TopLevelName] [v : TopLevelSignature] [env : (Dict TopLevelName TopLevelName)])
       (case v
         [(top-level-signature known _)
@@ -76,10 +63,10 @@
     env))
 
 (define (optimize-intermediate-module [mod : Module]) : Module
-  (match-define (module name imports exports definitions constants) mod)
+  (match-define (module name imports exports definitions constants static-info) mod)
   (module name imports exports
           (optimize-function-definitions definitions (make-optimize-environment mod))
-          constants))
+          constants static-info))
 
 (define (optimize-function-definitions [functions : (List FunctionDefinition)]
                                        [env : OptimizeEnvironment])
