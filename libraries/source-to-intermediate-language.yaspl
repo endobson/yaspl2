@@ -951,10 +951,13 @@
           [constants : (List i:ConstantDefinition)]
           [funcs : (List i:FunctionDefinition)]
           [datatype-funs : (List DatatypeFunction)]) : (Dict TopLevelName TopLevelSignature)
-  (add-constants-static-info
+  (add-datatype-function-static-info
     name
-    constants
-    (make-dict top-level-name-cmp)))
+    datatype-funs
+    (add-constants-static-info
+      name
+      constants
+      (make-dict top-level-name-cmp))))
 
 (define (add-constants-static-info
           [mod-name : ModName]
@@ -972,4 +975,55 @@
         [(trivial-variant-constant name _)
          acc]))
     constants
+    acc))
+
+(define (add-datatype-function-static-info
+          [mod-name : ModName]
+          [datatype-funs : (List DatatypeFunction)]
+          [acc : (Dict TopLevelName TopLevelSignature)]) : (Dict TopLevelName TopLevelSignature)
+  (foldl
+    (lambda ([datatype : DatatypeFunction] [acc : (Dict TopLevelName TopLevelSignature)])
+      (case datatype
+        [(variant-constructor type-name variant-name (empty) tag)
+         (dict-add
+           acc
+           (top-level-name mod-name (bytes-append (varargs list type-name #"_" variant-name)))
+           (top-level-signature
+             (nothing)
+             (just
+               (hoas-linear-inlineable-function
+                 ;; TODO check that args is the same number as fields
+                 (lambda ([args : (List i:Expression)])
+                   (i:global-var-expr
+                     (top-level-name
+                       mod-name
+                       (bytes-append (varargs list type-name #"_" variant-name #"_const")))))))))]
+        [(variant-constructor type-name variant-name fields tag)
+         (dict-add
+           acc
+           (top-level-name mod-name (bytes-append (varargs list type-name #"_" variant-name)))
+           (top-level-signature
+             (nothing)
+             (just
+               (hoas-linear-inlineable-function
+                 ;; TODO check that args is the same number as fields
+                 (lambda ([args : (List i:Expression)])
+                   (i:make-variant-expr tag args)))))) ]
+        [(variant-accessor type-name variant-name field-name offset)
+         (dict-add
+           acc
+           (top-level-name
+             mod-name
+             (bytes-append (varargs list type-name #"_" variant-name #"_" field-name)))
+           (top-level-signature
+             (nothing)
+             (just
+               (hoas-linear-inlineable-function
+                 (lambda ([args : (List i:Expression)])
+                   (case args
+                     [(cons expr (empty))
+                      (i:variant-field-ref-expr expr offset)]
+                     [_
+                      (panic #"Wrong number of args for variant-field-ref")]))))))]))
+    datatype-funs
     acc))
