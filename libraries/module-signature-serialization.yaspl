@@ -53,13 +53,28 @@
            (node (dict-map top-level-sigs
                            (lambda ([name : TopLevelName] [sig : TopLevelSignature]) : Sexp
                              (case sig
-                               [(top-level-signature trivial-closure _)
+                               [(top-level-signature trivial-closure inlineable)
                                 ;; TODO correctly serialize inlineable values
                                 (node (varargs list
                                         (top-level-name->sexp name)
                                         (case trivial-closure
                                           [(nothing) (boolean-sexp #f)]
-                                          [(just name) (top-level-name->sexp name)])))])))))))]))
+                                          [(just name) (top-level-name->sexp name)])
+                                        (case inlineable
+                                          [(nothing) (boolean-sexp #f)]
+                                          [(just fun) (inlineable-function->sexp fun)])))])))))))]))
+
+(define (inlineable-function->sexp [fun : InlineableFunction]) : Sexp
+  (case fun
+    [(hoas-linear-inlineable-function _)
+     (panic #"Cannot inline hoas-linear inlineable functions")]
+    [(variant-accessor-inlineable-function index)
+     (node (varargs list (symbol-sexp #"variant-accessor") (number-sexp index)))]
+    [(zero-arg-constant-inlineable-function name)
+     (node (varargs list (symbol-sexp #"zero-arg-constant") (top-level-name->sexp name)))]
+    [(variant-constructor-inlineable-function tag)
+     (node (varargs list (symbol-sexp #"variant-constructor") (number-sexp tag)))]))
+
 
 (define (sexp->trivial-closure [s : Sexp]) : (Maybe TopLevelName)
   (case s
@@ -152,14 +167,29 @@
   : (Dict TopLevelName TopLevelSignature)
   (case top-level-sigs
     [(empty) acc]
-    [(cons (node (cons name (cons trivial-closure (empty)))) top-level-sigs)
+    [(cons (node (cons name (cons trivial-closure (cons inline (empty))))) top-level-sigs)
      (case (sexp->top-level-name name)
        [(just name)
         (top-level-sigs->dict
           top-level-sigs
-          (dict-add acc name (top-level-signature (sexp->trivial-closure trivial-closure) (nothing))))]
+          (dict-add acc name (top-level-signature (sexp->trivial-closure trivial-closure)
+                                                  (sexp->inlineable-function inline))))]
        [(nothing) (panic #"Not a valid top-level-sigs")])]
     [_ (panic #"Not a valid top-level-sigs")]))
+
+(define (sexp->inlineable-function [sexp : Sexp]) : (Maybe InlineableFunction)
+  (case sexp
+    [(boolean-sexp _) (nothing)]
+    [(node (cons (symbol-sexp #"variant-accessor") (cons (number-sexp index) (empty))))
+     (just (variant-accessor-inlineable-function index))]
+    [(node (cons (symbol-sexp #"zero-arg-constant") (cons name (empty))))
+     (case (sexp->top-level-name name)
+       [(nothing) (panic #"Bad zero-arg-constant")]
+       [(just name)
+        (just (zero-arg-constant-inlineable-function name))])]
+    [(node (cons (symbol-sexp #"variant-constructor") (cons (number-sexp tag) (empty))))
+     (just (variant-constructor-inlineable-function tag))]
+    [_ (panic #"Bad inlineable-function")]))
 
 (define (deserialize-module-signature [bytes : Bytes]) : (Either Bytes ModuleSignature)
   (case (parse-single-sexp bytes)
