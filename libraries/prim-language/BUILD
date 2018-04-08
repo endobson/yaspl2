@@ -71,6 +71,19 @@ yaspl_bootstrap_library(
     ],
 )
 
+yaspl_test(
+    name = "lower-x86-64-test",
+    srcs = ["lower-x86-64-test.yaspl"],
+    main_module = "lower_x86_64_test",
+    deps = [
+        ":lower-x86-64",
+        "//libraries:yunit",
+        "//libraries/data:list",
+        "//libraries/data:maybe",
+        "//libraries/data:set",
+    ],
+)
+
 yaspl_bootstrap_library(
     name = "lowered-register-language",
     srcs = ["lowered-register-language.yaspl"],
