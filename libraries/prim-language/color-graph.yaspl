@@ -160,7 +160,7 @@
 
 (define (determine-color-traces [state : State]) : (List ColorTrace)
   (let ([state (simplify-loop-start state)])
-    (if (= 0 (num-vertices state))
+    (if (state-empty? state)
         (state-register-assignments state)
         (case (coalesce-loop-start state)
           [(tuple2 coalesced state)
@@ -219,19 +219,14 @@
      (spill-vertex state v)]))
 
 (define (find-temporary-coalescable-neighbor [v : Var] [state : State]) : (Maybe Var)
-  (case (set-split (set-filter (move-neighbors state v)
-                               (lambda ([v2 : Var])
-                                 (is-coalescable-edge state v v2))))
-    [(nothing) (nothing)]
-    [(just (tuple2 v _)) (just v)]))
-
+  (set-find (move-neighbors state v)
+            (lambda ([v2 : Var])
+              (is-coalescable-edge state v v2))))
 
 (define (find-fixed-coalescable-neighbor [v : Var] [state : State]) : (Maybe X8664Register)
-  (case (set-split (set-filter (fixed-move-neighbors v state)
-                               (lambda ([reg : X8664Register])
-                                 (is-coalescable-fixed-edge state v reg))))
-    [(nothing) (nothing)]
-    [(just (tuple2 v _)) (just v)]))
+  (set-find (fixed-move-neighbors v state)
+            (lambda ([reg : X8664Register])
+              (is-coalescable-fixed-edge state v reg))))
 
 
 (define (A) (arg-max [f : (A -> Int)] [elems : (Set A)]) : (Maybe A)
@@ -263,8 +258,8 @@
        (set-count (interfering-neighbors state v)))]))
 
 
-(define (num-vertices [state : State]) : Int
-  (dict-count (graph-vertices (state-graph state))))
+(define (state-empty? [state : State]) : Boolean
+  (dict-empty? (graph-vertices (state-graph state))))
 
 (define (non-move-related-vertices [state : State]) : (Set Var)
   (let ([g (state-graph state)])
@@ -282,7 +277,7 @@
                    [_ #f]))
                (dict-values edges))
              [(just _) #f]
-             [_ (= (set-count (fixed-move-neighbors v state)) 0)])])))))
+             [_ (set-empty? (fixed-move-neighbors v state))])])))))
 
 (define (move-related-vertices [state : State]) : (Set Var)
   (let ([g (state-graph state)])
@@ -303,7 +298,7 @@
                [(just _) #t]
                [(nothing)
                 (match-define (vertex-data _ fixed-neighbors) vd)
-                (> (set-count fixed-neighbors) 0)])]))))))
+                (not (set-empty? fixed-neighbors))])]))))))
 
 (define (move-neighbors [state : State] [v : Var]) : (Set Var)
   (let ([g (state-graph state)])
@@ -362,7 +357,7 @@
                   (dict-values edges))
                 [(just _) #f]
                 [(nothing)
-                 (= (set-count (fixed-move-neighbors v state)) 0) ])])))])))
+                 (set-empty? (fixed-move-neighbors v state))])])))])))
 
 (define (neighbors [state : State] [v : Var]) : (Set Var)
   (let ([g (state-graph state)])
@@ -595,7 +590,7 @@
                                                        (case v
                                                          [(nothing) #t]
                                                          [(just _) #f]))))])
-      (if (= 0 (set-count uncolorable-nodes))
+      (if (set-empty? uncolorable-nodes)
           (right (dict-filter-map maybe-mapping (lambda ([k : Var] [v : (Maybe X8664Register)]) v)))
           (left uncolorable-nodes)))))
 
@@ -614,7 +609,7 @@
      (select-loop trace (dict-add acc v1 (just reg)))]
     [(cons (trace-assignment (assign-free v con fixed-con)) trace)
      (match-define acc (select-loop trace acc))
-     (case (set-split
+     (case (set-elem
              (set-difference
                (valid-temporary-x86-64-registers)
                (set-add-all
@@ -626,11 +621,11 @@
                        [(just v) v]))
                    (set->list con)))))
        [(nothing) (panic #"Bad assign-free 2")]
-       [(just (tuple2 reg _))
+       [(just reg)
         (dict-add acc v (just reg))])]
     [(cons (trace-assignment (assign-spill v con fixed-con)) trace)
      (match-define acc (select-loop trace acc))
-     (case (set-split
+     (case (set-elem
              (set-difference
                (valid-temporary-x86-64-registers)
                (set-add-all
@@ -643,7 +638,7 @@
                    (set->list con)))))
        [(nothing)
         (dict-add acc v (nothing))]
-       [(just (tuple2 reg _))
+       [(just reg)
         (dict-add acc v (just reg))])]))
 
 (define (color-trace->bytes [v : ColorTrace]) : Bytes
