@@ -540,10 +540,10 @@ yaspl_bootstrap_library(
     deps = [
         ":intermediate-expression",
         ":intermediate-language",
-        ":module-name",
         ":module-signature",
         ":top-level-name",
         ":types",
+        ":prim-types",
         "//libraries/data:bytes",
         "//libraries/data:dict",
         "//libraries/data:list",
@@ -553,6 +553,16 @@ yaspl_bootstrap_library(
         "//libraries/yaspl:math-operations",
         "//libraries/yaspl:top-level-objects",
         "//libraries/yaspl:var",
+    ],
+)
+
+yaspl_bootstrap_library(
+    name = "prim-types",
+    srcs = ["prim-types.yaspl"],
+    deps = [
+        ":module-name",
+        ":types",
+        "//libraries/data:list",
     ],
 )
 
@@ -825,7 +835,7 @@ yaspl_bootstrap_library(
     deps = [
         ":module-name",
         ":module-signature",
-        ":prim-implementation",
+        ":prim-types",
         ":resolved-imports-language",
         ":sexp-printer",
         ":source-language",
