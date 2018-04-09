@@ -247,37 +247,49 @@
   (arg-max (lambda ([x : A]) (- 0 (f x))) elems))
 
 (define (num-interfering-neighbors [state : State] [v : Var]) : Int
-  (case (graph-vertex-label (state-graph state) v)
-    [(nothing)
-     (panic
-       (bytes-append
-         (varargs list #"Bad context: " (var->bytes v))))]
-    [(just (vertex-data fixed-constraints _))
-     (+
-       (set-count fixed-constraints)
-       (set-count (interfering-neighbors state v)))]))
-
+  (match-define g (state-graph state))
+  (+
+    (case (graph-vertex-label g v)
+      [(nothing)
+       (panic
+         (bytes-append
+           (varargs list #"Bad context: " (var->bytes v))))]
+      [(just (vertex-data fixed-constraints _))
+       (set-count fixed-constraints)])
+    (case (graph-vertex-edges g v)
+      [(nothing) (panic #"Bad vertex")]
+      [(just edges)
+       (dict-fold
+         edges
+         (lambda ([v : Var] [e : EdgeData] [acc : Int]) : Int
+           (case e
+             [(move-edge) acc]
+             [(interference-edge) (+ 1 acc)]))
+         0)])))
 
 (define (state-empty? [state : State]) : Boolean
   (dict-empty? (graph-vertices (state-graph state))))
 
 (define (non-move-related-vertices [state : State]) : (Set Var)
   (let ([g (state-graph state)])
-    (set-filter
-      (dict-keys (graph-vertices g))
-      (lambda ([v : Var])
+    (dict-fold
+      (graph-vertices g)
+      (lambda ([v : Var] [vd : VertexData] [acc : (Set Var)]) : (Set Var)
         (case (graph-vertex-edges g v)
           [(nothing) (panic #"Bad vertex")]
           [(just edges)
-           (case
-             (findf
-               (lambda ([e : EdgeData])
-                 (case e
-                   [(move-edge) #t]
-                   [_ #f]))
-               (dict-values edges))
-             [(just _) #f]
-             [_ (set-empty? (fixed-move-neighbors v state))])])))))
+           (if (case
+                 (dict-find
+                   edges
+                   (lambda ([v2 : Var] [e : EdgeData]) : (Maybe Void)
+                     (case e
+                       [(move-edge) (just (void))]
+                       [_ (nothing)])))
+                 [(just _) #f]
+                 [_ (set-empty? (fixed-move-neighbors v state))])
+               (set-add acc v)
+               acc)]))
+      (make-set var-cmp))))
 
 (define (move-related-vertices [state : State]) : (Set Var)
   (let ([g (state-graph state)])
@@ -305,13 +317,13 @@
     (case (graph-vertex-edges g v)
       [(nothing) (panic #"Bad vertex")]
       [(just edges)
-       (dict-keys
-         (dict-filter
-           edges
-           (lambda ([v : Var] [e : EdgeData])
-             (case e
-               [(move-edge) #t]
-               [(interference-edge) #f]))))])))
+       (dict-fold
+         edges
+         (lambda ([v : Var] [e : EdgeData] [acc : (Set Var)]) : (Set Var)
+           (case e
+             [(move-edge) (set-add acc v)]
+             [(interference-edge) acc]))
+         (make-set var-cmp))])))
 
 (define (fixed-move-neighbors [v : Var] [state : State]) : (Set X8664Register)
   (case (graph-vertex-label (state-graph state) v)
@@ -324,13 +336,14 @@
     (case (graph-vertex-edges g v)
       [(nothing) (panic #"Bad vertex")]
       [(just edges)
-       (dict-keys
-         (dict-filter
-           edges
-           (lambda ([v : Var] [e : EdgeData])
-             (case e
-               [(move-edge) #f]
-               [(interference-edge) #t]))))])))
+       (dict-fold
+         edges
+         (lambda ([v : Var] [e : EdgeData] [acc : (Set Var)]) : (Set Var)
+           (case e
+             [(move-edge) acc]
+             [(interference-edge) (set-add acc v)]))
+         (make-set var-cmp))])))
+
 
 (define (fixed-interfering-neighbors [state : State] [v : Var]) : (Set X8664Register)
   (case (graph-vertex-label (state-graph state) v)
@@ -342,22 +355,25 @@
     (case (graph-vertex-edges g v)
       [(nothing) (panic #"Bad vertex")]
       [(just edges)
-       (set-filter
-         (dict-keys edges)
-         (lambda ([v : Var])
+       (dict-fold
+         edges
+         (lambda ([v : Var] [ed : EdgeData] [acc : (Set Var)]) : (Set Var)
            (case (graph-vertex-edges g v)
              [(nothing) (panic #"Bad vertex")]
              [(just edges)
-              (case
-                (findf
-                  (lambda ([e : EdgeData])
-                    (case e
-                      [(move-edge) #t]
-                      [_ #f]))
-                  (dict-values edges))
-                [(just _) #f]
-                [(nothing)
-                 (set-empty? (fixed-move-neighbors v state))])])))])))
+              (if (case
+                    (dict-find
+                      edges
+                      (lambda ([v2 : Var] [e : EdgeData]) : (Maybe Void)
+                        (case e
+                          [(move-edge) (just (void))]
+                          [_ (nothing)])))
+                    [(just _) #f]
+                    [(nothing)
+                     (set-empty? (fixed-move-neighbors v state))])
+                  acc
+                  (set-add acc v))]))
+         (make-set var-cmp))])))
 
 (define (neighbors [state : State] [v : Var]) : (Set Var)
   (let ([g (state-graph state)])
@@ -549,16 +565,25 @@
 (define (is-coalescable-fixed-edge [s : State] [v : Var] [reg : X8664Register]) : Boolean
   (match-define (state g _) s)
 
-  (< (+
-       (set-count
-         (set-filter
-           (interfering-neighbors s v)
-           (lambda ([v : Var]) : Boolean
-             (case (graph-vertex-label g v)
-               [(nothing) (panic #"Bad vertex")]
-               [(just (vertex-data fixed-regs _)) (not (set-member? fixed-regs reg))]))))
-       (set-count (fixed-interfering-neighbors s v)))
+  (< (+ (case (graph-vertex-edges g v)
+          [(nothing) (panic #"Bad vertex")]
+          [(just edges)
+           (dict-fold
+             edges
+             (lambda ([v : Var] [e : EdgeData] [acc : Int]) : Int
+               (case e
+                 [(move-edge) acc]
+                 [(interference-edge)
+                  (case (graph-vertex-label g v)
+                    [(nothing) (panic #"Bad vertex")]
+                    [(just (vertex-data fixed-regs _))
+                     (if (set-member? fixed-regs reg)
+                         acc
+                         (+ 1 acc))])]))
+             0)])
+        (set-count (fixed-interfering-neighbors s v)))
      (num-valid-temporary-x86-64-registers)))
+
 
 
 (define (is-coalescable-edge [s : State] [v1 : Var] [v2 : Var]) : Boolean
@@ -573,13 +598,12 @@
             [(just (vertex-data regs2 _))
              (set-count (set-union regs1 regs2))])]))))
   (< (+ fixed-count
-       (set-count
-         (set-filter
-           (set-union
-             (interfering-neighbors s v1)
-             (interfering-neighbors s v2))
-           (lambda ([v : Var])
-             (>= (num-interfering-neighbors s v) (num-valid-temporary-x86-64-registers))))))
+        (set-filter-count
+          (set-union
+            (interfering-neighbors s v1)
+            (interfering-neighbors s v2))
+          (lambda ([v : Var])
+            (>= (num-interfering-neighbors s v) (num-valid-temporary-x86-64-registers)))))
      (num-valid-temporary-x86-64-registers)))
 
 (define (select-loop-start [trace : (List ColorTrace)])
@@ -604,7 +628,7 @@
      (match-define acc (select-loop trace acc))
      (case (dict-ref acc v2)
        [(nothing) (panic #"Bad assign-same")]
-       [(just reg) (dict-add acc v1 reg) ])]
+       [(just reg) (dict-add acc v1 reg)])]
     [(cons (trace-assignment (assign-fixed v1 reg)) trace)
      (select-loop trace (dict-add acc v1 (just reg)))]
     [(cons (trace-assignment (assign-free v con fixed-con)) trace)
@@ -621,25 +645,24 @@
                        [(just v) v]))
                    (set->list con)))))
        [(nothing) (panic #"Bad assign-free 2")]
-       [(just reg)
-        (dict-add acc v (just reg))])]
+       [reg
+        (dict-add acc v reg)])]
     [(cons (trace-assignment (assign-spill v con fixed-con)) trace)
      (match-define acc (select-loop trace acc))
-     (case (set-elem
-             (set-difference
-               (valid-temporary-x86-64-registers)
-               (set-add-all
-                 fixed-con
-                 (filter-map
-                   (lambda ([v : Var]) : (Maybe X8664Register)
-                     (case (dict-ref acc v)
-                       [(nothing) (panic #"Bad assign-spill")]
-                       [(just v) v]))
-                   (set->list con)))))
-       [(nothing)
-        (dict-add acc v (nothing))]
-       [(just reg)
-        (dict-add acc v (just reg))])]))
+     (dict-add
+       acc
+       v
+       (set-elem
+         (set-difference
+           (valid-temporary-x86-64-registers)
+           (set-add-all
+             fixed-con
+             (filter-map
+               (lambda ([v : Var]) : (Maybe X8664Register)
+                 (case (dict-ref acc v)
+                   [(nothing) (panic #"Bad assign-spill")]
+                   [(just v) v]))
+               (set->list con))))))]))
 
 (define (color-trace->bytes [v : ColorTrace]) : Bytes
   (case v

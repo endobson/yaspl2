@@ -135,7 +135,6 @@ yaspl_bootstrap_library(
         "//libraries/data:list",
         "//libraries/data:maybe",
         "//libraries/data:numbers",
-        "//libraries/data:set",
         "//libraries/yaspl:math-operations",
         "//libraries/yaspl:x86-64-assembly",
     ],
