@@ -275,20 +275,9 @@
     (dict-fold
       (graph-vertices g)
       (lambda ([v : Var] [vd : VertexData] [acc : (Set Var)]) : (Set Var)
-        (case (graph-vertex-edges g v)
-          [(nothing) (panic #"Bad vertex")]
-          [(just edges)
-           (if (case
-                 (dict-find
-                   edges
-                   (lambda ([v2 : Var] [e : EdgeData]) : (Maybe Void)
-                     (case e
-                       [(move-edge) (just (void))]
-                       [_ (nothing)])))
-                 [(just _) #f]
-                 [_ (set-empty? (fixed-move-neighbors v state))])
-               (set-add acc v)
-               acc)]))
+        (if (move-related-vertex? state v)
+            acc
+            (set-add acc v)))
       (make-set var-cmp))))
 
 (define (move-related-vertices [state : State]) : (Set Var)
@@ -297,20 +286,35 @@
       (dict-filter
         (graph-vertices g)
         (lambda ([v : Var] [vd : VertexData]) : Boolean
-          (case (graph-vertex-edges g v)
-            [(nothing) (panic #"Bad vertex")]
-            [(just edges)
-             (case
-               (findf
-                 (lambda ([e : EdgeData])
-                   (case e
-                     [(move-edge) #t]
-                     [_ #f]))
-                 (dict-values edges))
-               [(just _) #t]
-               [(nothing)
-                (match-define (vertex-data _ fixed-neighbors) vd)
-                (not (set-empty? fixed-neighbors))])]))))))
+          (move-related-vertex? state v))))))
+
+(define (move-related-vertex? [state : State] [v : Var]) : Boolean
+  (case (graph-vertex-edges (state-graph state) v)
+    [(nothing) (panic #"Bad vertex")]
+    [(just edges)
+     (case
+       (dict-find
+         edges
+         (lambda ([v2 : Var] [e : EdgeData]) : (Maybe Void)
+           (case e
+             [(move-edge) (just (void))]
+             [_ (nothing)])))
+       [(just _) #t]
+       [(nothing)
+        (not (set-empty? (fixed-move-neighbors v state)))])]))
+
+(define (non-move-related-neighbors [state : State] [v : Var]) : (Set Var)
+  (let ([g (state-graph state)])
+    (case (graph-vertex-edges g v)
+      [(nothing) (panic #"Bad vertex")]
+      [(just edges)
+       (dict-fold
+         edges
+         (lambda ([v : Var] [ed : EdgeData] [acc : (Set Var)]) : (Set Var)
+           (if (move-related-vertex? state v)
+               acc
+               (set-add acc v)))
+         (make-set var-cmp))])))
 
 (define (move-neighbors [state : State] [v : Var]) : (Set Var)
   (let ([g (state-graph state)])
@@ -349,31 +353,6 @@
   (case (graph-vertex-label (state-graph state) v)
     [(nothing) (panic #"Bad vertex: fixed-neighbors")]
     [(just (vertex-data fixed-conflicts _)) fixed-conflicts]))
-
-(define (non-move-related-neighbors [state : State] [v : Var]) : (Set Var)
-  (let ([g (state-graph state)])
-    (case (graph-vertex-edges g v)
-      [(nothing) (panic #"Bad vertex")]
-      [(just edges)
-       (dict-fold
-         edges
-         (lambda ([v : Var] [ed : EdgeData] [acc : (Set Var)]) : (Set Var)
-           (case (graph-vertex-edges g v)
-             [(nothing) (panic #"Bad vertex")]
-             [(just edges)
-              (if (case
-                    (dict-find
-                      edges
-                      (lambda ([v2 : Var] [e : EdgeData]) : (Maybe Void)
-                        (case e
-                          [(move-edge) (just (void))]
-                          [_ (nothing)])))
-                    [(just _) #f]
-                    [(nothing)
-                     (set-empty? (fixed-move-neighbors v state))])
-                  acc
-                  (set-add acc v))]))
-         (make-set var-cmp))])))
 
 (define (neighbors [state : State] [v : Var]) : (Set Var)
   (let ([g (state-graph state)])
