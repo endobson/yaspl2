@@ -347,6 +347,15 @@
     [(r:one-byte-scale) (l:one-byte-scale)]
     [(r:eight-byte-scale) (l:eight-byte-scale)]))
 
+;; Takes number of bytes in rax.
+;; Return pointer in rax.
+(define (heap-allocate) : (l:Instruction Reg)
+  (l:function-call-inst (fixed-reg (rax))
+           (l:direct-call #"yprim_heap_allocate")
+           (varargs list (fixed-reg (rax)))
+           (empty)))
+
+
 (define (lower-function [fun : r:FunctionDefinition]) : (l:FunctionDefinition Reg)
   (match-define (r:function-definition name convention blocks next-var next-block) fun)
   (match-define lowered-entry-block next-block)
@@ -537,7 +546,7 @@
      (tuple3 (empty) (ann-term (l:halt)) acc)]
     [(r:tail-call f args)
      (match-define (tuple2 arg-insts arg-regs)
-       (put-arguments-in-registers args (varargs list (rdi) (rsi) (rdx) (rcx) (r8) (r9)) (rax)))
+       (put-arguments-in-registers args (varargs list (rdi) (rsi) (rdx) (rcx) (r8) (r9))))
      (tuple3
        (append
          arg-insts
@@ -616,26 +625,26 @@
 ;; TODO make this not use the heap so that it can be used from the GC system
 (define (put-arguments-in-registers
           [args : (List Var)]
-          [regs : (List X8664Register)]
-          [overflow-register : X8664Register]) :
+          [regs : (List X8664Register)]) :
   (Tuple2 (List (l:Instruction Reg)) (List Reg))
   (case regs
     [(empty)
+     (match-define overflow-register (rax))
      (case args
        [(empty) (tuple2 (empty) (empty))]
        [_
          (tuple2
            (cons
-             (l:move (fixed-reg overflow-register) (fixed-reg (r15)))
+             (l:int-literal (fixed-reg overflow-register) (* 8 (length args)))
              (cons
-               (l:numeric-op-immediate (fixed-reg (r15)) (add-op) (s32 (* 8 (length args))))
+               (heap-allocate)
                (put-arguments-in-memory args 0 overflow-register)))
            (cons (fixed-reg overflow-register) (empty)))])]
     [(cons reg regs)
      (case args
        [(empty) (tuple2 (empty) (empty))]
        [(cons arg args)
-        (case (put-arguments-in-registers args regs overflow-register)
+        (case (put-arguments-in-registers args regs)
           [(tuple2 arg-insts arg-regs)
            (tuple2
              (cons (l:move (fixed-reg reg) (temporary-reg arg)) arg-insts)
@@ -721,18 +730,12 @@
     [(r:heap-allocate-inst output num-bytes)
      (varargs list
        (l:move (fixed-reg (rax)) (temporary-reg num-bytes))
-       (l:function-call-inst (fixed-reg (rax))
-         (l:direct-call #"yprim_heap_allocate")
-         (varargs list (fixed-reg (rax)))
-         (empty))
+       (heap-allocate)
        (l:move (temporary-reg output) (fixed-reg (rax))))]
     [(r:heap-allocate-inst/static output num-bytes)
      (varargs list
        (l:int-literal (fixed-reg (rax)) (s32->s64 num-bytes))
-       (l:function-call-inst (fixed-reg (rax))
-         (l:direct-call #"yprim_heap_allocate")
-         (varargs list (fixed-reg (rax)))
-         (empty))
+       (heap-allocate)
        (l:move (temporary-reg output) (fixed-reg (rax))))]
     [(r:pointer-set!-inst (r:eight-byte-mem-op) ptr (r:fixed-pointer-offset offset) val)
      (varargs list (l:store-8byte (temporary-reg ptr) offset (temporary-reg val)))]
@@ -778,7 +781,7 @@
        (l:compare-memory (temporary-reg output) (fixed-reg (rcx)) (fixed-reg (rdi)) (fixed-reg (rsi))))]
     [(r:function-call-inst output f args)
      (match-define (tuple2 arg-insts arg-regs)
-       (put-arguments-in-registers args (varargs list (rdi) (rsi) (rdx) (rcx) (r8) (r9)) (rax)))
+       (put-arguments-in-registers args (varargs list (rdi) (rsi) (rdx) (rcx) (r8) (r9))))
      (append
        arg-insts
        (append
