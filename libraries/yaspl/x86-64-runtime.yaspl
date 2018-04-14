@@ -65,6 +65,8 @@
                 (jb #"yprim_start_panic")
                 ;; Save heap to %r15 which is our bump pointer
                 (movq (reg (rax)) (reg (r15)))
+                ;; Save initial value to r14 for setting up the thread control block later.
+                (movq (reg (rax)) (reg (r14)))
 
                 ;; Ignore number of args as we want to reuse code for environment.
                 (addq (imm 8) (reg (rsp)))
@@ -186,6 +188,13 @@
             ;; Call main and then exit
             (basic-block #"start_call_main"
               (varargs join-list
+                ;; Set up the thread control block
+                (subq (imm #x08) (rsp))
+                ;; Make our initial allocation look like 2 Mebibytes.
+                (addq (imm #x200000) (reg (r14)))
+                (movq (reg (r14)) (mem (rsp) 0))
+                (movq (reg (rsp)) (reg (r14)))
+
 
                 ;; Set up initial base pointer
                 (movq (imm 0) (reg (rbp)))
@@ -684,12 +693,30 @@
 
     ;; These are not native functions, but just native subroutines
     ;; They do not follow standard calling conventions
-
-    ;; heap allocation
-    (prim-assembly-function #"heap_allocate"
-      (varargs list
-        (xaddq (rax) (r15))
-        (ret)))
+    (tuple2
+      (function-fragment
+        #"yprim_heap_allocate"
+        (varargs list
+          (section
+            (varargs list
+              (basic-block #"yprim_heap_allocate"
+                (varargs join-list
+                  (xaddq (rax) (r15))
+                  (cmpq (reg (r15)) (mem (r14) 0))
+                  (jbe #"yprim_heap_allocate_slow")
+                  (ret)))
+              (basic-block #"yprim_heap_allocate_slow"
+                (varargs join-list
+                 ;; Reverse the xadd
+                 (subq (reg (r15)) (rax))
+                 (negq (rax))
+                 ;; 'allocate' 2MiB more
+                 (movq (mem (r14) 0) (reg (r15)))
+                 (addq (imm #x200000) (mem (r14) 0))
+                 (jmp #"yprim_heap_allocate")))))))
+      (address-fragment
+        #"yprim_heap_allocate_closure"
+        #"yprim_heap_allocate"))
 
     ;; variant-panic
     (prim-assembly-function #"variant_panic"
