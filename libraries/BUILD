@@ -229,7 +229,6 @@ yaspl_library(
         ":buffered-port",
         ":io",
         ":ip",
-        ":mach",
         ":tcp",
         "//libraries/data:bytes",
         "//libraries/data:list",
