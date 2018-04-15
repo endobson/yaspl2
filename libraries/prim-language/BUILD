@@ -212,6 +212,8 @@ yaspl_library(
         ":prim-language",
         ":syscalls",
         "//libraries:sexp-parser",
+        "//libraries:sexp-printer",
+        "//libraries/data:bytes",
         "//libraries/data:either",
         "//libraries/data:list",
         "//libraries/data:tuples",
@@ -502,6 +504,17 @@ binary_test(
     name = "pointers2_test",
     binary = ":pointers2",
     exit_code = 3,
+)
+
+prim_binary(
+    name = "pointers3",
+    srcs = ["pointers3.prim"],
+)
+
+binary_test(
+    name = "pointers3_test",
+    binary = ":pointers3",
+    exit_code = 0,
 )
 
 prim_binary(
