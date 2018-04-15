@@ -38,8 +38,7 @@ racket_library(
     name = "library-compiler-compiler",
     srcs = ["library-compiler-compiler.rkt"],
     deps = [
-        ":compiler",
-        ":libraries",
+        ":bootstrap-compiler",
     ],
 )
 
@@ -47,8 +46,7 @@ racket_library(
     name = "main-stub-compiler",
     srcs = ["main-stub-compiler.rkt"],
     deps = [
-        ":compiler",
-        ":libraries",
+        ":bootstrap-compiler",
     ],
 )
 
@@ -56,8 +54,7 @@ racket_library(
     name = "linker-compiler",
     srcs = ["linker-compiler.rkt"],
     deps = [
-        ":compiler",
-        ":libraries",
+        ":bootstrap-compiler",
     ],
 )
 
@@ -139,6 +136,16 @@ racket_library(
         ":utils",
     ],
 )
+
+racket_library(
+    name = "bootstrap-compiler",
+    srcs = ["bootstrap-compiler.rkt"],
+    deps = [
+        ":compiler",
+        ":libraries",
+    ],
+)
+
 
 racket_library(
     name = "topo-sort",
