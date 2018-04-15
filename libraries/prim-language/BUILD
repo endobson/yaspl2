@@ -16,6 +16,12 @@ yaspl_binary(
     deps = [":prim-language-compiler-main"],
 )
 
+yaspl_binary(
+    name = "prim-language-library-compiler",
+    main_module = "prim_language_library_compiler_main",
+    deps = [":prim-language-library-compiler-main"],
+)
+
 yaspl_bootstrap_library(
     name = "color-graph",
     srcs = ["color-graph.yaspl"],
@@ -202,6 +208,27 @@ yaspl_library(
         "//libraries/data:set",
         "//libraries/data:tuples",
         "//libraries/yaspl:var",
+    ],
+)
+
+yaspl_library(
+    name = "prim-language-library-compiler-main",
+    srcs = ["prim-language-library-compiler-main.yaspl"],
+    deps = [
+        ":prim-language",
+        ":prim-language-parser",
+        ":prim-language-type-checker",
+        ":prim-to-register",
+        ":register-language-compiler",
+        ":simplify-register-language",
+        "//libraries:io",
+        "//libraries:mach-o-writer2_lib",
+        "//libraries:sexp-parser",
+        "//libraries/data:either",
+        "//libraries/data:list",
+        "//libraries/data:maybe",
+        "//libraries/data:tuples",
+        "//libraries/yaspl:x86-64-assembly",
     ],
 )
 
@@ -396,7 +423,12 @@ yaspl_bootstrap_library(
 )
 
 ################################################################################
-load(":prim-language.bzl", "prim_binary", "binary_test")
+load(":prim-language.bzl", "prim_binary", "prim_library", "binary_test")
+
+prim_library(
+    name = "call1_lib",
+    srcs = ["call1.prim"],
+)
 
 prim_binary(
     name = "call1",

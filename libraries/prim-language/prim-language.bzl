@@ -47,6 +47,45 @@ prim_binary = rule(
   }
 )
 
+def _lib_impl(ctx):
+  # TODO check that srcs has exactly one value
+  ctx.action(
+    inputs = [ctx.executable._compiler] + ctx.files.srcs,
+    outputs = [ctx.outputs.object],
+    executable = ctx.executable._compiler,
+    arguments = [
+      ctx.files.srcs[0].path,
+      ctx.outputs.object.path,
+    ]
+  )
+
+  return struct()
+
+prim_library = rule(
+  implementation = _lib_impl,
+  outputs = {
+    "object": "%{name}.o",
+  },
+  attrs = {
+    "srcs": attr.label_list(
+      allow_files=FileType([".prim"]),
+      mandatory=True,
+      non_empty=True
+    ),
+    "_compiler": attr.label(
+      default=Label("//libraries/prim-language:prim-language-library-compiler"),
+      executable=True,
+      cfg="host",
+    ),
+    "_linker": attr.label(
+      default=Label("//libraries:linker"),
+      executable=True,
+      cfg="host",
+    ),
+  }
+)
+
+
 def _binary_test_impl(ctx):
   ctx.file_action(
     output = ctx.outputs.executable,
