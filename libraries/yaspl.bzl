@@ -64,7 +64,8 @@ def _bin_impl(ctx):
     ]
   )
 
-  input_objects = list(_dependent_objects(ctx) + [ctx.outputs.main_stub_object])
+  input_objects = list(_dependent_objects(ctx) + [ctx.outputs.main_stub_object] +
+                                               ctx.attr._runtime_objects.files)
   input_object_paths = [obj.path for obj in input_objects]
 
   ctx.action(
@@ -99,6 +100,10 @@ _bootstrap_linker = attr.label(
  cfg="host",
 )
 
+_yaspl_runtime_objects = attr.label(
+ default=Label("//libraries/yaspl/runtime:runtime"),
+)
+
 
 yaspl_library = rule(
   implementation = _lib_impl,
@@ -130,6 +135,7 @@ yaspl_binary = rule(
     "deps": attr.label_list(),
     "_main_stub": _bootstrap_main_stub,
     "_linker": _bootstrap_linker,
+    "_runtime_objects": _yaspl_runtime_objects,
   }
 )
 
@@ -146,6 +152,7 @@ yaspl_prim_test = rule(
     "deps": attr.label_list(),
     "_main_stub": _bootstrap_main_stub,
     "_linker": _bootstrap_linker,
+    "_runtime_objects": _yaspl_runtime_objects,
   }
 )
 
