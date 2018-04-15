@@ -4,6 +4,14 @@ package(
     default_visibility = ["//visibility:public"],
 )
 
+filegroup(
+    name = "prim_language_library_compiler_library_files",
+    data = [
+        ":prim-language-library-compiler-main.src.list",
+        ":prim-language-library-compiler-main.srcs",
+    ],
+)
+
 yaspl_binary(
     name = "demo",
     main_module = "prim_language_demo",
@@ -211,7 +219,7 @@ yaspl_library(
     ],
 )
 
-yaspl_library(
+yaspl_bootstrap_library(
     name = "prim-language-library-compiler-main",
     srcs = ["prim-language-library-compiler-main.yaspl"],
     deps = [
@@ -232,7 +240,7 @@ yaspl_library(
     ],
 )
 
-yaspl_library(
+yaspl_bootstrap_library(
     name = "prim-language-parser",
     srcs = ["prim-language-parser.yaspl"],
     deps = [
@@ -248,7 +256,7 @@ yaspl_library(
     ],
 )
 
-yaspl_library(
+yaspl_bootstrap_library(
     name = "prim-language-type-checker",
     srcs = ["prim-language-type-checker.yaspl"],
     deps = [
@@ -296,7 +304,7 @@ yaspl_library(
     ],
 )
 
-yaspl_library(
+yaspl_bootstrap_library(
     name = "prim-to-register",
     srcs = ["prim-to-register.yaspl"],
     deps = [

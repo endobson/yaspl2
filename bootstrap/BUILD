@@ -34,6 +34,16 @@ racket_binary(
     deps = [":linker-compiler"],
 )
 
+racket_binary(
+    name = "prim-language-library-compiler-compiler_bin",
+    data = [
+        "//libraries:compiler_library_files",
+        "//libraries/prim-language:prim_language_library_compiler_library_files",
+    ],
+    main_module = ":prim-language-library-compiler-compiler.rkt",
+    deps = [":prim-language-library-compiler-compiler"],
+)
+
 racket_library(
     name = "library-compiler-compiler",
     srcs = ["library-compiler-compiler.rkt"],
@@ -53,6 +63,14 @@ racket_library(
 racket_library(
     name = "linker-compiler",
     srcs = ["linker-compiler.rkt"],
+    deps = [
+        ":bootstrap-compiler",
+    ],
+)
+
+racket_library(
+    name = "prim-language-library-compiler-compiler",
+    srcs = ["prim-language-library-compiler-compiler.rkt"],
     deps = [
         ":bootstrap-compiler",
     ],
@@ -145,7 +163,6 @@ racket_library(
         ":libraries",
     ],
 )
-
 
 racket_library(
     name = "topo-sort",
@@ -250,6 +267,36 @@ genrule(
 )
 
 genrule(
+    name = "gen_bootstrap_prim_language_library_compiler",
+    outs = ["bootstrap_prim_language_library_compiler.s"],
+    cmd = "$(location :prim-language-library-compiler-compiler_bin) $@",
+    tools = [":prim-language-library-compiler-compiler_bin"],
+)
+
+genrule(
+    name = "assemble_bootstrap_prim_language_library_compiler",
+    srcs = ["bootstrap_prim_language_library_compiler.s"],
+    outs = ["bootstrap_prim_language_library_compiler.o"],
+    cmd = "as $(location bootstrap_prim_language_library_compiler.s) " +
+          "-o $(location bootstrap_prim_language_library_compiler.o)",
+)
+
+genrule(
+    name = "link_bootstrap_prim_language_library_compiler",
+    srcs = ["bootstrap_prim_language_library_compiler.o"],
+    outs = ["bootstrap_prim_language_library_compiler"],
+    cmd = "ld -arch x86_64 " +
+          "-macosx_version_min 10.11 " +
+          "-static " +
+          "-no_uuid " +
+          "-sectcreate __DATA __data /dev/null " +
+          "$(location bootstrap_prim_language_library_compiler.o) " +
+          "-o $(location bootstrap_prim_language_library_compiler)",
+    executable = 1,
+    output_to_bindir = 1,
+)
+
+genrule(
     name = "gen_compiler_binaries",
     outs = ["compiler_binaries"],
     cmd = "touch $@",
@@ -257,6 +304,7 @@ genrule(
         ":bootstrap_library_compiler",
         ":bootstrap_linker",
         ":bootstrap_main_stub",
+        ":bootstrap_prim_language_library_compiler",
     ],
 )
 
@@ -281,6 +329,14 @@ filegroup(
     srcs = select({
         ":yaspl_bootstrap": [":bootstrap_linker"],
         "//conditions:default": [":saved_linker"],
+    }),
+)
+
+filegroup(
+    name = "prim_language_library_compiler",
+    srcs = select({
+        ":yaspl_bootstrap": [":bootstrap_prim_language_library_compiler"],
+        "//conditions:default": [":saved_prim_language_library_compiler"],
     }),
 )
 

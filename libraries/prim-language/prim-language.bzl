@@ -73,12 +73,12 @@ prim_library = rule(
       non_empty=True
     ),
     "_compiler": attr.label(
-      default=Label("//libraries/prim-language:prim-language-library-compiler"),
+      default=Label("//bootstrap:prim_language_library_compiler"),
       executable=True,
       cfg="host",
     ),
     "_linker": attr.label(
-      default=Label("//libraries:linker"),
+      default=Label("//bootstrap:linker"),
       executable=True,
       cfg="host",
     ),
