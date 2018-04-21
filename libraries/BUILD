@@ -123,6 +123,18 @@ yaspl_test(
     ],
 )
 
+yaspl_test(
+    name = "fill-stack-test",
+    size = "small",
+    srcs = ["fill-stack-test.yaspl"],
+    main_module = "fill_stack_test",
+    deps = [
+        ":io",
+        "//libraries/data:list",
+        "//libraries/data:numbers",
+    ],
+)
+
 yaspl_bootstrap_library(
     name = "compiler-main",
     srcs = ["compiler-main.yaspl"],

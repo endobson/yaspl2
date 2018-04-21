@@ -7,7 +7,6 @@ package(
 racket_binary(
     name = "library-compiler-compiler_bin",
     data = [
-        "//libraries:compiler_library_files",
         "//libraries:library_compiler_library_files",
     ],
     main_module = ":library-compiler-compiler.rkt",
@@ -17,7 +16,6 @@ racket_binary(
 racket_binary(
     name = "main-stub-compiler_bin",
     data = [
-        "//libraries:compiler_library_files",
         "//libraries:main_stub_library_files",
     ],
     main_module = ":main-stub-compiler.rkt",
@@ -27,7 +25,6 @@ racket_binary(
 racket_binary(
     name = "linker-compiler_bin",
     data = [
-        "//libraries:compiler_library_files",
         "//libraries:linker_library_files",
     ],
     main_module = ":linker-compiler.rkt",
@@ -37,7 +34,6 @@ racket_binary(
 racket_binary(
     name = "prim-language-library-compiler-compiler_bin",
     data = [
-        "//libraries:compiler_library_files",
         "//libraries/prim-language:prim_language_library_compiler_library_files",
     ],
     main_module = ":prim-language-library-compiler-compiler.rkt",
@@ -158,6 +154,10 @@ racket_library(
 racket_library(
     name = "bootstrap-compiler",
     srcs = ["bootstrap-compiler.rkt"],
+    data = [
+        "//libraries:compiler_library_files",
+        "//libraries/yaspl/runtime:runtime-sources",
+    ],
     deps = [
         ":compiler",
         ":libraries",

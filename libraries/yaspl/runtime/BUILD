@@ -10,3 +10,11 @@ filegroup(
     srcs = [":fill-stack"],
     visibility = ["//visibility:public"],
 )
+
+filegroup(
+    name = "runtime-sources",
+    srcs = [":fill-stack.prim"],
+    visibility = [
+        "//bootstrap:__pkg__",
+    ],
+)
