@@ -6,6 +6,8 @@
   (io)
   (list)
   (prim)
+  (prim-language-compiler)
+  (tuples)
   (x86-64-runtime)
   (yaspl top-level-objects-to-x86-64)
   (yaspl x86-64-assembly)
@@ -22,6 +24,30 @@
   (match-define (assembly-fragments text2 const2) f2)
   (assembly-fragments (append text1 text2) (append const1 const2)))
 
+(define (split-module-files [module-files : (List Bytes)]) : (Tuple2 (List Bytes) (List Bytes))
+  (partition-eithers
+    (map
+      (lambda ([file : Bytes]) : (Either Bytes Bytes)
+        (if (ends-with? file #".yaspl")
+            (left file)
+            (right file)))
+      module-files)))
+
+(define (compile-prim-files [prim-files : (List Bytes)]) : (Either Bytes AssemblyFragments)
+  (compile-prim-files* prim-files (empty)))
+
+
+(define (compile-prim-files* [prim-files : (List Bytes)] [acc : (List TextFragment)]) : (Either Bytes AssemblyFragments)
+  (case prim-files
+    [(empty)
+     (right (assembly-fragments acc (empty)))]
+    [(cons prim-file prim-files)
+     (case (compile-prim-program (call-with-input-file prim-file read-all-bytes))
+       [(left v)
+        (left v)]
+       [(right text-fragments)
+        (compile-prim-files* prim-files (append text-fragments acc))])]))
+
 (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Int
   (case (array->list args)
     [(empty)
@@ -37,9 +63,10 @@
        (write-line #"No module name supplied" stderr)
        1)]
     [(cons _ (cons output-file-name (cons module-name module-files)))
+     (match-define (tuple2 yaspl-files prim-files) (split-module-files module-files))
      (call-with-output-file output-file-name
        (lambda ([output : OutputPort])
-         (case (parse-module-files module-files)
+         (case (parse-module-files yaspl-files)
            [(left v)
             (begin
               (write-line v stderr)
@@ -51,10 +78,18 @@
                  (write-line v stderr)
                  1)]
               [(right code)
-               (let ([assembly
-                       (append-fragments
-                         (yaspl-runtime (bytes-append (varargs list module-name #"_main")))
-                         (convert-objects code))])
-                 (begin
-                   (write-fragments assembly output)
-                   0))])])))]))
+               (case (compile-prim-files prim-files)
+                 [(left v)
+                  (begin
+                    (write-line v stderr)
+                    1)]
+                 [(right prim-fragments)
+                  (let ([assembly
+                          (append-fragments
+                            prim-fragments
+                            (append-fragments
+                              (yaspl-runtime (bytes-append (varargs list module-name #"_main")))
+                              (convert-objects code)))])
+                    (begin
+                      (write-fragments assembly output)
+                      0))])])])))]))

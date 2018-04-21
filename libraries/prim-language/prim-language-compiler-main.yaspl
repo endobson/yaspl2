@@ -1,31 +1,12 @@
 #:module (prim-language-compiler-main)
 #:import {
-  (bytes)
   (either)
   (io)
   (join-list)
   (list)
   (mach-o-writer2)
-  (maybe)
   (prim)
-  (prim-language) {
-    #:types
-      [FunctionDefinition p:FunctionDefinition]
-      [Module p:Module]
-    #:values
-      [function-definition->function-type p:function-definition->function-type]
-      [function-definition-name p:function-definition-name]
-    #:patterns
-      [function-type p:function-type]
-      [int64-type p:int64-type]
-      [module p:module]
-  }
-  (prim-language-parser)
-  (prim-language-type-checker)
-  (prim-to-register)
-  (register-language-compiler)
-  (sexp-parser)
-  (simplify-register-language)
+  (prim-language-compiler)
   (tuples)
   (yaspl x86-64-assembly)
 }
@@ -110,48 +91,6 @@
     [(cons _ (cons file-name (cons out-file-name (empty))))
      (right (tuple2 file-name out-file-name))]))
 
-(define (compile-functions [fs : (List p:FunctionDefinition)] [acc : (List TextFragment)])
-  : (Either Bytes (List TextFragment))
-  (case fs
-    [(empty) (right acc)]
-    [(cons f fs)
-     (case (compile-function (simplify-function-definition (convert-function f)))
-       [(left v) (left v)]
-       [(right (tuple2 _ fragment)) (compile-functions fs (cons fragment acc))])]))
-
-(define (compile-prim-program [file-bytes : Bytes]) : (Either Bytes (List TextFragment))
-  (case (parse-single-sexp file-bytes)
-    [(left v)
-     (left v)]
-    [(right sexp)
-     (case (parse-module sexp)
-       [(left v)
-        (left v)]
-       [(right module)
-        (case (type-check module)
-          [(just v) (left v)]
-          [(nothing)
-           (case (check-main-function module)
-             [(just v) (left v)]
-             [(nothing)
-              (case module
-                [(p:module name functions)
-                 (compile-functions
-                   functions
-                   (start-function-fragments #"main"))])])])])]))
-
-(define (check-main-function [module : p:Module]) : (Maybe Bytes)
-  (case module
-    [(p:module name functions)
-     (case (findf (lambda ([f : p:FunctionDefinition])
-                     (bytes=? #"main" (p:function-definition-name f))) functions)
-       [(nothing) (just #"No main function")]
-       [(just f)
-        (case (p:function-definition->function-type f)
-          [(p:function-type (cons (p:int64-type) (empty)) (p:int64-type))
-           (nothing)]
-          [_ (just #"Main function has wrong type")])])]))
-
 (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]): Int
   (case (parse-args (array->list args))
     [(left msg)
@@ -165,8 +104,11 @@
           (write-line msg stderr)
           1)]
        [(right fragments)
-        (case (write-mach-o-library/fragments out-file-name
-                                              (assembly-fragments fragments (empty)))
+        (case (write-mach-o-library/fragments
+                out-file-name
+                (assembly-fragments
+                  (append (start-function-fragments #"main") fragments)
+                  (empty)))
           [(left msg)
            (begin
              (write-line msg stderr)

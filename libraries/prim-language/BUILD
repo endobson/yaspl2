@@ -165,9 +165,9 @@ yaspl_bootstrap_library(
     ],
 )
 
-yaspl_library(
-    name = "prim-language-compiler-main",
-    srcs = ["prim-language-compiler-main.yaspl"],
+yaspl_bootstrap_library(
+    name = "prim-language-compiler_lib",
+    srcs = ["prim-language-compiler.yaspl"],
     deps = [
         ":prim-language",
         ":prim-language-parser",
@@ -175,14 +175,25 @@ yaspl_library(
         ":prim-to-register",
         ":register-language-compiler",
         ":simplify-register-language",
+        "//libraries:sexp-parser",
+        "//libraries/data:either",
+        "//libraries/data:list",
+        "//libraries/data:maybe",
+        "//libraries/data:tuples",
+        "//libraries/yaspl:x86-64-assembly",
+    ],
+)
+
+yaspl_library(
+    name = "prim-language-compiler-main",
+    srcs = ["prim-language-compiler-main.yaspl"],
+    deps = [
+        ":prim-language-compiler_lib",
         "//libraries:io",
         "//libraries:mach-o-writer2_lib",
-        "//libraries:sexp-parser",
-        "//libraries/data:bytes",
         "//libraries/data:either",
         "//libraries/data:join-list",
         "//libraries/data:list",
-        "//libraries/data:maybe",
         "//libraries/data:tuples",
         "//libraries/yaspl:x86-64-assembly",
     ],
@@ -223,18 +234,11 @@ yaspl_bootstrap_library(
     name = "prim-language-library-compiler-main",
     srcs = ["prim-language-library-compiler-main.yaspl"],
     deps = [
-        ":prim-language",
-        ":prim-language-parser",
-        ":prim-language-type-checker",
-        ":prim-to-register",
-        ":register-language-compiler",
-        ":simplify-register-language",
+        ":prim-language-compiler_lib",
         "//libraries:io",
         "//libraries:mach-o-writer2_lib",
-        "//libraries:sexp-parser",
         "//libraries/data:either",
         "//libraries/data:list",
-        "//libraries/data:maybe",
         "//libraries/data:tuples",
         "//libraries/yaspl:x86-64-assembly",
     ],
