@@ -29,10 +29,8 @@
   (case inst
     [(addq (rmi-reg reg1) (rm-reg reg2))
      (mc-bytes* (single-byte-op/RM #x01 #t reg1 reg2))]
-    [(addq (rmi-imm (imm-s32 imm)) (rm-reg reg))
-     (mc-bytes* (single-byte-op/IM #x81 0 #t imm reg))]
-    [(addq (rmi-imm (imm-s32 imm)) (rm-mem mem))
-     (mc-bytes* (single-byte-op/IM/mem #x81 0 #t imm mem))]
+    [(addq (rmi-imm (imm-s32 imm)) rm)
+     (mc-bytes* (single-byte-op/IM #x81 0 #t imm rm))]
     [(addq (rmi-mem mem) (rm-reg reg))
      (mc-bytes* (single-byte-op/MR/mem #x03 #t mem reg))]
     [(addq (rmi-reg reg) (rm-mem mem))
@@ -42,7 +40,7 @@
     [(andq (rmi-reg reg1) reg2)
      (mc-bytes* (single-byte-op/RM #x21 #t reg1 reg2))]
     [(andq (rmi-imm (imm-s32 imm)) reg)
-     (mc-bytes* (single-byte-op/IM #x81 4 #t imm reg))]
+     (mc-bytes* (single-byte-op/IM/reg #x81 4 #t imm reg))]
     [(andq (rmi-mem _) _)
      (panic #"andq of memory not yet supported")]
     [(call label)
@@ -52,10 +50,8 @@
     [(call/indirect (rm-mem mem))
      (mc-bytes* (single-byte-op/M/mem #xFF 2 #f mem))]
     [(cld) (mc-bytes* (varargs bytes #xFC))]
-    [(cmpq (rmi-imm (imm-s32 imm)) (rm-reg reg))
-     (mc-bytes* (single-byte-op/IM #x81 7 #t imm reg))]
-    [(cmpq (rmi-imm (imm-s32 imm)) (rm-mem mem))
-     (mc-bytes* (single-byte-op/IM/mem #x81 7 #t imm mem))]
+    [(cmpq (rmi-imm (imm-s32 imm)) rm)
+     (mc-bytes* (single-byte-op/IM #x81 7 #t imm rm))]
     [(cmpq (rmi-reg reg1) (rm-reg reg2))
      (mc-bytes* (single-byte-op/MR #x3B #t reg1 reg2))]
     [(cmpq (rmi-reg reg) (rm-mem mem))
@@ -107,10 +103,8 @@
      (mc-bytes* (single-byte-op/RM/displaced-mem/8 #x88 #f reg1 reg2 offset))]
     [(movb reg1 (mem-scaled reg2 scale reg3 offset))
      (mc-bytes* (single-byte-op/RM/scaled-mem/8 #x88 #f reg1 reg2 scale reg3 offset))]
-    [(movq (rmi-imm (imm-s32 imm)) (rm-reg reg))
-     (mc-bytes* (single-byte-op/IM #xC7 0 #t imm reg))]
-    [(movq (rmi-imm (imm-s32 imm)) (rm-mem mem))
-     (mc-bytes* (single-byte-op/IM/mem #xC7 0 #t imm mem))]
+    [(movq (rmi-imm (imm-s32 imm)) rm)
+     (mc-bytes* (single-byte-op/IM #xC7 0 #t imm rm))]
     [(movq (rmi-reg reg1) (rm-reg reg2))
      (mc-bytes* (single-byte-op/MR #x8B #t reg1 reg2))]
     [(movq (rmi-reg reg) (rm-mem mem))
@@ -167,16 +161,16 @@
     [(shlq reg)
      (mc-bytes* (single-byte-op/M #xD3 4 #t reg))]
     [(shlq/imm v reg)
-     (mc-bytes* (single-byte-op/IM/u8 #xC1 4 #t v reg))]
+     (mc-bytes* (single-byte-op/IM/reg/u8 #xC1 4 #t v reg))]
     [(shrq reg)
      (mc-bytes* (single-byte-op/M #xD3 5 #t reg))]
     [(shrq/imm v reg)
-     (mc-bytes* (single-byte-op/IM/u8 #xC1 5 #t v reg))]
+     (mc-bytes* (single-byte-op/IM/reg/u8 #xC1 5 #t v reg))]
     [(std) (mc-bytes* (varargs bytes #xFD))]
     [(subq (rmi-reg reg1) reg2)
      (mc-bytes* (single-byte-op/RM #x29 #t reg1 reg2))]
     [(subq (rmi-imm (imm-s32 imm)) reg)
-     (mc-bytes* (single-byte-op/IM #x81 5 #t imm reg))]
+     (mc-bytes* (single-byte-op/IM/reg #x81 5 #t imm reg))]
     [(subq (rmi-mem mem) reg)
      (mc-bytes* (single-byte-op/MR/mem #x2B #t mem reg))]
     [(syscall) (mc-bytes* (varargs bytes #x0F #x05))]
@@ -188,7 +182,7 @@
     [(xorq (rmi-reg reg1) reg2)
      (mc-bytes* (single-byte-op/RM #x31 #t reg1 reg2))]
     [(xorq (rmi-imm (imm-s32 imm)) reg)
-     (mc-bytes* (single-byte-op/IM #x81 6 #t imm reg))]
+     (mc-bytes* (single-byte-op/IM/reg #x81 6 #t imm reg))]
     [(xorq (rmi-mem _) _)
      (panic #"xorq of memory not yet supported")]
     [(leaq/rip-rel label reg)
@@ -290,8 +284,21 @@
             (bytes-set!/s32-le v 3 displacement)
             v))))))
 
+
 (define (single-byte-op/IM [opcode : Int] [op-ext : Int] [rexW : Boolean]
-                           [val : S32] [reg : Register]) : Bytes
+                           [val : S32] [rm : RegMem]) : Bytes
+  (case rm
+    [(rm-reg reg)
+     (single-byte-op/IM/reg opcode op-ext rexW val reg)]
+    [(rm-mem (mem-direct mem-reg))
+     (single-byte-op/IM/direct-mem opcode op-ext rexW val mem-reg)]
+    [(rm-mem (mem-displaced mem-reg offset))
+     (single-byte-op/IM/displaced-mem opcode op-ext rexW val mem-reg offset)]
+    [(rm-mem (mem-scaled mem-reg scale index-reg displacement))
+     (single-byte-op/IM/scaled-mem opcode op-ext rexW val mem-reg scale index-reg displacement)]))
+
+(define (single-byte-op/IM/reg [opcode : Int] [op-ext : Int] [rexW : Boolean]
+                               [val : S32] [reg : Register]) : Bytes
   (let ([rm (register->byte reg)])
     (add-maybe-byte
       (rex-byte rexW #f #f (>= rm 8))
@@ -303,8 +310,8 @@
           (bytes-set!/s32-le v 2 val)
           v)))))
 
-(define (single-byte-op/IM/u8 [opcode : Int] [op-ext : Int] [rexW : Boolean]
-                              [val : U8] [reg : Register]) : Bytes
+(define (single-byte-op/IM/reg/u8 [opcode : Int] [op-ext : Int] [rexW : Boolean]
+                                  [val : U8] [reg : Register]) : Bytes
   (let ([rm (register->byte reg)])
     (add-maybe-byte
       (rex-byte rexW #f #f (>= rm 8))
@@ -312,16 +319,6 @@
                opcode
                (mod-rm-byte #x03 op-ext rm)
                (u8->s64 val)))))
-
-(define (single-byte-op/IM/mem [opcode : Int] [op-ext : Int] [rexW : Boolean]
-                               [val : S32] [mem : MemoryArgument]) : Bytes
-  (case mem
-    [(mem-direct mem-reg)
-     (single-byte-op/IM/direct-mem opcode op-ext rexW val mem-reg)]
-    [(mem-displaced mem-reg offset)
-     (single-byte-op/IM/displaced-mem opcode op-ext rexW val mem-reg offset)]
-    [(mem-scaled mem-reg scale index-reg displacement)
-     (single-byte-op/IM/scaled-mem opcode op-ext rexW val mem-reg scale index-reg displacement)]))
 
 (define (single-byte-op/IM/direct-mem [opcode : Int] [op-ext : Int] [rexW : Boolean]
                                       [val : S32] [reg : Register]) : Bytes
