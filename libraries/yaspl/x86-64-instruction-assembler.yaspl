@@ -27,18 +27,16 @@
 
 (define (instruction->mc-commands [inst : Instruction]) : (JoinList MCCommand)
   (case inst
-    [(addq (rmi-reg reg1) (rm-reg reg2))
-     (mc-bytes* (single-byte-op/RM #x01 #t reg1 reg2))]
+    [(addq (rmi-reg reg) rm)
+     (mc-bytes* (single-byte-op/RM #x01 #t reg rm))]
     [(addq (rmi-imm (imm-s32 imm)) rm)
      (mc-bytes* (single-byte-op/IM #x81 0 #t imm rm))]
     [(addq (rmi-mem mem) (rm-reg reg))
      (mc-bytes* (single-byte-op/MR/mem #x03 #t mem reg))]
-    [(addq (rmi-reg reg) (rm-mem mem))
-     (mc-bytes* (single-byte-op/RM/mem #x01 #t reg mem))]
     [(addq (rmi-mem _) (rm-mem _))
      (panic #"addq of two memory arguments is not valid")]
     [(andq (rmi-reg reg1) reg2)
-     (mc-bytes* (single-byte-op/RM #x21 #t reg1 reg2))]
+     (mc-bytes* (single-byte-op/RM/reg #x21 #t reg1 reg2))]
     [(andq (rmi-imm (imm-s32 imm)) reg)
      (mc-bytes* (single-byte-op/IM/reg #x81 4 #t imm reg))]
     [(andq (rmi-mem _) _)
@@ -52,10 +50,8 @@
     [(cld) (mc-bytes* (varargs bytes #xFC))]
     [(cmpq (rmi-imm (imm-s32 imm)) rm)
      (mc-bytes* (single-byte-op/IM #x81 7 #t imm rm))]
-    [(cmpq (rmi-reg reg1) (rm-reg reg2))
-     (mc-bytes* (single-byte-op/MR #x3B #t reg1 reg2))]
-    [(cmpq (rmi-reg reg) (rm-mem mem))
-     (mc-bytes* (single-byte-op/RM/mem #x39 #t reg mem))]
+    [(cmpq (rmi-reg reg) rm)
+     (mc-bytes* (single-byte-op/RM #x39 #t reg rm))]
     [(cmpq (rmi-mem _) _)
      (panic #"cmpq with memory left hand side not implemented")]
     [(decq reg)
@@ -105,10 +101,8 @@
      (mc-bytes* (single-byte-op/RM/scaled-mem/8 #x88 #f reg1 reg2 scale reg3 offset))]
     [(movq (rmi-imm (imm-s32 imm)) rm)
      (mc-bytes* (single-byte-op/IM #xC7 0 #t imm rm))]
-    [(movq (rmi-reg reg1) (rm-reg reg2))
-     (mc-bytes* (single-byte-op/MR #x8B #t reg1 reg2))]
-    [(movq (rmi-reg reg) (rm-mem mem))
-     (mc-bytes* (single-byte-op/RM/mem #x89 #t reg mem))]
+    [(movq (rmi-reg reg) rm)
+     (mc-bytes* (single-byte-op/RM #x89 #t reg rm))]
     [(movq (rmi-mem mem) (rm-reg reg))
      (mc-bytes* (single-byte-op/MR/mem #x8B #t mem reg))]
     [(movq (rmi-mem _) (rm-mem _))
@@ -125,7 +119,7 @@
     [(notq reg)
      (mc-bytes* (single-byte-op/M #xF7 2 #t reg))]
     [(orq reg1 reg2)
-     (mc-bytes* (single-byte-op/MR #x0B #t reg1 reg2))]
+     (mc-bytes* (single-byte-op/RM/reg #x09 #t reg1 reg2))]
     ;; pop defaults to 64 bits so we don't need REX.W bit to indicate that
     [(popq (rm-reg reg))
      (mc-bytes* (single-byte-op/O #x58 reg))]
@@ -168,19 +162,19 @@
      (mc-bytes* (single-byte-op/IM/reg/u8 #xC1 5 #t v reg))]
     [(std) (mc-bytes* (varargs bytes #xFD))]
     [(subq (rmi-reg reg1) reg2)
-     (mc-bytes* (single-byte-op/RM #x29 #t reg1 reg2))]
+     (mc-bytes* (single-byte-op/RM/reg #x29 #t reg1 reg2))]
     [(subq (rmi-imm (imm-s32 imm)) reg)
      (mc-bytes* (single-byte-op/IM/reg #x81 5 #t imm reg))]
     [(subq (rmi-mem mem) reg)
      (mc-bytes* (single-byte-op/MR/mem #x2B #t mem reg))]
     [(syscall) (mc-bytes* (varargs bytes #x0F #x05))]
     [(test reg1 reg2)
-     (mc-bytes* (single-byte-op/RM #x85 #t reg1 reg2))]
+     (mc-bytes* (single-byte-op/RM/reg #x85 #t reg1 reg2))]
     [(ud2) (mc-bytes* (varargs bytes #x0F #x0B))]
     [(xaddq reg1 reg2)
      (mc-bytes* (double-byte-op/RM #xC1 #t reg1 reg2))]
     [(xorq (rmi-reg reg1) reg2)
-     (mc-bytes* (single-byte-op/RM #x31 #t reg1 reg2))]
+     (mc-bytes* (single-byte-op/RM/reg #x31 #t reg1 reg2))]
     [(xorq (rmi-imm (imm-s32 imm)) reg)
      (mc-bytes* (single-byte-op/IM/reg #x81 6 #t imm reg))]
     [(xorq (rmi-mem _) _)
@@ -367,7 +361,22 @@
             v))))))
 
 
-(define (single-byte-op/RM [opcode : Int] [rexW : Boolean] [reg1 : Register] [reg2 : Register]) : Bytes
+(define (single-byte-op/RM [opcode : Int] [rexW : Boolean] [reg : Register] [rm : RegMem])
+  : Bytes
+  (case rm
+    [(rm-reg reg2)
+     (single-byte-op/RM/reg opcode rexW reg reg2)]
+    [(rm-mem (mem-direct mem-reg))
+     (single-byte-op/RM/direct-mem opcode rexW reg mem-reg)]
+    [(rm-mem (mem-displaced mem-reg offset))
+     (single-byte-op/RM/displaced-mem opcode rexW reg mem-reg offset)]
+    [(rm-mem (mem-scaled mem-reg scale index-reg displacement))
+     (single-byte-op/RM/scaled-mem opcode rexW reg mem-reg scale index-reg displacement)]))
+(define (single-byte-op/MR/mem [opcode : Int] [rexW : Boolean] [mem : MemoryArgument] [reg : Register])
+  : Bytes
+  (single-byte-op/RM opcode rexW reg (rm-mem mem)))
+
+(define (single-byte-op/RM/reg [opcode : Int] [rexW : Boolean] [reg1 : Register] [reg2 : Register]) : Bytes
   (let ([reg (register->byte reg1)])
     (let ([rm (register->byte reg2)])
       (add-maybe-byte
@@ -375,21 +384,9 @@
         (varargs bytes
           opcode
           (mod-rm-byte #x03 reg rm))))))
-(define (single-byte-op/MR [opcode : Int] [rexW : Boolean] [reg1 : Register] [reg2 : Register]) : Bytes
-  (single-byte-op/RM opcode rexW reg2 reg1))
+(define (single-byte-op/MR/reg [opcode : Int] [rexW : Boolean] [reg1 : Register] [reg2 : Register]) : Bytes
+  (single-byte-op/RM/reg opcode rexW reg2 reg1))
 
-(define (single-byte-op/RM/mem [opcode : Int] [rexW : Boolean] [reg : Register] [mem : MemoryArgument])
-  : Bytes
-  (case mem
-    [(mem-direct mem-reg)
-     (single-byte-op/RM/direct-mem opcode rexW reg mem-reg)]
-    [(mem-displaced mem-reg offset)
-     (single-byte-op/RM/displaced-mem opcode rexW reg mem-reg offset)]
-    [(mem-scaled mem-reg scale index-reg displacement)
-     (single-byte-op/RM/scaled-mem opcode rexW reg mem-reg scale index-reg displacement)]))
-(define (single-byte-op/MR/mem [opcode : Int] [rexW : Boolean] [mem : MemoryArgument] [reg : Register])
-  : Bytes
-  (single-byte-op/RM/mem opcode rexW reg mem))
 
 ;; Doesn't support rsp, rbp, r12 or r13. This is because the instruction set doesn't support them.
 (define (single-byte-op/RM/direct-mem [opcode : Int] [rexW : Boolean] [reg1 : Register] [reg2 : Register]) : Bytes
