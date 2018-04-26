@@ -15,7 +15,7 @@
 }
 (export
   #:types (FunctionDefinition BasicBlock Instruction Terminal BlockMap UnvalidatedBlockMap Condition
-           FunctionKind AssignedRegistersFunctionDefinition CompareMemArg FreeUnaryOp FixedUnaryOp
+           FunctionKind AssignedRegistersFunctionDefinition CompareArgs CompareMemArg FreeUnaryOp FixedUnaryOp
            PointerOffsetScale)
   #:values (function-definition return jump cond-jump/false-fall-through move basic-block
             numeric-op-inst comparison-op-inst logical-op-inst int-literal basic-block-terminal
@@ -37,7 +37,8 @@
             free-unary-op-inst fixed-unary-op-inst load-temporary store-temporary
             function-call-inst syscall indirect-function-call closure-call symbol-address
             halt tail-call compare-memory memory-compare-condition numeric-op-immediate comparison-op-immediate
-            mult-immediate quotient-remainder-inst direct-call compare-mem-arg-val compare-mem-arg-ptr
+            mult-immediate quotient-remainder-inst direct-call
+            compare-s64 compare-mem-arg-val compare-mem-arg-ptr
             truncate-unsigned-int64->unsigned-int8 boolean-not one-byte-scale eight-byte-scale)
   #:patterns (int-literal symbol-address load-temporary store-temporary push pop
               load-zero-extended-byte load-zero-extended-byte/scaled store-least-significant-byte
@@ -52,7 +53,7 @@
               function-definition assigned-registers-function-definition
               basic-block numeric-op-immediate comparison-op-immediate mult-immediate
               quotient-remainder-inst
-              compare-mem-arg-val compare-mem-arg-ptr
+              compare-s64 compare-mem-arg-val compare-mem-arg-ptr
               truncate-unsigned-int64->unsigned-int8 boolean-not one-byte-scale eight-byte-scale))
 (types
   (define-type (FunctionDefinition Reg)
@@ -131,9 +132,11 @@
   (define-type (Condition Reg)
     (reg-condition [reg : Reg])
     (negated-reg-condition [reg : Reg])
-    (comparison-condition [op : ComparisonBinOp] [reg1 : (CompareMemArg Reg)] [reg-imm2 : (Either Reg S32)])
+    (comparison-condition [op : ComparisonBinOp] [args : (CompareArgs Reg)])
     (memory-compare-condition [negated? : Boolean] [size : Reg] [reg1 : Reg] [reg2 : Reg]))
 
+  (define-type (CompareArgs Reg)
+    (compare-s64 [left : (CompareMemArg Reg)] [right : (Either Reg S32)]))
   (define-type (CompareMemArg Reg)
     (compare-mem-arg-val [v : Reg])
     (compare-mem-arg-ptr [v : Reg]))
@@ -266,14 +269,15 @@
        (case condition
          [(reg-condition reg) (reg-condition (rename reg))]
          [(negated-reg-condition reg) (negated-reg-condition (rename reg))]
-         [(comparison-condition op reg-mem1 reg-imm2)
+         [(comparison-condition op (compare-s64 reg-mem1 reg-imm2))
           (comparison-condition op
-                                (case reg-mem1
-                                  [(compare-mem-arg-val r) (compare-mem-arg-val (rename r))]
-                                  [(compare-mem-arg-ptr r) (compare-mem-arg-ptr (rename r))])
-                                (case reg-imm2
-                                  [(left r) (left (rename r))]
-                                  [(right imm) (right imm)]))]
+                                (compare-s64
+                                  (case reg-mem1
+                                    [(compare-mem-arg-val r) (compare-mem-arg-val (rename r))]
+                                    [(compare-mem-arg-ptr r) (compare-mem-arg-ptr (rename r))])
+                                  (case reg-imm2
+                                    [(left r) (left (rename r))]
+                                    [(right imm) (right imm)])))]
          [(memory-compare-condition negated? size reg1 reg2)
           (memory-compare-condition negated? (rename size) (rename reg1) (rename reg2))])
        true false)]))
