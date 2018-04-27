@@ -127,7 +127,7 @@
    (if (<= #x-80000000 v #x7FFFFFFF) v (error 's32 "Value ~s is outside valid range" v))]
   [(u32 [v : S64]) : U32
    (if (<= 0 v #xFFFFFFFF) v (error 'u32 "Value ~s is outside valid range" v))]
-  [(u64 [v : S64]) : U32
+  [(u64 [v : S64]) : U64
    (if (<= 0 v) v (error 'u64 "Value ~s is outside valid range" v))]
   [(s32->s64 [v : S32]) : S64 v]
   [(u32->s64 [v : U32]) : S64 v]

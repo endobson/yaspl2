@@ -397,6 +397,7 @@
         [(u8-ty) t]
         [(s32-ty) t]
         [(u32-ty) t]
+        [(u64-ty) t]
         [(int-ty) t]
         [(bytes-ty) t]
         [(boolean-ty) t]
@@ -467,6 +468,8 @@
           (loop type-map pairs)]
          [((u32-ty) (u32-ty))
           (loop type-map pairs)]
+         [((u64-ty) (u64-ty))
+          (loop type-map pairs)]
          [((int-ty) (int-ty))
           (loop type-map pairs)]
          [((bytes-ty) (bytes-ty))
@@ -499,6 +502,7 @@
     [(u8-ty) t]
     [(s32-ty) t]
     [(u32-ty) t]
+    [(u64-ty) t]
     [(int-ty) t]
     [(bytes-ty) t]
     [(boolean-ty) t]
