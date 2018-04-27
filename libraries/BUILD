@@ -443,8 +443,8 @@ yaspl_bootstrap_library(
     srcs = ["mach-o-writer.yaspl"],
     deps = [
         ":io",
+        ":mach-o_lib",
         "//libraries/data:bytes",
-        "//libraries/data:dict",
         "//libraries/data:list",
     ],
 )

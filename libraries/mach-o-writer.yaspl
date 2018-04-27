@@ -1,56 +1,25 @@
 #:module (mach-o-writer)
 #:import {
-  (bytes) {
-    #:values
-      bytes
-      bytes-set!/octo-le
-      bytes-set!/quad-le
-  }
-  (dict) {
+  (bytes)
+  (io)
+  (list)
+  (mach-o) {
     #:types
-      Dict
-  }
-  (io) {
-    #:values
-      write-all-bytes
-  }
-  (list) {
-    #:types
-      List
-    #:values
-      length
+      LinkeditData
+      SymbolTable
+      VersionMin
     #:patterns
-      cons
-      empty
+      linkedit-data
+      symbol-table
+      version-min
   }
-  (prim) {
-    #:types
-      Bytes
-      Int
-      OutputPort
-      U32
-      U8
-      Void
-    #:values
-      *
-      +
-      -
-      >
-      bytes-length
-      make-bytes
-      panic
-      u32
-      u32->s64
-      u8->s64
-      void
-  }
+  (prim)
 }
 (export
   #:types ()
   #:values (lc-load-segment64 load-segment64 section64 write-mach-o-header mach-o-header
-            mach-o-executable-file mach-o-library-file
-            lc-version-min-macosx version-min lc-dynamic-symbol-table dynamic-symbol-table
-            lc-symbol-table symbol-table lc-data-in-code linkedit-data lc-source-version
+            mach-o-executable-file mach-o-library-file lc-version-min-macosx
+            lc-symbol-table lc-data-in-code lc-source-version
             lc-unix-thread unix-thread)
   #:patterns ())
 (types
@@ -67,7 +36,6 @@
     (lc-source-version)
     (lc-symbol-table [v : SymbolTable])
     (lc-data-in-code [v : LinkeditData])
-    (lc-dynamic-symbol-table [v : DynamicSymbolTable])
     (lc-load-segment64 [v : LoadSegment64]))
   (define-type LoadSegment64
     (load-segment64
@@ -94,45 +62,7 @@
 
   (define-type UnixThread
     (unix-thread
-      [start-address : Int]))
-
-  (define-type VersionMin
-    (version-min
-      [version-major : U8] ;; TODO this should be a u16
-      [version-minor : U8]
-      [version-patch : U8]
-      [sdk-major : U8] ;; TODO this should be a u16
-      [sdk-minor : U8]
-      [sdk-patch : U8]))
-
-  (define-type SymbolTable
-    (symbol-table
-      [offset : Int]
-      [number : Int]
-      [string-offset : Int]
-      [string-size : Int]))
-
-  (define-type DynamicSymbolTable
-    (dynamic-symbol-table
-      [index-externally-defined-symbols : U32]
-      [count-externally-defined-symbols : U32]
-      [index-undefined-symbols : U32]
-      [count-undefined-symbols : U32]))
-
-  (define-type LinkeditData
-    (linkedit-data
-      [offset : U32]
-      [size : U32]))
-
-  (define-type RelocationEntry
-    (branch-reloc-entry [name : Bytes])
-    (unsigned-reloc-entry [name : Bytes]))
-
-  (define-type AssemblyBlock
-    (assembly-block
-      [data : Bytes]
-      [symbols : (Dict Bytes Int)]
-      [relocations : (Dict Int RelocationEntry)])))
+      [start-address : Int])))
 
 
 ;; TODO Make this take in a U8
@@ -168,8 +98,7 @@
     [(lc-data-in-code _) #x10]
     [(lc-load-segment64 load-seg)
      (+ 72 (* (length (load-segment64-sections load-seg)) 80))]
-    [(lc-symbol-table _) #x18]
-    [(lc-dynamic-symbol-table _) #x50]))
+    [(lc-symbol-table _) #x18]))
 
 
 (define (write-mach-o-header [header : MachOHeader] [output : OutputPort]) : Void
@@ -230,10 +159,6 @@
     [(cons (lc-symbol-table st) commands)
      (begin
        (write-symbol-table st output)
-       (write-load-commands commands output))]
-    [(cons (lc-dynamic-symbol-table dst) commands)
-     (begin
-       (write-dynamic-symbol-table dst output)
        (write-load-commands commands output))]))
 
 (define (write-16-byte-name [bytes : Bytes] [output : OutputPort]) : Void
@@ -404,32 +329,3 @@
     (write-quad-le number-syms output)
     (write-quad-le string-offset output)
     (write-quad-le string-size output)))
-
-;; TODO actually write out real values
-(define (write-dynamic-symbol-table [dst : DynamicSymbolTable] [output : OutputPort]) : Void
-  (match-define (dynamic-symbol-table external-index external-count undefined-index undefined-count)
-    dst)
-  (begin
-    ;; LC_DYSYMTAB
-    (write-quad-le #x0B output)
-    ;; Command size
-    (write-quad-le #x50 output)
-
-    (write-quad-le #x00 output)
-    (write-quad-le #x00 output)
-    (write-quad-le (u32->s64 external-index) output)
-    (write-quad-le (u32->s64 external-count) output)
-    (write-quad-le (u32->s64 undefined-index) output)
-    (write-quad-le (u32->s64 undefined-count) output)
-    (write-quad-le #x00 output)
-    (write-quad-le #x00 output)
-    (write-quad-le #x00 output)
-    (write-quad-le #x00 output)
-    (write-quad-le #x00 output)
-    (write-quad-le #x00 output)
-    (write-quad-le #x00 output)
-    (write-quad-le #x00 output)
-    (write-quad-le #x00 output)
-    (write-quad-le #x00 output)
-    (write-quad-le #x00 output)
-    (write-quad-le #x00 output)))
