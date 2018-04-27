@@ -10,6 +10,7 @@
 (struct u8-ty type () #:transparent)
 (struct s32-ty type () #:transparent)
 (struct u32-ty type () #:transparent)
+(struct u64-ty type () #:transparent)
 (struct int-ty type () #:transparent)
 (struct bytes-ty type () #:transparent)
 (struct boolean-ty type () #:transparent)

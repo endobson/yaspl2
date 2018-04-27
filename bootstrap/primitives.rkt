@@ -32,6 +32,8 @@
       #:with ty #'(s32-ty))
     (pattern (~datum U32)
       #:with ty #'(u32-ty))
+    (pattern (~datum U64)
+      #:with ty #'(u64-ty))
     (pattern (~datum S64)
       #:with ty #'(int-ty))
     (pattern (~datum Bytes)
@@ -80,6 +82,8 @@
     'U8 (prim-signature (u8-ty))
     'S32 (prim-signature (s32-ty))
     'U32 (prim-signature (u32-ty))
+    'S64 (prim-signature (int-ty))
+    'U64 (prim-signature (u64-ty))
     'Byte (prim-signature (int-ty))
     'Int (prim-signature (int-ty))
     'Bytes (prim-signature (bytes-ty))
@@ -123,8 +127,12 @@
    (if (<= #x-80000000 v #x7FFFFFFF) v (error 's32 "Value ~s is outside valid range" v))]
   [(u32 [v : S64]) : U32
    (if (<= 0 v #xFFFFFFFF) v (error 'u32 "Value ~s is outside valid range" v))]
+  [(u64 [v : S64]) : U32
+   (if (<= 0 v) v (error 'u64 "Value ~s is outside valid range" v))]
   [(s32->s64 [v : S32]) : S64 v]
   [(u32->s64 [v : U32]) : S64 v]
+  [(u64->s64 [v : U64]) : S64
+   (if (<= v #x7FFFFFFFFFFFFFFF) v (error 'u64->s64 "Value ~s is outside valid range" v))]
 
   [(u32/le-byte0 [v : U32]) : U8
    (bitwise-and v #xFF)]
