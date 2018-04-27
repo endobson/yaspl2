@@ -48,6 +48,12 @@
     [(call/indirect (rm-mem mem))
      (mc-bytes* (single-byte-op/M/mem #xFF 2 #f mem))]
     [(cld) (mc-bytes* (varargs bytes #xFC))]
+    [(cmpb (r8mi-imm imm) r8m)
+     (mc-bytes* (single-byte-op/IM/8 #x80 7 #t imm r8m))]
+    [(cmpb (r8mi-reg reg) r8m)
+     (mc-bytes* (single-byte-op/RM/8 #x38 #t reg r8m))]
+    [(cmpb (r8mi-mem _) _)
+     (panic #"cmpb with memory left hand side not implemented")]
     [(cmpq (rmi-imm imm) rm)
      (mc-bytes* (single-byte-op/IM #x81 7 #t imm rm))]
     [(cmpq (rmi-reg reg) rm)
@@ -94,7 +100,7 @@
     [(leaq mem reg)
      (mc-bytes* (single-byte-op/MR/mem #x8D #t mem reg))]
     [(movb reg mem)
-     (mc-bytes* (single-byte-op/RM/mem/8 #x88 #f reg mem))]
+     (mc-bytes* (single-byte-op/RM/8 #x88 #f reg (r8m-mem mem)))]
     [(movq (rmi-imm imm) rm)
      (mc-bytes* (single-byte-op/IM #xC7 0 #t imm rm))]
     [(movq (rmi-reg reg) rm)
@@ -151,11 +157,11 @@
     [(shlq reg)
      (mc-bytes* (single-byte-op/M #xD3 4 #t reg))]
     [(shlq/imm v reg)
-     (mc-bytes* (single-byte-op/IM/reg/u8 #xC1 4 #t v reg))]
+     (mc-bytes* (single-byte-op/I8M/reg #xC1 4 #t v reg))]
     [(shrq reg)
      (mc-bytes* (single-byte-op/M #xD3 5 #t reg))]
     [(shrq/imm v reg)
-     (mc-bytes* (single-byte-op/IM/reg/u8 #xC1 5 #t v reg))]
+     (mc-bytes* (single-byte-op/I8M/reg #xC1 5 #t v reg))]
     [(std) (mc-bytes* (varargs bytes #xFD))]
     [(subq (rmi-reg reg1) reg2)
      (mc-bytes* (single-byte-op/RM/reg #x29 #t reg1 reg2))]
@@ -287,6 +293,19 @@
     [(rm-mem (mem-scaled mem-reg scale index-reg displacement))
      (single-byte-op/IM/scaled-mem opcode op-ext rexW val mem-reg scale index-reg displacement)]))
 
+(define (single-byte-op/IM/8 [opcode : Int] [op-ext : Int] [rexW : Boolean]
+                             [val : U8] [r8m : Reg8Mem]) : Bytes
+  (case r8m
+    [(r8m-reg reg)
+     (single-byte-op/IM/reg/8 opcode op-ext rexW val reg)]
+    [(r8m-mem (mem-direct mem-reg))
+     (single-byte-op/IM/direct-mem/8 opcode op-ext rexW val mem-reg)]
+    [(r8m-mem (mem-displaced mem-reg offset))
+     (single-byte-op/IM/displaced-mem/8 opcode op-ext rexW val mem-reg offset)]
+    [(r8m-mem (mem-scaled mem-reg scale index-reg displacement))
+     (single-byte-op/IM/scaled-mem/8 opcode op-ext rexW val mem-reg scale index-reg displacement)]))
+
+
 (define (single-byte-op/IM/reg [opcode : Int] [op-ext : Int] [rexW : Boolean]
                                [val : S32] [reg : Register]) : Bytes
   (let ([rm (register->byte reg)])
@@ -300,8 +319,19 @@
           (bytes-set!/s32-le v 2 val)
           v)))))
 
-(define (single-byte-op/IM/reg/u8 [opcode : Int] [op-ext : Int] [rexW : Boolean]
-                                  [val : U8] [reg : Register]) : Bytes
+(define (single-byte-op/IM/reg/8 [opcode : Int] [op-ext : Int] [rexW : Boolean]
+                                 [val : U8] [reg : Register8]) : Bytes
+  (let ([rm (register8->byte reg)])
+    (add-maybe-byte
+      (rex-byte rexW #f #f (>= rm 8))
+      (varargs bytes
+               opcode
+               (mod-rm-byte #x03 op-ext rm)
+               (u8->s64 val)))))
+
+;; This takes a 64 bit register but 8 bit immediate value.
+(define (single-byte-op/I8M/reg [opcode : Int] [op-ext : Int] [rexW : Boolean]
+                                [val : U8] [reg : Register]) : Bytes
   (let ([rm (register->byte reg)])
     (add-maybe-byte
       (rex-byte rexW #f #f (>= rm 8))
@@ -323,6 +353,17 @@
           (bytes-set!/s32-le v 2 val)
           v)))))
 
+(define (single-byte-op/IM/direct-mem/8 [opcode : Int] [op-ext : Int] [rexW : Boolean]
+                                        [val : U8] [reg : Register]) : Bytes
+  (let ([rm (register->byte reg)])
+    (add-maybe-byte
+      (rex-byte rexW #f #f (>= rm 8))
+      (varargs bytes
+        opcode
+        (mod-rm-byte #x00 op-ext rm)
+        (u8->s64 val)))))
+
+
 ;; Doesn't support rsp or r12. This is because the instruction set doesn't support them.
 (define (single-byte-op/IM/displaced-mem
           [opcode : Int] [op-ext : Int] [rexW : Boolean] [val : S32]
@@ -337,6 +378,20 @@
         (begin
           (bytes-set!/s32-le v 2 displacement)
           (bytes-set!/s32-le v 6 val)
+          v)))))
+
+(define (single-byte-op/IM/displaced-mem/8
+          [opcode : Int] [op-ext : Int] [rexW : Boolean] [val : U8]
+          [reg : Register] [displacement : S32]) : Bytes
+  (let ([rm (register->byte reg)])
+    (add-maybe-byte
+      (rex-byte rexW #f #f (>= rm 8))
+      (let ([v (varargs bytes
+                 opcode
+                 (mod-rm-byte #x02 op-ext rm)
+                 0 0 0 0 (u8->s64 val))])
+        (begin
+          (bytes-set!/s32-le v 2 displacement)
           v)))))
 
 (define (single-byte-op/IM/scaled-mem
@@ -356,6 +411,22 @@
             (bytes-set!/s32-le v 7 val)
             v))))))
 
+(define (single-byte-op/IM/scaled-mem/8
+          [opcode : Int] [op-ext : Int] [rexW : Boolean] [val : U8]
+          [reg1 : Register] [scale : Scale] [reg2 : Register] [displacement : S32]) : Bytes
+  (let ([base (register->byte reg1)])
+    (let ([index (register->byte reg2)])
+      (add-maybe-byte
+        (rex-byte rexW #f (>= index 8) (>= base 8))
+        (let ([v (varargs bytes
+                   opcode
+                   (mod-rm-byte #x02 op-ext #x04)
+                   (sib-byte scale reg2 reg1)
+                   0 0 0 0 (u8->s64 val))])
+          (begin
+            (bytes-set!/s32-le v 3 displacement)
+            v))))))
+
 
 (define (single-byte-op/RM [opcode : Int] [rexW : Boolean] [reg : Register] [rm : RegMem])
   : Bytes
@@ -372,14 +443,16 @@
   : Bytes
   (single-byte-op/RM opcode rexW reg (rm-mem mem)))
 
-(define (single-byte-op/RM/mem/8 [opcode : Int] [rexW : Boolean] [reg : Register8] [mem : MemoryArgument])
+(define (single-byte-op/RM/8 [opcode : Int] [rexW : Boolean] [reg : Register8] [r8m : Reg8Mem])
   : Bytes
-  (case mem
-    [(mem-direct mem-reg)
+  (case r8m
+    [(r8m-reg reg2)
+     (single-byte-op/RM/reg/8 opcode rexW reg reg2)]
+    [(r8m-mem (mem-direct mem-reg))
      (single-byte-op/RM/direct-mem/8 opcode rexW reg mem-reg)]
-    [(mem-displaced mem-reg offset)
+    [(r8m-mem (mem-displaced mem-reg offset))
      (single-byte-op/RM/displaced-mem/8 opcode rexW reg mem-reg offset)]
-    [(mem-scaled mem-reg scale index-reg displacement)
+    [(r8m-mem (mem-scaled mem-reg scale index-reg displacement))
      (single-byte-op/RM/scaled-mem/8 opcode rexW reg mem-reg scale index-reg displacement)]))
 
 
@@ -391,6 +464,17 @@
         (varargs bytes
           opcode
           (mod-rm-byte #x03 reg rm))))))
+
+(define (single-byte-op/RM/reg/8 [opcode : Int] [rexW : Boolean] [reg1 : Register8] [reg2 : Register8]) : Bytes
+  (let ([reg (register8->byte reg1)])
+    (let ([rm (register8->byte reg2)])
+      (add-maybe-byte
+        (rex-byte rexW (>= reg 8) #f (>= rm 8))
+        (varargs bytes
+          opcode
+          (mod-rm-byte #x03 reg rm))))))
+
+
 
 ;; Doesn't support rsp, rbp, r12 or r13. This is because the instruction set doesn't support them.
 (define (single-byte-op/RM/direct-mem [opcode : Int] [rexW : Boolean] [reg1 : Register] [reg2 : Register]) : Bytes

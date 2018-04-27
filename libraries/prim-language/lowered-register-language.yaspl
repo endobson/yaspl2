@@ -38,7 +38,7 @@
             function-call-inst syscall indirect-function-call closure-call symbol-address
             halt tail-call compare-memory memory-compare-condition numeric-op-immediate comparison-op-immediate
             mult-immediate quotient-remainder-inst direct-call
-            compare-s64 compare-mem-arg-val compare-mem-arg-ptr
+            compare-s64 compare-u8 compare-mem-arg-val compare-mem-arg-ptr
             truncate-unsigned-int64->unsigned-int8 boolean-not one-byte-scale eight-byte-scale)
   #:patterns (int-literal symbol-address load-temporary store-temporary push pop
               load-zero-extended-byte load-zero-extended-byte/scaled store-least-significant-byte
@@ -53,7 +53,7 @@
               function-definition assigned-registers-function-definition
               basic-block numeric-op-immediate comparison-op-immediate mult-immediate
               quotient-remainder-inst
-              compare-s64 compare-mem-arg-val compare-mem-arg-ptr
+              compare-s64 compare-u8 compare-mem-arg-val compare-mem-arg-ptr
               truncate-unsigned-int64->unsigned-int8 boolean-not one-byte-scale eight-byte-scale))
 (types
   (define-type (FunctionDefinition Reg)
@@ -136,7 +136,8 @@
     (memory-compare-condition [negated? : Boolean] [size : Reg] [reg1 : Reg] [reg2 : Reg]))
 
   (define-type (CompareArgs Reg)
-    (compare-s64 [left : (CompareMemArg Reg)] [right : (Either Reg S32)]))
+    (compare-s64 [left : (CompareMemArg Reg)] [right : (Either Reg S32)])
+    (compare-u8 [left : (CompareMemArg Reg)] [right : (Either Reg U8)]))
   (define-type (CompareMemArg Reg)
     (compare-mem-arg-val [v : Reg])
     (compare-mem-arg-ptr [v : Reg]))
@@ -269,18 +270,35 @@
        (case condition
          [(reg-condition reg) (reg-condition (rename reg))]
          [(negated-reg-condition reg) (negated-reg-condition (rename reg))]
-         [(comparison-condition op (compare-s64 reg-mem1 reg-imm2))
-          (comparison-condition op
-                                (compare-s64
-                                  (case reg-mem1
-                                    [(compare-mem-arg-val r) (compare-mem-arg-val (rename r))]
-                                    [(compare-mem-arg-ptr r) (compare-mem-arg-ptr (rename r))])
-                                  (case reg-imm2
-                                    [(left r) (left (rename r))]
-                                    [(right imm) (right imm)])))]
+         [(comparison-condition op args)
+          (comparison-condition op (rename-registers/compare-args args rename))]
          [(memory-compare-condition negated? size reg1 reg2)
           (memory-compare-condition negated? (rename size) (rename reg1) (rename reg2))])
        true false)]))
+
+(define (RegA RegB) (rename-registers/compare-args
+                      [args : (CompareArgs RegA)]
+                      [rename : (RegA -> RegB)]) : (CompareArgs RegB)
+  (case args
+    [(compare-s64 reg-mem1 reg-imm2)
+     (compare-s64
+       (rename-registers/compare-mem-arg reg-mem1 rename)
+       (case reg-imm2
+         [(left r) (left (rename r))]
+         [(right imm) (right imm)]))]
+    [(compare-u8 reg-mem1 reg-imm2)
+     (compare-u8
+       (rename-registers/compare-mem-arg reg-mem1 rename)
+       (case reg-imm2
+         [(left r) (left (rename r))]
+         [(right imm) (right imm)]))]))
+
+(define (RegA RegB) (rename-registers/compare-mem-arg
+                      [mem-arg : (CompareMemArg RegA)]
+                      [rename : (RegA -> RegB)]) : (CompareMemArg RegB)
+  (case mem-arg
+    [(compare-mem-arg-val r) (compare-mem-arg-val (rename r))]
+    [(compare-mem-arg-ptr r) (compare-mem-arg-ptr (rename r))]))
 
 
 (define (Reg) (validate-block-map [uv : (UnvalidatedBlockMap Reg)]) : (Either Bytes (BlockMap Reg))
