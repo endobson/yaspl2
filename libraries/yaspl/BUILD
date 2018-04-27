@@ -96,7 +96,6 @@ yaspl_bootstrap_library(
     name = "x86-64-assembly",
     srcs = ["x86-64-assembly.yaspl"],
     deps = [
-        "//libraries/data:bytes",
         "//libraries/data:join-list",
         "//libraries/data:list",
     ],
