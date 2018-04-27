@@ -9,14 +9,15 @@
 }
 (export
   #:types (MachOFile MachOLoadCommand SymbolTableEntry RelocationEntry SymbolTable
-           Section64 VersionMin LinkeditData LoadSegment64)
+           Section64 VersionMin LinkeditData LoadSegment64 UnixThread)
   #:values (read-mach-o mach-o-file read-symbol-table/strings read-symbol-table/symbols
             mach-o-header-commands-size symbol-table-entry-name symbol-table-entry
             read-relocation-entry symbol-table-entry-value version-min symbol-table linkedit-data
-            section64 load-segment64-sections load-segment64)
-  #:patterns (mach-o-file mach-o-header lc-segment64 lc-symtab lc-version-min-macosx
-              lc-data-in-code symbol-table-entry relocation-entry
-              section64 load-segment64 symbol-table version-min linkedit-data))
+            section64 load-segment64-sections load-segment64 lc-unix-thread lc-symbol-table
+            lc-source-version lc-load-segment64 lc-version-min-macosx lc-data-in-code unix-thread)
+  #:patterns (mach-o-file mach-o-header lc-load-segment64 lc-symbol-table lc-version-min-macosx
+              lc-data-in-code lc-source-version lc-unix-thread symbol-table-entry relocation-entry
+              section64 load-segment64 symbol-table version-min linkedit-data unix-thread))
 (types
   (define-type MachOFile
     (mach-o-file
@@ -34,8 +35,10 @@
       [flags : U32]
       [reserved : U32]))
   (define-type MachOLoadCommand
-    (lc-segment64 [v : LoadSegment64])
-    (lc-symtab [v : SymbolTable])
+    (lc-unix-thread [v : UnixThread])
+    (lc-load-segment64 [v : LoadSegment64])
+    (lc-symbol-table [v : SymbolTable])
+    (lc-source-version)
     (lc-version-min-macosx [v : VersionMin])
     (lc-data-in-code [v : LinkeditData]))
 
@@ -70,6 +73,10 @@
       [sdk-major : U8] ;; TODO this should be a u16
       [sdk-minor : U8]
       [sdk-patch : U8]))
+
+  (define-type UnixThread
+    (unix-thread
+      [start-address : Int]))
 
   (define-type SymbolTable
     (symbol-table
@@ -107,8 +114,8 @@
             (let ([command-buffer (make-bytes (- command-size 8))])
               (if (= (- command-size 8) (read-bytes command-buffer input 0 (- command-size 8)))
                   (case number
-                    [#x02 (parse-lc-symtab command-buffer)]
-                    [#x19 (parse-lc-segment64 command-buffer)]
+                    [#x02 (parse-lc-symbol-table command-buffer)]
+                    [#x19 (parse-lc-load-segment64 command-buffer)]
                     [#x24 (parse-lc-version-min-macosx command-buffer)]
                     [#x29 (parse-lc-data-in-code command-buffer)]
                     [x (left (bytes-append
@@ -116,14 +123,14 @@
                                              (integer->hex-bytes x))))])
                   (left #"Not enough bytes"))))))))
 
-(define (parse-lc-segment64 [bytes : Bytes]) : (Either Bytes MachOLoadCommand)
+(define (parse-lc-load-segment64 [bytes : Bytes]) : (Either Bytes MachOLoadCommand)
   (if (< (bytes-length bytes) #x40)
-      (left #"Too short lc-segment64")
+      (left #"Too short lc-load-segment64")
       (let ([num-sections (bytes-ref/quad-le bytes #x38)])
         (if (not (= (bytes-length bytes) (+ #x40 (* num-sections #x50))))
-            (left #"Wrong length lc-segment64")
+            (left #"Wrong length lc-load-segment64")
             (right
-              (lc-segment64
+              (lc-load-segment64
                 (load-segment64
                   (read-16-byte-name bytes #x00 0)
                   (bytes-ref/u64-le bytes #x10)
@@ -166,11 +173,11 @@
           (subbytes bytes init-offset (+ init-offset num-chars))
           (read-16-byte-name bytes init-offset (+ 1 num-chars)))))
 
-(define (parse-lc-symtab [bytes : Bytes]) : (Either Bytes MachOLoadCommand)
+(define (parse-lc-symbol-table [bytes : Bytes]) : (Either Bytes MachOLoadCommand)
   (if (not (= (bytes-length bytes) #x10))
-      (left #"Wrong length lc-symtab")
+      (left #"Wrong length lc-symbol-table")
       (right
-        (lc-symtab
+        (lc-symbol-table
           (symbol-table
             (bytes-ref/quad-le bytes #x00)
             (bytes-ref/quad-le bytes #x04)
