@@ -6,6 +6,7 @@
   (list)
   (numbers)
   (prim)
+  (tuples)
 }
 (export
   #:types (MachOFile MachOHeader MachOLoadCommand SymbolTableEntry RelocationEntry SymbolTable
@@ -110,23 +111,30 @@
       [value : U64])))
 
 
-(define (read-load-command [input : InputPort]) : (Either Bytes MachOLoadCommand)
-  (let ([standard-header (make-bytes 8)])
-    (if (not (= 8 (read-bytes standard-header input 0 8)))
-        (left #"Not enough bytes")
-        (let ([number (bytes-ref/quad-le standard-header 0)])
-          (let ([command-size (bytes-ref/quad-le standard-header 4)])
-            (let ([command-buffer (make-bytes (- command-size 8))])
-              (if (= (- command-size 8) (read-bytes command-buffer input 0 (- command-size 8)))
+(define (parse-load-command [bytes : Bytes] [offset : Int])
+  : (Either Bytes (Tuple2 MachOLoadCommand Int))
+  (if (< (bytes-length bytes) (+ offset 8))
+      (left #"Not enough bytes")
+      (let ([number (bytes-ref/quad-le bytes (+ offset 0))])
+        (let ([command-size (bytes-ref/quad-le bytes (+ offset 4))])
+          (if (< (bytes-length bytes) (+ offset command-size))
+              (left #"Not enough bytes")
+              (let ([command-buffer (subbytes bytes (+ offset 8) (+ offset command-size))])
+                (case
                   (case number
                     [#x02 (parse-lc-symbol-table command-buffer)]
                     [#x19 (parse-lc-load-segment64 command-buffer)]
                     [#x24 (parse-lc-version-min-macosx command-buffer)]
                     [#x29 (parse-lc-data-in-code command-buffer)]
-                    [x (left (bytes-append
-                               (varargs list #"Unknown load command: #x"
-                                             (integer->hex-bytes x))))])
-                  (left #"Not enough bytes"))))))))
+                    [x ((lambda () : (Either Bytes MachOLoadCommand)
+                          (left (bytes-append
+                                (varargs list #"Unknown load command: #x"
+                                              (integer->hex-bytes x))))))])
+                  [(left v) (left v)]
+                  [(right command)
+                   (right (tuple2 command (+ offset command-size)))])))))))
+
+
 
 (define (parse-lc-load-segment64 [bytes : Bytes]) : (Either Bytes MachOLoadCommand)
   (if (< (bytes-length bytes) #x40)
@@ -214,18 +222,17 @@
                 (bytes-ref bytes #x05)
                 (bytes-ref bytes #x04)))))))
 
-
-(define (read-load-commands [amount : Int] [input : InputPort])
-  : (Either Bytes (List MachOLoadCommand))
+(define (parse-load-commands [amount : Int] [bytes : Bytes] [offset : Int])
+  : (Either Bytes (Tuple2 (List MachOLoadCommand) Int))
   (if (= amount 0)
-      (right (empty))
-      (case (read-load-command input)
+      (right (tuple2 (empty) offset))
+      (case (parse-load-command bytes offset)
         [(left v) (left v)]
-        [(right cmd)
-         (case (read-load-commands (- amount 1) input)
+        [(right (tuple2 cmd offset))
+         (case (parse-load-commands (- amount 1) bytes offset)
            [(left v) (left v)]
-           [(right cmds)
-            (right (cons cmd cmds))])])))
+           [(right (tuple2 cmds offset))
+            (right (tuple2 (cons cmd cmds) offset))])])))
 
 (define (read-symbol-table/symbols
           [offset : Int]
@@ -275,20 +282,22 @@
     (bytes-ref bytes (+ offset 7))))
 
 (define (read-mach-o [input : InputPort]) : (Either Bytes MachOFile)
-  (let ([header-bytes (make-bytes 32)])
-    (if (not (= 32 (read-bytes header-bytes input 0 32)))
-        (left #"Not enough bytes")
-        (let ([header
-               (mach-o-header
-                 (u32 (bytes-ref/quad-le header-bytes 0))
-                 (u32 (bytes-ref/quad-le header-bytes 4))
-                 (u32 (bytes-ref/quad-le header-bytes 8))
-                 (u32 (bytes-ref/quad-le header-bytes 12))
-                 (u32 (bytes-ref/quad-le header-bytes 16))
-                 (u32 (bytes-ref/quad-le header-bytes 20))
-                 (u32 (bytes-ref/quad-le header-bytes 24))
-                 (u32 (bytes-ref/quad-le header-bytes 28)))])
-          (case (read-load-commands (u32->s64 (mach-o-header-number-commands header)) input)
+  (match-define raw-content (read-all-bytes input))
+  (if (< (bytes-length raw-content) 32)
+      (left #"Not enough bytes ")
+      (let ([header
+             (mach-o-header
+               (u32 (bytes-ref/quad-le raw-content 0))
+               (u32 (bytes-ref/quad-le raw-content 4))
+               (u32 (bytes-ref/quad-le raw-content 8))
+               (u32 (bytes-ref/quad-le raw-content 12))
+               (u32 (bytes-ref/quad-le raw-content 16))
+               (u32 (bytes-ref/quad-le raw-content 20))
+               (u32 (bytes-ref/quad-le raw-content 24))
+               (u32 (bytes-ref/quad-le raw-content 28)))])
+
+          (case (parse-load-commands (u32->s64 (mach-o-header-number-commands header)) raw-content 32)
             [(left v) (left v)]
-            [(right commands)
-             (right (mach-o-file header commands (read-all-bytes input)))])))))
+            [(right (tuple2 commands offset))
+             (right (mach-o-file header commands
+                                 (subbytes raw-content offset (bytes-length raw-content))))]))))
