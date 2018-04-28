@@ -80,11 +80,11 @@
         (read-symbol-table/symbols
           0
           ;; Need to accout for 32 bytes of mach-header and  the load commands.
-          (let ([start (- offset (+ 32 (u32->s64 (mach-o-header-commands-size header))))])
-            (subbytes bytes start (+ start (* num-symbols 16))))
+          (let ([start (- (u32->s64 offset) (+ 32 (u32->s64 (mach-o-header-commands-size header))))])
+            (subbytes bytes start (+ start (* (u32->s64 num-symbols) 16))))
           ;; Need to accout for 32 bytes of mach-header and  the load commands.
-          (let ([start (- string-offset (+ 32 (u32->s64 (mach-o-header-commands-size header))))])
-            (subbytes bytes start (+ start string-size))))])]))
+          (let ([start (- (u32->s64 string-offset) (+ 32 (u32->s64 (mach-o-header-commands-size header))))])
+            (subbytes bytes start (+ start (u32->s64 string-size)))))])]))
 
 (define (read-relocations [num : Int] [offset : Int] [bytes : Bytes]) : (List RelocationEntry)
   (if (= 0 num)
@@ -177,8 +177,8 @@
                [(symbol-table-entry name type sect desc value)
                 (symbol-table-entry name type sect desc
                   (case (u8->s64 sect)
-                    [1 (+ text-offset value)]
-                    [2 (- (+ const-offset value) (bytes-length text))]
+                    [1 (u64 (+ text-offset (u64->s64 value)))]
+                    [2 (u64 (- (+ const-offset (u64->s64 value)) (bytes-length text)))]
                     [_ value]))]))
            symbols))
        (get-offset-symbols parsed-mach-os
@@ -203,11 +203,11 @@
          (lambda ([entry : RelocationEntry]) : RelocationMarker
            (case entry
              [(relocation-entry address symbol-num type)
-              (case (lookup-symbol symbols symbol-num)
+              (case (lookup-symbol symbols (u32->s64 symbol-num))
                 [(nothing) (panic #"Not a valid symbol number")]
                 [(just symbol-entry)
                  (relocation-marker
-                   (+ text-offset address)
+                   (+ text-offset (u32->s64 address))
                    (symbol-table-entry-name symbol-entry)
                    (u8->s64 type))])]))
          text-relocations)
@@ -216,11 +216,11 @@
            (lambda ([entry : RelocationEntry]) : RelocationMarker
              (case entry
                [(relocation-entry address symbol-num type)
-                (case (lookup-symbol symbols symbol-num)
+                (case (lookup-symbol symbols (u32->s64 symbol-num))
                   [(nothing) (panic #"Not a valid symbol number")]
                   [(just symbol-entry)
                    (relocation-marker
-                     (+ const-offset address)
+                     (+ const-offset (u32->s64 address))
                      (symbol-table-entry-name symbol-entry)
                      (u8->s64 type))])]))
            const-relocations)
@@ -249,7 +249,7 @@
             const-section
             offset
             (u64 (+ (u64->s64 (bytes-ref/u64-le const-section offset))
-                 (symbol-table-entry-value entry))))
+                 (u64->s64 (symbol-table-entry-value entry)))))
          (apply-const-relocations rels symbols const-section))])]
     [(cons _ rels)
      (apply-const-relocations rels symbols const-section)]))
@@ -272,7 +272,7 @@
             offset
             (u32
               (+ (bytes-ref/quad-le text-section offset)
-                 (- (symbol-table-entry-value entry)
+                 (- (u64->s64 (symbol-table-entry-value entry))
                     (+ (+ offset 4) text-start-offset)))))
           (apply-text-relocations rels symbols text-section text-start-offset))])]
     [(cons (relocation-marker offset symbol #x1D) rels)
@@ -285,7 +285,7 @@
             offset
             (u32
               (+ (bytes-ref/quad-le text-section offset)
-                 (- (symbol-table-entry-value entry)
+                 (- (u64->s64 (symbol-table-entry-value entry))
                     (+ (+ offset 4) text-start-offset)))))
           (apply-text-relocations rels symbols text-section text-start-offset))])]
     [(cons _ rels)
