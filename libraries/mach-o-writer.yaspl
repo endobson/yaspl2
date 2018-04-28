@@ -3,41 +3,17 @@
   (bytes)
   (io)
   (list)
-  (mach-o) {
-    #:types
-      LinkeditData
-      LoadSegment64
-      MachOLoadCommand
-      Section64
-      SymbolTable
-      UnixThread
-      VersionMin
-    #:values
-      load-segment64-sections
-    #:patterns
-      lc-data-in-code
-      lc-load-segment64
-      lc-source-version
-      lc-symbol-table
-      lc-unix-thread
-      lc-version-min-macosx
-      linkedit-data
-      load-segment64
-      section64
-      symbol-table
-      unix-thread
-      version-min
-  }
+  (mach-o)
   (prim)
 }
 (export
   #:types ()
-  #:values (write-mach-o-header mach-o-header
-            mach-o-executable-file mach-o-library-file )
+  #:values (write-mach-o-header-and-load-commands mach-o-header-and-load-commands
+            mach-o-executable-file mach-o-library-file)
   #:patterns ())
 (types
-  (define-type MachOHeader
-    (mach-o-header
+  (define-type MachOHeaderAndLoadCommands
+    (mach-o-header-and-load-commands
       [file-type : MachOFileType]
       [commands : (List MachOLoadCommand)]))
   (define-type MachOFileType
@@ -81,37 +57,52 @@
     [(lc-symbol-table _) #x18]))
 
 
-(define (write-mach-o-header [header : MachOHeader] [output : OutputPort]) : Void
-  (match-define (mach-o-header file-type commands) header)
+(define (write-mach-o-header-and-load-commands
+          [header : MachOHeaderAndLoadCommands] [output : OutputPort]) : Void
+  (match-define (mach-o-header-and-load-commands file-type commands) header)
   (begin
-    (write-quad-le #xfeedfacf output)
-    ;; CPU type
-    (write-quad-le #x01000007 output)
-    ;; CPU subtype
-    (write-quad-le #x03 output)
-    ;; File type
-    (write-quad-le
-      (case file-type
-        [(mach-o-library-file) #x01]
-        [(mach-o-executable-file) #x02])
-      output)
+    (write-mach-o-header (make-mach-o-header file-type commands) output)
+    (write-load-commands commands output)))
 
+(define (make-mach-o-header [file-type : MachOFileType] [commands : (List MachOLoadCommand)])
+  : MachOHeader
+  (mach-o-header
+    ;; Magic number
+    (u32 #xfeedfacf)
+    ;; CPU type
+    (u32 #x01000007)
+    ;; CPU subtype
+    (u32 #x03)
+    ;; File type
+    (case file-type
+      [(mach-o-library-file) (u32 #x01)]
+      [(mach-o-executable-file) (u32 #x02)])
     ;; Number of commands
-    (write-quad-le (length commands) output)
+    (u32 (length commands))
     ;; Size of commands
-    (write-quad-le (load-commands-size commands) output)
+    (u32 (load-commands-size commands))
 
     ;; Flags
     ;; TODO actually compute these instead of guessing at them based on file type
-    (write-quad-le
-      (case file-type
-        [(mach-o-library-file) #x00]
-        [(mach-o-executable-file) #x01])
-      output)
+    (case file-type
+      [(mach-o-library-file) (u32 #x00)]
+      [(mach-o-executable-file) (u32 #x01)])
     ;; Reserved
-    (write-quad-le #x00 output)
+    (u32 #x00)))
 
-    (write-load-commands commands output)))
+(define (write-mach-o-header [header : MachOHeader] [output : OutputPort]) : Void
+  (match-define (mach-o-header magic cpu-type cpu-subtype file-type number-commands command-size flags
+                               reserved) header)
+  (begin
+    (write-quad-le (u32->s64 magic) output)
+    (write-quad-le (u32->s64 cpu-type) output)
+    (write-quad-le (u32->s64 cpu-subtype) output)
+    (write-quad-le (u32->s64 file-type) output)
+    (write-quad-le (u32->s64 number-commands) output)
+    (write-quad-le (u32->s64 command-size) output)
+    (write-quad-le (u32->s64 flags) output)
+    (write-quad-le (u32->s64 reserved) output)))
+
 
 (define (write-load-commands [commands : (List MachOLoadCommand)] [output : OutputPort]) : Void
   (case commands
