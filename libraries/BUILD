@@ -159,7 +159,7 @@ yaspl_bootstrap_library(
     deps = [
         ":io",
         ":linker_lib",
-        ":mach-o-writer2_lib",
+        ":mach-o-writer_lib",
         ":mach-o_lib",
         "//libraries/data:bytes",
         "//libraries/data:either",
@@ -366,7 +366,7 @@ yaspl_bootstrap_library(
     deps = [
         ":compiler_lib",
         ":io",
-        ":mach-o-writer2_lib",
+        ":mach-o-writer_lib",
         ":module-signature",
         ":module-signature-serialization",
         "//libraries/data:either",
@@ -442,20 +442,8 @@ yaspl_bootstrap_library(
     name = "mach-o-writer_lib",
     srcs = ["mach-o-writer.yaspl"],
     deps = [
-        ":io",
-        ":mach-o_lib",
-        "//libraries/data:bytes",
-        "//libraries/data:list",
-    ],
-)
-
-yaspl_bootstrap_library(
-    name = "mach-o-writer2_lib",
-    srcs = ["mach-o-writer2.yaspl"],
-    deps = [
         ":assembler",
         ":io",
-        ":mach-o-writer_lib",
         ":mach-o_lib",
         "//libraries/data:bytes",
         "//libraries/data:either",
@@ -471,7 +459,7 @@ yaspl_bootstrap_library(
     srcs = ["main-stub.yaspl"],
     deps = [
         ":io",
-        ":mach-o-writer2_lib",
+        ":mach-o-writer_lib",
         ":prim-implementation",
         "//libraries/data:bytes",
         "//libraries/data:either",

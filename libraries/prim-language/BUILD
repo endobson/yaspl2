@@ -190,7 +190,7 @@ yaspl_library(
     deps = [
         ":prim-language-compiler_lib",
         "//libraries:io",
-        "//libraries:mach-o-writer2_lib",
+        "//libraries:mach-o-writer_lib",
         "//libraries/data:either",
         "//libraries/data:join-list",
         "//libraries/data:list",
@@ -236,7 +236,7 @@ yaspl_bootstrap_library(
     deps = [
         ":prim-language-compiler_lib",
         "//libraries:io",
-        "//libraries:mach-o-writer2_lib",
+        "//libraries:mach-o-writer_lib",
         "//libraries/data:either",
         "//libraries/data:list",
         "//libraries/data:tuples",
