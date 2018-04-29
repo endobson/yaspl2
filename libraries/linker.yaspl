@@ -80,10 +80,15 @@
     [(symbol-table-entry _ _ section _ _)
      (= (u8->s64 section) 2)]))
 
-(define (symbol-entry->defined-symbol [entry : SymbolTableEntry]) : DefinedSymbol
-  (case entry
-    [(symbol-table-entry name _ _ _ value)
-     (defined-symbol name (u64->s64 value))]))
+(define (symbol-entries->defined-symbols
+          [section-base-address : Int]
+          [entries : (List SymbolTableEntry)]) : (List DefinedSymbol)
+  (map
+    (lambda ([entry : SymbolTableEntry])
+      (case entry
+        [(symbol-table-entry name _ _ _ value)
+         (defined-symbol name (- (u64->s64 value) section-base-address))]))
+    entries))
 
 (define (read-symbol-table [mach-o : MachOFile]) : (List SymbolTableEntry)
   (case mach-o
@@ -159,14 +164,15 @@
 
 (define (parse-mach-o [mach-o : MachOFile]) : (Either Bytes ParsedMachO)
   (match-define all-symbols (read-symbol-table mach-o))
+  (match-define text-section (read-text-section mach-o))
   (right
     (parsed-mach-o
-      (read-text-section mach-o)
+      text-section
       (read-const-section mach-o)
       (resolve-relocations (read-text-relocations mach-o) all-symbols)
       (resolve-relocations (read-const-relocations mach-o) all-symbols)
-      (map symbol-entry->defined-symbol (filter text-symbol? all-symbols))
-      (map symbol-entry->defined-symbol (filter const-symbol? all-symbols)))))
+      (symbol-entries->defined-symbols 0 (filter text-symbol? all-symbols))
+      (symbol-entries->defined-symbols (bytes-length text-section) (filter const-symbol? all-symbols)))))
 
 
 (define (get-offset-symbols
@@ -191,8 +197,7 @@
              (case entry
                [(defined-symbol name value)
                 (symbol-table-entry name (u8 #x0f) (u8 #x01) (u8 #x20)
-                                         (u64 (- (+ const-offset value)
-                                                 (bytes-length text))))]))
+                                         (u64 (+ const-offset value)))]))
            const-symbols))
        (get-offset-symbols parsed-mach-os
                            (+ text-offset (bytes-length text))
