@@ -161,6 +161,7 @@ yaspl_bootstrap_library(
         ":io",
         ":linker_lib",
         ":mach-o",
+        ":structured-mach-o",
         ":mach-o-writer",
         "//libraries/data:bytes",
         "//libraries/data:either",
@@ -445,6 +446,7 @@ yaspl_bootstrap_library(
     name = "structured-mach-o",
     srcs = ["structured-mach-o.yaspl"],
     deps = [
+        "//libraries/data:list",
     ],
 )
 
