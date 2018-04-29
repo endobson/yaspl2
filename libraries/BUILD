@@ -409,6 +409,7 @@ yaspl_bootstrap_library(
     srcs = ["linker.yaspl"],
     deps = [
         ":mach-o",
+        ":structured-mach-o",
         "//libraries/data:bytes",
         "//libraries/data:either",
         "//libraries/data:indexed-set",
