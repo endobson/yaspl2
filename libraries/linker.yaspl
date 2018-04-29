@@ -14,17 +14,20 @@
   #:types ()
   #:values (parsed-mach-o parsed-mach-o-text-section parsed-mach-o-const-section
             apply-text-relocations apply-const-relocations get-adjusted-relocations
+            section-part-contents
             symbol-table-entry-name< get-offset-symbols symbol-table-entry-name-cmp parse-mach-o)
   #:patterns ())
 (types
   (define-type ParsedMachO
     (parsed-mach-o
-      [text-section : Bytes]
-      [const-section : Bytes]
-      [text-relocations : (List Relocation)]
-      [const-relocations : (List Relocation)]
-      [text-symbols : (List DefinedSymbol)]
-      [const-symbols : (List DefinedSymbol)]))
+      [text-section : SectionPart]
+      [const-section : SectionPart]))
+
+  (define-type SectionPart
+    (section-part
+      [contents : Bytes]
+      [relocations : (List Relocation)]
+      [defined-symbols : (List DefinedSymbol)]))
 
   (define-type DefinedSymbol
     (defined-symbol [name : Bytes] [offset : Int])))
@@ -167,12 +170,15 @@
   (match-define text-section (read-text-section mach-o))
   (right
     (parsed-mach-o
-      text-section
-      (read-const-section mach-o)
-      (resolve-relocations (read-text-relocations mach-o) all-symbols)
-      (resolve-relocations (read-const-relocations mach-o) all-symbols)
-      (symbol-entries->defined-symbols 0 (filter text-symbol? all-symbols))
-      (symbol-entries->defined-symbols (bytes-length text-section) (filter const-symbol? all-symbols)))))
+      (section-part
+        text-section
+        (resolve-relocations (read-text-relocations mach-o) all-symbols)
+        (symbol-entries->defined-symbols 0 (filter text-symbol? all-symbols)))
+      (section-part
+        (read-const-section mach-o)
+        (resolve-relocations (read-const-relocations mach-o) all-symbols)
+        (symbol-entries->defined-symbols (bytes-length text-section)
+                                         (filter const-symbol?  all-symbols))))))
 
 
 (define (get-offset-symbols
@@ -182,7 +188,8 @@
   : (List SymbolTableEntry)
   (case parsed-mach-os
     [(empty) (empty)]
-    [(cons (parsed-mach-o text const _ _ text-symbols const-symbols) parsed-mach-os)
+    [(cons (parsed-mach-o (section-part text _ text-symbols)
+                          (section-part const _ const-symbols)) parsed-mach-os)
      (append
        (append
          (map
@@ -231,8 +238,8 @@
   : (List Relocation)
   (case parsed-mach-os
     [(empty) (empty)]
-    [(cons (parsed-mach-o text const text-relocations const-relocations
-                          text-symbols const-symbols) parsed-mach-os)
+    [(cons (parsed-mach-o (section-part text text-relocations text-symbols )
+                          (section-part const const-relocations const-symbols)) parsed-mach-os)
      (append
        (map
          (lambda ([reloc  : Relocation]) : Relocation
