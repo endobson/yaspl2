@@ -13,7 +13,7 @@
 (export
   #:types ()
   #:values (parsed-mach-o parsed-mach-o-text-section parsed-mach-o-const-section
-            apply-text-relocations apply-const-relocations get-resolved-relocations
+            apply-text-relocations apply-const-relocations get-adjusted-relocations
             symbol-table-entry-name< get-offset-symbols symbol-table-entry-name-cmp parse-mach-o)
   #:patterns ())
 (types
@@ -21,8 +21,8 @@
     (parsed-mach-o
       [text-section : Bytes]
       [const-section : Bytes]
-      [text-relocations : (List RelocationEntry)]
-      [const-relocations : (List RelocationEntry)]
+      [text-relocations : (List Relocation)]
+      [const-relocations : (List Relocation)]
       [symbols : (List SymbolTableEntry)])))
 
 (define (find-symbol-table [load-commands : (List MachOLoadCommand)]) : SymbolTable
@@ -140,13 +140,14 @@
         (bytes< name1 name2)])]))
 
 (define (parse-mach-o [mach-o : MachOFile]) : (Either Bytes ParsedMachO)
+  (match-define symbols (read-symbol-table mach-o))
   (right
     (parsed-mach-o
       (read-text-section mach-o)
       (read-const-section mach-o)
-      (read-text-relocations mach-o)
-      (read-const-relocations mach-o)
-      (read-symbol-table mach-o))))
+      (resolve-relocations (read-text-relocations mach-o) symbols)
+      (resolve-relocations (read-const-relocations mach-o) symbols)
+      symbols)))
 
 
 (define (get-offset-symbols
@@ -182,7 +183,23 @@
   : (Maybe SymbolTableEntry)
   (list-ref symbols symbol-num))
 
-(define (get-resolved-relocations
+(define (resolve-relocations
+          [relocations : (List RelocationEntry)]
+          [symbols : (List SymbolTableEntry)]) : (List Relocation)
+  (map
+    (lambda ([entry : RelocationEntry]) : Relocation
+      (case entry
+        [(relocation-entry address symbol-num type)
+         (case (lookup-symbol symbols (u32->s64 symbol-num))
+           [(nothing) (panic #"Not a valid symbol number")]
+           [(just symbol-entry)
+            (relocation
+              (u8->relocation-kind type)
+              (u32->s64 address)
+              (symbol-table-entry-name symbol-entry))])]))
+    relocations))
+
+(define (get-adjusted-relocations
           [parsed-mach-os : (List ParsedMachO)]
           [text-offset : Int]
           [const-offset : Int])
@@ -192,31 +209,19 @@
     [(cons (parsed-mach-o text const text-relocations const-relocations symbols) parsed-mach-os)
      (append
        (map
-         (lambda ([entry : RelocationEntry]) : Relocation
-           (case entry
-             [(relocation-entry address symbol-num type)
-              (case (lookup-symbol symbols (u32->s64 symbol-num))
-                [(nothing) (panic #"Not a valid symbol number")]
-                [(just symbol-entry)
-                 (relocation
-                   (u8->relocation-kind type)
-                   (+ text-offset (u32->s64 address))
-                   (symbol-table-entry-name symbol-entry))])]))
+         (lambda ([reloc  : Relocation]) : Relocation
+           (case reloc
+             [(relocation kind offset symbol)
+              (relocation kind (+ text-offset offset) symbol)]))
          text-relocations)
        (append
          (map
-           (lambda ([entry : RelocationEntry]) : Relocation
-             (case entry
-               [(relocation-entry address symbol-num type)
-                (case (lookup-symbol symbols (u32->s64 symbol-num))
-                  [(nothing) (panic #"Not a valid symbol number")]
-                  [(just symbol-entry)
-                   (relocation
-                     (u8->relocation-kind type)
-                     (+ const-offset (u32->s64 address))
-                     (symbol-table-entry-name symbol-entry))])]))
+           (lambda ([reloc  : Relocation]) : Relocation
+             (case reloc
+               [(relocation kind offset symbol)
+                (relocation kind (+ const-offset offset) symbol)]))
            const-relocations)
-         (get-resolved-relocations parsed-mach-os
+         (get-adjusted-relocations parsed-mach-os
                                    (+ text-offset (bytes-length text))
                                    (+ const-offset (bytes-length const)))))]))
 
