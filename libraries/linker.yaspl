@@ -23,7 +23,8 @@
       [const-section : Bytes]
       [text-relocations : (List Relocation)]
       [const-relocations : (List Relocation)]
-      [symbols : (List SymbolTableEntry)])))
+      [text-symbols : (List SymbolTableEntry)]
+      [const-symbols : (List SymbolTableEntry)])))
 
 (define (find-symbol-table [load-commands : (List MachOLoadCommand)]) : SymbolTable
   (case load-commands
@@ -66,6 +67,15 @@
        [(section64 #"__const" #"__TEXT" _ _ _ _ _ _ _)
         (just sec)]
        [_ (find-const-section* secs)])]))
+
+(define (text-symbol? [entry : SymbolTableEntry]) : Boolean
+  (case entry
+    [(symbol-table-entry _ _ section _ _)
+     (= (u8->s64 section) 1)]))
+(define (const-symbol? [entry : SymbolTableEntry]) : Boolean
+  (case entry
+    [(symbol-table-entry _ _ section _ _)
+     (= (u8->s64 section) 2)]))
 
 (define (read-symbol-table [mach-o : MachOFile]) : (List SymbolTableEntry)
   (case mach-o
@@ -140,14 +150,15 @@
         (bytes< name1 name2)])]))
 
 (define (parse-mach-o [mach-o : MachOFile]) : (Either Bytes ParsedMachO)
-  (match-define symbols (read-symbol-table mach-o))
+  (match-define all-symbols (read-symbol-table mach-o))
   (right
     (parsed-mach-o
       (read-text-section mach-o)
       (read-const-section mach-o)
-      (resolve-relocations (read-text-relocations mach-o) symbols)
-      (resolve-relocations (read-const-relocations mach-o) symbols)
-      symbols)))
+      (resolve-relocations (read-text-relocations mach-o) all-symbols)
+      (resolve-relocations (read-const-relocations mach-o) all-symbols)
+      (filter text-symbol? all-symbols)
+      (filter const-symbol? all-symbols))))
 
 
 (define (get-offset-symbols
@@ -157,23 +168,27 @@
   : (List SymbolTableEntry)
   (case parsed-mach-os
     [(empty) (empty)]
-    [(cons (parsed-mach-o text const _ _ symbols) parsed-mach-os)
+    [(cons (parsed-mach-o text const _ _ text-symbols const-symbols) parsed-mach-os)
      (append
        (filter
          (lambda ([entry : SymbolTableEntry])
            (case entry
              [(symbol-table-entry _ type _ _ _)
               (not (= (u8->s64 type) 1))]))
-         (map
-           (lambda ([entry : SymbolTableEntry])
-             (case entry
-               [(symbol-table-entry name type sect desc value)
-                (symbol-table-entry name type sect desc
-                  (case (u8->s64 sect)
-                    [1 (u64 (+ text-offset (u64->s64 value)))]
-                    [2 (u64 (- (+ const-offset (u64->s64 value)) (bytes-length text)))]
-                    [_ value]))]))
-           symbols))
+         (append
+           (map
+             (lambda ([entry : SymbolTableEntry])
+               (case entry
+                 [(symbol-table-entry name type sect desc value)
+                  (symbol-table-entry name type sect desc (u64 (+ text-offset (u64->s64 value))))]))
+             text-symbols)
+           (map
+             (lambda ([entry : SymbolTableEntry])
+               (case entry
+                 [(symbol-table-entry name type sect desc value)
+                  (symbol-table-entry name type sect desc (u64 (- (+ const-offset (u64->s64 value))
+                                                                  (bytes-length text))))]))
+             const-symbols)))
        (get-offset-symbols parsed-mach-os
                            (+ text-offset (bytes-length text))
                            (+ const-offset (bytes-length const))))]))
@@ -206,7 +221,8 @@
   : (List Relocation)
   (case parsed-mach-os
     [(empty) (empty)]
-    [(cons (parsed-mach-o text const text-relocations const-relocations symbols) parsed-mach-os)
+    [(cons (parsed-mach-o text const text-relocations const-relocations
+                          text-symbols const-symbols) parsed-mach-os)
      (append
        (map
          (lambda ([reloc  : Relocation]) : Relocation
