@@ -76,6 +76,7 @@ yaspl_bootstrap_library(
     name = "assembler",
     srcs = ["assembler.yaspl"],
     deps = [
+        ":structured-mach-o",
         "//libraries/data:bytes",
         "//libraries/data:either",
         "//libraries/data:join-list",
@@ -440,12 +441,20 @@ yaspl_bootstrap_library(
 )
 
 yaspl_bootstrap_library(
+    name = "structured-mach-o",
+    srcs = ["structured-mach-o.yaspl"],
+    deps = [
+    ],
+)
+
+yaspl_bootstrap_library(
     name = "mach-o-writer",
     srcs = ["mach-o-writer.yaspl"],
     deps = [
         ":assembler",
         ":io",
         ":mach-o",
+        ":structured-mach-o",
         "//libraries/data:bytes",
         "//libraries/data:either",
         "//libraries/data:list",
