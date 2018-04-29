@@ -446,6 +446,7 @@ yaspl_bootstrap_library(
     name = "structured-mach-o",
     srcs = ["structured-mach-o.yaspl"],
     deps = [
+        "//libraries/data:bytes",
         "//libraries/data:list",
     ],
 )
