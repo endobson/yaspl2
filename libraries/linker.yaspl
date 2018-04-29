@@ -23,8 +23,11 @@
       [const-section : Bytes]
       [text-relocations : (List Relocation)]
       [const-relocations : (List Relocation)]
-      [text-symbols : (List SymbolTableEntry)]
-      [const-symbols : (List SymbolTableEntry)])))
+      [text-symbols : (List DefinedSymbol)]
+      [const-symbols : (List DefinedSymbol)]))
+
+  (define-type DefinedSymbol
+    (defined-symbol [name : Bytes] [offset : Int])))
 
 (define (find-symbol-table [load-commands : (List MachOLoadCommand)]) : SymbolTable
   (case load-commands
@@ -76,6 +79,11 @@
   (case entry
     [(symbol-table-entry _ _ section _ _)
      (= (u8->s64 section) 2)]))
+
+(define (symbol-entry->defined-symbol [entry : SymbolTableEntry]) : DefinedSymbol
+  (case entry
+    [(symbol-table-entry name _ _ _ value)
+     (defined-symbol name (u64->s64 value))]))
 
 (define (read-symbol-table [mach-o : MachOFile]) : (List SymbolTableEntry)
   (case mach-o
@@ -157,8 +165,8 @@
       (read-const-section mach-o)
       (resolve-relocations (read-text-relocations mach-o) all-symbols)
       (resolve-relocations (read-const-relocations mach-o) all-symbols)
-      (filter text-symbol? all-symbols)
-      (filter const-symbol? all-symbols))))
+      (map symbol-entry->defined-symbol (filter text-symbol? all-symbols))
+      (map symbol-entry->defined-symbol (filter const-symbol? all-symbols)))))
 
 
 (define (get-offset-symbols
@@ -170,25 +178,22 @@
     [(empty) (empty)]
     [(cons (parsed-mach-o text const _ _ text-symbols const-symbols) parsed-mach-os)
      (append
-       (filter
-         (lambda ([entry : SymbolTableEntry])
-           (case entry
-             [(symbol-table-entry _ type _ _ _)
-              (not (= (u8->s64 type) 1))]))
-         (append
-           (map
-             (lambda ([entry : SymbolTableEntry])
-               (case entry
-                 [(symbol-table-entry name type sect desc value)
-                  (symbol-table-entry name type sect desc (u64 (+ text-offset (u64->s64 value))))]))
-             text-symbols)
-           (map
-             (lambda ([entry : SymbolTableEntry])
-               (case entry
-                 [(symbol-table-entry name type sect desc value)
-                  (symbol-table-entry name type sect desc (u64 (- (+ const-offset (u64->s64 value))
-                                                                  (bytes-length text))))]))
-             const-symbols)))
+       (append
+         (map
+           (lambda ([entry : DefinedSymbol])
+             (case entry
+               [(defined-symbol name value)
+                (symbol-table-entry name (u8 #x0f) (u8 #x01) (u8 #x20)
+                                    (u64 (+ text-offset value)))]))
+           text-symbols)
+         (map
+           (lambda ([entry : DefinedSymbol])
+             (case entry
+               [(defined-symbol name value)
+                (symbol-table-entry name (u8 #x0f) (u8 #x01) (u8 #x20)
+                                         (u64 (- (+ const-offset value)
+                                                 (bytes-length text))))]))
+           const-symbols))
        (get-offset-symbols parsed-mach-os
                            (+ text-offset (bytes-length text))
                            (+ const-offset (bytes-length const))))]))
