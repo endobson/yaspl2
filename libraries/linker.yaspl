@@ -13,7 +13,7 @@
 (export
   #:types ()
   #:values (parsed-mach-o parsed-mach-o-text-section parsed-mach-o-const-section
-            apply-text-relocations apply-const-relocations get-adjusted-relocations
+            apply-relocations get-adjusted-text-relocations get-adjusted-const-relocations
             symbol-table-entry-name< get-offset-symbols symbol-table-entry-name-cmp parse-mach-o)
   #:patterns ())
 (types
@@ -221,15 +221,13 @@
               (symbol-table-entry-name symbol-entry))])]))
     relocations))
 
-(define (get-adjusted-relocations
+(define (get-adjusted-text-relocations
           [parsed-mach-os : (List ParsedMachO)]
-          [text-offset : Int]
-          [const-offset : Int])
+          [text-offset : Int])
   : (List Relocation)
   (case parsed-mach-os
     [(empty) (empty)]
-    [(cons (parsed-mach-o (section-part text text-relocations text-symbols )
-                          (section-part const const-relocations const-symbols)) parsed-mach-os)
+    [(cons (parsed-mach-o (section-part text text-relocations text-symbols) _) parsed-mach-os)
      (append
        (map
          (lambda ([reloc  : Relocation]) : Relocation
@@ -237,39 +235,32 @@
              [(relocation kind offset symbol)
               (relocation kind (+ text-offset offset) symbol)]))
          text-relocations)
-       (append
-         (map
-           (lambda ([reloc  : Relocation]) : Relocation
-             (case reloc
-               [(relocation kind offset symbol)
-                (relocation kind (+ const-offset offset) symbol)]))
-           const-relocations)
-         (get-adjusted-relocations parsed-mach-os
-                                   (+ text-offset (bytes-length text))
-                                   (+ const-offset (bytes-length const)))))]))
+       (get-adjusted-text-relocations parsed-mach-os
+                                      (+ text-offset (bytes-length text))))]))
+
+(define (get-adjusted-const-relocations
+          [parsed-mach-os : (List ParsedMachO)]
+          [const-offset : Int])
+  : (List Relocation)
+  (case parsed-mach-os
+    [(empty) (empty)]
+    [(cons (parsed-mach-o _ (section-part const const-relocations const-symbols)) parsed-mach-os)
+     (append
+       (map
+         (lambda ([reloc  : Relocation]) : Relocation
+           (case reloc
+             [(relocation kind offset symbol)
+              (relocation kind (+ const-offset offset) symbol)]))
+         const-relocations)
+       (get-adjusted-const-relocations parsed-mach-os
+                                       (+ const-offset (bytes-length const))))]))
+
 
 (define (find-symbol-entry [symbol : Bytes] [symbols : (IndexedSet SymbolTableEntry Bytes)])
   : (Either Bytes SymbolTableEntry)
   (case (indexed-set-ref symbols symbol)
     [(nothing) (left (bytes-append (varargs list #"Couldn't find symbol: " symbol)))]
     [(just entry) (right entry)]))
-
-(define (apply-const-relocations
-          [rels : (List Relocation)]
-          [symbols : (IndexedSet SymbolTableEntry Bytes)]
-          [const-section : Bytes]) : (Maybe Bytes)
-  (case rels
-    [(empty) (nothing)]
-    [(cons (relocation (unsigned-relocation) offset symbol) rels)
-     (case (find-symbol-entry symbol symbols)
-       [(left msg) (just msg)]
-       [(right entry)
-        (begin
-          (apply-u64-absolute-relocation
-            const-section offset (u64->s64 (symbol-table-entry-value entry)))
-         (apply-const-relocations rels symbols const-section))])]
-    [(cons _ rels)
-     (apply-const-relocations rels symbols const-section)]))
 
 (define (apply-u64-absolute-relocation
           [section : Bytes]
@@ -295,28 +286,24 @@
       (+ (bytes-ref/quad-le section offset)
          (- addr (+ (+ offset 4) section-start))))))
 
-(define (apply-text-relocations
+(define (apply-relocations
           [rels : (List Relocation)]
           [symbols : (IndexedSet SymbolTableEntry Bytes)]
-          [text-section : Bytes]
-          [text-start-offset : Int]) : (Maybe Bytes)
+          [section : Bytes]
+          [section-start : Int]) : (Maybe Bytes)
   (case rels
     [(empty) (nothing)]
-    [(cons (relocation (branch-relocation) offset symbol) rels)
+    [(cons (relocation rel-kind offset symbol) rels)
      (case (find-symbol-entry symbol symbols)
        [(left msg) (just msg)]
        [(right entry)
+        (match-define value (u64->s64 (symbol-table-entry-value entry)))
         (begin
-          (apply-s32-pc-relative-relocation
-            text-section offset (u64->s64 (symbol-table-entry-value entry)) text-start-offset)
-          (apply-text-relocations rels symbols text-section text-start-offset))])]
-    [(cons (relocation (signed-relocation) offset symbol) rels)
-     (case (find-symbol-entry symbol symbols)
-       [(left msg) (just msg)]
-       [(right entry)
-        (begin
-          (apply-s32-pc-relative-relocation
-            text-section offset (u64->s64 (symbol-table-entry-value entry)) text-start-offset)
-          (apply-text-relocations rels symbols text-section text-start-offset))])]
-    [(cons _ rels)
-     (apply-text-relocations rels symbols text-section text-start-offset)]))
+          (case rel-kind
+            [(branch-relocation)
+             (apply-s32-pc-relative-relocation section offset value section-start)]
+            [(signed-relocation)
+             (apply-s32-pc-relative-relocation section offset value section-start)]
+            [(unsigned-relocation)
+             (apply-u64-absolute-relocation section offset value)])
+          (apply-relocations rels symbols section section-start))])]))
