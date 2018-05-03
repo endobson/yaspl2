@@ -48,79 +48,74 @@
              (write-line msg stderr)
              1)]
           [(right parsed-mach-o-files)
-           (let ([text-section
-                   (bytes-append (map section-part-contents (map parsed-mach-o-text-section
-                                                                 parsed-mach-o-files)))])
-             (let ([const-section
-                     (bytes-append (map section-part-contents (map parsed-mach-o-const-section
-                                                                   parsed-mach-o-files)))])
-               (let ([rounded-text-segment-length
-                      (let ([text-segment-length
-                             (+ (bytes-length text-section)
-                                (bytes-length const-section))])
-                        (* #x1000 (+ (quotient (+ text-segment-length #x330) #x1000) 1)))])
-                 (let ([symbol-table-entries
-                        (sort
-                          (set->list
-                            (set-add-all
-                              ;; TODO make sure that the right definition is kept
-                              (make-set symbol-table-entry-name-cmp)
-                              (cons (symbol-table-entry
-                                      #"__mh_execute_header" (u8 3) (u8 1) (u8 #x10)
-                                      (u64 #x100000000))
-                                    (get-offset-symbols parsed-mach-o-files
-                                                        (+ #x100000000
-                                                           (- rounded-text-segment-length
-                                                              (+ (bytes-length
-                                                                   text-section)
-                                                                 (bytes-length
-                                                                   const-section))))
-                                                        (+ #x100000000
-                                                           (- rounded-text-segment-length
-                                                              (bytes-length
-                                                                 const-section)))))))
-                          symbol-table-entry-name<)])
-                   (let ([symbol-table-lookup
-                          (foldl
-                            (lambda ([e : SymbolTableEntry] [acc : (IndexedSet SymbolTableEntry Bytes)])
-                              (indexed-set-add acc e))
-                            symbol-table-entries
-                            (make-indexed-set symbol-table-entry-name bytes-cmp))])
-                     (case (apply-relocations
-                             (get-adjusted-const-relocations parsed-mach-o-files 0)
-                             symbol-table-lookup
-                             const-section
-                             (+ #x100000000
-                                (- rounded-text-segment-length
-                                   (bytes-length
-                                     const-section))))
-                       [(just msg)
-                        (begin
-                          (write-line msg stderr)
-                          1)]
-                       [(nothing)
-                        (case (apply-relocations
-                                (get-adjusted-text-relocations parsed-mach-o-files 0)
-                                symbol-table-lookup
-                                text-section
-                                (+ #x100000000
-                                   (- rounded-text-segment-length
-                                      (+ (bytes-length
-                                           text-section)
-                                         (bytes-length
-                                           const-section)))))
-                          [(just msg)
-                           (begin
-                             (write-line msg stderr)
-                             1)]
-                          [(nothing)
-                           (case (write-mach-o-executable
-                                   symbol-table-entries
-                                   text-section const-section
-                                   output-file-name)
-                             [(left v)
-                              (begin
-                                (write-line v stderr)
-                                1)]
-                             [(right _)
-                              0])])]))))))])])]))
+           (match-define text-section
+             (bytes-append (map section-part-contents (map parsed-mach-o-text-section
+                                                           parsed-mach-o-files))))
+           (match-define const-section
+             (bytes-append (map section-part-contents (map parsed-mach-o-const-section
+                                                           parsed-mach-o-files))))
+           (match-define rounded-text-segment-length
+             (let ([text-segment-length
+                    (+ (bytes-length text-section)
+                       (bytes-length const-section))])
+               (* #x1000 (+ (quotient (+ text-segment-length #x330) #x1000) 1))))
+           (match-define text-segment-start-address #x100000000)
+           (match-define text-section-start-address
+             (+ text-segment-start-address
+                (- rounded-text-segment-length
+                   (+ (bytes-length text-section)
+                      (bytes-length const-section)))))
+           (match-define const-section-start-address
+             (+ text-segment-start-address
+                (- rounded-text-segment-length
+                   (bytes-length const-section))))
+           (match-define symbol-table-entries
+             (sort
+               (set->list
+                 (set-add-all
+                   ;; TODO make sure that the right definition is kept
+                   (make-set symbol-table-entry-name-cmp)
+                   (cons (symbol-table-entry
+                           #"__mh_execute_header" (u8 3) (u8 1) (u8 #x10)
+                           (u64 text-segment-start-address))
+                         (get-offset-symbols
+                           parsed-mach-o-files
+                           text-section-start-address
+                           const-section-start-address))))
+               symbol-table-entry-name<))
+           (match-define symbol-table-lookup
+             (foldl
+               (lambda ([e : SymbolTableEntry] [acc : (IndexedSet SymbolTableEntry Bytes)])
+                 (indexed-set-add acc e))
+               symbol-table-entries
+               (make-indexed-set symbol-table-entry-name bytes-cmp)))
+           (case (apply-relocations
+                   (get-adjusted-const-relocations parsed-mach-o-files 0)
+                   symbol-table-lookup
+                   const-section
+                   const-section-start-address)
+             [(just msg)
+              (begin
+                (write-line msg stderr)
+                1)]
+             [(nothing)
+              (case (apply-relocations
+                      (get-adjusted-text-relocations parsed-mach-o-files 0)
+                      symbol-table-lookup
+                      text-section
+                      text-section-start-address)
+                [(just msg)
+                 (begin
+                   (write-line msg stderr)
+                   1)]
+                [(nothing)
+                 (case (write-mach-o-executable
+                         symbol-table-entries
+                         text-section const-section
+                         output-file-name)
+                   [(left v)
+                    (begin
+                      (write-line v stderr)
+                      1)]
+                   [(right _)
+                    0])])])])])]))
