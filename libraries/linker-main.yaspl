@@ -48,17 +48,19 @@
              (write-line msg stderr)
              1)]
           [(right parsed-mach-o-files)
-           (match-define text-section
-             (bytes-append (map section-part-contents (map parsed-mach-o-text-section
-                                                           parsed-mach-o-files))))
-           (match-define const-section
-             (bytes-append (map section-part-contents (map parsed-mach-o-const-section
-                                                           parsed-mach-o-files))))
-           (match-define text-section-size (bytes-length text-section))
-           (match-define const-section-size (bytes-length const-section))
-           (match-define raw-text-segment-length
-             (+ (bytes-length text-section)
-                (bytes-length const-section)))
+           (match-define (text-segment
+                           contents
+                           text-section-offset
+                           text-section-size
+                           const-section-offset
+                           const-section-size
+                           relocations
+                           symbols)
+             (construct-text-segment
+               (map parsed-mach-o-text-section parsed-mach-o-files)
+               (map parsed-mach-o-const-section parsed-mach-o-files)))
+
+           (match-define raw-text-segment-length (bytes-length contents))
            (match-define rounded-text-segment-length
              (* #x1000 (+ (quotient (+ raw-text-segment-length #x330) #x1000) 1)))
            (match-define text-segment-start-offset
@@ -69,8 +71,7 @@
                 text-segment-start-offset))
            (match-define const-section-start-address
              (+ text-segment-start-address
-                (+ text-segment-start-offset
-                   (bytes-length text-section))))
+                (+ text-segment-start-offset text-section-size)))
 
            (match-define symbol-table-entries
              (sort
@@ -90,34 +91,24 @@
                symbol-table-entries
                (make-indexed-set symbol-table-entry-name bytes-cmp)))
            (case (apply-relocations
-                   (get-adjusted-const-relocations parsed-mach-o-files 0)
+                   relocations
                    symbol-table-lookup
-                   const-section
-                   const-section-start-address)
+                   contents
+                   text-section-start-address)
              [(just msg)
               (begin
                 (write-line msg stderr)
                 1)]
              [(nothing)
-              (case (apply-relocations
-                      (get-adjusted-text-relocations parsed-mach-o-files 0)
-                      symbol-table-lookup
-                      text-section
-                      text-section-start-address)
-                [(just msg)
+              (case (write-mach-o-executable
+                      symbol-table-entries
+                      contents
+                      text-section-size
+                      const-section-size
+                      output-file-name)
+                [(left v)
                  (begin
-                   (write-line msg stderr)
+                   (write-line v stderr)
                    1)]
-                [(nothing)
-                 (case (write-mach-o-executable
-                         symbol-table-entries
-                         (bytes-append (varargs list text-section const-section))
-                         text-section-size
-                         const-section-size
-                         output-file-name)
-                   [(left v)
-                    (begin
-                      (write-line v stderr)
-                      1)]
-                   [(right _)
-                    0])])])])])]))
+                [(right _)
+                 0])])])])]))
