@@ -2,8 +2,10 @@
 #:import {
   (assembler)
   (bytes)
+  (data indexed-set)
   (either)
   (io)
+  (linker)
   (list)
   (mach-o)
   (maybe)
@@ -112,136 +114,175 @@
   (empty))
 
 (define (write-mach-o-executable
-          [symbol-table-entries : (List SymbolTableEntry)]
-          [text-segment : Bytes]
-          [text-section-size : Int]
-          [const-section-size : Int]
+          [text-segment : TextSegment]
           [output-file-name : Bytes])
   : (Either Bytes Void)
-  (match-define page-zero-size #x0000000100000000)
-  (match-define text-section-relocations (empty/relocation))
-  (match-define text-section-num-relocations (length text-section-relocations))
-  (match-define const-section-relocations (empty/relocation))
-  (match-define const-section-num-relocations (length const-section-relocations))
-  (match-define text-segment-size
-    (bytes-length text-segment))
-  (match-define text-segment-num-pages
-    (+ (quotient (+ text-segment-size #x330) #x1000) 1))
-  (match-define const-section-start
-    (- (+ page-zero-size (* text-segment-num-pages #x1000)) const-section-size))
-  (match-define text-section-start
-    (- const-section-start text-section-size))
-  (match-define num-symbols (length symbol-table-entries))
-  (match-define symbols-length-unrounded
-    (+ (+ 2 (length symbol-table-entries))
-       (sum (map bytes-length (map symbol-table-entry-name
-                                   symbol-table-entries)))))
-  (match-define symbols-length (round-up symbols-length-unrounded 8))
-  (match-define start-address (find-start-address symbol-table-entries))
-  (call-with-output-file output-file-name
-    (lambda ([output : OutputPort])
-      (begin
-        (write-executable-mach-o-header-and-load-commands
-          (varargs list
-            (lc-load-segment64
-              (load-segment64 #"__PAGEZERO"
-                (u64 #x0000000000000000)
-                (u64 page-zero-size)
-                (u64 0)
-                (u64 0)
-                (u32 #x00)
-                (u32 #x00)
-                (u32 0)
-                (empty)))
-            (lc-load-segment64
-              (load-segment64 #"__TEXT"
-                (u64 page-zero-size)
-                (u64 (* text-segment-num-pages #x1000))
-                (u64 #x0)
-                (u64 (* text-segment-num-pages #x1000))
-                (u32 #x07)
-                (u32 #x05)
-                (u32 0)
-                (varargs list
-                  (section64 #"__text" #"__TEXT"
-                             (u64 text-section-start)
-                             (u64 text-section-size)
-                             (u32 (- text-section-start page-zero-size))
-                             (u32 0) ;; TODO compute a sensible alignment
-                             (u32 0)
-                             (u32 text-section-num-relocations)
-                             (u32 #x80000400))
-                  (section64 #"__const" #"__TEXT"
-                             (u64 const-section-start)
-                             (u64 const-section-size)
-                             (u32 (- const-section-start page-zero-size))
-                             (u32 0) ;; TODO compute a sensible alignment
-                             (u32 0)
-                             (u32 const-section-num-relocations)
-                             (u32 0)))))
-            (lc-load-segment64
-              (load-segment64 #"__DATA"
-                (u64 (+ page-zero-size
-                        (* text-segment-num-pages #x1000)))
-                (u64 #x0000000000000000)
-                (u64 (* text-segment-num-pages #x1000))
-                (u64 #x0)
-                (u32 #x07)
-                (u32 #x03)
-                (u32 #x04)
-                (varargs list
-                  (section64 #"__data" #"__DATA"
-                             (u64 (+ page-zero-size
-                                     (* text-segment-num-pages #x1000)))
-                             (u64 #x0000000000000000)
-                             (u32 (* text-segment-num-pages #x1000))
-                             (u32 0) ;; TODO compute a sensible alignment
-                             (u32 0)
-                             (u32 text-section-num-relocations)
-                             (u32 0)))))
-            (lc-load-segment64
-              (load-segment64 #"__LINKEDIT"
-                (u64 (+ page-zero-size
-                        (* text-segment-num-pages #x1000)))
-                (u64 (* (+ (quotient
-                             (- (+ (* num-symbols 16) symbols-length) 1)
-                             #x1000)
-                           1)
-                        #x1000))
-                (u64 (* text-segment-num-pages #x1000))
-                (u64 (+ (* num-symbols 16) symbols-length))
-                (u32 #x07)
-                (u32 #x01)
-                (u32 #x00)
-                (empty)))
-            (lc-symbol-table
-              (symbol-table
-                (u32 (* text-segment-num-pages #x1000))
-                (u32 num-symbols)
-                (u32 (+ (* text-segment-num-pages #x1000) (* num-symbols 16)))
-                (u32 symbols-length)))
-            (lc-source-version)
-            (lc-unix-thread (unix-thread start-address)))
-          output)
-        (write-all-bytes (make-bytes 32) output)
-        (write-all-bytes
-          (make-bytes
-            (- (+ (* (quotient (+ text-segment-size #x330) #x1000) #x1000)
-                  #xCD0)
-               text-segment-size))
-        output)
-        (write-all-bytes text-segment output)
-        (write-symbol-entries symbol-table-entries 2 output)
-        ;(write-all-bytes (make-bytes (- (* num-symbols 16) 2)) output)
+  (match-define
+    (text-segment contents text-section-offset text-section-size const-section-offset
+                  const-section-size relocations symbols)
+    text-segment)
+  (match-define raw-text-segment-length (bytes-length contents))
+  (match-define rounded-text-segment-length
+    (* #x1000 (+ (quotient (+ raw-text-segment-length #x330) #x1000) 1)))
+  (match-define text-segment-start-offset
+    (- rounded-text-segment-length raw-text-segment-length))
+  ;; This is where the actual content starts.
+  (match-define text-segment-start-address
+    (+ #x100000000 text-segment-start-offset))
 
-        (write-all-bytes (varargs bytes 32 0) output)
-        (write-symbol-strings symbol-table-entries output)
-        (write-all-bytes
-          (make-bytes
-            (- symbols-length symbols-length-unrounded))
-          output)
+  (match-define symbol-table-entries
+    (sort
+      (set->list
+        (set-add-all
+          ;; TODO make sure that the right definition is kept
+          (make-set symbol-table-entry-name-cmp)
+          (map
+            (lambda ([sym : DefinedSymbol])
+              (case sym
+                [(defined-symbol name offset)
+                 (symbol-table-entry name (u8 #x0f) (u8 #x01) (u8 #x20)
+                                     (u64 (+ text-segment-start-address offset)))]))
+            symbols)))
+      symbol-table-entry-name<))
 
-        (right (void))))))
+  (match-define symbol-table-lookup
+    (foldl
+      (lambda ([e : SymbolTableEntry] [acc : (IndexedSet SymbolTableEntry Bytes)])
+        (indexed-set-add acc e))
+      symbol-table-entries
+      (make-indexed-set symbol-table-entry-name bytes-cmp)))
+  (case (apply-relocations
+          relocations
+          symbol-table-lookup
+          contents
+          text-segment-start-address)
+    [(just msg)
+     (left msg)]
+    [(nothing)
+     (match-define page-zero-size #x0000000100000000)
+     (match-define text-section-relocations (empty/relocation))
+     (match-define text-section-num-relocations (length text-section-relocations))
+     (match-define const-section-relocations (empty/relocation))
+     (match-define const-section-num-relocations (length const-section-relocations))
+     (match-define text-segment-size
+       (bytes-length contents))
+     (match-define text-segment-num-pages
+       (+ (quotient (+ text-segment-size #x330) #x1000) 1))
+     (match-define const-section-start
+       (- (+ page-zero-size (* text-segment-num-pages #x1000)) const-section-size))
+     (match-define text-section-start
+       (- const-section-start text-section-size))
+     (match-define num-symbols (length symbol-table-entries))
+     (match-define symbols-length-unrounded
+       (+ (+ 2 (length symbol-table-entries))
+          (sum (map bytes-length (map symbol-table-entry-name
+                                      symbol-table-entries)))))
+     (match-define symbols-length (round-up symbols-length-unrounded 8))
+     (match-define start-address (find-start-address symbol-table-entries))
+     (call-with-output-file output-file-name
+       (lambda ([output : OutputPort])
+         (begin
+           (write-executable-mach-o-header-and-load-commands
+             (varargs list
+               (lc-load-segment64
+                 (load-segment64 #"__PAGEZERO"
+                   (u64 #x0000000000000000)
+                   (u64 page-zero-size)
+                   (u64 0)
+                   (u64 0)
+                   (u32 #x00)
+                   (u32 #x00)
+                   (u32 0)
+                   (empty)))
+               (lc-load-segment64
+                 (load-segment64 #"__TEXT"
+                   (u64 page-zero-size)
+                   (u64 (* text-segment-num-pages #x1000))
+                   (u64 #x0)
+                   (u64 (* text-segment-num-pages #x1000))
+                   (u32 #x07)
+                   (u32 #x05)
+                   (u32 0)
+                   (varargs list
+                     (section64 #"__text" #"__TEXT"
+                                (u64 text-section-start)
+                                (u64 text-section-size)
+                                (u32 (- text-section-start page-zero-size))
+                                (u32 0) ;; TODO compute a sensible alignment
+                                (u32 0)
+                                (u32 text-section-num-relocations)
+                                (u32 #x80000400))
+                     (section64 #"__const" #"__TEXT"
+                                (u64 const-section-start)
+                                (u64 const-section-size)
+                                (u32 (- const-section-start page-zero-size))
+                                (u32 0) ;; TODO compute a sensible alignment
+                                (u32 0)
+                                (u32 const-section-num-relocations)
+                                (u32 0)))))
+               (lc-load-segment64
+                 (load-segment64 #"__DATA"
+                   (u64 (+ page-zero-size
+                           (* text-segment-num-pages #x1000)))
+                   (u64 #x0000000000000000)
+                   (u64 (* text-segment-num-pages #x1000))
+                   (u64 #x0)
+                   (u32 #x07)
+                   (u32 #x03)
+                   (u32 #x04)
+                   (varargs list
+                     (section64 #"__data" #"__DATA"
+                                (u64 (+ page-zero-size
+                                        (* text-segment-num-pages #x1000)))
+                                (u64 #x0000000000000000)
+                                (u32 (* text-segment-num-pages #x1000))
+                                (u32 0) ;; TODO compute a sensible alignment
+                                (u32 0)
+                                (u32 text-section-num-relocations)
+                                (u32 0)))))
+               (lc-load-segment64
+                 (load-segment64 #"__LINKEDIT"
+                   (u64 (+ page-zero-size
+                           (* text-segment-num-pages #x1000)))
+                   (u64 (* (+ (quotient
+                                (- (+ (* num-symbols 16) symbols-length) 1)
+                                #x1000)
+                              1)
+                           #x1000))
+                   (u64 (* text-segment-num-pages #x1000))
+                   (u64 (+ (* num-symbols 16) symbols-length))
+                   (u32 #x07)
+                   (u32 #x01)
+                   (u32 #x00)
+                   (empty)))
+               (lc-symbol-table
+                 (symbol-table
+                   (u32 (* text-segment-num-pages #x1000))
+                   (u32 num-symbols)
+                   (u32 (+ (* text-segment-num-pages #x1000) (* num-symbols 16)))
+                   (u32 symbols-length)))
+               (lc-source-version)
+               (lc-unix-thread (unix-thread start-address)))
+             output)
+           (write-all-bytes (make-bytes 32) output)
+           (write-all-bytes
+             (make-bytes
+               (- (+ (* (quotient (+ text-segment-size #x330) #x1000) #x1000)
+                     #xCD0)
+                  text-segment-size))
+           output)
+           (write-all-bytes contents output)
+           (write-symbol-entries symbol-table-entries 2 output)
+           ;(write-all-bytes (make-bytes (- (* num-symbols 16) 2)) output)
+
+           (write-all-bytes (varargs bytes 32 0) output)
+           (write-symbol-strings symbol-table-entries output)
+           (write-all-bytes
+             (make-bytes
+               (- symbols-length symbols-length-unrounded))
+             output)
+
+           (right (void)))))]))
 
 (define (write-mach-o-library/fragments [output-file-name : Bytes] [fragments : AssemblyFragments])
   : (Either Bytes Void)

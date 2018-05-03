@@ -161,14 +161,10 @@ yaspl_bootstrap_library(
         ":io",
         ":linker_lib",
         ":mach-o",
-        ":structured-mach-o",
         ":mach-o-writer",
-        "//libraries/data:bytes",
+        ":structured-mach-o",
         "//libraries/data:either",
-        "//libraries/data:indexed-set",
         "//libraries/data:list",
-        "//libraries/data:maybe",
-        "//libraries/data:set",
     ],
 )
 
@@ -457,10 +453,12 @@ yaspl_bootstrap_library(
     deps = [
         ":assembler",
         ":io",
+        ":linker_lib",
         ":mach-o",
         ":structured-mach-o",
         "//libraries/data:bytes",
         "//libraries/data:either",
+        "//libraries/data:indexed-set",
         "//libraries/data:list",
         "//libraries/data:maybe",
         "//libraries/data:set",
