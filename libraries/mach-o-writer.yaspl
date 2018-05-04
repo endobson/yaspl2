@@ -122,13 +122,20 @@
                   const-section-size relocations symbols)
     text-segment)
   (match-define raw-text-segment-length (bytes-length contents))
+  (match-define mach-o-header-size #x330)
   (match-define rounded-text-segment-length
-    (* #x1000 (+ (quotient (+ raw-text-segment-length #x330) #x1000) 1)))
+    (* #x1000 (+ (quotient (+ raw-text-segment-length mach-o-header-size) #x1000) 1)))
   (match-define text-segment-start-offset
     (- rounded-text-segment-length raw-text-segment-length))
+  (match-define page-zero-size #x0000000100000000)
+
   ;; This is where the actual content starts.
   (match-define text-segment-start-address
-    (+ #x100000000 text-segment-start-offset))
+    (+ page-zero-size text-segment-start-offset))
+  (match-define text-section-start
+    (+ text-segment-start-offset text-section-offset))
+  (match-define const-section-start
+    (+ text-segment-start-offset const-section-offset))
 
   (match-define symbol-table-entries
     (sort
@@ -159,19 +166,10 @@
     [(just msg)
      (left msg)]
     [(nothing)
-     (match-define page-zero-size #x0000000100000000)
      (match-define text-section-relocations (empty/relocation))
      (match-define text-section-num-relocations (length text-section-relocations))
      (match-define const-section-relocations (empty/relocation))
      (match-define const-section-num-relocations (length const-section-relocations))
-     (match-define text-segment-size
-       (bytes-length contents))
-     (match-define text-segment-num-pages
-       (+ (quotient (+ text-segment-size #x330) #x1000) 1))
-     (match-define const-section-start
-       (- (+ page-zero-size (* text-segment-num-pages #x1000)) const-section-size))
-     (match-define text-section-start
-       (- const-section-start text-section-size))
      (match-define num-symbols (length symbol-table-entries))
      (match-define symbols-length-unrounded
        (+ (+ 2 (length symbol-table-entries))
@@ -197,9 +195,9 @@
                (lc-load-segment64
                  (load-segment64 #"__TEXT"
                    (u64 page-zero-size)
-                   (u64 (* text-segment-num-pages #x1000))
+                   (u64 rounded-text-segment-length)
                    (u64 #x0)
-                   (u64 (* text-segment-num-pages #x1000))
+                   (u64 rounded-text-segment-length)
                    (u32 #x07)
                    (u32 #x05)
                    (u32 0)
@@ -222,34 +220,31 @@
                                 (u32 0)))))
                (lc-load-segment64
                  (load-segment64 #"__DATA"
-                   (u64 (+ page-zero-size
-                           (* text-segment-num-pages #x1000)))
+                   (u64 (+ page-zero-size rounded-text-segment-length))
                    (u64 #x0000000000000000)
-                   (u64 (* text-segment-num-pages #x1000))
+                   (u64 rounded-text-segment-length)
                    (u64 #x0)
                    (u32 #x07)
                    (u32 #x03)
                    (u32 #x04)
                    (varargs list
                      (section64 #"__data" #"__DATA"
-                                (u64 (+ page-zero-size
-                                        (* text-segment-num-pages #x1000)))
+                                (u64 (+ page-zero-size rounded-text-segment-length))
                                 (u64 #x0000000000000000)
-                                (u32 (* text-segment-num-pages #x1000))
+                                (u32 rounded-text-segment-length)
                                 (u32 0) ;; TODO compute a sensible alignment
                                 (u32 0)
                                 (u32 text-section-num-relocations)
                                 (u32 0)))))
                (lc-load-segment64
                  (load-segment64 #"__LINKEDIT"
-                   (u64 (+ page-zero-size
-                           (* text-segment-num-pages #x1000)))
+                   (u64 (+ page-zero-size rounded-text-segment-length))
                    (u64 (* (+ (quotient
                                 (- (+ (* num-symbols 16) symbols-length) 1)
                                 #x1000)
                               1)
                            #x1000))
-                   (u64 (* text-segment-num-pages #x1000))
+                   (u64 rounded-text-segment-length)
                    (u64 (+ (* num-symbols 16) symbols-length))
                    (u32 #x07)
                    (u32 #x01)
@@ -257,20 +252,18 @@
                    (empty)))
                (lc-symbol-table
                  (symbol-table
-                   (u32 (* text-segment-num-pages #x1000))
+                   (u32 rounded-text-segment-length)
                    (u32 num-symbols)
-                   (u32 (+ (* text-segment-num-pages #x1000) (* num-symbols 16)))
+                   (u32 (+ rounded-text-segment-length (* num-symbols 16)))
                    (u32 symbols-length)))
                (lc-source-version)
                (lc-unix-thread (unix-thread start-address)))
              output)
            (write-all-bytes (make-bytes 32) output)
+           ;; Write all the extra padding that is needed
            (write-all-bytes
-             (make-bytes
-               (- (+ (* (quotient (+ text-segment-size #x330) #x1000) #x1000)
-                     #xCD0)
-                  text-segment-size))
-           output)
+             (make-bytes (- text-segment-start-offset mach-o-header-size))
+             output)
            (write-all-bytes contents output)
            (write-symbol-entries symbol-table-entries 2 output)
            ;(write-all-bytes (make-bytes (- (* num-symbols 16) 2)) output)
