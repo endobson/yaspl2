@@ -8,6 +8,7 @@
   (list)
   (mach-o)
   (maybe)
+  (numbers)
   (prim)
   (set)
   (structured-mach-o)
@@ -37,10 +38,8 @@
   (match-define
     (text-segment
       contents
-      (text-segment-section text-section-offset text-section-size
-                            text-relocations text-symbols)
-      (text-segment-section const-section-offset const-section-size
-                            const-relocations const-symbols))
+      (text-segment-section text-section-offset _ _ text-relocations text-symbols)
+      (text-segment-section const-section-offset _ _ const-relocations const-symbols))
     text-segment)
 
   (match-define undefined-symbols
@@ -125,9 +124,6 @@
     [(nothing) (panic #"Couldn't find symbol")]
     [(just v) (symbol-table-entry-value v)]))
 
-(define (empty/relocation) : (List Relocation)
-  (empty))
-
 (define (write-mach-o-executable
           [text-segment : TextSegment]
           [output-file-name : Bytes])
@@ -135,34 +131,38 @@
   (match-define
     (text-segment
       contents
-      (text-segment-section text-section-offset text-section-size
-                  text-relocations text-symbols)
-      (text-segment-section const-section-offset const-section-size
-                  const-relocations const-symbols))
+      (text-segment-section text-section-offset text-section-size text-section-alignment
+                            text-relocations text-symbols)
+      (text-segment-section const-section-offset const-section-size const-section-alignment
+                            const-relocations const-symbols))
     text-segment)
   (match-define raw-text-segment-length (bytes-length contents))
+  (match-define text-segment-alignment (max text-section-alignment const-section-alignment))
   (match-define mach-o-header-size #x310)
+  (match-define text-segment-contents-start-file-offset
+    (round-up mach-o-header-size (logical-shift-left 1 text-segment-alignment)))
   (match-define rounded-text-segment-length
-    (round-up (+ raw-text-segment-length mach-o-header-size) #x1000))
-  (match-define text-segment-padding-size
-    (- rounded-text-segment-length (+ raw-text-segment-length mach-o-header-size)))
+    (round-up (+ raw-text-segment-length text-segment-contents-start-file-offset) #x1000))
+  (match-define text-segment-before-contents-padding-size
+    (- text-segment-contents-start-file-offset mach-o-header-size))
+  (match-define text-segment-after-contents-padding-size
+    (- rounded-text-segment-length (+ raw-text-segment-length text-segment-contents-start-file-offset)))
   (match-define page-zero-size #x0000000100000000)
 
   ;; This is where the actual content starts.
-  (match-define text-segment-start-offset #x310)
-  (match-define text-segment-start-address
-    (+ page-zero-size text-segment-start-offset))
-  (match-define text-section-start
-    (+ text-segment-start-offset text-section-offset))
-  (match-define const-section-start
-    (+ text-segment-start-offset const-section-offset))
+  (match-define text-segment-contents-start-address
+    (+ page-zero-size text-segment-contents-start-file-offset))
+  (match-define text-section-start-file-offset
+    (+ text-segment-contents-start-file-offset text-section-offset))
+  (match-define const-section-start-file-offset
+    (+ text-segment-contents-start-file-offset const-section-offset))
   (match-define text-section-start-address
-    (+ page-zero-size text-section-start))
+    (+ page-zero-size text-section-start-file-offset))
   (match-define const-section-start-address
-    (+ page-zero-size const-section-start))
+    (+ page-zero-size const-section-start-file-offset))
 
   (match-define symbol-table-entries
-    (construct-symbol-table-entries text-segment-start-address text-segment))
+    (construct-symbol-table-entries text-segment-contents-start-address text-segment))
 
   (match-define symbol-table-lookup
     (foldl
@@ -175,7 +175,7 @@
           symbol-table-lookup
           text-section-offset
           contents
-          text-segment-start-address)
+          text-segment-contents-start-address)
     [(just msg)
      (left msg)]
     [(nothing)
@@ -184,7 +184,7 @@
              symbol-table-lookup
              const-section-offset
              contents
-             text-segment-start-address)
+             text-segment-contents-start-address)
        [(just msg)
         (left msg)]
        [(nothing)
@@ -221,18 +221,18 @@
                       (u32 0)
                       (varargs list
                         (section64 #"__text" #"__TEXT"
-                                   (u64 text-section-start)
+                                   (u64 text-section-start-address)
                                    (u64 text-section-size)
-                                   (u32 text-section-start)
-                                   (u32 0) ;; TODO compute a sensible alignment
+                                   (u32 text-section-start-file-offset)
+                                   (u32 text-section-alignment)
                                    (u32 0)
                                    (u32 0)
                                    (u32 #x80000400))
                         (section64 #"__const" #"__TEXT"
-                                   (u64 const-section-start)
+                                   (u64 const-section-start-address)
                                    (u64 const-section-size)
-                                   (u32 const-section-start)
-                                   (u32 0) ;; TODO compute a sensible alignment
+                                   (u32 const-section-start-file-offset)
+                                   (u32 const-section-alignment)
                                    (u32 0)
                                    (u32 0)
                                    (u32 0)))))
@@ -250,7 +250,7 @@
                                    (u64 (+ page-zero-size rounded-text-segment-length))
                                    (u64 #x0000000000000000)
                                    (u32 rounded-text-segment-length)
-                                   (u32 0) ;; TODO compute a sensible alignment
+                                   (u32 0)
                                    (u32 0)
                                    (u32 0)
                                    (u32 0)))))
@@ -275,10 +275,13 @@
                   (lc-source-version)
                   (lc-unix-thread (unix-thread start-address)))
                 output)
-              (write-all-bytes contents output)
-              ;; Write all the extra padding that is needed
+              ;; Write all the contents with appropriate padding
               (write-all-bytes
-                (make-bytes text-segment-padding-size)
+                (make-bytes text-segment-before-contents-padding-size)
+                output)
+              (write-all-bytes contents output)
+              (write-all-bytes
+                (make-bytes text-segment-after-contents-padding-size)
                 output)
               (write-symbol-entries symbol-table-entries 2 output)
               ;(write-all-bytes (make-bytes (- (* num-symbols 16) 2)) output)
@@ -299,9 +302,9 @@
   (match-define
     (text-segment
       contents
-      (text-segment-section text-section-offset text-section-size
+      (text-segment-section text-section-offset text-section-size text-section-alignment
                             text-relocations text-symbols)
-      (text-segment-section const-section-offset const-section-size
+      (text-segment-section const-section-offset const-section-size const-section-alignment
                             const-relocations const-symbols))
     text-segment)
 
@@ -329,7 +332,7 @@
                              (u64 text-section-offset)
                              (u64 text-section-size)
                              (u32 352)
-                             (u32 0) ;; TODO compute a sensible alignment
+                             (u32 text-section-alignment)
                              (u32 reloc-base)
                              (u32 num-text-relocations)
                              (u32 #x80000400))
@@ -337,7 +340,7 @@
                              (u64 const-section-offset)
                              (u64 const-section-size)
                              (u32 (+ 352 const-section-offset))
-                             (u32 0) ;; TODO compute a sensible alignment
+                             (u32 const-section-alignment)
                              (u32 (+ reloc-base (* 8 num-text-relocations)))
                              (u32 num-const-relocations)
                              (u32 0)))))

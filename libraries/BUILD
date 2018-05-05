@@ -457,6 +457,7 @@ yaspl_bootstrap_library(
         ":mach-o",
         ":structured-mach-o",
         "//libraries/data:bytes",
+        "//libraries/data:numbers",
         "//libraries/data:either",
         "//libraries/data:indexed-set",
         "//libraries/data:list",
