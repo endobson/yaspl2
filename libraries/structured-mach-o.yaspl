@@ -6,12 +6,13 @@
   (prim)
 }
 (export
-  #:types (RelocationKind Relocation SectionPart DefinedSymbol TextSegment)
+  #:types (RelocationKind Relocation DefinedSymbol TextSegment TextSegmentSection)
   #:values (branch-relocation signed-relocation unsigned-relocation
             relocation-kind->u8 u8->relocation-kind
-            relocation relocation-symbol section-part section-part-contents
-            defined-symbol defined-symbol-name defined-symbol< construct-text-segment)
-  #:patterns (branch-relocation signed-relocation unsigned-relocation relocation section-part
+            relocation relocation-symbol
+            defined-symbol defined-symbol-name defined-symbol< construct-text-segment
+            text-segment-section)
+  #:patterns (branch-relocation signed-relocation unsigned-relocation relocation
               defined-symbol text-segment text-segment-section))
 (types
   ;; branch-relocation and signed relocation are treated exactly the same, but are still distinquished
@@ -24,12 +25,6 @@
   (define-type Relocation
     (relocation [kind : RelocationKind] [offset : Int] [symbol : Bytes]))
 
-  (define-type SectionPart
-    (section-part
-      [contents : Bytes]
-      [alignment : Int]
-      [relocations : (List Relocation)]
-      [defined-symbols : (List DefinedSymbol)]))
   (define-type DefinedSymbol
     (defined-symbol [name : Bytes] [offset : Int]))
 
@@ -49,8 +44,7 @@
       [contents : Bytes]
       [alignment : Int]
       [relocations : (List Relocation)]
-      [symbols : (List DefinedSymbol)]))
-  )
+      [symbols : (List DefinedSymbol)])))
 
 (define (defined-symbol< [x : DefinedSymbol] [y : DefinedSymbol]) : Boolean
   (bytes< (defined-symbol-name x) (defined-symbol-name y)))
@@ -68,28 +62,28 @@
     [#x0E (unsigned-relocation)]
     [_ (panic #"Unknown relocation kind")]))
 
-(define (section-part-fold
-          [section-parts : (List SectionPart)]
+(define (section-fold
+          [sections : (List TextSegmentSection)]
           [reversed-contents : (List Bytes)]
           [current-offset : Int]
           [relocations : (List Relocation)]
-          [defined-symbols : (List DefinedSymbol)]) : CombinedSectionParts
-  (case section-parts
+          [defined-symbols : (List DefinedSymbol)]) : TextSegmentSection
+  (case sections
     [(empty)
-     (combined-section-parts
-       reversed-contents
-       current-offset
+     (text-segment-section
+       (bytes-append (reverse reversed-contents))
+       0 ;; TODO calculate max alignment
        relocations
        defined-symbols)]
-    [(cons (section-part section-content alignment section-relocations section-symbols) section-parts)
+    [(cons (text-segment-section section-content alignment section-relocations section-symbols) sections)
      (match-define aligned-offset (round-up current-offset (logical-shift-left 1 alignment)))
      (match-define reversed-contents
        (if (= aligned-offset current-offset)
            reversed-contents
            (cons (make-bytes (- aligned-offset current-offset)) reversed-contents)))
 
-     (section-part-fold
-       section-parts
+     (section-fold
+       sections
        (cons section-content reversed-contents)
        (+ aligned-offset (bytes-length section-content))
        (append
@@ -108,18 +102,8 @@
          defined-symbols))]))
 
 (define (construct-text-segment
-          [text-sections : (List SectionPart)]
-          [const-sections : (List SectionPart)]) : TextSegment
-  (match-define
-    (combined-section-parts reversed-text-contents text-size text-relocations text-defined-symbols)
-    (section-part-fold text-sections (empty) 0 (empty) (empty)))
-
-  (match-define
-    (combined-section-parts reversed-const-contents const-size const-relocations const-defined-symbols)
-    (section-part-fold const-sections (empty) 0 (empty) (empty)))
-
+          [text-sections : (List TextSegmentSection)]
+          [const-sections : (List TextSegmentSection)]) : TextSegment
   (text-segment
-    (text-segment-section (bytes-append (reverse reversed-text-contents))
-                          0 text-relocations text-defined-symbols)
-    (text-segment-section (bytes-append (reverse reversed-const-contents))
-                          0 const-relocations const-defined-symbols)))
+    (section-fold text-sections (empty) 0 (empty) (empty))
+    (section-fold const-sections (empty) 0 (empty) (empty))))
