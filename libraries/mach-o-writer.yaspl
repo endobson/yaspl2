@@ -32,14 +32,14 @@
   (symbol-table-entry name (u8 #x01) (u8 #x00) (u8 #x00) (u64 0)))
 
 (define (construct-symbol-table-entries
-          [text-segment-start-address : Int]
+          [text-section-start-address : Int]
+          [const-section-start-address : Int]
           [text-segment : TextSegment])
   : (List SymbolTableEntry)
   (match-define
     (text-segment
-      contents
-      (text-segment-section text-section-offset _ _ text-relocations text-symbols)
-      (text-segment-section const-section-offset _ _ const-relocations const-symbols))
+      (text-segment-section _ _ text-relocations text-symbols)
+      (text-segment-section _ _ const-relocations const-symbols))
     text-segment)
 
   (match-define undefined-symbols
@@ -55,17 +55,13 @@
         (lambda ([s : DefinedSymbol])
           (case s
             [(defined-symbol name offset)
-             (text-symbol-table-entry
-               name
-               (u64 (+ text-segment-start-address (+ text-section-offset offset))))]))
+             (text-symbol-table-entry name (u64 (+ text-section-start-address offset)))]))
         (sort text-symbols defined-symbol<))
       (map
         (lambda ([s : DefinedSymbol])
           (case s
             [(defined-symbol name offset)
-             (const-symbol-table-entry
-               name
-               (u64 (+ text-segment-start-address (+ const-section-offset offset))))]))
+             (const-symbol-table-entry name (u64 (+ const-section-start-address offset)))]))
         (sort const-symbols defined-symbol<)))
     (map
       undefined-symbol-table-entry
@@ -130,39 +126,34 @@
   : (Either Bytes Void)
   (match-define
     (text-segment
-      contents
-      (text-segment-section text-section-offset text-section-size text-section-alignment
+      (text-segment-section text-section-contents text-section-alignment
                             text-relocations text-symbols)
-      (text-segment-section const-section-offset const-section-size const-section-alignment
+      (text-segment-section const-section-contents const-section-alignment
                             const-relocations const-symbols))
     text-segment)
-  (match-define raw-text-segment-length (bytes-length contents))
-  (match-define text-segment-alignment (max text-section-alignment const-section-alignment))
-  (match-define mach-o-header-size #x310)
-  (match-define text-segment-contents-start-file-offset
-    (round-up mach-o-header-size (logical-shift-left 1 text-segment-alignment)))
+  (match-define mach-o-header-end-file-offset #x310)
+  (match-define text-section-start-file-offset
+    (round-up mach-o-header-end-file-offset (logical-shift-left 1 text-section-alignment)))
+  (match-define text-section-end-file-offset
+    (+ text-section-start-file-offset (bytes-length text-section-contents)))
+  (match-define const-section-start-file-offset
+    (round-up text-section-end-file-offset (logical-shift-left 1 const-section-alignment)))
+  (match-define const-section-end-file-offset
+    (+ const-section-start-file-offset (bytes-length const-section-contents)))
   (match-define rounded-text-segment-length
-    (round-up (+ raw-text-segment-length text-segment-contents-start-file-offset) #x1000))
-  (match-define text-segment-before-contents-padding-size
-    (- text-segment-contents-start-file-offset mach-o-header-size))
-  (match-define text-segment-after-contents-padding-size
-    (- rounded-text-segment-length (+ raw-text-segment-length text-segment-contents-start-file-offset)))
+    (round-up const-section-end-file-offset #x1000))
+
   (match-define page-zero-size #x0000000100000000)
 
   ;; This is where the actual content starts.
-  (match-define text-segment-contents-start-address
-    (+ page-zero-size text-segment-contents-start-file-offset))
-  (match-define text-section-start-file-offset
-    (+ text-segment-contents-start-file-offset text-section-offset))
-  (match-define const-section-start-file-offset
-    (+ text-segment-contents-start-file-offset const-section-offset))
   (match-define text-section-start-address
     (+ page-zero-size text-section-start-file-offset))
   (match-define const-section-start-address
     (+ page-zero-size const-section-start-file-offset))
 
   (match-define symbol-table-entries
-    (construct-symbol-table-entries text-segment-contents-start-address text-segment))
+    (construct-symbol-table-entries
+      text-section-start-address const-section-start-address text-segment))
 
   (match-define symbol-table-lookup
     (foldl
@@ -173,18 +164,16 @@
   (case (apply-relocations
           text-relocations
           symbol-table-lookup
-          text-section-offset
-          contents
-          text-segment-contents-start-address)
+          text-section-contents
+          text-section-start-address)
     [(just msg)
      (left msg)]
     [(nothing)
      (case (apply-relocations
              const-relocations
              symbol-table-lookup
-             const-section-offset
-             contents
-             text-segment-contents-start-address)
+             const-section-contents
+             const-section-start-address)
        [(just msg)
         (left msg)]
        [(nothing)
@@ -222,7 +211,7 @@
                       (varargs list
                         (section64 #"__text" #"__TEXT"
                                    (u64 text-section-start-address)
-                                   (u64 text-section-size)
+                                   (u64 (bytes-length text-section-contents))
                                    (u32 text-section-start-file-offset)
                                    (u32 text-section-alignment)
                                    (u32 0)
@@ -230,7 +219,7 @@
                                    (u32 #x80000400))
                         (section64 #"__const" #"__TEXT"
                                    (u64 const-section-start-address)
-                                   (u64 const-section-size)
+                                   (u64 (bytes-length const-section-contents))
                                    (u32 const-section-start-file-offset)
                                    (u32 const-section-alignment)
                                    (u32 0)
@@ -277,11 +266,15 @@
                 output)
               ;; Write all the contents with appropriate padding
               (write-all-bytes
-                (make-bytes text-segment-before-contents-padding-size)
+                (make-bytes (- text-section-start-file-offset mach-o-header-end-file-offset))
                 output)
-              (write-all-bytes contents output)
+              (write-all-bytes text-section-contents output)
               (write-all-bytes
-                (make-bytes text-segment-after-contents-padding-size)
+                (make-bytes (- const-section-start-file-offset text-section-end-file-offset))
+                output)
+              (write-all-bytes const-section-contents output)
+              (write-all-bytes
+                (make-bytes (- rounded-text-segment-length const-section-end-file-offset))
                 output)
               (write-symbol-entries symbol-table-entries 2 output)
               ;(write-all-bytes (make-bytes (- (* num-symbols 16) 2)) output)
@@ -301,17 +294,23 @@
   : (Either Bytes Void)
   (match-define
     (text-segment
-      contents
-      (text-segment-section text-section-offset text-section-size text-section-alignment
+      (text-segment-section text-section-contents text-section-alignment
                             text-relocations text-symbols)
-      (text-segment-section const-section-offset const-section-size const-section-alignment
+      (text-segment-section const-section-contents const-section-alignment
                             const-relocations const-symbols))
     text-segment)
 
-  (match-define exported-symbols (construct-symbol-table-entries 0 text-segment))
+
+  ;; Layout the sections right next to one another ignoring alignment.
+  (match-define text-section-offset 0)
+  (match-define const-section-offset (bytes-length text-section-contents))
+
+  (match-define exported-symbols
+    (construct-symbol-table-entries text-section-offset const-section-offset text-segment))
   (match-define num-text-relocations (length text-relocations))
   (match-define num-const-relocations (length const-relocations))
-  (match-define segment-size (bytes-length contents))
+  (match-define segment-size (+ (bytes-length text-section-contents)
+                                (bytes-length const-section-contents)))
   (match-define reloc-base (+ 352 (round-up segment-size 8)))
   (call-with-output-file output-file-name
     (lambda ([output : OutputPort])
@@ -330,7 +329,7 @@
                 (varargs list
                   (section64 #"__text" #"__TEXT"
                              (u64 text-section-offset)
-                             (u64 text-section-size)
+                             (u64 (bytes-length text-section-contents))
                              (u32 352)
                              (u32 text-section-alignment)
                              (u32 reloc-base)
@@ -338,7 +337,7 @@
                              (u32 #x80000400))
                   (section64 #"__const" #"__TEXT"
                              (u64 const-section-offset)
-                             (u64 const-section-size)
+                             (u64 (bytes-length const-section-contents))
                              (u32 (+ 352 const-section-offset))
                              (u32 const-section-alignment)
                              (u32 (+ reloc-base (* 8 num-text-relocations)))
@@ -365,7 +364,8 @@
                 (u32 0))))
           output)
         (write-all-bytes (make-bytes 32) output)
-        (write-all-bytes contents output)
+        (write-all-bytes text-section-contents output)
+        (write-all-bytes const-section-contents output)
         (write-all-bytes
           (make-bytes
             (- (round-up segment-size 8) segment-size)) output)
