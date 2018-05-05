@@ -77,6 +77,7 @@ yaspl_bootstrap_library(
     srcs = ["assembler.yaspl"],
     deps = [
         ":structured-mach-o",
+        "//libraries/data:aligned-bytes",
         "//libraries/data:bytes",
         "//libraries/data:either",
         "//libraries/data:join-list",
@@ -408,6 +409,7 @@ yaspl_bootstrap_library(
     deps = [
         ":mach-o",
         ":structured-mach-o",
+        "//libraries/data:aligned-bytes",
         "//libraries/data:bytes",
         "//libraries/data:either",
         "//libraries/data:indexed-set",
@@ -443,6 +445,7 @@ yaspl_bootstrap_library(
     name = "structured-mach-o",
     srcs = ["structured-mach-o.yaspl"],
     deps = [
+        "//libraries/data:aligned-bytes",
         "//libraries/data:bytes",
         "//libraries/data:list",
         "//libraries/data:numbers",
@@ -457,6 +460,7 @@ yaspl_bootstrap_library(
         ":linker_lib",
         ":mach-o",
         ":structured-mach-o",
+        "//libraries/data:aligned-bytes",
         "//libraries/data:bytes",
         "//libraries/data:either",
         "//libraries/data:indexed-set",

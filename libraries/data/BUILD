@@ -5,6 +5,16 @@ package(
 )
 
 yaspl_bootstrap_library(
+    name = "aligned-bytes",
+    srcs = ["aligned-bytes.yaspl"],
+    deps = [
+        ":bytes",
+        ":list",
+        ":numbers",
+    ],
+)
+
+yaspl_bootstrap_library(
     name = "assoc-list",
     srcs = ["assoc-list.yaspl"],
     deps = [
