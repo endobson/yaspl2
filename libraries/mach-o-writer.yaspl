@@ -309,17 +309,21 @@
   : (Either Bytes Void)
   (match-define (assembly-fragments text-fragments const-fragments) fragments)
   (match-define text-section (assemble-text-section text-fragments))
-  (match-define (section-part text-section-bytes text-section-relocations _)
-    text-section)
   (match-define const-section (assemble-const-section const-fragments))
-  (match-define (section-part const-section-bytes const-section-relocations _)
-    const-section)
   (match-define exported-symbols (construct-symbol-table-entries text-section const-section))
+  (match-define text-segment (assemble-text-segment fragments))
+  (match-define
+    (text-segment
+      contents
+      (text-segment-section text-section-offset text-section-size
+                  text-relocations text-symbols)
+      (text-segment-section const-section-offset const-section-size
+                  const-relocations const-symbols))
+    text-segment)
 
-  (match-define text-section-num-relocations (length text-section-relocations))
-  (match-define const-section-num-relocations (length const-section-relocations))
-  (match-define segment-size
-    (+ (bytes-length text-section-bytes) (bytes-length const-section-bytes)))
+  (match-define num-text-relocations (length text-relocations))
+  (match-define num-const-relocations (length const-relocations))
+  (match-define segment-size (bytes-length contents))
   (match-define reloc-base (+ 352 (round-up segment-size 8)))
   (call-with-output-file output-file-name
     (lambda ([output : OutputPort])
@@ -337,31 +341,28 @@
                 (u32 0)
                 (varargs list
                   (section64 #"__text" #"__TEXT"
-                             (u64 #x00)
-                             (u64 (bytes-length text-section-bytes))
+                             (u64 text-section-offset)
+                             (u64 text-section-size)
                              (u32 352)
                              (u32 0) ;; TODO compute a sensible alignment
                              (u32 reloc-base)
-                             (u32 text-section-num-relocations)
+                             (u32 num-text-relocations)
                              (u32 #x80000400))
                   (section64 #"__const" #"__TEXT"
-                             (u64 (bytes-length text-section-bytes))
-                             (u64 (bytes-length const-section-bytes))
-                             (u32 (+ 352 (bytes-length text-section-bytes)))
+                             (u64 const-section-offset)
+                             (u64 const-section-size)
+                             (u32 (+ 352 const-section-offset))
                              (u32 0) ;; TODO compute a sensible alignment
-                             (u32 (+ reloc-base
-                                     (* 8 text-section-num-relocations)))
-                             (u32 const-section-num-relocations)
+                             (u32 (+ reloc-base (* 8 num-text-relocations)))
+                             (u32 num-const-relocations)
                              (u32 0)))))
             (lc-symbol-table
               (symbol-table
-                (u32 (+ reloc-base
-                        (* 8 (+ text-section-num-relocations
-                                const-section-num-relocations))))
+                (u32 (+ reloc-base (* 8 (+ num-text-relocations num-const-relocations))))
                 (u32 (length exported-symbols))
                 (u32 (+ (+ reloc-base
-                           (* 8 (+ text-section-num-relocations
-                                   const-section-num-relocations)))
+                           (* 8 (+ num-text-relocations
+                                   num-const-relocations)))
                         (* (length exported-symbols) #x10)))
                 (u32 (round-up
                        (+ (+ 2 (length exported-symbols))
@@ -372,24 +373,16 @@
               (version-min (u8 10) (u8 11) (u8 0) (u8 10) (u8 11) (u8 0)))
             (lc-data-in-code
               (linkedit-data
-                (u32 (+ reloc-base
-                        (* 8 (+ text-section-num-relocations
-                                const-section-num-relocations))))
+                (u32 (+ reloc-base (* 8 (+ num-text-relocations num-const-relocations))))
                 (u32 0))))
           output)
         (write-all-bytes (make-bytes 32) output)
-        (write-all-bytes text-section-bytes output)
-        (write-all-bytes const-section-bytes output)
+        (write-all-bytes contents output)
         (write-all-bytes
           (make-bytes
-            (-
-              (round-up (+ (bytes-length text-section-bytes)
-                           (bytes-length const-section-bytes))
-                        8)
-              (+ (bytes-length text-section-bytes)
-                 (bytes-length const-section-bytes)))) output)
+            (- (round-up segment-size 8) segment-size)) output)
         (write-relocations
-          (append text-section-relocations const-section-relocations)
+          (append text-relocations const-relocations)
           (map symbol-table-entry-name exported-symbols)
           output)
         (write-symbol-entries exported-symbols 2 output)
