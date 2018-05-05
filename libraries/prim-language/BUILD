@@ -189,6 +189,7 @@ yaspl_library(
     srcs = ["prim-language-compiler-main.yaspl"],
     deps = [
         ":prim-language-compiler_lib",
+        "//libraries:assembler",
         "//libraries:io",
         "//libraries:mach-o-writer",
         "//libraries/data:either",
@@ -235,6 +236,7 @@ yaspl_bootstrap_library(
     srcs = ["prim-language-library-compiler-main.yaspl"],
     deps = [
         ":prim-language-compiler_lib",
+        "//libraries:assembler",
         "//libraries:io",
         "//libraries:mach-o-writer",
         "//libraries/data:either",

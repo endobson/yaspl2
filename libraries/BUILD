@@ -362,6 +362,7 @@ yaspl_bootstrap_library(
     name = "library-compiler-main",
     srcs = ["library-compiler-main.yaspl"],
     deps = [
+        ":assembler",
         ":compiler_lib",
         ":io",
         ":mach-o-writer",
@@ -451,7 +452,6 @@ yaspl_bootstrap_library(
     name = "mach-o-writer",
     srcs = ["mach-o-writer.yaspl"],
     deps = [
-        ":assembler",
         ":io",
         ":linker_lib",
         ":mach-o",
@@ -462,7 +462,6 @@ yaspl_bootstrap_library(
         "//libraries/data:list",
         "//libraries/data:maybe",
         "//libraries/data:set",
-        "//libraries/yaspl:x86-64-assembly",
     ],
 )
 
@@ -470,6 +469,7 @@ yaspl_bootstrap_library(
     name = "main-stub_lib",
     srcs = ["main-stub.yaspl"],
     deps = [
+        ":assembler",
         ":io",
         ":mach-o-writer",
         ":prim-implementation",

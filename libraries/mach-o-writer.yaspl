@@ -1,6 +1,5 @@
 #:module (mach-o-writer)
 #:import {
-  (assembler)
   (bytes)
   (data indexed-set)
   (either)
@@ -12,11 +11,10 @@
   (prim)
   (set)
   (structured-mach-o)
-  (yaspl x86-64-assembly)
 }
 (export
   #:types ()
-  #:values (write-mach-o-library/fragments write-mach-o-executable)
+  #:values (write-mach-o-library write-mach-o-executable)
   #:patterns ())
 (types
   (define-type MachOFileType
@@ -32,33 +30,38 @@
 (define (undefined-symbol-table-entry [name : Bytes]) : SymbolTableEntry
   (symbol-table-entry name (u8 #x01) (u8 #x00) (u8 #x00) (u64 0)))
 
-(define (construct-symbol-table-entries
-          [text-section : SectionPart]
-          [const-section : SectionPart])
+(define (construct-symbol-table-entries [text-segment : TextSegment])
   : (List SymbolTableEntry)
-  (match-define (section-part text-bytes text-relocations text-defined-symbols) text-section)
-  (match-define (section-part _ const-relocations const-defined-symbols) const-section)
+  (match-define
+    (text-segment
+      contents
+      (text-segment-section text-section-offset text-section-size
+                            text-relocations text-symbols)
+      (text-segment-section const-section-offset const-section-size
+                            const-relocations const-symbols))
+    text-segment)
+
   (match-define undefined-symbols
     (set->list
       (set-remove-all
         (set-add-all
           (make-set bytes-cmp)
           (map relocation-symbol (append text-relocations const-relocations)))
-        (map defined-symbol-name (append text-defined-symbols const-defined-symbols)))))
+        (map defined-symbol-name (append text-symbols const-symbols)))))
   (append
     (append
       (map
         (lambda ([s : DefinedSymbol])
           (case s
             [(defined-symbol name offset)
-             (text-symbol-table-entry name (u64 offset))]))
-        (sort text-defined-symbols defined-symbol<))
+             (text-symbol-table-entry name (u64 (+ text-section-offset offset)))]))
+        (sort text-symbols defined-symbol<))
       (map
         (lambda ([s : DefinedSymbol])
           (case s
             [(defined-symbol name offset)
-             (const-symbol-table-entry name (u64 (+ (bytes-length text-bytes) offset)))]))
-        (sort const-defined-symbols defined-symbol<)))
+             (const-symbol-table-entry name (u64 (+ const-section-offset offset)))]))
+        (sort const-symbols defined-symbol<)))
     (map
       undefined-symbol-table-entry
       (sort undefined-symbols bytes<))))
@@ -305,22 +308,20 @@
 
               (right (void)))))])]))
 
-(define (write-mach-o-library/fragments [output-file-name : Bytes] [fragments : AssemblyFragments])
+(define (write-mach-o-library
+          [text-segment : TextSegment]
+          [output-file-name : Bytes])
   : (Either Bytes Void)
-  (match-define (assembly-fragments text-fragments const-fragments) fragments)
-  (match-define text-section (assemble-text-section text-fragments))
-  (match-define const-section (assemble-const-section const-fragments))
-  (match-define exported-symbols (construct-symbol-table-entries text-section const-section))
-  (match-define text-segment (assemble-text-segment fragments))
   (match-define
     (text-segment
       contents
       (text-segment-section text-section-offset text-section-size
-                  text-relocations text-symbols)
+                            text-relocations text-symbols)
       (text-segment-section const-section-offset const-section-size
-                  const-relocations const-symbols))
+                            const-relocations const-symbols))
     text-segment)
 
+  (match-define exported-symbols (construct-symbol-table-entries text-segment))
   (match-define num-text-relocations (length text-relocations))
   (match-define num-const-relocations (length const-relocations))
   (match-define segment-size (bytes-length contents))
