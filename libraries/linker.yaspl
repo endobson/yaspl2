@@ -104,42 +104,39 @@
         (read-relocation-entry offset bytes)
         (read-relocations (- num 1) (+ offset 8) bytes))))
 
-(define (read-text-section [mach-o : MachOFile]) : Bytes
+(define (parse-text-section [mach-o : MachOFile] [symbols : (List SymbolTableEntry)]) : SectionPart
   (case mach-o
     [(mach-o-file header load-commands bytes)
      (case (find-text-section load-commands)
-       [(section64 _ _ _ size offset _ _ _ _)
+       [(section64 _ _ address size offset alignment relocation-offset num-relocations _)
         (match-define size (u64->s64 size))
         (match-define offset (u32->s64 offset))
-        (subbytes bytes offset (+ offset size))])]))
-
-(define (read-text-relocations [mach-o : MachOFile]) : (List RelocationEntry)
-  (case mach-o
-    [(mach-o-file header load-commands bytes)
-     (case (find-text-section load-commands)
-       [(section64 _ _ _ _ _ _ relocation-offset num-relocations _)
+        (match-define alignment (u32->s64 alignment))
         (match-define relocation-offset (u32->s64 relocation-offset))
         (match-define num-relocations (u32->s64 num-relocations))
-        (read-relocations num-relocations relocation-offset bytes)])]))
+        (match-define address (u64->s64 address))
+        (section-part
+          (subbytes bytes offset (+ offset size))
+          alignment
+          (resolve-relocations (read-relocations num-relocations relocation-offset bytes) symbols)
+          (symbol-entries->defined-symbols address (filter text-symbol? symbols)))])]))
 
-
-(define (read-const-section [mach-o : MachOFile]) : Bytes
-  (case mach-o
-    [(mach-o-file header load-commands bytes)
-      (case (find-const-section load-commands)
-       [(section64 _ _ _ size offset _ _ _ _)
-        (match-define size (u64->s64 size))
-        (match-define offset (u32->s64 offset))
-        (subbytes bytes offset (+ offset size))])]))
-
-(define (read-const-relocations [mach-o : MachOFile]) : (List RelocationEntry)
+(define (parse-const-section [mach-o : MachOFile] [symbols : (List SymbolTableEntry)]) : SectionPart
   (case mach-o
     [(mach-o-file header load-commands bytes)
      (case (find-const-section load-commands)
-       [(section64 _ _ _ _ _ _ relocation-offset num-relocations _)
+       [(section64 _ _ address size offset alignment relocation-offset num-relocations _)
+        (match-define size (u64->s64 size))
+        (match-define offset (u32->s64 offset))
+        (match-define alignment (u32->s64 alignment))
         (match-define relocation-offset (u32->s64 relocation-offset))
         (match-define num-relocations (u32->s64 num-relocations))
-        (read-relocations num-relocations relocation-offset bytes)])]))
+        (match-define address (u64->s64 address))
+        (section-part
+          (subbytes bytes offset (+ offset size))
+          alignment
+          (resolve-relocations (read-relocations num-relocations relocation-offset bytes) symbols)
+          (symbol-entries->defined-symbols address (filter const-symbol? symbols)))])]))
 
 (define (symbol-table-entry-name-cmp [s1 : SymbolTableEntry] [s2 : SymbolTableEntry]) : Ordering
   (case s1
@@ -157,21 +154,10 @@
 
 (define (parse-mach-o [mach-o : MachOFile]) : (Either Bytes ParsedMachO)
   (match-define all-symbols (read-symbol-table mach-o))
-  (match-define text-section (read-text-section mach-o))
-  ;; TODO actually read the alignment
   (right
     (parsed-mach-o
-      (section-part
-        text-section
-        0
-        (resolve-relocations (read-text-relocations mach-o) all-symbols)
-        (symbol-entries->defined-symbols 0 (filter text-symbol? all-symbols)))
-      (section-part
-        (read-const-section mach-o)
-        0
-        (resolve-relocations (read-const-relocations mach-o) all-symbols)
-        (symbol-entries->defined-symbols (bytes-length text-section)
-                                         (filter const-symbol? all-symbols))))))
+      (parse-text-section mach-o all-symbols)
+      (parse-const-section mach-o all-symbols))))
 
 (define (lookup-symbol [symbols : (List SymbolTableEntry)] [symbol-num : Int])
   : (Maybe SymbolTableEntry)
