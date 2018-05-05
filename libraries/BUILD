@@ -445,6 +445,7 @@ yaspl_bootstrap_library(
     deps = [
         "//libraries/data:bytes",
         "//libraries/data:list",
+        "//libraries/data:numbers",
     ],
 )
 
@@ -457,11 +458,11 @@ yaspl_bootstrap_library(
         ":mach-o",
         ":structured-mach-o",
         "//libraries/data:bytes",
-        "//libraries/data:numbers",
         "//libraries/data:either",
         "//libraries/data:indexed-set",
         "//libraries/data:list",
         "//libraries/data:maybe",
+        "//libraries/data:numbers",
         "//libraries/data:set",
     ],
 )

@@ -2,6 +2,7 @@
 #:import {
   (bytes)
   (list)
+  (numbers)
   (prim)
 }
 (export
@@ -26,6 +27,7 @@
   (define-type SectionPart
     (section-part
       [contents : Bytes]
+      [alignment : Int]
       [relocations : (List Relocation)]
       [defined-symbols : (List DefinedSymbol)]))
   (define-type DefinedSymbol
@@ -79,23 +81,29 @@
        current-offset
        relocations
        defined-symbols)]
-    [(cons (section-part section-content section-relocations section-symbols) section-parts)
+    [(cons (section-part section-content alignment section-relocations section-symbols) section-parts)
+     (match-define aligned-offset (round-up current-offset (logical-shift-left 1 alignment)))
+     (match-define reversed-contents
+       (if (= aligned-offset current-offset)
+           reversed-contents
+           (cons (make-bytes (- aligned-offset current-offset)) reversed-contents)))
+
      (section-part-fold
        section-parts
        (cons section-content reversed-contents)
-       (+ current-offset (bytes-length section-content))
+       (+ aligned-offset (bytes-length section-content))
        (append
          (map (lambda ([reloc : Relocation])
                 (case reloc
                   [(relocation type offset symbol)
-                   (relocation type (+ current-offset offset) symbol)]))
+                   (relocation type (+ aligned-offset offset) symbol)]))
               section-relocations)
          relocations)
        (append
          (map (lambda ([sym : DefinedSymbol])
                 (case sym
                   [(defined-symbol name offset)
-                   (defined-symbol name (+ current-offset offset))]))
+                   (defined-symbol name (+ aligned-offset offset))]))
               section-symbols)
          defined-symbols))]))
 

@@ -181,9 +181,9 @@ yaspl_bootstrap_library(
     name = "numbers",
     srcs = ["numbers.yaspl"],
     deps = [
+        ":list",
         ":maybe",
         ":ordering",
-        ":list",
     ],
 )
 
