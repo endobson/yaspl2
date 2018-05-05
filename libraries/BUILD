@@ -478,6 +478,7 @@ yaspl_bootstrap_library(
         "//libraries/data:bytes",
         "//libraries/data:either",
         "//libraries/data:list",
+        "//libraries/data:tuples",
         "//libraries/yaspl:top-level-object-optimizer",
         "//libraries/yaspl:top-level-objects-to-x86-64",
         "//libraries/yaspl:x86-64-assembly",
