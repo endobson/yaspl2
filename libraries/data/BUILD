@@ -183,6 +183,7 @@ yaspl_bootstrap_library(
     deps = [
         ":maybe",
         ":ordering",
+        ":list",
     ],
 )
 
