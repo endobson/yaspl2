@@ -19,14 +19,13 @@ yaspl_test(
     srcs = ["aligned-bytes-test.yaspl"],
     main_module = "aligned_bytes_test",
     deps = [
+        ":aligned-bytes",
         ":bytes",
         ":list",
-        ":aligned-bytes",
         ":maybe",
         "//libraries:yunit",
     ],
 )
-
 
 yaspl_bootstrap_library(
     name = "assoc-list",

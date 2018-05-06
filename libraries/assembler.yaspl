@@ -2,10 +2,10 @@
 #:import {
   (aligned-bytes)
   (bytes)
-  (either)
   (join-list)
   (list)
   (maybe)
+  (numbers)
   (prim)
   (set)
   (structured-mach-o)
@@ -205,67 +205,41 @@
       global-text-section-relocations
       global-defined-text-symbols)))
 
-(define (compute-const-section-relocations [fragments : (List ConstFragment)])
-  : (List Relocation)
-  (compute-const-section-relocations-helper
-    0
-    (jl->list
-      (concat-map-jl
-        (lambda ([fragment : ConstFragment]) : (JoinList (Either Int Bytes))
-          (case fragment
-            [(address-fragment _ value)
-             (varargs join-list (right value) (left 8))]
-            [(bytes-fragment _ value)
-             (single-jl (left (bytes-length value)))]))
-        (list->jl fragments)))))
-
-(define (compute-const-section-relocations-helper [offset : Int]
-                                                  [pieces : (List (Either Int Bytes))])
-  : (List Relocation)
-  (case pieces
-    [(empty) (empty)]
-    [(cons (left v) pieces)
-     (compute-const-section-relocations-helper (+ v offset) pieces)]
-    [(cons (right value) pieces)
-     (cons (relocation (unsigned-relocation) offset value)
-           (compute-const-section-relocations-helper offset pieces))]))
-
-(define (assemble-const-section-bytes [fragments : (List ConstFragment)]) : AlignedBytes
-  (aligned-bytes-append
-    (map
-      (lambda ([fragment : ConstFragment]) : AlignedBytes
-        (case fragment
-          [(address-fragment name value)
-           (aligned-bytes (varargs bytes 0 0 0 0 0 0 0 0) 0)]
-          [(bytes-fragment name value)
-           (aligned-bytes value 0)]))
-      fragments)))
-
-
-(define (collect-defined-const-symbols [fragments : (List ConstFragment)])
-  : (List DefinedSymbol)
-  (collect-defined-const-symbols* fragments 0 (empty)))
-
-(define (collect-defined-const-symbols*
+(define (const-section-fold
           [fragments : (List ConstFragment)]
-          [const-offset : Int]
-          [acc : (List DefinedSymbol)])
-  : (List DefinedSymbol)
+          [reversed-contents : (List Bytes)]
+          [offset : Int]
+          [max-alignment : Int]
+          [symbols : (List DefinedSymbol)]
+          [relocations : (List Relocation)]) : TextSegmentSection
   (case fragments
-    [(empty) acc]
-    [(cons fragment fragments)
-     (case fragment
-       [(address-fragment name value)
-        (collect-defined-const-symbols*
-          fragments (+ const-offset 8)
-          (cons (defined-symbol name const-offset) acc))]
-       [(bytes-fragment name value)
-        (collect-defined-const-symbols*
-          fragments (+ const-offset (bytes-length value))
-          (cons (defined-symbol name const-offset) acc))])]))
+    [(empty)
+     (text-segment-section
+       (aligned-bytes (bytes-append (reverse reversed-contents)) max-alignment)
+       relocations
+       symbols)]
+    [(cons (address-fragment name value) fragments)
+     (match-define alignment 3)
+     (match-define aligned-offset (round-up offset (logical-shift-left 1 alignment)))
+     (match-define reversed-contents
+       (if (= aligned-offset offset)
+           reversed-contents
+           (cons (make-bytes (- aligned-offset offset)) reversed-contents)))
+     (const-section-fold
+       fragments
+       (cons (varargs bytes 0 0 0 0 0 0 0 0) reversed-contents)
+       (+ aligned-offset 8)
+       (max alignment max-alignment)
+       (cons (defined-symbol name aligned-offset) symbols)
+       (cons (relocation (unsigned-relocation) aligned-offset value) relocations))]
+    [(cons (bytes-fragment name value) fragments)
+     (const-section-fold
+       fragments
+       (cons value reversed-contents)
+       (+ offset (bytes-length value))
+       max-alignment
+       (cons (defined-symbol name offset) symbols)
+       relocations)]))
 
 (define (assemble-const-section [fragments : (List ConstFragment)]) : TextSegmentSection
-  (text-segment-section
-    (assemble-const-section-bytes fragments)
-    (compute-const-section-relocations fragments)
-    (collect-defined-const-symbols fragments)))
+  (const-section-fold fragments (empty) 0 0 (empty) (empty)))
