@@ -21,6 +21,7 @@
   (define-type EMCCommand
     (emc-mc [command : MCCommand])
     (emc-global-symbol [name : Bytes])
+    (emc-align [alignment : Int])
     (emc-local-symbol [name : Bytes])))
 
 (define (assemble-text-segment [fragments : AssemblyFragments])
@@ -38,20 +39,22 @@
         (case fragment
           [(function-fragment fun-name sections)
            (cons-jl
-             (emc-global-symbol fun-name)
-             (concat-map-jl
-               (lambda ([s : Section])
-                 (case s
-                   [(section blocks)
-                    (concat-map-jl
-                      (lambda ([bb : BasicBlock])
-                        (case bb
-                          [(basic-block block-name instructions)
-                           (cons-jl
-                             (emc-local-symbol block-name)
-                             (map-jl emc-mc (concat-map-jl instruction->mc-commands instructions)))]))
-                      (list->jl blocks))]))
-               (list->jl sections)))]))
+             (emc-align 4) ;; Align to 16 bytes
+             (cons-jl
+               (emc-global-symbol fun-name)
+               (concat-map-jl
+                 (lambda ([s : Section])
+                   (case s
+                     [(section blocks)
+                      (concat-map-jl
+                        (lambda ([bb : BasicBlock])
+                          (case bb
+                            [(basic-block block-name instructions)
+                             (cons-jl
+                               (emc-local-symbol block-name)
+                               (map-jl emc-mc (concat-map-jl instruction->mc-commands instructions)))]))
+                        (list->jl blocks))]))
+                 (list->jl sections))))]))
       (list->jl fragments))))
 
 (define (partition-text-section-relocations
@@ -146,6 +149,21 @@
        offset
        max-alignment
        (cons (defined-symbol symbol offset) defined-symbols)
+       relocations)]
+    [(cons (emc-align alignment) commands)
+     (match-define alignment 3)
+     (match-define aligned-offset (round-up offset (logical-shift-left 1 alignment)))
+     (match-define reversed-contents
+       (if (= aligned-offset offset)
+           reversed-contents
+           (cons (make-bytes (- aligned-offset offset)) reversed-contents)))
+     (text-section-fold
+       commands
+       global-symbols
+       reversed-contents
+       aligned-offset
+       (max max-alignment alignment)
+       defined-symbols
        relocations)]
     [(empty)
      (match-define defined-symbol-names
