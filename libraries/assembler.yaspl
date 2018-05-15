@@ -31,18 +31,6 @@
     (assemble-const-section const-fragments)))
 
 
-(define (assemble-text-commands [commands : (List EMCCommand)]) : Bytes
-  (bytes-append
-    (map
-      (lambda ([command : EMCCommand]) : Bytes
-        (case command
-          [(emc-mc (mc-bytes bytes)) bytes]
-          [(emc-mc (mc-branch-relocation symbol)) #"\x00\x00\x00\x00"]
-          [(emc-mc (mc-signed-relocation symbol)) #"\x00\x00\x00\x00"]
-          [(emc-global-symbol name) #""]
-          [(emc-local-symbol name) #""]))
-      commands)))
-
 (define (fragments->mc-commands [fragments : (List TextFragment)]) : (List EMCCommand)
   (jl->list
     (concat-map-jl
@@ -65,85 +53,6 @@
                       (list->jl blocks))]))
                (list->jl sections)))]))
       (list->jl fragments))))
-
-(define (compute-text-section-relocations [commands : (List EMCCommand)])
-  : (List Relocation)
-  (compute-text-section-relocations* commands (empty) 0))
-
-(define (compute-text-section-relocations*
-          [commands : (List EMCCommand)]
-          [acc : (List Relocation)]
-          [offset : Int])
-  : (List Relocation)
-  (case commands
-    [(empty) acc]
-    [(cons command commands)
-     (case command
-       [(emc-mc (mc-bytes bytes))
-        (compute-text-section-relocations* commands acc (+ (bytes-length bytes) offset))]
-       [(emc-mc (mc-branch-relocation name))
-        (compute-text-section-relocations*
-          commands
-          (cons (relocation (branch-relocation) offset name) acc)
-          (+ offset 4))]
-       [(emc-mc (mc-signed-relocation name))
-        (compute-text-section-relocations*
-          commands
-          (cons (relocation (signed-relocation) offset name) acc)
-          (+ offset 4))]
-       [(emc-global-symbol name)
-        (compute-text-section-relocations* commands acc offset)]
-       [(emc-local-symbol name)
-        (compute-text-section-relocations* commands acc offset)])]))
-
-
-(define (collect-global-symbols [commands : (List EMCCommand)]) : (Set Bytes)
-  (set-add-all
-    (make-set bytes-cmp)
-    (filter-map
-      (lambda ([c : EMCCommand]) : (Maybe Bytes)
-        (case c
-          [(emc-global-symbol name) (just name)]
-          [_ (nothing)]))
-      commands)))
-
-(define (collect-defined-text-symbols [commands : (List EMCCommand)])
-  : (List DefinedSymbol)
-  (collect-defined-text-symbols* commands 0 (empty)))
-
-
-(define (collect-defined-text-symbols*
-          [commands : (List EMCCommand)]
-          [text-offset : Int]
-          [acc : (List DefinedSymbol)])
-  : (List DefinedSymbol)
-  (case commands
-    [(empty) acc]
-    [(cons (emc-mc (mc-bytes bytes)) commands)
-     (collect-defined-text-symbols*
-       commands
-       (+ text-offset (bytes-length bytes))
-       acc)]
-    [(cons (emc-mc (mc-branch-relocation _)) commands)
-     (collect-defined-text-symbols*
-       commands
-       (+ text-offset 4)
-       acc)]
-    [(cons (emc-mc (mc-signed-relocation _)) commands)
-     (collect-defined-text-symbols*
-       commands
-       (+ text-offset 4)
-       acc)]
-    [(cons (emc-global-symbol _) commands)
-     (collect-defined-text-symbols*
-       commands
-       text-offset
-       acc)]
-    [(cons (emc-local-symbol name) commands)
-     (collect-defined-text-symbols*
-       commands
-       text-offset
-       (cons (defined-symbol name text-offset) acc))]))
 
 (define (partition-text-section-relocations
           [relocations : (List Relocation)]
@@ -184,36 +93,79 @@
              (s32 (- (- symbol-offset offset) 4)))])
        (apply-local-text-relocations relocs symbols text))]))
 
-(define (assemble-text-section [text-fragments : (List TextFragment)]) : TextSegmentSection
-  (match-define commands (fragments->mc-commands text-fragments))
-  (match-define text-section-relocations (compute-text-section-relocations commands))
-  (match-define defined-text-symbols
-    (collect-defined-text-symbols commands))
-  (match-define defined-text-symbol-names
-    (set-add-all
-      (make-set bytes-cmp)
-      (map
-        defined-symbol-name
-        defined-text-symbols)))
-  (match-define text-bytes
-    (assemble-text-commands commands))
-  (match-define (tuple2 local-text-section-relocations global-text-section-relocations)
-    (partition-text-section-relocations text-section-relocations (empty) (empty)
-                                        defined-text-symbol-names))
-  (match-define global-symbols (collect-global-symbols commands))
-  (match-define global-defined-text-symbols
-    (filter
-      (lambda ([d : DefinedSymbol])
-        (case d
-          [(defined-symbol name _) (set-member? global-symbols name)]))
-      defined-text-symbols))
+(define (text-section-fold
+          [commands : (List EMCCommand)]
+          [global-symbols : (List DefinedSymbol)]
+          [reversed-contents : (List Bytes)]
+          [offset : Int]
+          [max-alignment : Int]
+          [defined-symbols : (List DefinedSymbol)]
+          [relocations : (List Relocation)]) : TextSegmentSection
+  (case commands
+    [(cons (emc-mc (mc-bytes bytes)) commands)
+     (text-section-fold
+       commands
+       global-symbols
+       (cons bytes reversed-contents)
+       (+ offset (bytes-length bytes))
+       max-alignment
+       defined-symbols
+       relocations)]
+    [(cons (emc-mc (mc-branch-relocation symbol)) commands)
+     (text-section-fold
+       commands
+       global-symbols
+       (cons #"\x00\x00\x00\x00" reversed-contents)
+       (+ offset 4)
+       max-alignment
+       defined-symbols
+       (cons (relocation (branch-relocation) offset symbol) relocations))]
+    [(cons (emc-mc (mc-signed-relocation symbol)) commands)
+     (text-section-fold
+       commands
+       global-symbols
+       (cons #"\x00\x00\x00\x00" reversed-contents)
+       (+ offset 4)
+       max-alignment
+       defined-symbols
+       (cons (relocation (signed-relocation) offset symbol) relocations))]
+    [(cons (emc-global-symbol symbol) commands)
+     (text-section-fold
+       commands
+       (cons (defined-symbol symbol offset) global-symbols)
+       reversed-contents
+       offset
+       max-alignment
+       defined-symbols
+       relocations)]
+    [(cons (emc-local-symbol symbol) commands)
+     (text-section-fold
+       commands
+       global-symbols
+       reversed-contents
+       offset
+       max-alignment
+       (cons (defined-symbol symbol offset) defined-symbols)
+       relocations)]
+    [(empty)
+     (match-define defined-symbol-names
+       (set-add-all
+         (make-set bytes-cmp)
+         (map defined-symbol-name defined-symbols)))
 
-  (begin
-    (apply-local-text-relocations local-text-section-relocations defined-text-symbols text-bytes)
-    (text-segment-section
-      (aligned-bytes text-bytes 0)
-      global-text-section-relocations
-      global-defined-text-symbols)))
+     (match-define (tuple2 local-text-section-relocations global-text-section-relocations)
+       (partition-text-section-relocations relocations (empty) (empty)
+                                           defined-symbol-names))
+     (match-define text-bytes (bytes-append (reverse reversed-contents)))
+     (begin
+       (apply-local-text-relocations local-text-section-relocations defined-symbols text-bytes)
+       (text-segment-section
+         (aligned-bytes text-bytes max-alignment)
+         global-text-section-relocations
+         global-symbols))]))
+
+(define (assemble-text-section [text-fragments : (List TextFragment)]) : TextSegmentSection
+  (text-section-fold (fragments->mc-commands text-fragments) (empty) (empty) 0 0 (empty) (empty)))
 
 (define (const-section-fold
           [fragments : (List ConstFragment)]
