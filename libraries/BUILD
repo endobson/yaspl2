@@ -134,6 +134,7 @@ yaspl_test(
         ":io",
         "//libraries/data:list",
         "//libraries/data:numbers",
+        "//libraries/data:tuples",
     ],
 )
 

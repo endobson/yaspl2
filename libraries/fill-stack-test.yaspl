@@ -4,44 +4,63 @@
   (list)
   (numbers)
   (prim)
+  (tuples)
 }
 (export)
-(types)
+(types
+  (define-type StackSnapshot
+    (stack-snapshot
+      [start-address : Int]
+      [size : Int]
+      [buffer : (Array Int)])))
 
+(define (fill-stack-frame-a) : StackSnapshot
+  (case (fill-stack-frame-b)
+    [(tuple2 ss _)
+     ss]))
 
-(define (fill-stack-frame-a [arr : (Array Int)] [metadata : (Array Int)]) : Int
-  (- (fill-stack-frame-b arr metadata) 1))
+(define (fill-stack-frame-b) : (Tuple2 StackSnapshot Int)
+  (tuple2 (fill-stack-frame-c) 0))
 
-(define (fill-stack-frame-b [arr : (Array Int)] [metadata : (Array Int)]) : Int
-  (+ (fill-stack-frame-c arr metadata) 1))
-
-(define (fill-stack-frame-c [arr : (Array Int)] [metadata : (Array Int)]) : Int
-  (match-define a 1)
-  (match-define b 2)
-  (match-define c 3)
-  (match-define d 4)
-  (match-define e 5)
-  (match-define f 7)
-  (match-define g 8)
-  (match-define h 9)
-  (match-define i 0)
-  (+ (fill-stack arr metadata) (* a (* b (* c (* d (* e (* f (* g (* h i))))))))))
-
-
-(define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Int
+(define (fill-stack-frame-c) : StackSnapshot
   (match-define buffer (make-array 25 0))
   (match-define metadata (make-array 1 0))
-  (match-define fill-count (fill-stack-frame-a buffer metadata))
+  (match-define stack-size (fill-stack buffer metadata))
+  (stack-snapshot
+    (array-ref metadata 0)
+    stack-size
+    buffer))
+
+(define (read-stack-address [ss : StackSnapshot] [address : Int]) : Int
+  (match-define (stack-snapshot start-address size buffer) ss)
+  (array-ref buffer (quotient (- address start-address) 8)))
+
+(define (read-return-addresses [ss : StackSnapshot]) : (List Int)
+  (read-return-addresses* ss (stack-snapshot-start-address ss)))
+
+(define (read-return-addresses* [ss : StackSnapshot] [base-pointer : Int]) : (List Int)
+  (match-define next-base-pointer (read-stack-address ss base-pointer))
+  (if (= 0 next-base-pointer)
+      (empty)
+      (cons
+        (read-stack-address ss (+ 8 base-pointer))
+        (read-return-addresses* ss next-base-pointer))))
+
+(define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Int
+  (match-define ss (fill-stack-frame-a))
+  (match-define (stack-snapshot start-address size buffer) ss)
   (begin
+    (write-all-bytes #"start: " stdout)
+    (write-line (integer->hex-bytes start-address) stdout)
     (write-all-bytes #"depth: " stdout)
-    (write-line (integer->decimal-bytes fill-count) stdout)
+    (write-line (integer->decimal-bytes size) stdout)
     (for-each
       (lambda ([x : Int])
         (write-line (integer->hex-bytes x) stdout))
       (array->list buffer))
-    (write-line #"metadata " stdout)
+    (write-line #"call-stack:" stdout)
     (for-each
       (lambda ([x : Int])
         (write-line (integer->hex-bytes x) stdout))
-      (array->list metadata))
+      (read-return-addresses ss))
     0))
