@@ -132,6 +132,7 @@ yaspl_test(
     main_module = "fill_stack_test",
     deps = [
         ":io",
+        "//libraries/data:bytes",
         "//libraries/data:list",
         "//libraries/data:numbers",
         "//libraries/data:tuples",
