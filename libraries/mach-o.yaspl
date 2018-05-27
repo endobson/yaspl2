@@ -11,8 +11,7 @@
 (export
   #:types (MachOFile MachOHeader MachOLoadCommand SymbolTableEntry RelocationEntry SymbolTable
            Section64 VersionMin LinkeditData LoadSegment64 UnixThread)
-  #:values (read-mach-o read-mach-o/mem mach-o-file mach-o-header read-symbol-table/strings
-            read-symbol-table/symbols
+  #:values (read-mach-o read-mach-o/mem mach-o-file mach-o-header read-symbol-table
             mach-o-header-commands-size symbol-table-entry-name symbol-table-entry
             read-relocation-entry symbol-table-entry-value version-min symbol-table linkedit-data
             section64 load-segment64-sections load-segment64 lc-unix-thread lc-symbol-table
@@ -280,6 +279,26 @@
            [(right (tuple2 cmds offset))
             (right (tuple2 (cons cmd cmds) offset))])])))
 
+(define (find-symbol-table [load-commands : (List MachOLoadCommand)]) : SymbolTable
+  (case load-commands
+    [(empty) (panic #"No symbol table")]
+    [(cons (lc-symbol-table v) _) v]
+    [(cons _ lc) (find-symbol-table lc)]))
+
+(define (read-symbol-table [mach-o : MachOFile]) : (List SymbolTableEntry)
+  (case mach-o
+    [(mach-o-file header load-commands bytes)
+     (case (find-symbol-table load-commands)
+       [(symbol-table offset num-symbols string-offset string-size)
+        (match-define offset (u32->s64 offset))
+        (match-define num-symbols (u32->s64 num-symbols))
+        (match-define string-offset (u32->s64 string-offset))
+        (match-define string-size (u32->s64 string-size))
+        (read-symbol-table/symbols
+          0
+          (subbytes bytes offset (+ offset (* num-symbols 16)))
+          (subbytes bytes string-offset (+ string-offset string-size)))])]))
+
 (define (read-symbol-table/symbols
           [offset : Int]
           [entries : Bytes]
@@ -302,17 +321,6 @@
         (bytes-ref entries (+ offset 5))
         (u8 0) ;;(bytes-ref/u16-le entries (+ offset 6))
         (bytes-ref/u64-le entries (+ offset 8))))))
-
-
-(define (read-symbol-table/strings [bytes : Bytes] [offset : Int]) : (List Bytes)
-  (if (>= offset (bytes-length bytes))
-      (empty)
-      (let ([symbol (read-null-terminated-string bytes offset offset)])
-        (if (= (bytes-length symbol) 0)
-            (empty)
-            (cons
-              symbol
-              (read-symbol-table/strings bytes (+ offset (+ 1 (bytes-length symbol)))))))))
 
 (define (read-null-terminated-string [bytes : Bytes] [init : Int] [end : Int]) : Bytes
   (if (>= end (bytes-length bytes))
