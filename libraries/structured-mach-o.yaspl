@@ -3,6 +3,8 @@
   (aligned-bytes)
   (bytes)
   (list)
+  (mach-o)
+  (maybe)
   (numbers)
   (prim)
 }
@@ -12,7 +14,8 @@
             relocation-kind->u8 u8->relocation-kind
             relocation relocation-symbol
             defined-symbol defined-symbol-name defined-symbol<
-            combine-sections text-segment-section)
+            combine-sections text-segment-section
+            parse-text-section parse-const-section)
   #:patterns (branch-relocation signed-relocation unsigned-relocation relocation
               defined-symbol text-segment text-segment-section))
 (types
@@ -108,3 +111,123 @@
                    (defined-symbol name (+ aligned-offset offset))]))
               section-symbols)
          defined-symbols))]))
+
+(define (find-text-section [load-commands : (List MachOLoadCommand)]) : Section64
+  (case load-commands
+    [(empty) (panic #"No text section")]
+    [(cons (lc-load-segment64 (load-segment64 _ _ _ _ _ _ _ _ sections)) lc)
+     (case (find-text-section* sections)
+       [(just sec) sec]
+       [_ (find-text-section lc)])]
+    [(cons _ lc) (find-text-section lc)]))
+
+(define (find-text-section* [sections : (List Section64)]) : (Maybe Section64)
+  (case sections
+    [(empty) (nothing)]
+    [(cons sec secs)
+     (case sec
+       [(section64 #"__text" #"__TEXT" _ _ _ _ _ _ _)
+        (just sec)]
+       [_ (find-text-section* secs)])]))
+
+(define (find-const-section [load-commands : (List MachOLoadCommand)]) : Section64
+  (case load-commands
+    [(empty) (panic #"No const section")]
+    [(cons (lc-load-segment64 (load-segment64 _ _ _ _ _ _ _ _ sections)) lc)
+     (case (find-const-section* sections)
+       [(just sec) sec]
+       [_ (find-const-section lc)])]
+    [(cons _ lc) (find-const-section lc)]))
+
+(define (find-const-section* [sections : (List Section64)]) : (Maybe Section64)
+  (case sections
+    [(empty) (nothing)]
+    [(cons sec secs)
+     (case sec
+       [(section64 #"__const" #"__TEXT" _ _ _ _ _ _ _)
+        (just sec)]
+       [_ (find-const-section* secs)])]))
+
+
+(define (symbol-entries->defined-symbols
+          [section-base-address : Int]
+          [entries : (List SymbolTableEntry)]) : (List DefinedSymbol)
+  (map
+    (lambda ([entry : SymbolTableEntry])
+      (case entry
+        [(symbol-table-entry name _ _ _ value)
+         (defined-symbol name (- (u64->s64 value) section-base-address))]))
+    entries))
+
+(define (read-relocations [num : Int] [offset : Int] [bytes : Bytes]) : (List RelocationEntry)
+  (if (= 0 num)
+      (empty)
+      (cons
+        (read-relocation-entry offset bytes)
+        (read-relocations (- num 1) (+ offset 8) bytes))))
+
+(define (text-symbol? [entry : SymbolTableEntry]) : Boolean
+  (case entry
+    [(symbol-table-entry _ _ section _ _)
+     (= (u8->s64 section) 1)]))
+(define (const-symbol? [entry : SymbolTableEntry]) : Boolean
+  (case entry
+    [(symbol-table-entry _ _ section _ _)
+     (= (u8->s64 section) 2)]))
+
+
+(define (lookup-symbol [symbols : (List SymbolTableEntry)] [symbol-num : Int])
+  : (Maybe SymbolTableEntry)
+  (list-ref symbols symbol-num))
+
+(define (resolve-relocations
+          [relocations : (List RelocationEntry)]
+          [symbols : (List SymbolTableEntry)]) : (List Relocation)
+  (map
+    (lambda ([entry : RelocationEntry]) : Relocation
+      (case entry
+        [(relocation-entry address symbol-num type)
+         (case (lookup-symbol symbols (u32->s64 symbol-num))
+           [(nothing) (panic #"Not a valid symbol number")]
+           [(just symbol-entry)
+            (relocation
+              (u8->relocation-kind type)
+              (u32->s64 address)
+              (symbol-table-entry-name symbol-entry))])]))
+    relocations))
+
+
+
+(define (parse-text-section [mach-o : MachOFile] [symbols : (List SymbolTableEntry)])
+  : TextSegmentSection
+  (case mach-o
+    [(mach-o-file header load-commands bytes)
+     (case (find-text-section load-commands)
+       [(section64 _ _ address size offset alignment relocation-offset num-relocations _)
+        (match-define size (u64->s64 size))
+        (match-define offset (u32->s64 offset))
+        (match-define alignment (u32->s64 alignment))
+        (match-define relocation-offset (u32->s64 relocation-offset))
+        (match-define num-relocations (u32->s64 num-relocations))
+        (match-define address (u64->s64 address))
+        (text-segment-section
+          (aligned-bytes (subbytes bytes offset (+ offset size)) alignment)
+          (resolve-relocations (read-relocations num-relocations relocation-offset bytes) symbols)
+          (symbol-entries->defined-symbols address (filter text-symbol? symbols)))])]))
+
+(define (parse-const-section [mach-o : MachOFile] [symbols : (List SymbolTableEntry)])
+  : TextSegmentSection
+  (case mach-o
+    [(mach-o-file header load-commands bytes)
+     (case (find-const-section load-commands)
+       [(section64 _ _ address size offset alignment relocation-offset num-relocations _)
+        (match-define size (u64->s64 size))
+        (match-define offset (u32->s64 offset))
+        (match-define alignment (u32->s64 alignment))
+        (match-define relocation-offset (u32->s64 relocation-offset))
+        (match-define num-relocations (u32->s64 num-relocations))
+        (match-define address (u64->s64 address))
+        (text-segment-section
+          (aligned-bytes (subbytes bytes offset (+ offset size)) alignment)
+          (resolve-relocations (read-relocations num-relocations relocation-offset bytes) symbols)
+          (symbol-entries->defined-symbols address (filter const-symbol? symbols)))])]))

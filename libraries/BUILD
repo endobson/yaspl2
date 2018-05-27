@@ -412,7 +412,6 @@ yaspl_bootstrap_library(
     deps = [
         ":mach-o",
         ":structured-mach-o",
-        "//libraries/data:aligned-bytes",
         "//libraries/data:bytes",
         "//libraries/data:either",
         "//libraries/data:indexed-set",
@@ -448,9 +447,11 @@ yaspl_bootstrap_library(
     name = "structured-mach-o",
     srcs = ["structured-mach-o.yaspl"],
     deps = [
+        ":mach-o",
         "//libraries/data:aligned-bytes",
         "//libraries/data:bytes",
         "//libraries/data:list",
+        "//libraries/data:maybe",
         "//libraries/data:numbers",
     ],
 )
