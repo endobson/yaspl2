@@ -11,7 +11,8 @@
 (export
   #:types (MachOFile MachOHeader MachOLoadCommand SymbolTableEntry RelocationEntry SymbolTable
            Section64 VersionMin LinkeditData LoadSegment64 UnixThread)
-  #:values (read-mach-o mach-o-file mach-o-header read-symbol-table/strings read-symbol-table/symbols
+  #:values (read-mach-o read-mach-o/mem mach-o-file mach-o-header read-symbol-table/strings
+            read-symbol-table/symbols
             mach-o-header-commands-size symbol-table-entry-name symbol-table-entry
             read-relocation-entry symbol-table-entry-value version-min symbol-table linkedit-data
             section64 load-segment64-sections load-segment64 lc-unix-thread lc-symbol-table
@@ -113,11 +114,19 @@
 (define (parse-load-command [bytes : Bytes] [offset : Int])
   : (Either Bytes (Tuple2 MachOLoadCommand Int))
   (if (< (bytes-length bytes) (+ offset 8))
-      (left #"Not enough bytes")
+      (left #"Not enough bytes to parse load command header")
       (let ([number (bytes-ref/quad-le bytes (+ offset 0))])
         (let ([command-size (bytes-ref/quad-le bytes (+ offset 4))])
           (if (< (bytes-length bytes) (+ offset command-size))
-              (left #"Not enough bytes")
+              (left (bytes-append
+                      (varargs
+                        list
+                        #"Not enough bytes to parse load command content: Offset: "
+                        (integer->decimal-bytes offset)
+                        #" Command size: "
+                        (integer->decimal-bytes command-size)
+                        #" Buffer size: "
+                        (integer->decimal-bytes (bytes-length bytes)))))
               (let ([command-buffer (subbytes bytes (+ offset 8) (+ offset command-size))])
                 (case
                   (case number
@@ -125,10 +134,14 @@
                     [#x19 (parse-lc-load-segment64 command-buffer)]
                     [#x24 (parse-lc-version-min-macosx command-buffer)]
                     [#x29 (parse-lc-data-in-code command-buffer)]
+                    [#x05 (parse-lc-unix-thread command-buffer)]
                     [x ((lambda () : (Either Bytes MachOLoadCommand)
                           (left (bytes-append
-                                (varargs list #"Unknown load command: #x"
-                                              (integer->hex-bytes x))))))])
+                                (varargs list
+                                  #"Unknown load command: #x"
+                                  (integer->hex-bytes x)
+                                  #" Offset: #x"
+                                  (integer->hex-bytes offset))))))])
                   [(left v) (left v)]
                   [(right command)
                    (right (tuple2 command (+ offset command-size)))])))))))
@@ -204,6 +217,40 @@
           (linkedit-data
             (u32 (bytes-ref/quad-le bytes #x00))
             (u32 (bytes-ref/quad-le bytes #x04)))))))
+
+(define (parse-lc-unix-thread [bytes : Bytes]) : (Either Bytes MachOLoadCommand)
+  (match-define confirm-zero-register
+    (lambda ([offset : Int]) : Void
+      (if (= 0 (u64->s64 (bytes-ref/u64-le bytes offset)))
+          (void)
+          (panic #"Not a zero register in unix-thread"))))
+  (if (not (= (bytes-length bytes) #xb0))
+      (left #"Wrong length unix-thread")
+      (begin
+        (confirm-zero-register #x10)
+        (confirm-zero-register #x18)
+        (confirm-zero-register #x20)
+        (confirm-zero-register #x28)
+        (confirm-zero-register #x30)
+        (confirm-zero-register #x38)
+        (confirm-zero-register #x40)
+        (confirm-zero-register #x48)
+        (confirm-zero-register #x50)
+        (confirm-zero-register #x58)
+        (confirm-zero-register #x60)
+        (confirm-zero-register #x68)
+        (confirm-zero-register #x70)
+        (confirm-zero-register #x78)
+        (confirm-zero-register #x80)
+        ;; This is start address
+        (confirm-zero-register #x90)
+        (confirm-zero-register #x98)
+        (confirm-zero-register #xa0)
+        (confirm-zero-register #xa8)
+        (right
+          (lc-unix-thread
+            (unix-thread (bytes-ref/u64-le bytes #x88)))))))
+
 
 (define (parse-lc-version-min-macosx [bytes : Bytes]) : (Either Bytes MachOLoadCommand)
   (if (not (= (bytes-length bytes) #x08))
@@ -299,3 +346,29 @@
             [(left v) (left v)]
             [(right (tuple2 commands offset))
              (right (mach-o-file header commands raw-content))]))))
+
+;; TODO put this in a shared place
+(define (read-memory [address : Int] [amount : Int]) : Bytes
+  (match-define mem (make-bytes amount))
+  (begin
+    (read-memory-raw address mem amount)
+    mem))
+
+(define (read-mach-o/mem) : (Either Bytes MachOFile)
+  (match-define raw-header (read-memory #x100000000 32))
+  (match-define header
+    (mach-o-header
+      (u32 (bytes-ref/quad-le raw-header 0))
+      (u32 (bytes-ref/quad-le raw-header 4))
+      (u32 (bytes-ref/quad-le raw-header 8))
+      (u32 (bytes-ref/quad-le raw-header 12))
+      (u32 (bytes-ref/quad-le raw-header 16))
+      (u32 (bytes-ref/quad-le raw-header 20))
+      (u32 (bytes-ref/quad-le raw-header 24))
+      (u32 (bytes-ref/quad-le raw-header 28))))
+  (match-define raw-load-commands
+    (read-memory #x100000020 (u32->s64 (mach-o-header-commands-size header))))
+  (case (parse-load-commands (u32->s64 (mach-o-header-number-commands header)) raw-load-commands 0)
+    [(left v) (left v)]
+    [(right (tuple2 commands offset))
+     (right (mach-o-file header commands #""))]))
