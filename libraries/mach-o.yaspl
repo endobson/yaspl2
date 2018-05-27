@@ -9,13 +9,14 @@
   (tuples)
 }
 (export
-  #:types (MachOFile MachOHeader MachOLoadCommand SymbolTableEntry RelocationEntry SymbolTable
-           Section64 VersionMin LinkeditData LoadSegment64 UnixThread)
+  #:types (MachOFile MachOHeader MachOLoadCommand MachORawContents SymbolTableEntry RelocationEntry
+           SymbolTable Section64 VersionMin LinkeditData LoadSegment64 UnixThread)
   #:values (read-mach-o read-mach-o/mem mach-o-file mach-o-header read-symbol-table
             mach-o-header-commands-size symbol-table-entry-name symbol-table-entry
             read-relocations symbol-table-entry-value version-min symbol-table linkedit-data
             section64 load-segment64-sections load-segment64 lc-unix-thread lc-symbol-table
-            lc-load-segment64 lc-version-min-macosx lc-data-in-code unix-thread)
+            lc-load-segment64 lc-version-min-macosx lc-data-in-code unix-thread
+            mach-o-raw-contents-subbytes)
   #:patterns (mach-o-file mach-o-header lc-load-segment64 lc-symbol-table lc-version-min-macosx
               lc-data-in-code lc-unix-thread symbol-table-entry relocation-entry
               section64 load-segment64 symbol-table version-min linkedit-data unix-thread))
@@ -24,7 +25,9 @@
     (mach-o-file
       [header : MachOHeader]
       [commands : (List MachOLoadCommand)]
-      [raw-content : Bytes]))
+      [raw-content : MachORawContents]))
+  (define-type MachORawContents
+    (mach-o-raw-contents-bytes [bytes : Bytes]))
   (define-type MachOHeader
     (mach-o-header
       [magic : U32]
@@ -287,7 +290,7 @@
 
 (define (read-symbol-table [mach-o : MachOFile]) : (List SymbolTableEntry)
   (case mach-o
-    [(mach-o-file header load-commands bytes)
+    [(mach-o-file header load-commands contents)
      (case (find-symbol-table load-commands)
        [(symbol-table offset num-symbols string-offset string-size)
         (match-define offset (u32->s64 offset))
@@ -296,8 +299,8 @@
         (match-define string-size (u32->s64 string-size))
         (read-symbol-table/symbols
           0
-          (subbytes bytes offset (+ offset (* num-symbols 16)))
-          (subbytes bytes string-offset (+ string-offset string-size)))])]))
+          (mach-o-raw-contents-subbytes contents offset (* num-symbols 16))
+          (mach-o-raw-contents-subbytes contents string-offset string-size))])]))
 
 (define (read-symbol-table/symbols
           [offset : Int]
@@ -329,12 +332,15 @@
         [0 (subbytes bytes init end)]
         [_ (read-null-terminated-string bytes init (+ 1 end))])))
 
-(define (read-relocations [num : Int] [offset : Int] [bytes : Bytes]) : (List RelocationEntry)
+(define (read-relocations [num : Int] [offset : Int] [contents : MachORawContents]) : (List RelocationEntry)
+  (read-relocations* num 0 (mach-o-raw-contents-subbytes contents offset (* num 8))))
+
+(define (read-relocations* [num : Int] [offset : Int] [bytes : Bytes]) : (List RelocationEntry)
   (if (= 0 num)
       (empty)
       (cons
         (read-relocation-entry offset bytes)
-        (read-relocations (- num 1) (+ offset 8) bytes))))
+        (read-relocations* (- num 1) (+ offset 8) bytes))))
 
 (define (read-relocation-entry [offset : Int] [bytes : Bytes]) : RelocationEntry
   (relocation-entry
@@ -342,6 +348,10 @@
     (u32 (bitwise-and #xFFFFFF (bytes-ref/quad-le bytes (+ offset 4))))
     (bytes-ref bytes (+ offset 7))))
 
+(define (mach-o-raw-contents-subbytes [c : MachORawContents] [start : Int] [size : Int]) : Bytes
+  (case c
+    [(mach-o-raw-contents-bytes bytes)
+     (subbytes bytes start (+ start size))]))
 
 (define (read-mach-o [input : InputPort]) : (Either Bytes MachOFile)
   (match-define raw-content (read-all-bytes input))
@@ -361,7 +371,7 @@
           (case (parse-load-commands (u32->s64 (mach-o-header-number-commands header)) raw-content 32)
             [(left v) (left v)]
             [(right (tuple2 commands offset))
-             (right (mach-o-file header commands raw-content))]))))
+             (right (mach-o-file header commands (mach-o-raw-contents-bytes raw-content)))]))))
 
 ;; TODO put this in a shared place
 (define (read-memory [address : Int] [amount : Int]) : Bytes
@@ -387,4 +397,4 @@
   (case (parse-load-commands (u32->s64 (mach-o-header-number-commands header)) raw-load-commands 0)
     [(left v) (left v)]
     [(right (tuple2 commands offset))
-     (right (mach-o-file header commands #""))]))
+     (right (mach-o-file header commands (mach-o-raw-contents-bytes #"")))]))
