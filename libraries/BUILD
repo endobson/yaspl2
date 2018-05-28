@@ -133,9 +133,12 @@ yaspl_test(
     deps = [
         ":io",
         ":mach-o",
-        "//libraries/data:list",
+        "//libraries/data:bytes",
         "//libraries/data:either",
+        "//libraries/data:list",
+        "//libraries/data:maybe",
         "//libraries/data:numbers",
+        "//libraries/data:red-black-tree",
         "//libraries/data:tuples",
     ],
 )
