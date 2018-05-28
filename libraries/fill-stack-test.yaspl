@@ -1,23 +1,12 @@
 #:module (fill-stack-test)
 #:import {
-  (bytes)
-  (either)
   (io)
-  (list)
-  (mach-o)
-  (maybe)
-  (data red-black-tree)
-  (numbers)
   (prim)
+  (stack-trace)
   (tuples)
 }
 (export)
-(types
-  (define-type StackSnapshot
-    (stack-snapshot
-      [start-address : Int]
-      [size : Int]
-      [buffer : (Array Int)])))
+(types)
 
 (define (fill-stack-frame-a) : StackSnapshot
   (case (fill-stack-frame-b)
@@ -25,67 +14,11 @@
      ss]))
 
 (define (fill-stack-frame-b) : (Tuple2 StackSnapshot Int)
-  (tuple2 (fill-stack-frame-c) 0))
-
-(define (fill-stack-frame-c) : StackSnapshot
-  (match-define buffer (make-array 25 0))
-  (match-define metadata (make-array 1 0))
-  (match-define stack-size (fill-stack buffer metadata))
-  (stack-snapshot
-    (array-ref metadata 0)
-    stack-size
-    buffer))
-
-(define (read-stack-address [ss : StackSnapshot] [address : Int]) : Int
-  (match-define (stack-snapshot start-address size buffer) ss)
-  (array-ref buffer (quotient (- address start-address) 8)))
-
-(define (read-return-addresses [ss : StackSnapshot]) : (List Int)
-  (read-return-addresses* ss (stack-snapshot-start-address ss)))
-
-(define (read-return-addresses* [ss : StackSnapshot] [base-pointer : Int]) : (List Int)
-  (match-define next-base-pointer (read-stack-address ss base-pointer))
-  (if (= 0 next-base-pointer)
-      (empty)
-      (cons
-        (read-stack-address ss (+ 8 base-pointer))
-        (read-return-addresses* ss next-base-pointer))))
-
-(define (make-symbol-map [symbols : (List SymbolTableEntry)]) : (RedBlackTree Int (Tuple2 Bytes Int))
-  (foldl
-    (lambda ([entry : SymbolTableEntry] [acc : (RedBlackTree Int (Tuple2 Bytes Int))])
-      (case entry
-        [(symbol-table-entry name type section description value)
-         (rb-tree-set acc (u64->s64 value) (tuple2 name (u64->s64 value)))]))
-    symbols
-    ((lambda () : (RedBlackTree Int (Tuple2 Bytes Int)) (make-rb-tree int-cmp)))))
-
-(define (stack-snapshot->stack-trace [ss : StackSnapshot]) : Bytes
-  (case (read-mach-o/mem)
-    [(left v)
-     (bytes-append (varargs list #"Error: " v))]
-    [(right mach-o)
-     (match-define symbol-map (make-symbol-map (read-symbol-table mach-o)))
-     (bytes-append
-       (map
-         (lambda ([x : Int])
-           (case (rb-tree-infimum symbol-map x)
-             [(nothing)
-              #"No function\n"]
-             [(just (tuple2 name function-start))
-              (bytes-append
-                (varargs list
-                  #"["
-                  (integer->hex-bytes x)
-                  #"] "
-                  name #"+" (integer->decimal-bytes (- x function-start))
-                  #"\n")) ]))
-         (read-return-addresses ss)))]))
+  (tuple2 (make-stack-snapshot) 0))
 
 
 (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Int
   (match-define ss (fill-stack-frame-a))
-  (match-define (stack-snapshot start-address size buffer) ss)
   (begin
     (write-line #"call-stack:" stdout)
     (write-all-bytes (stack-snapshot->stack-trace ss) stdout)

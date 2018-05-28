@@ -125,13 +125,10 @@ yaspl_test(
     ],
 )
 
-yaspl_test(
-    name = "fill-stack-test",
-    size = "small",
-    srcs = ["fill-stack-test.yaspl"],
-    main_module = "fill_stack_test",
+yaspl_library(
+    name = "stack-trace",
+    srcs = ["stack-trace.yaspl"],
     deps = [
-        ":io",
         ":mach-o",
         "//libraries/data:bytes",
         "//libraries/data:either",
@@ -139,6 +136,18 @@ yaspl_test(
         "//libraries/data:maybe",
         "//libraries/data:numbers",
         "//libraries/data:red-black-tree",
+        "//libraries/data:tuples",
+    ],
+)
+
+yaspl_test(
+    name = "fill-stack-test",
+    size = "small",
+    srcs = ["fill-stack-test.yaspl"],
+    main_module = "fill_stack_test",
+    deps = [
+        ":io",
+        ":stack-trace",
         "//libraries/data:tuples",
     ],
 )
