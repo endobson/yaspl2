@@ -1,71 +1,12 @@
 #:module (source-language)
 #:import {
-  (either) {
-    #:types
-      Either
-    #:values
-      left
-      right
-    #:patterns
-      left
-      right
-  }
-  (list) {
-    #:types
-      List
-    #:values
-      cons
-      empty
-      extract-justs
-      map
-      reverse
-    #:patterns
-      cons
-      empty
-  }
-  (maybe) {
-    #:types
-      Maybe
-    #:values
-      just
-      nothing
-    #:patterns
-      just
-      nothing
-  }
-  (module-name) {
-    #:types
-      ModName
-    #:values
-      mod-name
-  }
-  (prim) {
-    #:types
-      Boolean
-      Bytes
-      Int
-  }
-  (sexp-parser) {
-    #:types
-      Sexp
-    #:patterns
-      boolean-sexp
-      brace-node
-      bracket-node
-      bytes-sexp
-      keyword-sexp
-      node
-      number-sexp
-      symbol-sexp
-  }
-  (tuples) {
-    #:types
-      Tuple2
-    #:values
-      tuple2
-    #:patterns
-      tuple2
-  }
+  (either)
+  (list)
+  (maybe)
+  (module-name)
+  (prim)
+  (sexp-parser)
+  (tuples)
 }
 (export
   #:types (Module Imports Import Exports Export TypeDefinition VariantDefinition VariantField PreType
@@ -77,7 +18,8 @@
            type-definition-name var-expr app-expr function-definition-body
            variant-definition-name variant-field-name case-clause-pattern boolean-literal
            ignore-pattern int-literal case-clause case-expr bytes-pattern bytes-literal block
-           import-local-name partial-imports full-imports import)
+           import-local-name partial-imports full-imports import
+           parse-expression)
   #:patterns (int-literal bytes-literal boolean-literal var-expr if-expr begin-expr app-expr
               varargs-app-expr let-expr lambda-expr case-expr case-clause module
               bytes-pattern int-pattern variable-pattern ignore-pattern abstraction-pattern
@@ -521,11 +463,8 @@
        ((lambda () : (Either Bytes Boolean) (right tail-position)))
        (parse-expression #f op-expr)
        (leftmost-error (map (lambda ([s : Sexp]) (parse-expression #f s)) exprs)))]
-    [(node (cons (symbol-sexp #"let")
-                 (cons (node (cons (bracket-node (cons (symbol-sexp name) (cons expr (empty)))) (empty)))
-                       (cons body (empty)))))
-     (either-app3 let-expr
-       (right/bytes name) (parse-expression #f expr) (parse-expression tail-position body))]
+    [(node (cons (symbol-sexp #"let") other-sexps))
+     (parse-let-sexps tail-position other-sexps)]
     [(node (cons (symbol-sexp #"case") (cons expr clauses)))
      (either-app2 case-expr
        (parse-expression #f expr)
@@ -561,6 +500,27 @@
      (left #"Braced nodes are not valid expressions")]
     [(keyword-sexp _)
      (left #"Keywords are not valid expressions")]))
+
+(define (parse-let-sexps [tail-position : Boolean] [sexps : (List Sexp)]) : (Either Bytes Expression)
+  (case sexps
+    [(empty)
+     (left #"Let: not enough subparts")]
+    [(cons _ (empty))
+     (left #"Let: not enough subparts")]
+    [(cons _ (cons _ (cons _ _)))
+     (left #"Let: too many subparts")]
+    [(cons bindings (cons body (empty)))
+     (case bindings
+       [(node bindings-list)
+        (case bindings-list
+          [(cons (bracket-node (cons (symbol-sexp name) (cons expr (empty)))) (empty))
+           (either-app3 let-expr
+             (right/bytes name) (parse-expression #f expr) (parse-expression tail-position body))]
+          [_
+           (left #"Let bindings: couldn't be parsed")])]
+       [_
+        (left #"Let bindings: couldn't be parsed")])]))
+
 
 (define (parse-case-clause [tail-position : Boolean] [sexp : Sexp]) : (Either Bytes CaseClause)
   (case sexp

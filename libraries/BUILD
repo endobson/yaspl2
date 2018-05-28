@@ -737,6 +737,22 @@ yaspl_bootstrap_library(
     ],
 )
 
+yaspl_test(
+    name = "source-language-test",
+    size = "small",
+    srcs = ["source-language-test.yaspl"],
+    main_module = "source_language_test",
+    deps = [
+        ":sexp-parser",
+        ":source-language",
+        ":yunit",
+        "//libraries/data:bytes",
+        "//libraries/data:either",
+        "//libraries/data:list",
+        "//libraries/data:maybe",
+    ],
+)
+
 yaspl_bootstrap_library(
     name = "source-to-intermediate-language",
     srcs = ["source-to-intermediate-language.yaspl"],
