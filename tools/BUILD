@@ -15,6 +15,13 @@ yaspl_binary(
 )
 
 yaspl_binary(
+    name = "aspect-analysis",
+    main_module = "tools_aspect_analysis_main",
+    visibility = ["//visibility:public"],
+    deps = [":aspect-analysis-main"],
+)
+
+yaspl_binary(
     name = "ir-printer",
     main_module = "tools_ir_printer_main",
     visibility = ["//visibility:public"],
@@ -37,6 +44,17 @@ racket_binary(
 yaspl_library(
     name = "aspect-linter-main",
     srcs = ["aspect-linter-main.yaspl"],
+    deps = [
+        ":linter_lib",
+        "//libraries:io",
+        "//libraries/data:either",
+        "//libraries/data:list",
+    ],
+)
+
+yaspl_library(
+    name = "aspect-analysis-main",
+    srcs = ["aspect-analysis-main.yaspl"],
     deps = [
         ":linter_lib",
         "//libraries:io",
