@@ -56,10 +56,12 @@ yaspl_library(
     name = "aspect-analysis-main",
     srcs = ["aspect-analysis-main.yaspl"],
     deps = [
-        ":linter_lib",
         "//libraries:io",
         "//libraries/data:either",
+        "//libraries/data:maybe",
         "//libraries/data:list",
+        "//libraries:source-language",
+        "//libraries:sexp-parser",
     ],
 )
 
