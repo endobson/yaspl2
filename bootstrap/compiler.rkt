@@ -210,6 +210,8 @@
            ,(compile-expr pat-env env false))]
     [(begin& first-expr exprs)
      `(,#'begin ,@(map (λ (e) (compile-expr pat-env env e)) (cons first-expr exprs)))]
+    [(ann& _ expr)
+     (compile-expr pat-env env expr)]
     [(let& name expr body)
      (define compiled-expr (compile-expr pat-env env expr))
      (cond

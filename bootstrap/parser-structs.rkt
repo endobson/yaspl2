@@ -26,6 +26,7 @@
 (struct app& expression& (op args) #:transparent)
 (struct varargs-app& expression& (op args) #:transparent)
 (struct let& expression& (name expr body) #:transparent)
+(struct ann& expression& (type expr) #:transparent)
 (struct case& expression& (expr clauses) #:transparent)
 (struct case-clause& (pattern body) #:transparent)
 ;; args+tys : (List (List Symbol PreType))

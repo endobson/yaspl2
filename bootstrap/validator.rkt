@@ -59,6 +59,8 @@
       [(let& name expr body)
        (recur expr)
        ((recur/env (set-add env name)) body)]
+      [(ann& _ expr)
+       (recur expr)]
       [(lambda& (list (list args _) ...) _ body)
        ((recur/env (set-union env (list->set args))) body)]
       [(case& expr clauses)
@@ -636,6 +638,10 @@
      (let* ([expr-type (type-infer expr)]
             [type-env (binding-env-value-set env name expr-type)])
        ((type-check/env type-env) body type))]
+    [(ann& pre-type expr)
+     (define type ((parse-type/env (binding-env-types env)) pre-type))
+     (type-check expr type)
+     (check type)]
     [(lambda& (list (list args arg-pre-types) ...) pre-return-type body)
      (define arg-types
        (for/list ([pre-type (in-list arg-pre-types)])

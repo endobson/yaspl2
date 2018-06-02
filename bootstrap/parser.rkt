@@ -146,6 +146,8 @@
               (case-clause&
                 (parse-pattern pattern)
                 (parse-block body))))]
+    [`(ann ,type ,expr)
+     (ann& (parse-pre-type type) (parse-expression expr))]
     [`(lambda ([,(? symbol? args) : ,arg-types] ...) ,body)
      (lambda& (map list args (map parse-pre-type arg-types)) #f (parse body))]
     [`(lambda ([,(? symbol? args) : ,arg-types] ...) : ,return-type ,body)
