@@ -52,17 +52,16 @@ yaspl_library(
     ],
 )
 
-
 yaspl_library(
     name = "analysis",
     srcs = ["analysis.yaspl"],
     deps = [
-        "//libraries/data:either",
-        "//libraries/data:maybe",
         "//libraries:io",
-        "//libraries/data:list",
-        "//libraries:source-language",
         "//libraries:sexp-parser",
+        "//libraries:source-language",
+        "//libraries/data:either",
+        "//libraries/data:list",
+        "//libraries/data:maybe",
     ],
 )
 
