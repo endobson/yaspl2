@@ -1,0 +1,113 @@
+#:module (grammar-parser)
+#:import {
+  (bytes)
+  (either)
+  (list)
+  (maybe)
+  (prim)
+  (sexp-parser)
+}
+(export
+  #:types ()
+  #:values (parse-grammar)
+  #:patterns ())
+(types
+  (define-type ParsedGrammar
+    (parsed-grammar
+      [rules : (List RawGrammarRule)]))
+  (define-type RawGrammarRule
+    (raw-grammar-rule
+      [name : Bytes]
+      [sub-name : (Maybe Bytes)]
+      [contents : RawGrammarExprs]))
+  (define-type RawGrammarExprs
+    (cons-rgexpr [head : RawGrammarExpr] [tail : RawGrammarExprs])
+    (optional-cons-rgexpr [non-terminal : Bytes] [tail : RawGrammarExprs])
+    (repeating-end-rgexpr [non-terminal : Bytes])
+    (empty-end-rgexpr))
+  (define-type RawGrammarExpr
+    (specific-keyword-rgexpr [kw : Bytes])
+    (specific-symbol-rgexpr [sym : Bytes])
+    (symbol-rgexpr)
+    (sexp-rgexpr)
+    (non-terminal-rgexpr [name : Bytes])
+    (node-rgexpr [body : RawGrammarExprs])
+    (bracket-node-rgexpr [body : RawGrammarExprs])
+    (brace-node-rgexpr [body : RawGrammarExprs])))
+
+(define (parse-grammar [input : Bytes]) : (Either Bytes ParsedGrammar)
+  (match-define lines (bytes-split input #"\n"))
+  (match-define rule-lines (filter (lambda ([line : Bytes]) (> (bytes-length line) 0)) lines))
+  (case (extract-rights (map parse-raw-grammar-rule rule-lines))
+    [(left v) (left v)]
+    [(right rules)
+     (right (parsed-grammar (empty)))]))
+
+
+(define (parse-raw-grammar-rule [input : Bytes]) : (Either Bytes RawGrammarRule)
+  (case (parse-sexps input)
+    [(left v) (left v)]
+    [(right (cons (symbol-sexp rule-name) (cons (symbol-sexp #"=") sexps)))
+     (case (parse-raw-grammar-exprs sexps)
+       [(left v) (left v)]
+       [(right exprs)
+        (right (raw-grammar-rule rule-name (nothing) exprs))])]
+    [(right (cons (symbol-sexp rule-name) (cons (symbol-sexp sub-name)
+                                                (cons (symbol-sexp #"=") sexps))))
+     (case (parse-raw-grammar-exprs sexps)
+       [(left v) (left v)]
+       [(right exprs)
+        (right (raw-grammar-rule rule-name (just sub-name) exprs))])]
+    [(right _)
+     (left (bytes-append (varargs list #"Unparsable rule: " input)))]))
+
+(define (parse-raw-grammar-exprs [input : (List Sexp)]) : (Either Bytes RawGrammarExprs)
+  (case input
+    [(empty)
+     (right (empty-end-rgexpr))]
+    [(cons (symbol-sexp sym) (cons (symbol-sexp #"...") (empty)))
+     (right (repeating-end-rgexpr sym))]
+    [(cons (symbol-sexp sym) (cons (symbol-sexp #"?") exprs))
+     (case (parse-raw-grammar-exprs exprs)
+       [(left v) (left v)]
+       [(right exprs)
+        (right (optional-cons-rgexpr sym exprs))])]
+    [(cons expr exprs)
+     (case (parse-raw-grammar-expr expr)
+       [(left v) (left v)]
+       [(right expr)
+        (case (parse-raw-grammar-exprs exprs)
+          [(left v) (left v)]
+          [(right exprs)
+           (right (cons-rgexpr expr exprs))])])]))
+
+(define (parse-raw-grammar-expr [input : Sexp]) : (Either Bytes RawGrammarExpr)
+  (case input
+    [(symbol-sexp #"SYMBOL") (right (symbol-rgexpr))]
+    [(symbol-sexp #"SEXP") (right (sexp-rgexpr))]
+    [(symbol-sexp sym)
+     (if (all-caps-and-underscores? sym)
+         (right (non-terminal-rgexpr sym))
+         (right (specific-symbol-rgexpr sym)))]
+    [(keyword-sexp kw) (right (specific-keyword-rgexpr kw))]
+    [(node sexps)
+     (case (parse-raw-grammar-exprs sexps)
+       [(left v) (left v)]
+       [(right exprs) (right (node-rgexpr exprs))])]
+    [(bracket-node sexps)
+     (case (parse-raw-grammar-exprs sexps)
+       [(left v) (left v)]
+       [(right exprs) (right (bracket-node-rgexpr exprs))])]
+    [(brace-node sexps)
+     (case (parse-raw-grammar-exprs sexps)
+       [(left v) (left v)]
+       [(right exprs) (right (brace-node-rgexpr exprs))])]
+    [_
+     (left #"Unknown form")]))
+
+(define (all-caps-and-underscores? [sym : Bytes]) : Boolean
+  (andmap
+    (lambda ([char : Int]) : Boolean
+      (or (= 95 char)
+          (and (<= 65 char) (< char 91))))
+    (build-list (bytes-length sym) (lambda ([index : Int]) (u8->s64 (bytes-ref sym index))))))

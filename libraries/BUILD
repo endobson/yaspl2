@@ -725,6 +725,18 @@ yaspl_test(
     ],
 )
 
+yaspl_bootstrap_library(
+    name = "grammar-parser",
+    srcs = ["grammar-parser.yaspl"],
+    deps = [
+        ":sexp-parser",
+        "//libraries/data:bytes",
+        "//libraries/data:maybe",
+        "//libraries/data:either",
+        "//libraries/data:list",
+    ],
+)
+
 genrule(
     name = "gen-source-grammar",
     srcs = ["source.grammar"],
@@ -750,7 +762,9 @@ yaspl_test(
     deps = [
         ":source-grammar",
         ":yunit",
+        ":grammar-parser",
         "//libraries/data:list",
+        "//libraries/data:either",
         "//libraries/data:maybe",
     ],
 )
