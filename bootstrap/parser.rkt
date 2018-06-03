@@ -21,9 +21,13 @@
 
 (define (partial-import? x)
   (and (list? x)
-       (or (member '#:types x)
-           (member '#:values x)
-           (member '#:patterns x))))
+       (ormap
+         (lambda (x)
+           (and (list? x)
+                (or (member '#:types x)
+                    (member '#:values x)
+                    (member '#:patterns x))))
+         x)))
 
 (define (parse-imports imports)
   (define (recur imports)
@@ -42,21 +46,21 @@
          (import& exported-name local-name)]))
     (define (type-point forms)
       (match forms
-        [(list-rest #:types (? import-elem? import-elems) ... forms)
+        [(cons (list #:types (? import-elem? import-elems) ...) forms)
          (cons (map parse-import-elem import-elems)
                (value-point forms))]
         [forms
          (cons empty (value-point forms))]))
     (define (value-point forms)
       (match forms
-        [(list-rest #:values (? import-elem? import-elems) ... forms)
+        [(cons (list #:values (? import-elem? import-elems) ...) forms)
          (cons (map parse-import-elem import-elems)
                (pattern-point forms))]
         [forms
          (cons empty (pattern-point forms))]))
     (define (pattern-point forms)
       (match forms
-        [(list-rest #:patterns (? import-elem? import-elems) ... forms)
+        [(cons (list #:patterns (? import-elem? import-elems) ...) forms)
          (list (map parse-import-elem import-elems))]
         [(list)
          (list empty)]))
