@@ -357,6 +357,7 @@ yaspl_bootstrap_library(
         ":byte-escapes",
         "//libraries/data:bytes",
         "//libraries/data:either",
+        "//libraries/data:list",
         "//libraries/data:numbers",
     ],
 )
@@ -721,6 +722,36 @@ yaspl_test(
         "//libraries/data:bytes",
         "//libraries/data:either",
         "//libraries/data:list",
+    ],
+)
+
+genrule(
+    name = "gen-source-grammar",
+    srcs = ["source.grammar"],
+    outs = ["source-grammar.yaspl"],
+    cmd = "echo '#:module (source-grammar) #:import {(prim)} ' \
+               '(export #:types () #:values (source-grammar) #:patterns ()) (types)' > $@;" +
+          "echo -n '(define (source-grammar) : Bytes #\"' >> $@;" +
+          " awk '{printf \"%s\\\\n\", $$0}' $< >> $@;" +
+          " echo '\")' >> $@",
+)
+
+yaspl_bootstrap_library(
+    name = "source-grammar",
+    srcs = ["source-grammar.yaspl"],
+    deps = [],
+)
+
+yaspl_test(
+    name = "source-grammar-test",
+    size = "small",
+    srcs = ["source-grammar-test.yaspl"],
+    main_module = "source_grammar_test",
+    deps = [
+        ":source-grammar",
+        ":yunit",
+        "//libraries/data:list",
+        "//libraries/data:maybe",
     ],
 )
 
