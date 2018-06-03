@@ -81,9 +81,9 @@
    [(list)
     (exports& empty empty empty) ]
    [(list
-      #:types (list (? symbol? types) ...)
-      #:values (list (? symbol? values) ...)
-      #:patterns (list (? symbol? patterns) ...))
+      (list #:types (? symbol? types) ...)
+      (list #:values (? symbol? values) ...)
+      (list #:patterns (? symbol? patterns) ...))
     (exports&
       (map export& types types)
       (map export& values values)
