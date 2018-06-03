@@ -52,16 +52,28 @@ yaspl_library(
     ],
 )
 
+
+yaspl_library(
+    name = "analysis",
+    srcs = ["analysis.yaspl"],
+    deps = [
+        "//libraries/data:either",
+        "//libraries/data:maybe",
+        "//libraries:io",
+        "//libraries/data:list",
+        "//libraries:source-language",
+        "//libraries:sexp-parser",
+    ],
+)
+
 yaspl_library(
     name = "aspect-analysis-main",
     srcs = ["aspect-analysis-main.yaspl"],
     deps = [
+        ":analysis",
         "//libraries:io",
         "//libraries/data:either",
-        "//libraries/data:maybe",
         "//libraries/data:list",
-        "//libraries:source-language",
-        "//libraries:sexp-parser",
     ],
 )
 

@@ -1,0 +1,99 @@
+#:module (tools analysis)
+#:import {
+  (either)
+  (io)
+  (list)
+  (maybe)
+  (prim)
+  (sexp-parser)
+  (source-language)
+}
+(export
+  #:types (AnalysisResults)
+  #:values (write-analysis-results find-problematic-functions)
+  #:patterns ())
+(types
+  (define-type AnalysisResults
+    (analysis-results
+      [file-name : Bytes]
+      [bad-functions : (List Bytes)])))
+
+(define (write-analysis-results [results : AnalysisResults] [output : OutputPort]) : Void
+  (case results
+    [(analysis-results _ (empty))
+     (void)]
+    [(analysis-results name functions)
+     (begin
+        (write-all-bytes name output)
+        (write-line #":" output)
+        (for-each
+          (lambda ([function : Bytes])
+            (begin
+              (write-all-bytes #"  " output)
+              (write-line function output)))
+          functions))]))
+
+(define (find-problematic-functions [module-file : Bytes]) : (Either Bytes AnalysisResults)
+  (case (parse-sexps (call-with-input-file module-file read-all-bytes))
+    [(left v) (left v)]
+    [(right module-forms)
+     (case (parse-module module-forms)
+      [(left v) (left v)]
+      [(right mod)
+       (match-define (module _ _ _ _ defs) mod)
+       (right
+         (analysis-results
+           module-file
+           (filter-map
+             (lambda ([def : FunctionDefinition]) : (Maybe Bytes)
+               (case def
+                 [(function-definition name _ _ _ body)
+                  (if (contains-directly-applied-lambda?/block body)
+                      (just name)
+                      (nothing))]))
+             defs)))])]))
+
+(define (contains-directly-applied-lambda?/block [block : Block]) : Boolean
+  (match-define (block defs expr) block)
+  (or
+    (ormap contains-directly-applied-lambda?/block-def defs)
+    (contains-directly-applied-lambda?/expr expr)))
+
+(define (contains-directly-applied-lambda?/expr [expr : Expression]) : Boolean
+  (case expr
+    [(app-expr _ (lambda-expr _ _ _) _) #t]
+    [(int-literal _) #f]
+    [(bytes-literal _) #f]
+    [(boolean-literal _) #f]
+    [(var-expr _) #f]
+    [(annotated-expr _ expr)
+     (contains-directly-applied-lambda?/expr expr)]
+    [(if-expr c t f)
+     (or (contains-directly-applied-lambda?/expr c)
+         (or (contains-directly-applied-lambda?/expr t)
+             (contains-directly-applied-lambda?/expr f)))]
+    [(begin-expr exprs last-expr)
+     (or (ormap contains-directly-applied-lambda?/expr exprs)
+         (contains-directly-applied-lambda?/expr last-expr))]
+    [(app-expr _ op args)
+     (or (ormap contains-directly-applied-lambda?/expr args)
+         (contains-directly-applied-lambda?/expr op))]
+    [(varargs-app-expr _ op args)
+     (or (ormap contains-directly-applied-lambda?/expr args)
+         (contains-directly-applied-lambda?/expr op))]
+    [(let-expr _ expr body)
+     (or (contains-directly-applied-lambda?/expr expr)
+         (contains-directly-applied-lambda?/expr body))]
+    [(lambda-expr _ _ body)
+     (contains-directly-applied-lambda?/expr body)]
+    [(case-expr expr clauses)
+     (or (ormap contains-directly-applied-lambda?/clause clauses)
+         (contains-directly-applied-lambda?/expr expr))]))
+
+(define (contains-directly-applied-lambda?/block-def [block-def : BlockDefinition]) : Boolean
+  (match-define (match-def pattern expr) block-def)
+  (contains-directly-applied-lambda?/expr expr))
+
+(define (contains-directly-applied-lambda?/clause [clause : CaseClause]) : Boolean
+  (match-define (case-clause pattern block) clause)
+  (contains-directly-applied-lambda?/block block))
