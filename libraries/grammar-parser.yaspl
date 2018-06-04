@@ -3,26 +3,24 @@
   (bytes)
   (either)
   (list)
+  (dict)
   (maybe)
   (prim)
   (sexp-parser)
 }
 (export
   (#:types)
-  (#:values parse-grammar)
+  (#:values parse-grammar run-grammar)
   (#:patterns))
 (types
   (define-type ParsedGrammar
     (parsed-grammar
       [rules : (List RawGrammarRule)]))
   (define-type RawGrammarRule
-    (raw-grammar-rule
-      [name : Bytes]
-      [sub-name : (Maybe Bytes)]
-      [contents : RawGrammarExpr]))
+    (raw-grammar-full-rule [name : Bytes] [contents : RawGrammarExpr])
+    (raw-grammar-sub-rule [name : Bytes] [sub-name : Bytes] [default : Boolean] [contents : RawGrammarExpr]))
   (define-type RawGrammarExprs
     (cons-rgexpr [head : RawGrammarExpr] [tail : RawGrammarExprs])
-    (optional-cons-rgexpr [non-terminal : Bytes] [tail : RawGrammarExprs])
     (repeating-end-rgexpr [non-terminal : Bytes])
     (repeating-all-but-end-rgexpr [non-terminal-rep : Bytes] [non-terminal-end : Bytes])
     (empty-end-rgexpr))
@@ -31,10 +29,19 @@
     (specific-symbol-rgexpr [sym : Bytes])
     (symbol-rgexpr)
     (sexp-rgexpr)
+    (number-rgexpr)
+    (bytes-rgexpr)
+    (boolean-rgexpr)
     (non-terminal-rgexpr [name : Bytes])
     (node-rgexpr [body : RawGrammarExprs])
     (bracket-node-rgexpr [body : RawGrammarExprs])
-    (brace-node-rgexpr [body : RawGrammarExprs])))
+    (brace-node-rgexpr [body : RawGrammarExprs]))
+
+  (define-type JoinedGrammarRule
+    (solo-rule [exprs : RawGrammarExprs])
+    (multi-rule
+      [parts : (Dict Bytes RawGrammarExprs)]
+      [default : (Maybe RawGrammarExprs)])))
 
 (define (parse-grammar [input : Bytes]) : (Either Bytes ParsedGrammar)
   (match-define lines (bytes-split input #"\n"))
@@ -52,17 +59,16 @@
      (case (parse-raw-grammar-expr expr)
        [(left v) (left v)]
        [(right exprs)
-        (right (raw-grammar-rule rule-name (nothing) exprs))])]
+        (right (raw-grammar-full-rule rule-name exprs))])]
     [(right (cons (symbol-sexp rule-name)
                   (cons (symbol-sexp sub-name)
                         (cons (keyword-sexp #"default")
                               (cons (symbol-sexp #"=")
                                     (cons expr (empty)))))))
-     ;; TODO use default aspect
      (case (parse-raw-grammar-expr expr)
        [(left v) (left v)]
        [(right exprs)
-        (right (raw-grammar-rule rule-name (nothing) exprs))])]
+        (right (raw-grammar-sub-rule rule-name sub-name #t exprs))])]
     [(right (cons (symbol-sexp rule-name)
                   (cons (symbol-sexp sub-name)
                         (cons (symbol-sexp #"=")
@@ -70,7 +76,7 @@
      (case (parse-raw-grammar-expr expr)
        [(left v) (left v)]
        [(right exprs)
-        (right (raw-grammar-rule rule-name (just sub-name) exprs))])]
+        (right (raw-grammar-sub-rule rule-name sub-name #f exprs))])]
     [(right _)
      (left (bytes-append (varargs list #"Unparsable rule: " input)))]))
 
@@ -82,11 +88,6 @@
      (right (repeating-end-rgexpr sym))]
     [(cons (symbol-sexp sym-rep) (cons (symbol-sexp #"...") (cons (symbol-sexp sym-end) (empty))))
      (right (repeating-all-but-end-rgexpr sym-rep sym-end))]
-    [(cons (symbol-sexp sym) (cons (symbol-sexp #"?") exprs))
-     (case (parse-raw-grammar-exprs exprs)
-       [(left v) (left v)]
-       [(right exprs)
-        (right (optional-cons-rgexpr sym exprs))])]
     [(cons expr exprs)
      (case (parse-raw-grammar-expr expr)
        [(left v) (left v)]
@@ -101,6 +102,9 @@
     [(symbol-sexp #"...") (left #"Stray ...")]
     [(symbol-sexp #"SYMBOL") (right (symbol-rgexpr))]
     [(symbol-sexp #"SEXP") (right (sexp-rgexpr))]
+    [(symbol-sexp #"BYTES") (right (bytes-rgexpr))]
+    [(symbol-sexp #"NUMBER") (right (number-rgexpr))]
+    [(symbol-sexp #"BOOLEAN") (right (boolean-rgexpr))]
     [(symbol-sexp sym)
      (if (all-caps-and-underscores? sym)
          (right (non-terminal-rgexpr sym))
@@ -127,3 +131,38 @@
       (or (= 95 char)
           (and (<= 65 char) (< char 91))))
     (build-list (bytes-length sym) (lambda ([index : Int]) (u8->s64 (bytes-ref sym index))))))
+
+(define (join-rules [rules : (List RawGrammarRule)]) : (Either Bytes (Dict Bytes JoinedGrammarRule))
+  (left #"Join-rules NYI"))
+
+(define (R) (run-non-terminal [n : Bytes] [rules : (Dict Bytes JoinedGrammarRule)]
+                              [action : (Bytes (List R) -> R)] [input : (List Sexp)])
+  : (Either Bytes R)
+  (case (dict-ref rules n)
+    [(nothing) (left #"Error unbound nonterminal")]
+    [(just (solo-rule exprs))
+     (case (run-exprs exprs rules action input)
+       [(left v) (left v)]
+       [(right vals)
+        (right (action n vals))])]
+    [(just (multi-rule sub-rules default))
+     (left #"Multi-rule NYI")]))
+
+
+(define (R) (run-exprs [es : RawGrammarExprs] [rules : (Dict Bytes JoinedGrammarRule)]
+                       [action : (Bytes (List R) -> R)] [input : (List Sexp)])
+  : (Either Bytes (List R))
+  (case es
+    [(empty-end-rgexpr) (right (empty))]
+    [_ (left #"Run-exprs NYI")]))
+
+
+(define (R) (run-grammar [grammar : ParsedGrammar]
+                         [root-rule : Bytes]
+                         [action : (Bytes (List R) -> R)]
+                         [input : (List Sexp)]) : (Either Bytes R)
+  (match-define (parsed-grammar rules) grammar)
+  (case (join-rules rules)
+    [(left v) (left v)]
+    [(right joined-rules)
+     (left #"NYI")]))

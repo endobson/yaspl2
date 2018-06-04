@@ -731,9 +731,10 @@ yaspl_bootstrap_library(
     deps = [
         ":sexp-parser",
         "//libraries/data:bytes",
-        "//libraries/data:maybe",
+        "//libraries/data:dict",
         "//libraries/data:either",
         "//libraries/data:list",
+        "//libraries/data:maybe",
     ],
 )
 
@@ -760,11 +761,11 @@ yaspl_test(
     srcs = ["source-grammar-test.yaspl"],
     main_module = "source_grammar_test",
     deps = [
+        ":grammar-parser",
         ":source-grammar",
         ":yunit",
-        ":grammar-parser",
-        "//libraries/data:list",
         "//libraries/data:either",
+        "//libraries/data:list",
         "//libraries/data:maybe",
     ],
 )
