@@ -28,7 +28,6 @@
     (specific-keyword-rgexpr [kw : Bytes])
     (specific-symbol-rgexpr [sym : Bytes])
     (symbol-rgexpr)
-    (sexp-rgexpr)
     (number-rgexpr)
     (bytes-rgexpr)
     (boolean-rgexpr)
@@ -38,10 +37,19 @@
     (brace-node-rgexpr [body : RawGrammarExprs]))
 
   (define-type JoinedGrammarRule
-    (solo-rule [exprs : RawGrammarExprs])
+    (solo-rule [exprs : RawGrammarExpr])
     (multi-rule
-      [parts : (Dict Bytes RawGrammarExprs)]
-      [default : (Maybe RawGrammarExprs)])))
+      [parts : (List RawGrammarExpr)]
+      [default : (Maybe RawGrammarExpr)]))
+
+
+  (define-type ParsedTree
+    (parsed-non-terminal [rule-name : Bytes] [sub-rule : Bytes] [parts : (List ParsedTree)])
+    (parsed-symbol [val : Bytes])
+    (parsed-bytes [val : Bytes])
+    (parsed-number [val : Int])
+    (parsed-boolean [val : Boolean])
+    (parsed-repeated [val : (List ParsedTree)])))
 
 (define (parse-grammar [input : Bytes]) : (Either Bytes ParsedGrammar)
   (match-define lines (bytes-split input #"\n"))
@@ -101,7 +109,6 @@
   (case input
     [(symbol-sexp #"...") (left #"Stray ...")]
     [(symbol-sexp #"SYMBOL") (right (symbol-rgexpr))]
-    [(symbol-sexp #"SEXP") (right (sexp-rgexpr))]
     [(symbol-sexp #"BYTES") (right (bytes-rgexpr))]
     [(symbol-sexp #"NUMBER") (right (number-rgexpr))]
     [(symbol-sexp #"BOOLEAN") (right (boolean-rgexpr))]
@@ -135,32 +142,86 @@
 (define (join-rules [rules : (List RawGrammarRule)]) : (Either Bytes (Dict Bytes JoinedGrammarRule))
   (left #"Join-rules NYI"))
 
-(define (R) (run-non-terminal [n : Bytes] [rules : (Dict Bytes JoinedGrammarRule)]
-                              [action : (Bytes (List R) -> R)] [input : (List Sexp)])
-  : (Either Bytes R)
+(define (run-non-terminal [n : Bytes] [rules : (Dict Bytes JoinedGrammarRule)] [input : Sexp])
+  : (Either Bytes ParsedTree)
   (case (dict-ref rules n)
     [(nothing) (left #"Error unbound nonterminal")]
-    [(just (solo-rule exprs))
-     (case (run-exprs exprs rules action input)
+    [(just (solo-rule expr))
+     (case (run-expr expr rules input)
        [(left v) (left v)]
        [(right vals)
-        (right (action n vals))])]
+        (right (parsed-non-terminal n #"" vals))])]
     [(just (multi-rule sub-rules default))
      (left #"Multi-rule NYI")]))
 
 
-(define (R) (run-exprs [es : RawGrammarExprs] [rules : (Dict Bytes JoinedGrammarRule)]
-                       [action : (Bytes (List R) -> R)] [input : (List Sexp)])
-  : (Either Bytes (List R))
+(define (run-exprs [es : RawGrammarExprs] [rules : (Dict Bytes JoinedGrammarRule)]
+                       [input : (List Sexp)])
+  : (Either Bytes (List ParsedTree))
   (case es
     [(empty-end-rgexpr) (right (empty))]
     [_ (left #"Run-exprs NYI")]))
 
+(define (run-expr [e : RawGrammarExpr] [rules : (Dict Bytes JoinedGrammarRule)] [input : Sexp])
+  : (Either Bytes (List ParsedTree))
+  (case e
+    [(specific-keyword-rgexpr kw-exp)
+     (case input
+       [(keyword-sexp kw-actual)
+        (if (bytes=? kw-exp kw-actual)
+            (right (empty))
+            (left (bytes-append (varargs list #"Expected: #:" kw-exp #"; Found #:" kw-actual))))]
+       [_ (left (bytes-append (varargs list #"Expected: #:" kw-exp #"; Found non keyword")))])]
+    [(specific-symbol-rgexpr sym-exp)
+     (case input
+       [(symbol-sexp sym-actual)
+        (if (bytes=? sym-exp sym-actual)
+            (right (empty))
+            (left (bytes-append (varargs list #"Expected: " sym-exp #"; Found " sym-actual))))]
+       [_ (left (bytes-append (varargs list #"Expected: " sym-exp #"; Found non symbol")))])]
+    [(symbol-rgexpr)
+     (case input
+       [(symbol-sexp sym)
+        (right (cons (parsed-symbol sym) (empty)))]
+       [_ (left #"Expected a symbol; Found non symbol")])]
+    [(number-rgexpr)
+     (case input
+       [(number-sexp num)
+        (right (cons (parsed-number num) (empty)))]
+       [_ (left #"Expected a number; Found non number")])]
+    [(bytes-rgexpr)
+     (case input
+       [(bytes-sexp bytes)
+        (right (cons (parsed-bytes bytes) (empty)))]
+       [_ (left #"Expected a bytes literal; Found non bytes literal")])]
+    [(boolean-rgexpr)
+     (case input
+       [(boolean-sexp bool)
+        (right (cons (parsed-boolean bool) (empty)))]
+       [_ (left #"Expected a boolean literal; Found non boolean literal")])]
+    [(non-terminal-rgexpr name)
+     (case (run-non-terminal name rules input)
+       [(left v) (left v)]
+       [(right tree) (right (cons tree (empty)))])]
+    [(node-rgexpr exprs)
+     (case input
+       [(node sub-input)
+        (run-exprs exprs rules sub-input)]
+       [_ (left #"Expected a node; Found non node")])]
+    [(bracket-node-rgexpr exprs)
+     (case input
+       [(bracket-node sub-input)
+        (run-exprs exprs rules sub-input)]
+       [_ (left #"Expected a bracket-node; Found non bracket-node")])]
+    [(brace-node-rgexpr exprs)
+     (case input
+       [(brace-node sub-input)
+        (run-exprs exprs rules sub-input)]
+       [_ (left #"Expected a brace-node; Found non brace-node")])]))
 
 (define (R) (run-grammar [grammar : ParsedGrammar]
                          [root-rule : Bytes]
-                         [action : (Bytes (List R) -> R)]
-                         [input : (List Sexp)]) : (Either Bytes R)
+                         [input : Sexp]) : (Either Bytes ParsedTree)
   (match-define (parsed-grammar rules) grammar)
   (case (join-rules rules)
     [(left v) (left v)]
