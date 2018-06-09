@@ -1,4 +1,4 @@
-load("//libraries:yaspl.bzl", "yaspl_library", "yaspl_binary")
+load("//libraries:yaspl.bzl", "yaspl_binary", "yaspl_library")
 
 yaspl_binary(
     name = "shell",

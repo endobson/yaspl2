@@ -1,4 +1,4 @@
-load("//libraries:yaspl.bzl", "yaspl_library", "yaspl_binary")
+load("//libraries:yaspl.bzl", "yaspl_binary", "yaspl_library")
 load("@minimal_racket//:racket.bzl", "racket_binary", "racket_library")
 
 yaspl_binary(

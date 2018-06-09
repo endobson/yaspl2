@@ -1,4 +1,4 @@
-load("//libraries:yaspl.bzl", "yaspl_library", "yaspl_test", "yaspl_binary", "yaspl_bootstrap_library")
+load("//libraries:yaspl.bzl", "yaspl_binary", "yaspl_bootstrap_library", "yaspl_library", "yaspl_test")
 
 package(
     default_visibility = ["//visibility:public"],

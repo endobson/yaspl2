@@ -1,4 +1,4 @@
-load("//libraries/prim-language:prim-language.bzl", "prim_binary", "prim_library", "binary_test")
+load("//libraries/prim-language:prim-language.bzl", "binary_test", "prim_binary", "prim_library")
 
 prim_library(
     name = "call1_lib",
