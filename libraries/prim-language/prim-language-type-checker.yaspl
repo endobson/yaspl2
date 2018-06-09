@@ -5,22 +5,9 @@
   (either)
   (list)
   (maybe)
-  {(prim)
-    {#:types
-      Boolean
-      Bytes
-    }
-  }
+  (prim)
   (prim-language)
-  {(syscalls)
-    {#:types
-      Syscall
-    }
-    {#:patterns
-      exit-syscall
-      write-syscall
-    }
-  }
+  (syscalls)
   (tuples)
 }
 (export
@@ -91,7 +78,7 @@
      (case (type-infer/expression e env)
        [(left v) (left v)]
        [(right type)
-        (case (type-check/expression p env (pointer-type type))
+        (case (type-check/expression p env (pointer-type (value-type type)))
           [(just v) (left v)]
           [(nothing) (right env)])])]
 
@@ -148,17 +135,20 @@
     [(pointer-ref-expr p)
      (case (type-infer/expression p env)
        [(left v) (left v)]
-       [(right (pointer-type t))
+       [(right (pointer-type (value-type t)))
         (right t)]
-       [(right t)
+       [(right (pointer-type _))
+        (left #"Cannot dereference pointer type to non value type")]
+       [(right _)
         (left #"Cannot dereference non pointer type")])]
     [(pointer-adjust-expr t pointer offset)
-     (case (type-check/expression pointer env (pointer-type t))
+     (match-define p-type (pointer-type (value-type t)))
+     (case (type-check/expression pointer env p-type)
        [(just v) (left v)]
        [(nothing)
         (case (type-check/expression offset env (int64-type))
           [(just v) (left v)]
-          [(nothing) (right (pointer-type t))])])]
+          [(nothing) (right p-type)])])]
     [(bin-op-expr (numeric-bin-op _) l r)
      (case (type-check/expression l env (int64-type))
        [(just v) (left v)]
@@ -184,15 +174,15 @@
      (case (type-check/expression e env (int64-type))
        [(just v) (left v)]
        [(nothing)
-        (right (pointer-type t))])]
+        (right (pointer-type (value-type t)))])]
     [(cast-expr c e)
      (case
        (case c
          [(truncate-unsigned-int64->unsigned-int8) (tuple2 (int64-type) (int8-type))]
          [(unsigned-int8->unsigned-int64) (tuple2 (int8-type) (int64-type))]
          [(pointer->unsigned-int64) (tuple2 (undetermined-pointer-type) (int64-type))]
-         [(refine-pointer t) (tuple2 (undetermined-pointer-type) (pointer-type t))]
-         [(unrefine-pointer t) (tuple2 (pointer-type t) (undetermined-pointer-type))])
+         [(refine-pointer t) (tuple2 (undetermined-pointer-type) (pointer-type (value-type t)))]
+         [(unrefine-pointer t) (tuple2 (pointer-type (value-type t)) (undetermined-pointer-type))])
        [(tuple2 source-type dest-type)
         (case (type-check/expression e env source-type)
           [(just v) (left v)]
@@ -213,7 +203,7 @@
         (case (type-check/expression fd env (int64-type))
           [(just v) (just v)]
           [(nothing)
-           (case (type-check/expression array env (pointer-type (int8-type)))
+           (case (type-check/expression array env (pointer-type (value-type (int8-type))))
              [(just v) (just v)]
              [(nothing)
               (type-check/expression amount env (int64-type))])])]
@@ -260,7 +250,7 @@
 
 (define (type=? [t1 : Type] [t2 : Type]) : Boolean
   (case (tuple2 t1 t2)
-    [(tuple2 (pointer-type t1) (pointer-type t2)) (type=? t1 t2)]
+    [(tuple2 (pointer-type t1) (pointer-type t2)) (memory-type=? t1 t2)]
     [(tuple2 (pointer-type _) _) #f]
     [(tuple2 (int64-type) (int64-type)) #t]
     [(tuple2 (int64-type) _) #f]
@@ -270,6 +260,22 @@
     [(tuple2 (boolean-type) _) #f]
     [(tuple2 (undetermined-pointer-type) (undetermined-pointer-type)) #t]
     [(tuple2 (undetermined-pointer-type) _) #f]))
+
+(define (memory-type=? [t1 : MemoryType] [t2 : MemoryType]) : Boolean
+  (case (tuple2 t1 t2)
+    [(tuple2 (struct-type ts1) (struct-type ts2))
+     ((list=? struct-field=?) ts1 ts2)]
+    [(tuple2 (struct-type _) _) #f]
+    [(tuple2 (value-type t1) (value-type t2))
+     (type=? t1 t2)]
+    [(tuple2 (value-type _) _) #f]))
+
+(define (struct-field=? [f1 : StructField] [f2 : StructField]) : Boolean
+  (match-define (struct-field n1 o1 t1) f1)
+  (match-define (struct-field n2 o2 t2) f2)
+  (and (bytes=? n1 n2)
+       (and (= o1 o2)
+            (memory-type=? t1 t2))))
 
 (define (print-type [t : Type]) : Bytes
   (case t
