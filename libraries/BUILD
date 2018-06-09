@@ -135,6 +135,7 @@ yaspl_library(
         "//libraries/data:list",
         "//libraries/data:maybe",
         "//libraries/data:numbers",
+        "//libraries/data:ordering",
         "//libraries/data:red-black-tree",
         "//libraries/data:tuples",
     ],
