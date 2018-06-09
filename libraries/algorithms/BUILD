@@ -22,6 +22,7 @@ yaspl_test(
     deps = [
         ":depth-first-search",
         "//libraries:yunit",
+        "//libraries/data:bytes",
         "//libraries/data:list",
         "//libraries/data:maybe",
         "//libraries/data:numbers",
