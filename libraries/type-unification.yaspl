@@ -25,7 +25,8 @@
   (define-type Constrainable
     (constrain-uvar [v : UnificationVar])
     (constrain-var-type [v : Bytes])
-    (constrain-abstract-type [mod-name : ModName] [name : Bytes] [args : (List Constrainable)])
+    (constrain-abstract-type [mod-name : ModName] [name : Bytes] [args : (List Constrainable)]
+                             [kind : Kind])
     (constrain-fun-type [args : (List Constrainable)] [result : Constrainable]))
   (define-type Constraint
     (eq-constraint [lhs : Constrainable] [rhs : Constrainable]))
@@ -85,9 +86,10 @@
             (unify* constraints solution)
             (nothing))]
        [(eq-constraint
-          (constrain-abstract-type mod1 name1 types1)
-          (constrain-abstract-type mod2 name2 types2))
-        (if (and (mod-name=? mod1 mod2) (bytes=? name1 name2))
+          (constrain-abstract-type mod1 name1 types1 kind1)
+          (constrain-abstract-type mod2 name2 types2 kind2))
+        (if (and (mod-name=? mod1 mod2)
+                 (and (bytes=? name1 name2) (kind=? kind1 kind2)))
             (case (zip types1 types2)
               [(nothing) (nothing)]
               [(just zipped-types)
@@ -113,17 +115,17 @@
                  (cons (tuple2 res1 res2) zipped-args))
                constraints)
              solution)])]
-       [(eq-constraint (constrain-abstract-type _ _ _) (constrain-fun-type _ _))
+       [(eq-constraint (constrain-abstract-type _ _ _ _) (constrain-fun-type _ _))
         (nothing)]
-       [(eq-constraint (constrain-fun-type _ _) (constrain-abstract-type _ _ _))
+       [(eq-constraint (constrain-fun-type _ _) (constrain-abstract-type _ _ _ _))
         (nothing)]
        [(eq-constraint (constrain-var-type _) (constrain-fun-type _ _))
         (nothing)]
        [(eq-constraint (constrain-fun-type _ _) (constrain-var-type _))
         (nothing)]
-       [(eq-constraint (constrain-var-type _) (constrain-abstract-type _ _ _))
+       [(eq-constraint (constrain-var-type _) (constrain-abstract-type _ _ _ _))
         (nothing)]
-       [(eq-constraint (constrain-abstract-type _ _ _) (constrain-var-type _))
+       [(eq-constraint (constrain-abstract-type _ _ _ _) (constrain-var-type _))
         (nothing)])]))
 
 
@@ -146,8 +148,8 @@
     [(constrain-uvar u)
      (if (uvar=? u uvar) v c)]
     [(constrain-var-type _) c]
-    [(constrain-abstract-type mod name types)
-     (constrain-abstract-type mod name (map (subst uvar v) types))]
+    [(constrain-abstract-type mod name types kind)
+     (constrain-abstract-type mod name (map (subst uvar v) types) kind)]
     [(constrain-fun-type args result)
      (constrain-fun-type (map (subst uvar v) args) (subst* uvar v result))]))
 
@@ -156,7 +158,7 @@
     [(constrain-uvar u)
      (uvar=? u uvar)]
     [(constrain-var-type _) #f]
-    [(constrain-abstract-type _ _ types)
+    [(constrain-abstract-type _ _ types kind)
      (ormap (lambda ([c : Constrainable]) (occurs-check? uvar c)) types)]
     [(constrain-fun-type args result)
      (ormap (lambda ([c : Constrainable]) (occurs-check? uvar c)) (cons result args))]))
@@ -183,11 +185,11 @@
   (case c
     [(constrain-uvar _) (nothing)]
     [(constrain-var-type v) (just (var-type v))]
-    [(constrain-abstract-type mod-name name cs)
+    [(constrain-abstract-type mod-name name cs kind)
      (case (extract-justs (map constrainable->type cs))
        [(nothing) (nothing)]
        [(just types)
-        (just (abstract-type mod-name name types))])]
+        (just (abstract-type mod-name name types kind))])]
     [(constrain-fun-type args result)
      (case (extract-justs (map constrainable->type args))
        [(nothing) (nothing)]
@@ -216,9 +218,10 @@
      (case (dict-ref uvars v)
        [(nothing) (constrain-var-type v)]
        [(just u) (constrain-uvar u)])]
-    [(abstract-type mod name args)
+    [(abstract-type mod name args kind)
      (constrain-abstract-type mod name
-       (map (lambda ([t : Type]) (type->constrainable t uvars)) args))]
+       (map (lambda ([t : Type]) (type->constrainable t uvars)) args)
+       kind)]
     [(type-constructor mod name args)
      (panic
        (bytes-append
@@ -242,7 +245,7 @@
      (node (varargs list (symbol-sexp #"uvar") (number-sexp id)))]
     [(constrain-var-type v)
      (symbol-sexp v)]
-    [(constrain-abstract-type mod-name name cs)
+    [(constrain-abstract-type mod-name name cs _)
      (node (cons (mod-name->sexp mod-name)
                  (cons (bytes-sexp name)
                        (map constrainable->sexp cs))))]
