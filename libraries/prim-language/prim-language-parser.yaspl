@@ -1,8 +1,10 @@
 #:module (prim-language-parser)
 #:import {
   (bytes)
+  (dict)
   (either)
   (list)
+  (maybe)
   (prim)
   (prim-language)
   (sexp-parser)
@@ -15,7 +17,10 @@
   (#:types)
   (#:values parse-module)
   (#:patterns))
-(types)
+(types
+  (define-type ParseEnvironment
+    (parse-environment
+      [types : (Dict Bytes MemoryType)])))
 
 (define (parse-module [sexp : Sexp]) : (Either Bytes Module)
   (case sexp
@@ -23,50 +28,65 @@
                  (cons (symbol-sexp name)
                        (cons (node (cons (symbol-sexp #"types") (empty)))
                              definitions))))
-     (case (extract-rights (map parse-function-definition definitions))
+     (match-define env (initial-parse-env))
+     (case (extract-rights
+             (map (lambda ([sexp : Sexp])
+                    (parse-function-definition sexp env))
+                  definitions))
        [(left v) (left v)]
        [(right definitions)
         (right (module name (void) definitions))])]
     [_
      (left #"Not a valid module form")]))
 
+(define (initial-parse-env) : ParseEnvironment
+  (parse-environment
+    (dict-add-all
+      (make-dict bytes-cmp)
+      (varargs list
+        (tuple2 #"int64" (value-type (int64-type)))
+        (tuple2 #"int8" (value-type (int8-type)))
+        (tuple2 #"boolean" (value-type (boolean-type)))
+        (tuple2 #"undetermined-pointer" (value-type (undetermined-pointer-type)))))))
 
-(define (parse-function-definition [sexp : Sexp]) : (Either Bytes FunctionDefinition)
+(define (parse-function-definition [sexp : Sexp] [env : ParseEnvironment]) : (Either Bytes FunctionDefinition)
   (case sexp
     [(node (cons (symbol-sexp #"define")
                  (cons (node (cons (symbol-sexp name) args))
                        (cons (symbol-sexp #":")
                              (cons type statements)))))
-     (case (extract-rights (map parse-arg args))
+     (case (extract-rights (map (lambda ([sexp : Sexp]) (parse-arg sexp env)) args))
        [(left v) (left v)]
        [(right args)
-        (case (parse-type type)
+        (case (parse-type type env)
           [(left v) (left v)]
           [(right type)
-           (case (extract-rights (map parse-statement statements))
+           (case (extract-rights (map (lambda ([sexp : Sexp]) (parse-statement sexp env)) statements))
              [(left v) (left v)]
              [(right statements)
               (right (function-definition name args type statements))])])])]
     [_
      (left #"Not a valid function definition")]))
 
-(define (parse-arg [sexp : Sexp]) : (Either Bytes (Tuple2 Bytes Type))
+(define (parse-arg [sexp : Sexp] [env : ParseEnvironment]) : (Either Bytes (Tuple2 Bytes Type))
   (case sexp
     [(bracket-node (cons (symbol-sexp v) (cons (symbol-sexp #":") (cons type (empty)))))
-     (case (parse-type type)
+     (case (parse-type type env)
        [(left v) (left v)]
        [(right ty)
         (right (tuple2 v ty))])]
     [_ (left #"Not a valid arg")]))
 
-(define (parse-statement [sexp : Sexp]) : (Either Bytes Statement)
+(define (parse-statement [sexp : Sexp] [env : ParseEnvironment]) : (Either Bytes Statement)
+  (match-define parse-statement*
+    (lambda ([sexp : Sexp]) (parse-statement sexp env)))
   (case sexp
     [(node (cons (symbol-sexp #"return") (cons expr (empty))))
-     (case (parse-expr expr)
+     (case (parse-expr expr env)
        [(left v) (left v)]
        [(right v) (right (return v))])]
     [(node (cons (symbol-sexp #"def") (cons (symbol-sexp name) (cons expr (empty)))))
-     (case (parse-expr expr)
+     (case (parse-expr expr env)
        [(left v) (left v)]
        [(right v) (right (declaration name v))])]
     [(node (cons (symbol-sexp #"if")
@@ -74,87 +94,89 @@
                        (cons (node (cons (symbol-sexp #"then") then-statements))
                              (cons (node (cons (symbol-sexp #"else") else-statements))
                                    (empty))))))
-     (case (parse-expr cond)
+     (case (parse-expr cond env)
        [(left v) (left v)]
        [(right cond)
-        (case (extract-rights (map parse-statement then-statements))
+        (case (extract-rights (map parse-statement* then-statements))
           [(left v) (left v)]
           [(right then-statements)
-           (case (extract-rights (map parse-statement else-statements))
+           (case (extract-rights (map parse-statement* else-statements))
              [(left v) (left v)]
              [(right else-statements)
               (right (if-statement cond then-statements else-statements))])])])]
     [(node (cons (symbol-sexp #"set!")
                  (cons (symbol-sexp var)
                        (cons expr (empty)))))
-     (case (parse-expr expr)
+     (case (parse-expr expr env)
        [(left v) (left v)]
        [(right expr)
         (right (assignment var expr))])]
     [(node (cons (symbol-sexp #"ptr-set!")
                  (cons pointer-expr (cons expr (empty)))))
-     (case (parse-expr pointer-expr)
+     (case (parse-expr pointer-expr env)
        [(left v) (left v)]
        [(right pointer-expr)
-        (case (parse-expr expr)
+        (case (parse-expr expr env)
           [(left v) (left v)]
           [(right expr)
            (right (pointer-assignment pointer-expr expr))])])]
     [(node (cons (symbol-sexp #"while")
                  (cons cond body)))
-     (case (parse-expr cond)
+     (case (parse-expr cond env)
        [(left v) (left v)]
        [(right cond)
-        (case (extract-rights (map parse-statement body))
+        (case (extract-rights (map parse-statement* body))
           [(left v) (left v)]
           [(right body)
            (right (while cond body))])])]
     [_
      (left #"Not a valid statement")]))
 
-(define (parse-expr [sexp : Sexp]) : (Either Bytes Expr)
+(define (parse-expr [sexp : Sexp] [env : ParseEnvironment]) : (Either Bytes Expr)
+  (match-define parse-expr*
+    (lambda ([sexp : Sexp]) (parse-expr sexp env)))
   (case sexp
     [(symbol-sexp v) (right (var-expr v))]
     [(number-sexp v) (right (int-literal v))]
     [(node (cons (symbol-sexp #"allocate-array") (cons type (cons expr (empty)))))
-     (case (parse-type type)
+     (case (parse-type type env)
        [(left v) (left v)]
        [(right type)
-        (case (parse-expr expr)
+        (case (parse-expr expr env)
           [(left v) (left v)]
           [(right count) (right (allocate-array-expr type count))])])]
     [(node (cons (symbol-sexp #"ptr-ref") (cons expr (empty))))
-     (case (parse-expr expr)
+     (case (parse-expr expr env)
        [(left v) (left v)]
        [(right pointer) (right (pointer-ref-expr pointer))])]
     [(node (cons (symbol-sexp #"ptr-adjust") (cons type (cons pointer (cons offset (empty))))))
-     (case (parse-type type)
+     (case (parse-type type env)
        [(left v) (left v)]
        [(right type)
-        (case (parse-expr pointer)
+        (case (parse-expr pointer env)
           [(left v) (left v)]
           [(right pointer)
-           (case (parse-expr offset)
+           (case (parse-expr offset env)
              [(left v) (left v)]
              [(right offset) (right (pointer-adjust-expr type pointer offset))])])])]
     [(node (cons (symbol-sexp #"syscall") (cons (symbol-sexp syscall-name) args)))
      (case (parse-syscall-name syscall-name)
        [(left v) (left v)]
        [(right syscall)
-        (case (extract-rights (map parse-expr args))
+        (case (extract-rights (map parse-expr* args))
           [(left v) (left v)]
           [(right exprs)
            (right (syscall-expr syscall exprs))])])]
     [(node (cons (symbol-sexp #"call") (cons (symbol-sexp function-name) args)))
-     (case (extract-rights (map parse-expr args))
+     (case (extract-rights (map parse-expr* args))
        [(left v) (left v)]
        [(right exprs)
         (right (call-expr function-name exprs))])]
     [(node (cons (symbol-sexp #"cast") (cons conversion (cons expr (empty)))))
-     (case (parse-conversion conversion)
+     (case (parse-conversion conversion env)
        [(left v) (left v)]
        [(right conversion)
-        (case (parse-expr expr)
+        (case (parse-expr expr env)
           [(left v) (left v)]
           [(right expr)
            (right (cast-expr conversion expr))])])]
@@ -162,10 +184,10 @@
      (case (parse-bin-op op)
        [(left v) (left v)]
        [(right op)
-        (case (parse-expr left-expr)
+        (case (parse-expr left-expr env)
           [(left v) (left v)]
           [(right left-expr)
-           (case (parse-expr right-expr)
+           (case (parse-expr right-expr env)
              [(left v) (left v)]
              [(right right-expr)
               (right (bin-op-expr op left-expr right-expr))])])])]
@@ -193,7 +215,7 @@
     [#"!=" (right (comparison-bin-op (not-equal-op)))]
     [_ (left (bytes-append (varargs list #"Not a valid bin-op: " op)))]))
 
-(define (parse-conversion [sexp : Sexp]) : (Either Bytes Conversion)
+(define (parse-conversion [sexp : Sexp] [env : ParseEnvironment]) : (Either Bytes Conversion)
   (case sexp
     [(symbol-sexp #"int64->int8")
      (right (truncate-unsigned-int64->unsigned-int8))]
@@ -202,25 +224,33 @@
     [(symbol-sexp #"pointer->int64")
      (right (pointer->unsigned-int64))]
     [(node (cons (symbol-sexp #"refine-pointer") (cons sexp (empty))))
-     (case (parse-type sexp)
+     (case (parse-type sexp env)
        [(left v) (left v)]
        [(right type)
         (right (refine-pointer type))])]
     [(node (cons (symbol-sexp #"unrefine-pointer") (cons sexp (empty))))
-     (case (parse-type sexp)
+     (case (parse-type sexp env)
        [(left v) (left v)]
        [(right type)
         (right (unrefine-pointer type))])]
     [_ (left (bytes-append (varargs list #"Not a valid conversion " (print-sexp sexp))))]))
 
-(define (parse-type [sexp : Sexp]) : (Either Bytes Type)
+(define (parse-memory-type [sexp : Sexp] [env : ParseEnvironment]) : (Either Bytes MemoryType)
   (case sexp
-    [(symbol-sexp #"int64") (right (int64-type))]
-    [(symbol-sexp #"int8") (right (int8-type))]
-    [(symbol-sexp #"boolean") (right (boolean-type))]
-    [(symbol-sexp #"undetermined-pointer") (right (undetermined-pointer-type))]
     [(node (cons (symbol-sexp #"pointer") (cons sexp (empty))))
-     (case (parse-type sexp)
+     (case (parse-memory-type sexp env)
        [(left v) (left v)]
-       [(right t) (right (pointer-type (value-type t)))])]
+       [(right t) (right (value-type (pointer-type t)))])]
+    [(symbol-sexp sym)
+     (case (dict-ref (parse-environment-types env) sym)
+       [(just t) (right t)]
+       [(nothing)
+        (left (bytes-append (varargs list #"Unknown type name: " sym)))])]
     [_ (left (bytes-append (varargs list #"Not a valid type: " (print-sexp sexp))))]))
+
+(define (parse-type [sexp : Sexp] [env : ParseEnvironment]) : (Either Bytes Type)
+  (case (parse-memory-type sexp env)
+    [(left v) (left v)]
+    [(right (value-type t)) (right t)]
+    [(right _)
+     (left #"Type must be a value type")]))
