@@ -105,6 +105,7 @@ yaspl_library(
         "//libraries:module-signature",
         "//libraries:prim-implementation",
         "//libraries:resolved-imports-language",
+        "//libraries:resolved-types-language",
         "//libraries:source-to-intermediate-language",
         "//libraries:validator",
         "//libraries/data:either",

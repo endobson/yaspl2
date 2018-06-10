@@ -3,7 +3,6 @@
   (bytes)
   (dict)
   (either)
-  (free-variables)
   {(intermediate-expression)
     {#:types
       [CaseClause i:CaseClause]
@@ -70,68 +69,68 @@
   {(resolved-imports-language)
     {#:types
       Imports
-      Module
-    }
-    {#:values
-      module-definitions
-      module-imports
-      module-name
     }
     {#:patterns
       imports
-      module
     }
   }
-  (set)
-  {(source-language)
+  {(resolved-types-language)
     {#:types
+      Block
       BlockDefinition
       CaseClause
-      Export
-      Exports
       Expression
       FunctionDefinition
-      Pattern
-      PreType
+      Module
       TypeDefinition
       VariantDefinition
       VariantField
     }
     {#:values
-      fun-pre-type
       function-definition-name
+      module-definitions
+      module-imports
+      module-name
       variant-field-name
     }
     {#:patterns
-      abstraction-pattern
       annotated-expr
       app-expr
       begin-expr
       block
       boolean-literal
       bytes-literal
-      bytes-pattern
       case-clause
       case-expr
-      export
-      exports
-      fun-pre-type
       function-definition
       if-expr
-      ignore-pattern
       int-literal
-      int-pattern
       lambda-expr
       let-expr
       match-def
-      type-app-pre-type
+      module
       type-definition
       var-expr
-      var-pre-type
       varargs-app-expr
-      variable-pattern
       variant-definition
       variant-field
+    }
+  }
+  (set)
+  {(source-language)
+    {#:types
+      Export
+      Exports
+      Pattern
+    }
+    {#:patterns
+      abstraction-pattern
+      bytes-pattern
+      export
+      exports
+      ignore-pattern
+      int-pattern
+      variable-pattern
     }
   }
   (top-level-name)
@@ -456,8 +455,8 @@
           [env : (Dict Bytes Type)])
   : i-VariantField
   (case field
-    [(variant-field name pre-type)
-     (i-variant-field name (convert-type env pre-type))]))
+    [(variant-field name type)
+     (i-variant-field name type)]))
 
 (define (environment-add-local [env : Environment] [local : Bytes] [state : State])
   : (Tuple3 Environment Var State)
@@ -513,8 +512,7 @@
      (match-define arg-names (map parse-arg-name args))
      (match-define arg-types (map parse-arg-type args))
      (match-define new-type
-       (convert-type (environment-type-bindings env)
-                     (fun-pre-type type-vars arg-types result-type)))
+                     (fun-type type-vars arg-types result-type))
      (match-define env (environment-add-type-vars env type-vars))
      (match-define (tuple2 env acc) (environment-add-locals env arg-names acc))
      (case (convert-block defs body env acc)
@@ -523,24 +521,24 @@
           (i:function-definition
             (bytes-append (varargs list name #"-code"))
             new-type
-            (map (lambda ([t : (Tuple2 Bytes PreType)])
+            (map (lambda ([t : (Tuple2 Bytes Type)])
                    (convert-arg-type t env))
                  args)
             (empty) i:body)
           acc)])]))
 
 ;; TODO actually send down the type
-(define (convert-arg-type [arg+ty : (Tuple2 Bytes PreType)] [env : Environment]) : Var
+(define (convert-arg-type [arg+ty : (Tuple2 Bytes Type)] [env : Environment]) : Var
   (case arg+ty
     [(tuple2 arg ty)
      (case (dict-ref (environment-local-variables env) arg)
        [(nothing) (panic #"No value found for function arg")]
        [(just var) var])]))
 
-(define (parse-arg-name [arg+ty : (Tuple2 Bytes PreType)]) : Bytes
+(define (parse-arg-name [arg+ty : (Tuple2 Bytes Type)]) : Bytes
   (case arg+ty
     [(tuple2 arg ty) arg]))
-(define (parse-arg-type [arg+ty : (Tuple2 Bytes PreType)]) : PreType
+(define (parse-arg-type [arg+ty : (Tuple2 Bytes Type)]) : Type
   (case arg+ty
     [(tuple2 arg ty) ty]))
 
@@ -623,7 +621,7 @@
                       (add-function
                         (i:function-definition
                           closure-name (var-type #"bogus")
-                          (map (lambda ([t : (Tuple2 Bytes PreType)])
+                          (map (lambda ([t : (Tuple2 Bytes Type)])
                                  (convert-arg-type t env))
                                args+tys)
                           free-local-variables ibody)
@@ -747,33 +745,6 @@
   (case acc
     [(state funcs bytes counter)
      (tuple2 counter (state funcs bytes (+ 1 counter)))]))
-
-;; TODO delete this
-(define (convert-type [type-bindings : (Dict Bytes Type)] [type : PreType]) : Type
-  (case type
-    [(var-pre-type v)
-     (case (dict-ref type-bindings v)
-       [(just t)
-        t]
-       [_ (panic (bytes-append (varargs list #"No type is bound for " v)))])]
-    [(fun-pre-type type-vars args result)
-     (let ([type-bindings (add-type-vars type-vars type-bindings)])
-       (fun-type
-         type-vars
-         (map (lambda ([t : PreType]) (convert-type type-bindings t)) args)
-         (convert-type type-bindings result)))]
-    [(type-app-pre-type constructor args)
-     (case (dict-ref type-bindings constructor)
-       [(just (type-constructor mod name kinds))
-        (if (= (length kinds) (length args))
-            (abstract-type
-              mod name
-              (map (lambda ([t : PreType]) (convert-type type-bindings t)) args)
-              (star-kind))
-            (panic #"Wrong number of type args."))]
-       [(just _)
-        (panic #"Type is not bound to a type constructor")]
-       [_ (panic (bytes-append (varargs list #"No type is bound for " constructor)))])]))
 
 (define (add-type-vars [type-vars : (List Bytes)] [type-bindings : (Dict Bytes Type)])
   : (Dict Bytes Type)
@@ -1032,3 +1003,82 @@
                (variant-accessor-inlineable-function offset))))]))
     datatype-funs
     acc))
+
+
+(define (add-pattern-bindings [p : Pattern] [env : (Set Bytes)]) : (Set Bytes)
+  (case p
+    [(bytes-pattern _) env]
+    [(int-pattern _) env]
+    [(ignore-pattern) env]
+    [(variable-pattern v) (set-add env v)]
+    [(abstraction-pattern _ pats) (add-pattern-bindings/list pats env)]))
+
+(define (add-pattern-bindings/list [ps : (List Pattern)] [env : (Set Bytes)]) : (Set Bytes)
+  (case ps
+    [(empty) env]
+    [(cons p ps) (add-pattern-bindings/list ps (add-pattern-bindings p env))]))
+
+(define (free-variables/block [block : Block] [env : (Set Bytes)] [acc : (Set Bytes)])
+  : (Set Bytes)
+  (match-define (block defs body) block)
+  (free-variables/block* defs body env acc))
+
+(define (free-variables/block*
+          [defs : (List BlockDefinition)]
+          [final-expr : Expression]
+          [env : (Set Bytes)]
+          [acc : (Set Bytes)]) : (Set Bytes)
+  (case defs
+    [(empty) (free-variables/expr final-expr env acc)]
+    [(cons (match-def pattern expr) defs)
+     (free-variables/block*
+       defs final-expr
+       (add-pattern-bindings pattern env)
+       (free-variables/expr expr env acc))]))
+
+(define (free-variables/expr [expr : Expression] [env : (Set Bytes)] [acc : (Set Bytes)])
+  : (Set Bytes)
+  (case expr
+    [(int-literal _) acc]
+    [(bytes-literal _) acc]
+    [(boolean-literal _) acc]
+    [(annotated-expr _ expr)
+     (free-variables/expr expr env acc)]
+    [(if-expr c t f)
+     (free-variables/list (cons c (cons t (cons f (empty)))) env acc)]
+    [(begin-expr es e)
+     (free-variables/list (cons e es) env acc)]
+    [(app-expr _ op args)
+     (free-variables/list (cons op args) env acc)]
+    [(varargs-app-expr _ op args)
+     (free-variables/list (cons op args) env acc)]
+    [(let-expr name expr body)
+     (free-variables/expr body (set-add env name) (free-variables/expr expr env acc))]
+    [(case-expr expr clauses)
+     (free-variables/clauses clauses env (free-variables/expr expr env acc))]
+    [(lambda-expr args+tys _ body)
+     (free-variables/expr body (set-add-all env (map (lambda ([arg+ty : (Tuple2 Bytes Type)])
+                                                       (case arg+ty [(tuple2 arg _) arg]))
+                                                     args+tys)) acc)]
+    [(var-expr v)
+     (if (set-member? env v)
+         acc
+         (set-add acc v))]))
+
+(define (free-variables/list
+          [exprs : (List Expression)]
+          [env : (Set Bytes)]
+          [acc : (Set Bytes)]) : (Set Bytes)
+  (case exprs
+    [(empty) acc]
+    [(cons expr exprs)
+     (free-variables/list exprs env (free-variables/expr expr env acc))]))
+
+(define (free-variables/clauses
+          [exprs : (List CaseClause)]
+          [env : (Set Bytes)]
+          [acc : (Set Bytes)]) : (Set Bytes)
+  (case exprs
+    [(empty) acc]
+    [(cons (case-clause pattern body) clauses)
+     (free-variables/clauses clauses env (free-variables/block body (add-pattern-bindings pattern env) acc))]))
