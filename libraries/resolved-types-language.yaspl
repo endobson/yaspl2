@@ -1,0 +1,431 @@
+#:module (resolved-types-language)
+#:import {
+  (bytes)
+  (dict)
+  (either)
+  (list)
+  (maybe)
+  (module-name)
+  (prim)
+  {(resolved-imports-language)
+    {#:types
+      Imports
+      [Module ri:Module]
+    }
+    {#:patterns
+      imports
+      [module ri:module]
+    }
+  }
+  (sexp-printer)
+  {(source-language)
+    {#:types
+      [Block s:Block]
+      [BlockDefinition s:BlockDefinition]
+      [CaseClause s:CaseClause]
+      Exports
+      [Expression s:Expression]
+      [FunctionDefinition s:FunctionDefinition]
+      Pattern
+      PreType
+      [TypeDefinition s:TypeDefinition]
+      [VariantDefinition s:VariantDefinition]
+      [VariantField s:VariantField]
+    }
+    {#:values
+      [type-definition-name s:type-definition-name]
+    }
+    {#:patterns
+      [annotated-expr s:annotated-expr]
+      [app-expr s:app-expr]
+      [begin-expr s:begin-expr]
+      [block s:block]
+      [boolean-literal s:boolean-literal]
+      [bytes-literal s:bytes-literal]
+      [case-clause s:case-clause]
+      [case-expr s:case-expr]
+      fun-pre-type
+      [function-definition s:function-definition]
+      [if-expr s:if-expr]
+      [int-literal s:int-literal]
+      [lambda-expr s:lambda-expr]
+      [let-expr s:let-expr]
+      [match-def s:match-def]
+      type-app-pre-type
+      [type-definition s:type-definition]
+      [var-expr s:var-expr]
+      var-pre-type
+      [varargs-app-expr s:varargs-app-expr]
+      [variant-definition s:variant-definition]
+      [variant-field s:variant-field]
+    }
+  }
+  (tuples)
+  (types)
+}
+(export
+  (#:types)
+  (#:values resolve-types)
+  (#:patterns))
+(types
+  (define-type Module
+    (module [name : ModName]
+            [imports : Imports]
+            [exports : Exports]
+            [types : (List TypeDefinition)]
+            [definitions : (List FunctionDefinition)]))
+
+  (define-type TypeDefinition
+    (type-definition [name : Bytes] [vars : (Maybe (List Bytes))] [variants : (List VariantDefinition)]))
+
+  (define-type VariantDefinition
+    (variant-definition [name : Bytes] [fields : (List VariantField)]))
+  (define-type VariantField
+    (variant-field [name : Bytes] [type : Type]))
+
+  (define-type FunctionDefinition
+    (function-definition [name : Bytes]
+                         [type-vars : (List Bytes)]
+                         [args : (List (Tuple2 Bytes Type))]
+                         [return-type : Type]
+                         [body : Block]))
+  (define-type Block
+    (block [definitions : (List BlockDefinition)] [expr : Expression]))
+  (define-type BlockDefinition
+    (match-def [pattern : Pattern] [expr : Expression]))
+
+  (define-type Expression
+    (int-literal [v : Int])
+    (bytes-literal [v : Bytes])
+    (boolean-literal [v : Boolean])
+    (var-expr [v : Bytes])
+    (annotated-expr [t : Type] [e : Expression])
+    (if-expr [cond : Expression] [true : Expression] [false : Expression])
+    (begin-expr [exprs : (List Expression)] [last-expr : Expression])
+    (app-expr [tail-position : Boolean] [op : Expression] [args : (List Expression)])
+    (varargs-app-expr [tail-position : Boolean] [op : Expression] [args : (List Expression)])
+    (let-expr [name : Bytes] [expr : Expression] [body : Expression])
+    (lambda-expr [args : (List (Tuple2 Bytes Type))] [type : (Maybe Type)] [body : Expression])
+    (case-expr [expr : Expression] [clauses : (List CaseClause)]))
+
+  (define-type CaseClause
+    (case-clause [pattern : Pattern] [body : Block]))
+
+  (define-type Context
+    (context
+      [types : (Dict Bytes Type)])))
+
+(define (resolve-types [mod : ri:Module]) : (Either Bytes Module)
+  (match-define ctx (init-context mod))
+  (match-define (ri:module name imports exports types definitions) mod)
+  (case (resolve-types/type-defs types ctx)
+    [(left v) (left v)]
+    [(right types)
+     (case (resolve-types/functions definitions ctx)
+       [(left v) (left v)]
+       [(right definitions)
+        (right (module name imports exports types definitions))])]))
+
+(define (init-context [mod : ri:Module]) : Context
+  (match-define (ri:module mod-name imports _ type-defs _) mod)
+  (match-define (imports imported-types _ _ _) imports)
+  (context
+    (type-definitions->types mod-name type-defs imported-types)))
+
+(define (type-definitions->types
+          [mod-name : ModName]
+          [defs : (List s:TypeDefinition)]
+          [acc : (Dict Bytes Type)]) : (Dict Bytes Type)
+  (case defs
+    [(empty) acc]
+    [(cons def defs)
+     (type-definitions->types
+       mod-name
+       defs
+       (dict-add
+         acc
+         (s:type-definition-name def)
+         (type-definition->type mod-name def)))]))
+
+(define (type-definition->type [mod-name : ModName] [def : s:TypeDefinition]) : Type
+  (case def
+    [(s:type-definition name (nothing) _)
+     (abstract-type mod-name name (empty) (star-kind))]
+    [(s:type-definition name (just vars) _)
+     (type-constructor mod-name name (map (lambda ([v : Bytes]) (star-kind)) vars))]))
+
+
+(define (resolve-types/type-defs [defs : (List s:TypeDefinition)] [ctx : Context])
+  : (Either Bytes (List TypeDefinition))
+  (extract-rights
+    (map
+      (lambda ([def : s:TypeDefinition]) (resolve-types/type-def def ctx))
+      defs)))
+
+(define (resolve-types/type-def [def : s:TypeDefinition] [ctx : Context])
+  : (Either Bytes TypeDefinition)
+  (match-define (s:type-definition name vars variants) def)
+  (match-define ctx
+    (case vars
+      [(nothing) ctx]
+      [(just vars)
+       (context-add-var-types ctx vars)]))
+  (case (resolve-types/variants variants ctx)
+    [(left v) (left v)]
+    [(right variants)
+     (right (type-definition name vars variants))]))
+
+
+(define (resolve-types/variants [defs : (List s:VariantDefinition)] [ctx : Context])
+  : (Either Bytes (List VariantDefinition))
+  (extract-rights
+    (map
+      (lambda ([def : s:VariantDefinition]) (resolve-types/variant def ctx))
+      defs)))
+
+(define (resolve-types/variant [def : s:VariantDefinition] [ctx : Context])
+  : (Either Bytes VariantDefinition)
+  (match-define (s:variant-definition name fields) def)
+  (case (resolve-types/variant-fields fields ctx)
+    [(left v) (left v)]
+    [(right fields)
+     (right (variant-definition name fields))]))
+
+
+(define (resolve-types/variant-fields [fields : (List s:VariantField)] [ctx : Context])
+  : (Either Bytes (List VariantField))
+  (extract-rights
+    (map
+      (lambda ([field : s:VariantField]) (resolve-types/variant-field field ctx))
+      fields)))
+
+(define (resolve-types/variant-field [def : s:VariantField] [ctx : Context])
+  : (Either Bytes VariantField)
+  (match-define (s:variant-field name type) def)
+  (case (pre-type->type type ctx)
+    [(left v) (left v)]
+    [(right type)
+     (right (variant-field name type))]))
+
+
+(define (resolve-types/functions [defs : (List s:FunctionDefinition)] [ctx : Context])
+  : (Either Bytes (List FunctionDefinition))
+  (extract-rights
+    (map
+      (lambda ([def : s:FunctionDefinition]) (resolve-types/function def ctx))
+      defs)))
+
+(define (resolve-types/function [def : s:FunctionDefinition] [ctx : Context])
+  : (Either Bytes FunctionDefinition)
+  (match-define (s:function-definition name type-vars args return-type body) def)
+  (match-define ctx (context-add-var-types ctx type-vars))
+  (case (resolve-types/args args ctx)
+    [(left v) (left v)]
+    [(right args)
+     (case (pre-type->type return-type ctx)
+       [(left v) (left v)]
+       [(right return-type)
+        (case (resolve-types/block body ctx)
+          [(left v) (left v)]
+          [(right body)
+           (right (function-definition name type-vars args return-type body))])])]))
+
+(define (resolve-types/args [args : (List (Tuple2 Bytes PreType))] [ctx : Context])
+  : (Either Bytes (List (Tuple2 Bytes Type)))
+  (extract-rights
+    (map (lambda ([arg : (Tuple2 Bytes PreType)]) : (Either Bytes (Tuple2 Bytes Type))
+           (case arg
+             [(tuple2 name pre-type)
+              (case (pre-type->type pre-type ctx)
+                [(left v) (left v)]
+                [(right type) (right (tuple2 name type))])]))
+         args)))
+
+(define (resolve-types/exprs [exprs : (List s:Expression)] [ctx : Context])
+  : (Either Bytes (List Expression))
+  (extract-rights
+    (map
+      (lambda ([expr : s:Expression]) (resolve-types/expr expr ctx))
+      exprs)))
+
+(define (resolve-types/expr [expr : s:Expression] [ctx : Context]) : (Either Bytes Expression)
+  (case expr
+    [(s:lambda-expr args maybe-return-type body)
+     (case (resolve-types/args args ctx)
+       [(left v) (left v)]
+       [(right args)
+        (case
+          (ann (Either Bytes (Maybe Type))
+            (case maybe-return-type
+              [(nothing) (right (nothing))]
+              [(just return-type)
+               (case (pre-type->type return-type ctx)
+                 [(left v) (left v)]
+                 [(right t)
+                  (right (just t))])]))
+          [(left v) (left v)]
+          [(right maybe-return-type)
+           (case (resolve-types/expr body ctx)
+             [(left v) (left v)]
+             [(right body)
+              (right (lambda-expr args maybe-return-type body))])])])]
+    [(s:annotated-expr pre-type expr)
+     (case (pre-type->type pre-type ctx)
+       [(left v) (left v)]
+       [(right type)
+        (case (resolve-types/expr expr ctx)
+          [(left v) (left v)]
+          [(right expr)
+           (right (annotated-expr type expr))])])]
+    ;; Recur structurally
+    [(s:var-expr v)
+     (right (var-expr v))]
+    [(s:int-literal v)
+     (right (int-literal v))]
+    [(s:bytes-literal v)
+     (right (bytes-literal v))]
+    [(s:boolean-literal v)
+     (right (boolean-literal v))]
+    [(s:if-expr c t f)
+     (case (resolve-types/expr c ctx)
+       [(left v) (left v)]
+       [(right c)
+        (case (resolve-types/expr t ctx)
+          [(left v) (left v)]
+          [(right t)
+           (case (resolve-types/expr f ctx)
+             [(left v) (left v)]
+             [(right f)
+              (right (if-expr c t f))])])])]
+    [(s:begin-expr void-exprs last-expr)
+     (case (resolve-types/exprs void-exprs ctx)
+       [(left v) (left v)]
+       [(right void-exprs)
+        (case (resolve-types/expr last-expr ctx)
+          [(left v) (left v)]
+          [(right last-expr)
+           (right (begin-expr void-exprs last-expr))])])]
+    [(s:let-expr name expr body)
+     (case (resolve-types/expr expr ctx)
+       [(left v) (left v)]
+       [(right expr)
+        (case (resolve-types/expr body ctx)
+          [(left v) (left v)]
+          [(right body)
+           (right (let-expr name expr body))])])]
+    [(s:app-expr tail-position op args)
+     (case (resolve-types/expr op ctx)
+       [(left v) (left v)]
+       [(right op)
+        (case (resolve-types/exprs args ctx)
+          [(left v) (left v)]
+          [(right args)
+           (right (app-expr tail-position op args))])])]
+    [(s:varargs-app-expr tail-position op args)
+     (case (resolve-types/expr op ctx)
+       [(left v) (left v)]
+       [(right op)
+        (case (resolve-types/exprs args ctx)
+          [(left v) (left v)]
+          [(right args)
+           (right (varargs-app-expr tail-position op args))])])]
+    [(s:case-expr expr clauses)
+     (case (resolve-types/expr expr ctx)
+       [(left v) (left v)]
+       [(right expr)
+        (case (resolve-types/case-clauses clauses ctx)
+          [(left v) (left v)]
+          [(right clauses)
+           (right (case-expr expr clauses))])])]))
+
+
+(define (resolve-types/case-clauses [clauses : (List s:CaseClause)] [ctx : Context])
+  : (Either Bytes (List CaseClause))
+  (extract-rights
+    (map
+      (lambda ([clause : s:CaseClause]) (resolve-types/case-clause clause ctx))
+      clauses)))
+
+(define (resolve-types/case-clause [clause : s:CaseClause] [ctx : Context])
+  : (Either Bytes CaseClause)
+  (match-define (s:case-clause pattern body) clause)
+  (case (resolve-types/block body ctx)
+    [(left v) (left v)]
+    [(right body)
+     (right (case-clause pattern body))]))
+
+(define (resolve-types/block [b : s:Block] [ctx : Context])
+  : (Either Bytes Block)
+  (match-define (s:block defs expr) b)
+  (case
+    (extract-rights
+      (map
+        (lambda ([def : s:BlockDefinition]) : (Either Bytes BlockDefinition)
+          (case def
+            [(s:match-def pattern expr)
+             (case (resolve-types/expr expr ctx)
+               [(left v) (left v)]
+               [(right expr)
+                (right (match-def pattern expr))])]))
+        defs))
+    [(left v) (left v)]
+    [(right defs)
+     (case (resolve-types/expr expr ctx)
+       [(left v) (left v)]
+       [(right expr)
+        (right (block defs expr))])]))
+
+
+(define (context-ref-type [ctx : Context] [name : Bytes]) : (Maybe Type)
+  (case ctx
+    [(context types)
+     (dict-ref types name)]))
+
+(define (context-add-type [ctx : Context] [name : Bytes] [type : Type]) : Context
+  (case ctx
+    [(context types)
+     (context (dict-add types name type))]))
+
+(define (context-add-var-types [context : Context] [names : (List Bytes)]) : Context
+  (case names
+    [(empty) context]
+    [(cons name names)
+     (context-add-var-types
+       (context-add-type context name (var-type name))
+       names)]))
+
+
+(define (pre-type->type [pre : PreType] [context : Context]) : (Either Bytes Type)
+  (case pre
+    [(var-pre-type v)
+     (case (context-ref-type context v)
+       [(nothing) (left (bytes-append (varargs list #"Unbound type variable: " v)))]
+       [(just v) (right v)])]
+    [(fun-pre-type type-vars args result)
+     (match-define context (context-add-var-types context type-vars))
+     (match-define recur (lambda ([pre : PreType]) (pre-type->type pre context)))
+     (case (extract-rights (map recur args))
+       [(left v) (left v)]
+       [(right args)
+        (case (recur result)
+          [(left v) (left v)]
+          [(right result)
+           (right (fun-type type-vars args result))])])]
+    [(type-app-pre-type constructor args)
+     (case (context-ref-type context constructor)
+       [(nothing) (left (bytes-append (varargs list #"Unbound type constructor: " constructor)))]
+       ;; TODO actually check that the kind of the argument types match the expected kinds
+       [(just (type-constructor mod-name name arg-kinds))
+        (if (= (length args) (length arg-kinds))
+            (case (extract-rights
+                    (map (lambda ([pre : PreType]) (pre-type->type pre context)) args))
+              [(left v) (left v)]
+              [(right types)
+               (right (abstract-type mod-name name types (star-kind)))])
+            (left #"Number of arguments to type constructor doesn't match."))]
+       [(just t)
+        (left
+          (bytes-append
+            (varargs list
+              #"Cannot apply non constructor type: "
+              (print-sexp (type->sexp t)))))])]))
