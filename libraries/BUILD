@@ -96,7 +96,6 @@ yaspl_library(
     deps = [
         "//libraries/data:bytes",
         "//libraries/data:maybe",
-        "//libraries/data:tuples",
     ],
 )
 
@@ -182,6 +181,7 @@ yaspl_bootstrap_library(
         ":structured-mach-o",
         "//libraries/data:either",
         "//libraries/data:list",
+        "//libraries/data:maybe",
     ],
 )
 
@@ -371,8 +371,8 @@ yaspl_test(
     deps = [
         ":lexer",
         ":yunit",
-        "//libraries/data:either",
         "//libraries/data:list",
+        "//libraries/data:maybe",
     ],
 )
 
@@ -481,7 +481,6 @@ yaspl_bootstrap_library(
         ":structured-mach-o",
         "//libraries/data:aligned-bytes",
         "//libraries/data:bytes",
-        "//libraries/data:either",
         "//libraries/data:indexed-set",
         "//libraries/data:list",
         "//libraries/data:maybe",
@@ -499,7 +498,6 @@ yaspl_bootstrap_library(
         ":mach-o-writer",
         ":prim-implementation",
         "//libraries/data:bytes",
-        "//libraries/data:either",
         "//libraries/data:list",
         "//libraries/data:tuples",
         "//libraries/yaspl:top-level-object-optimizer",

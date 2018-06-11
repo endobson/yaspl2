@@ -291,6 +291,7 @@ yaspl_bootstrap_library(
     name = "set",
     srcs = ["set.yaspl"],
     deps = [
+        ":lifted-primitives",
         ":list",
         ":maybe",
         ":ordering",
