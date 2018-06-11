@@ -23,7 +23,8 @@
       [Block s:Block]
       [BlockDefinition s:BlockDefinition]
       [CaseClause s:CaseClause]
-      Exports
+      Export
+      [Exports s:Exports]
       [Expression s:Expression]
       [FunctionDefinition s:FunctionDefinition]
       Pattern
@@ -44,6 +45,8 @@
       [bytes-literal s:bytes-literal]
       [case-clause s:case-clause]
       [case-expr s:case-expr]
+      export
+      [exports s:exports]
       fun-pre-type
       [function-definition s:function-definition]
       [if-expr s:if-expr]
@@ -65,45 +68,14 @@
 }
 (export
   (#:types Module Block BlockDefinition CaseClause Expression FunctionDefinition TypeDefinition
-   VariantDefinition VariantField)
-  (#:values resolve-types module-definitions module-imports module-name
-      case-clause-pattern
-      function-definition-name
-      type-definition-name
-      variant-definition-name
-      variant-field-type
-      variant-field-name
-      var-expr
-      int-literal
-      case-expr
-      case-clause
-      bytes-literal
-      boolean-literal
-      block
-      app-expr
-   )
-  (#:patterns
-      module
-      annotated-expr
-      app-expr
-      begin-expr
-      block
-      boolean-literal
-      bytes-literal
-      case-clause
-      case-expr
-      function-definition
-      if-expr
-      int-literal
-      lambda-expr
-      let-expr
-      match-def
-      type-definition
-      var-expr
-      varargs-app-expr
-      variant-definition
-      variant-field
-   ))
+           VariantDefinition VariantField Exports TypeExport)
+  (#:values resolve-types module-definitions module-imports module-name case-clause-pattern
+            function-definition-name type-definition-name variant-definition-name variant-field-type
+            variant-field-name var-expr int-literal case-expr case-clause bytes-literal boolean-literal
+            block app-expr)
+  (#:patterns module annotated-expr app-expr type-export exports begin-expr block boolean-literal
+              bytes-literal case-clause case-expr function-definition if-expr int-literal lambda-expr let-expr
+              match-def type-definition var-expr varargs-app-expr variant-definition variant-field))
 (types
   (define-type Module
     (module [name : ModName]
@@ -111,6 +83,12 @@
             [exports : Exports]
             [types : (List TypeDefinition)]
             [definitions : (List FunctionDefinition)]))
+  (define-type Exports
+    (exports [types : (List TypeExport)]
+             [values : (List Export)]
+             [patterns : (List Export)]))
+  (define-type TypeExport
+    (type-export [exported-name : Bytes] [type : Type]))
 
   (define-type TypeDefinition
     (type-definition [name : Bytes] [vars : (Maybe (List Bytes))] [variants : (List VariantDefinition)]))
@@ -161,7 +139,10 @@
      (case (resolve-types/functions definitions ctx)
        [(left v) (left v)]
        [(right definitions)
-        (right (module name imports exports types definitions))])]))
+        (case (resolve-types/exports exports ctx)
+          [(left v) (left v)]
+           [(right exports)
+            (right (module name imports exports types definitions))])])]))
 
 (define (init-context [mod : ri:Module]) : Context
   (match-define (ri:module mod-name imports _ type-defs _) mod)
@@ -191,6 +172,28 @@
     [(s:type-definition name (just vars) _)
      (type-constructor mod-name name (map (lambda ([v : Bytes]) (star-kind)) vars))]))
 
+(define (resolve-types/exports [e : s:Exports] [ctx : Context])
+  : (Either Bytes Exports)
+  (match-define (s:exports types values patterns) e)
+  (case (resolve-types/type-exports types ctx)
+    [(left v) (left v)]
+    [(right types)
+     (right (exports types values patterns))]))
+
+(define (resolve-types/type-exports [exports : (List Export)] [ctx : Context])
+  : (Either Bytes (List TypeExport))
+  (extract-rights
+    (map
+      (lambda ([export : Export]) (resolve-types/type-export export ctx))
+      exports)))
+
+(define (resolve-types/type-export [export : Export] [ctx : Context])
+  : (Either Bytes TypeExport)
+  (match-define (export local-name exported-name) export)
+  (case (context-ref-type ctx local-name)
+    [(nothing) (left (bytes-append (varargs list #"Unbound exported type:" local-name)))]
+    [(just v)
+     (right (type-export exported-name v))]))
 
 (define (resolve-types/type-defs [defs : (List s:TypeDefinition)] [ctx : Context])
   : (Either Bytes (List TypeDefinition))
