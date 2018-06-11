@@ -264,7 +264,6 @@ yaspl_library(
         "//libraries/data:maybe",
         "//libraries/data:numbers",
         "//libraries/data:regexp",
-        "//libraries/data:tuples",
     ],
 )
 
@@ -873,7 +872,6 @@ yaspl_library(
     srcs = ["tcp.yaspl"],
     deps = [
         ":ip",
-        "//libraries/data:tuples",
     ],
 )
 
