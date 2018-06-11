@@ -172,8 +172,6 @@
   (define-type i-TypeDefinition
     (i-type-definition
       [name : Bytes]
-      ;; This is what the name is bound to in the type environment
-      [type-binding : Type]
       [type-vars : (List Bytes)]
       ;; This is what the variants return
       [constructed-type : Type]
@@ -200,7 +198,7 @@
           (type-definitions->functions type-env types))
         (match-define global-env (setup-value-environment mod type-functions))
         (match-define variant-bindings (setup-variant-bindings imports type-functions))
-        (match-define type-definitions (convert-type-definitions name types type-env))
+        (match-define type-definitions (convert-type-definitions name types))
         (case (convert-function-definitions
                 definitions
                 (environment variant-bindings (make-dict bytes-cmp) global-env name)
@@ -274,7 +272,7 @@
     (foldl
       (lambda ([t : i-TypeDefinition] [acc : (List i:PatternExport)])
         (case t
-          [(i-type-definition _ _ type-vars self-type variants)
+          [(i-type-definition _ type-vars self-type variants)
            (match-define type-sig (type-signature (map i-variant-definition-name variants)))
            (foldl
              (lambda ([v : i-VariantDefinition] [acc : (List i:PatternExport)])
@@ -388,13 +386,10 @@
     funs))
 
 
-(define (convert-type-definitions
-          [mod-name : ModName]
-          [types : (List TypeDefinition)]
-          [env : (Dict Bytes Type)])
+(define (convert-type-definitions [mod-name : ModName] [types : (List TypeDefinition)])
   : (List i-TypeDefinition)
   (map
-    (lambda ([def : TypeDefinition]) (convert-type-definition mod-name def env))
+    (lambda ([def : TypeDefinition]) (convert-type-definition mod-name def))
     types))
 
 (define (simplify-type-vars [tvs : (Maybe (List Bytes))]) : (List Bytes)
@@ -407,51 +402,38 @@
     [(nothing) (panic #"No type bound")]
     [(just v) v]))
 
-(define (convert-type-definition
-          [mod-name : ModName]
-          [type : TypeDefinition]
-          [env : (Dict Bytes Type)])
+(define (convert-type-definition [mod-name : ModName] [type : TypeDefinition])
   : i-TypeDefinition
   (case type
     [(type-definition name type-vars variants)
      (let ([type-vars (simplify-type-vars type-vars)])
        (i-type-definition
          name
-         (lookup-type env name)
          type-vars
          (abstract-type mod-name name (map var-type type-vars) (star-kind))
-         (convert-variant-definitions
-           variants 0
-           (add-type-vars type-vars env))))]))
+         (convert-variant-definitions variants 0)))]))
 
-(define (convert-variant-definitions
-          [variants : (List VariantDefinition)]
-          [index : Int]
-          [env : (Dict Bytes Type)])
+(define (convert-variant-definitions [variants : (List VariantDefinition)] [index : Int])
   : (List i-VariantDefinition)
   (case variants
     [(empty) (empty)]
     [(cons v vs)
      (cons
-       (convert-variant-definition v index env)
-       (convert-variant-definitions vs (+ index 1) env))]))
+       (convert-variant-definition v index)
+       (convert-variant-definitions vs (+ index 1)))]))
 
 (define (convert-variant-definition
           [variant : VariantDefinition]
-          [index : Int]
-          [env : (Dict Bytes Type)])
+          [index : Int])
   : i-VariantDefinition
   (case variant
     [(variant-definition name fields)
      (i-variant-definition
        name
        (u8 index)
-       (map (lambda ([f : VariantField]) (convert-variant-field f env)) fields))]))
+       (map convert-variant-field fields))]))
 
-(define (convert-variant-field
-          [field : VariantField]
-          [env : (Dict Bytes Type)])
-  : i-VariantField
+(define (convert-variant-field [field : VariantField]) : i-VariantField
   (case field
     [(variant-field name type)
      (i-variant-field name type)]))
