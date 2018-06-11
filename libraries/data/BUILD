@@ -149,6 +149,13 @@ yaspl_bootstrap_library(
 )
 
 yaspl_bootstrap_library(
+    name = "lifted-primitives",
+    srcs = ["lifted-primitives.yaspl"],
+    deps = [
+    ],
+)
+
+yaspl_bootstrap_library(
     name = "list",
     srcs = ["list.yaspl"],
     deps = [
@@ -249,6 +256,7 @@ yaspl_library(
     srcs = ["regexp.yaspl"],
     deps = [
         ":bytes",
+        ":lifted-primitives",
         ":list",
         ":maybe",
         ":tuples",
