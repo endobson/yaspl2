@@ -1,5 +1,6 @@
 #:module (code-http-server)
 #:import {
+  (block-number)
   (bytes)
   (compiler)
   (data lifted-primitives)
@@ -173,7 +174,7 @@
                  (pre (code (text-node/escape (single-jl (print-function function)))))
                  (empty)))))])))
 
-(define (terminal->successors [term : Terminal]) : (List Int)
+(define (terminal->successors [term : Terminal]) : (List BlockNumber)
   (case term
     [(r:return _) (empty)]
     [(r:halt) (empty)]
@@ -182,8 +183,6 @@
     [(r:tail-call _ _) (empty)]
     [(r:jump i args) (varargs list i)]))
 
-(define (panic/int-list [bytes : Bytes]) : (List Int)
-  (panic bytes))
 (define (panic/int [bytes : Bytes]) : Int
   (panic bytes))
 (define (panic/basic-block-list [bytes : Bytes]) : (List r:BasicBlock)
@@ -192,8 +191,6 @@
   (panic bytes))
 (define (empty/basic-block-list) : (List r:BasicBlock)
   (empty))
-(define (make-dict/int-basic-block-list) : (Dict Int (List r:BasicBlock))
-  (make-dict int-cmp))
 
 (define (max* [v : Int] [vs : (List Int)]) : Int
   (case vs
@@ -201,11 +198,11 @@
     [(cons v2 vs) (max* (max v v2) vs)]))
 
 (define (make-blocks-by-depth
-          [depths : (Dict Int Int)]
-          [blocks : (Dict Int r:BasicBlock)])
+          [depths : (Dict BlockNumber Int)]
+          [blocks : (Dict BlockNumber r:BasicBlock)])
   : (Dict Int (List r:BasicBlock))
   (foldl
-    (lambda ([entry : (Tuple2 Int Int)] [acc : (Dict Int (List r:BasicBlock))])
+    (lambda ([entry : (Tuple2 BlockNumber Int)] [acc : (Dict Int (List r:BasicBlock))])
       (case entry
         [(tuple2 index depth)
          (case (dict-ref blocks index)
@@ -216,17 +213,18 @@
               depth
               (lambda ([blocks : (List r:BasicBlock)]) (cons block blocks))
               (empty/basic-block-list))])]))
-    (dict-map depths (lambda ([key : Int] [value : Int]) (tuple2 key value)))
-    (make-dict/int-basic-block-list)))
+    (dict-map depths (lambda ([key : BlockNumber] [value : Int]) (tuple2 key value)))
+    (ann (Dict Int (List r:BasicBlock)) (make-dict int-cmp))))
 
-(define (layer-blocks [blocks : (Dict Int r:BasicBlock)]) : (List (List r:BasicBlock))
+(define (layer-blocks [blocks : (Dict BlockNumber r:BasicBlock)]) : (List (List r:BasicBlock))
   (let ([succ
-          (lambda ([index : Int])
+          (lambda ([index : BlockNumber]) : (List BlockNumber)
             (case (dict-ref blocks index)
-              [(nothing) (panic/int-list #"Bad index")]
+              [(nothing) (panic #"Bad index")]
               [(just block) (terminal->successors (r:basic-block-terminal block))]))])
-    (let ([ordered-indices (depth-first-search succ (varargs list 0) int-cmp)])
-      (let ([depths (compute-depths succ ordered-indices (dict-add (make-dict int-cmp) 0 0))])
+    (let ([ordered-indices (depth-first-search succ (varargs list (initial-block-number)) block-number-cmp)])
+      (let ([depths (compute-depths succ ordered-indices (dict-add (make-dict block-number-cmp)
+                                                                   (initial-block-number) 0))])
         (let ([max-depth (max* 0 (dict-values depths))])
           (let ([blocks-by-depth (make-blocks-by-depth depths blocks)])
             (let ([ref (lambda ([depth : Int])
@@ -236,8 +234,8 @@
               (build-list (+ max-depth 1) ref))))))))
 
 
-(define (compute-depths [succ : (Int -> (List Int))] [vs : (List Int)]
-                        [acc : (Dict Int Int)]) : (Dict Int Int)
+(define (compute-depths [succ : (BlockNumber -> (List BlockNumber))] [vs : (List BlockNumber)]
+                        [acc : (Dict BlockNumber Int)]) : (Dict BlockNumber Int)
   (case vs
     [(empty) acc]
     [(cons v vs)
@@ -248,7 +246,7 @@
        (compute-depths
          succ
          vs
-         (foldl (lambda ([v : Int] [acc : (Dict Int Int)])
+         (foldl (lambda ([v : BlockNumber] [acc : (Dict BlockNumber Int)])
                   (dict-update acc v
                                (lambda ([old-height : Int])
                                  (max old-height (+ 1 cur-height)))
@@ -316,7 +314,7 @@
       (attribute/escape #"style" (single-jl #"margin: 0px 0px")))
     (code (text-node/escape
             ;; TODO use real block number
-            (print-basic-block 0 block)))))
+            (print-basic-block (initial-block-number) block)))))
 
 (define (basic-block-size [block : r:BasicBlock]) : Int
   (case block

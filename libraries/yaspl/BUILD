@@ -19,9 +19,9 @@ yaspl_bootstrap_library(
         "//libraries/data:dict",
         "//libraries/data:list",
         "//libraries/data:maybe",
-        "//libraries/data:numbers",
         "//libraries/data:tuples",
         "//libraries/prim-language",
+        "//libraries/prim-language:block-number",
         "//libraries/prim-language:register-language",
         "//libraries/prim-language:register-language-builder",
     ],
@@ -135,6 +135,5 @@ yaspl_bootstrap_library(
         "//libraries/data:bytes",
         "//libraries/data:join-list",
         "//libraries/data:list",
-        "//libraries/data:maybe",
     ],
 )

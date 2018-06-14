@@ -244,6 +244,7 @@ yaspl_library(
         "//libraries/formats:html",
         "//libraries/formats:svg",
         "//libraries/formats:xml",
+        "//libraries/prim-language:block-number",
         "//libraries/prim-language:print-register-language",
         "//libraries/prim-language:register-language",
         "//libraries/yaspl:top-level-objects",
@@ -454,8 +455,8 @@ yaspl_bootstrap_library(
     deps = [
         ":io",
         "//libraries/data:bytes",
-        "//libraries/data:lifted-primitives",
         "//libraries/data:either",
+        "//libraries/data:lifted-primitives",
         "//libraries/data:list",
         "//libraries/data:numbers",
         "//libraries/data:tuples",

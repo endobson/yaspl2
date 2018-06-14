@@ -1,11 +1,11 @@
 #:module (lowered-register-language)
 #:import {
+  (block-number)
   (dict)
   (either)
   (find-chains)
   (list)
   (maybe)
-  (numbers)
   (prim)
   (set)
   (set-multi-dict)
@@ -72,18 +72,18 @@
 
   (define-type (BlockMap Reg)
     (block-map
-      [entry-block : Int]
-      [blocks : (Dict Int (BasicBlock Reg))]
-      [predecessors : (SetMultiDict Int Int)]
-      [fall-through : (UniqueDict Int Int)]))
+      [entry-block : BlockNumber]
+      [blocks : (Dict BlockNumber (BasicBlock Reg))]
+      [predecessors : (SetMultiDict BlockNumber BlockNumber)]
+      [fall-through : (UniqueDict BlockNumber BlockNumber)]))
 
   (define-type (UnvalidatedBlockMap Reg)
     (unvalidated-block-map
-      [entry-block : Int]
-      [blocks : (Dict Int (BasicBlock Reg))]
-      [predecessors : (SetMultiDict Int Int)]
-      [fall-through : (UniqueDict Int Int)]
-      [missing-edges : (SetMultiDict Int Int)]))
+      [entry-block : BlockNumber]
+      [blocks : (Dict BlockNumber (BasicBlock Reg))]
+      [predecessors : (SetMultiDict BlockNumber BlockNumber)]
+      [fall-through : (UniqueDict BlockNumber BlockNumber)]
+      [missing-edges : (SetMultiDict BlockNumber BlockNumber)]))
 
 
   (define-type (Instruction Reg)
@@ -154,9 +154,9 @@
     (return [reg : Reg])
     (halt)
     (tail-call [f : (FunctionKind Reg)] [args : (List Reg)])
-    (jump [block : Int])
-    (fall-through [block : Int])
-    (cond-jump/false-fall-through [cond : (Condition Reg)] [true : Int] [false : Int]))
+    (jump [block : BlockNumber])
+    (fall-through [block : BlockNumber])
+    (cond-jump/false-fall-through [cond : (Condition Reg)] [true : BlockNumber] [false : BlockNumber]))
 
   (define-type FreeUnaryOp
     (truncate-unsigned-int64->unsigned-int8))
@@ -320,21 +320,24 @@
 
 (define (Reg) (block-map->unvalidated-block-map [bm : (BlockMap Reg)]) : (UnvalidatedBlockMap Reg)
   (match-define (block-map entry-block blocks pred fall-through) bm)
-  (unvalidated-block-map entry-block blocks pred fall-through (make-set-multi-dict int-cmp int-cmp)))
+  (unvalidated-block-map entry-block blocks pred fall-through
+                         (make-set-multi-dict block-number-cmp block-number-cmp)))
 
-(define (Reg) (empty-unvalidated-block-map [entry-block : Int]) : (UnvalidatedBlockMap Reg)
-  (unvalidated-block-map entry-block (make-dict int-cmp) (make-set-multi-dict int-cmp int-cmp)
-                         (make-unique-dict int-cmp int-cmp)
-                         (make-set-multi-dict int-cmp int-cmp)))
+(define (Reg) (empty-unvalidated-block-map [entry-block : BlockNumber]) : (UnvalidatedBlockMap Reg)
+  (unvalidated-block-map entry-block (make-dict block-number-cmp)
+                         (make-set-multi-dict block-number-cmp block-number-cmp)
+                         (make-unique-dict block-number-cmp block-number-cmp)
+                         (make-set-multi-dict block-number-cmp block-number-cmp)))
 
-(define (Reg) (unvalidated-block-map-set-entry [uv : (UnvalidatedBlockMap Reg)] [entry-block : Int])
+(define (Reg) (unvalidated-block-map-set-entry [uv : (UnvalidatedBlockMap Reg)]
+                                               [entry-block : BlockNumber])
   : (UnvalidatedBlockMap Reg)
   (match-define (unvalidated-block-map _ blocks pred fall-through missing) uv)
   (unvalidated-block-map entry-block blocks pred fall-through missing))
 
 (define (Reg) (unvalidated-block-map-add-block
                 [uv : (UnvalidatedBlockMap Reg)]
-                [index : Int]
+                [index : BlockNumber]
                 [block : (BasicBlock Reg)]) : (UnvalidatedBlockMap Reg)
   (match-define (unvalidated-block-map entry-block blocks pred fall-through missing) uv)
   (case (dict-ref blocks index)
@@ -343,7 +346,7 @@
      (let ([fall-through-target (terminal-maybe-fall-through (basic-block-terminal block))])
        (if (case fall-through-target
              [(nothing) #f]
-             [(just target) (= entry-block target)])
+             [(just target) (block-number=? entry-block target)])
            (panic #"Cannot fall through to entry-block")
            (let ([next-blocks (terminal-next-blocks (basic-block-terminal block))])
              (let ([new-blocks (dict-add blocks index block)])
@@ -352,7 +355,7 @@
                  new-blocks
                  (set-fold
                    next-blocks
-                   (lambda ([target : Int] [pred : (SetMultiDict Int Int)])
+                   (lambda ([target : BlockNumber] [pred : (SetMultiDict BlockNumber BlockNumber)])
                      (set-multi-dict-add pred target index))
                    pred)
                  (case fall-through-target
@@ -361,19 +364,19 @@
                     (unique-dict-add fall-through index next-block)])
                  (set-fold
                    next-blocks
-                   (lambda ([target : Int] [missing : (SetMultiDict Int Int)])
+                   (lambda ([target : BlockNumber] [missing : (SetMultiDict BlockNumber BlockNumber)])
                      (if (dict-has-key? new-blocks target)
                          missing
                          (set-multi-dict-add missing index target)))
                    (set-fold
                      (set-multi-dict-ref/empty pred index)
-                     (lambda ([pred : Int] [missing : (SetMultiDict Int Int)])
+                     (lambda ([pred : BlockNumber] [missing : (SetMultiDict BlockNumber BlockNumber)])
                        (set-multi-dict-remove missing pred index))
                      missing)))))))]))
 
 (define (Reg) (unvalidated-block-map-remove-block
                 [uv : (UnvalidatedBlockMap Reg)]
-                [index : Int]) : (UnvalidatedBlockMap Reg)
+                [index : BlockNumber]) : (UnvalidatedBlockMap Reg)
   (match-define (unvalidated-block-map entry-block blocks pred fall-through missing) uv)
   (case (dict-ref blocks index)
     [(nothing) (panic #"No existing block")]
@@ -383,7 +386,7 @@
          (let ([new-predecessors
                 (set-fold
                   next-blocks
-                  (lambda ([target : Int] [pred : (SetMultiDict Int Int)])
+                  (lambda ([target : BlockNumber] [pred : (SetMultiDict BlockNumber BlockNumber)])
                     (set-multi-dict-remove pred target index))
                   pred)])
          (unvalidated-block-map
@@ -393,33 +396,33 @@
            (unique-dict-remove fall-through index)
            (set-fold
              (set-multi-dict-ref/empty new-predecessors index)
-             (lambda ([pred : Int] [missing : (SetMultiDict Int Int)])
+             (lambda ([pred : BlockNumber] [missing : (SetMultiDict BlockNumber BlockNumber)])
                (set-multi-dict-add missing pred index))
              (set-fold
                next-blocks
-               (lambda ([target : Int] [missing : (SetMultiDict Int Int)])
+               (lambda ([target : BlockNumber] [missing : (SetMultiDict BlockNumber BlockNumber)])
                  (set-multi-dict-remove missing index target))
                missing))))))]))
 
 
 (define (Reg) (unvalidated-block-map-map
                 [uv : (UnvalidatedBlockMap Reg)]
-                [f : (Int (BasicBlock Reg) -> (BasicBlock Reg))]) : (UnvalidatedBlockMap Reg)
+                [f : (BlockNumber (BasicBlock Reg) -> (BasicBlock Reg))]) : (UnvalidatedBlockMap Reg)
   (match-define (unvalidated-block-map entry-block blocks _ _ _) uv)
   (dict-fold
     blocks
-    (lambda ([index : Int] [block : (BasicBlock Reg)] [acc : (UnvalidatedBlockMap Reg)])
+    (lambda ([index : BlockNumber] [block : (BasicBlock Reg)] [acc : (UnvalidatedBlockMap Reg)])
       (unvalidated-block-map-add-block acc index (f index block)))
     (ann (UnvalidatedBlockMap Reg) (empty-unvalidated-block-map entry-block))))
 
 (define (Reg Acc) (unvalidated-block-map-map/acc
                     [uv : (UnvalidatedBlockMap Reg)]
-                    [f : (Int (BasicBlock Reg) Acc -> (Tuple2 (BasicBlock Reg) Acc))]
+                    [f : (BlockNumber (BasicBlock Reg) Acc -> (Tuple2 (BasicBlock Reg) Acc))]
                     [acc : Acc]) : (Tuple2 (UnvalidatedBlockMap Reg) Acc)
   (match-define (unvalidated-block-map entry-block blocks _ _ _) uv)
   (dict-fold
     blocks
-    (lambda ([index : Int] [block : (BasicBlock Reg)] [acc : (Tuple2 (UnvalidatedBlockMap Reg) Acc)])
+    (lambda ([index : BlockNumber] [block : (BasicBlock Reg)] [acc : (Tuple2 (UnvalidatedBlockMap Reg) Acc)])
       (case acc
         [(tuple2 block-map acc)
          (match-define (tuple2 block acc) (f index block acc))
@@ -434,28 +437,28 @@
 
 (define (Reg) (unvalidated-block-map-filter
                 [uv : (UnvalidatedBlockMap Reg)]
-                [f : (Int (BasicBlock Reg) -> Boolean)]) : (UnvalidatedBlockMap Reg)
+                [f : (BlockNumber (BasicBlock Reg) -> Boolean)]) : (UnvalidatedBlockMap Reg)
   (match-define (unvalidated-block-map _ blocks pred _ _) uv)
   (dict-fold
     blocks
-    (lambda ([index : Int] [block : (BasicBlock Reg)] [acc : (UnvalidatedBlockMap Reg)])
+    (lambda ([index : BlockNumber] [block : (BasicBlock Reg)] [acc : (UnvalidatedBlockMap Reg)])
       (if (f index block)
           acc
           (unvalidated-block-map-remove-block acc index)))
     uv))
 
-(define (Reg) (block-map-block-chains [bm : (BlockMap Reg)]) : (List (List Int))
+(define (Reg) (block-map-block-chains [bm : (BlockMap Reg)]) : (List (List BlockNumber))
   (match-define (block-map entry-block blocks _ fall-through) bm)
   (sort
     (find-chains (dict-keys blocks) fall-through)
-    (lambda ([chain-a : (List Int)] [chain-b : (List Int)])
-      (case (findf (lambda ([elem : Int]) (= elem entry-block)) chain-a)
+    (lambda ([chain-a : (List BlockNumber)] [chain-b : (List BlockNumber)])
+      (case (findf (lambda ([elem : BlockNumber]) (block-number=? elem entry-block)) chain-a)
         [(nothing) #f]
         [(just _) #t]))))
 
-(define (Reg) (terminal-next-blocks [t : (Terminal Reg)]) : (Set Int)
+(define (Reg) (terminal-next-blocks [t : (Terminal Reg)]) : (Set BlockNumber)
   (set-add-all
-    (make-set int-cmp)
+    (make-set block-number-cmp)
     (case t
       [(return _) (empty)]
       [(halt) (empty)]
@@ -464,7 +467,7 @@
       [(fall-through b) (varargs list b)]
       [(cond-jump/false-fall-through _ t f) (varargs list t f)])))
 
-(define (Reg) (terminal-maybe-fall-through [t : (Terminal Reg)]) : (Maybe Int)
+(define (Reg) (terminal-maybe-fall-through [t : (Terminal Reg)]) : (Maybe BlockNumber)
   (case t
     [(return _) (nothing)]
     [(halt) (nothing)]

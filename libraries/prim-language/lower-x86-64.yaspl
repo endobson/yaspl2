@@ -1,5 +1,6 @@
 #:module (lower-x86-64)
 #:import {
+  (block-number)
   (data ordering)
   (dict)
   (either)
@@ -172,7 +173,7 @@
     (fixed-reg [r : X8664Register])
     (temporary-reg [r : Var])))
 
-(define (empty-blocks [entry-block-num : Int]) : (l:UnvalidatedBlockMap Reg)
+(define (empty-blocks [entry-block-num : BlockNumber]) : (l:UnvalidatedBlockMap Reg)
   (l:empty-unvalidated-block-map entry-block-num))
 
 (define (valid-temporary-x86-64-registers) : (Set X8664Register)
@@ -372,7 +373,7 @@
 (define (lower-function [fun : r:FunctionDefinition]) : (l:FunctionDefinition Reg)
   (match-define (r:function-definition name convention blocks next-var next-block) fun)
   (match-define lowered-entry-block next-block)
-  (match-define next-block (+ 1 next-block))
+  (match-define next-block (next-block-number next-block))
 
   (match-define (tuple2 saved-register-pairs next-var)
     (compute-saved-register-pairs next-var))
@@ -380,8 +381,8 @@
   (match-define (tuple2 next-block new-blocks)
     (dict-fold
       blocks
-      (lambda ([index : Int]  [b : r:BasicBlock]
-               [acc : (Tuple2 Int (l:UnvalidatedBlockMap Reg))])
+      (lambda ([index : BlockNumber]  [b : r:BasicBlock]
+               [acc : (Tuple2 BlockNumber (l:UnvalidatedBlockMap Reg))])
         (lower-block index b blocks saved-register-pairs acc))
       (tuple2 next-block (empty-blocks lowered-entry-block))))
   (match-define entry-block (make-entry-block convention blocks saved-register-pairs))
@@ -418,7 +419,7 @@
        (args/extra-registers args (+ offset 8) overflow-register))]))
 
 
-(define (make-entry-block [convention : r:CallingConvention] [blocks : (Dict Int r:BasicBlock)]
+(define (make-entry-block [convention : r:CallingConvention] [blocks : (Dict BlockNumber r:BasicBlock)]
                           [saved-register-pairs : (List (Tuple2 X8664Register Var))])
   : (l:BasicBlock Reg)
   (match-define arg-registers (varargs list (rdi) (rsi) (rdx) (rcx) (r8) (r9)))
@@ -477,11 +478,11 @@
       next-var)))
 
 
-(define (lower-block [index : Int]  [b : r:BasicBlock]
-                     [blocks : (Dict Int r:BasicBlock)]
+(define (lower-block [index : BlockNumber]  [b : r:BasicBlock]
+                     [blocks : (Dict BlockNumber r:BasicBlock)]
                      [saved-register-pairs : (List (Tuple2 X8664Register Var))]
-                     [acc : (Tuple2 Int (l:UnvalidatedBlockMap Reg))])
-  : (Tuple2 Int (l:UnvalidatedBlockMap Reg))
+                     [acc : (Tuple2 BlockNumber (l:UnvalidatedBlockMap Reg))])
+  : (Tuple2 BlockNumber (l:UnvalidatedBlockMap Reg))
   (match-define (r:basic-block _ instructions terminal) b)
   (match-define (tuple3 end-insts terminal (tuple2 next-block acc-blocks))
     (lower-terminal terminal blocks saved-register-pairs acc))
@@ -496,7 +497,7 @@
           end-insts)
         terminal))))
 
-(define (match-args [index : Int] [args : (List Var)] [blocks : (Dict Int r:BasicBlock)])
+(define (match-args [index : BlockNumber] [args : (List Var)] [blocks : (Dict BlockNumber r:BasicBlock)])
   : (List (Tuple2 Var Var))
   (case (dict-ref blocks index)
     [(nothing) (panic #"No block")]
@@ -537,10 +538,10 @@
 (define (ann-term [t : (l:Terminal Reg)]) : (l:Terminal Reg)
   t)
 
-(define (lower-terminal [t : r:Terminal] [blocks : (Dict Int r:BasicBlock)]
+(define (lower-terminal [t : r:Terminal] [blocks : (Dict BlockNumber r:BasicBlock)]
                         [saved-register-pairs : (List (Tuple2 X8664Register Var))]
-                        [acc : (Tuple2 Int (l:UnvalidatedBlockMap Reg))])
-  : (Tuple3 (List (l:Instruction Reg)) (l:Terminal Reg) (Tuple2 Int (l:UnvalidatedBlockMap Reg)))
+                        [acc : (Tuple2 BlockNumber (l:UnvalidatedBlockMap Reg))])
+  : (Tuple3 (List (l:Instruction Reg)) (l:Terminal Reg) (Tuple2 BlockNumber (l:UnvalidatedBlockMap Reg)))
   (case t
     [(r:return name)
      (tuple3
@@ -598,7 +599,7 @@
             next-block
             (l:basic-block (move-args (match-args t-index t-args blocks))
                            (ann-term (l:jump t-index))))
-         (+ 1 next-block)
+         (next-block-number next-block)
          (l:basic-block (move-args (match-args f-index f-args blocks))
                         (ann-term (l:jump f-index)))))
 
@@ -641,9 +642,8 @@
                       (l:memory-compare-condition
                         negated? (fixed-reg (rcx)) (fixed-reg (rdi)) (fixed-reg (rsi)))])
                    next-block
-                   (+ next-block 1)))
-       (tuple2 (+ next-block 2) new-acc-blocks))]))
-
+                   (next-block-number next-block)))
+       (tuple2 (next-block-number (next-block-number next-block)) new-acc-blocks))]))
 
 ;; TODO make this not use the heap so that it can be used from the GC system
 (define (put-arguments-in-registers

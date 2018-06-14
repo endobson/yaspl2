@@ -228,11 +228,11 @@ yaspl_bootstrap_library(
     srcs = ["red-black-tree.yaspl"],
     deps = [
         ":either",
+        ":lifted-primitives",
         ":list",
         ":maybe",
         ":ordering",
         ":tuples",
-        ":lifted-primitives",
         "//libraries:sexp-parser",
     ],
 )

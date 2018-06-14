@@ -1,5 +1,6 @@
 #:module (lowered-live-variables)
 #:import {
+  (block-number)
   (bytes)
   (data ordering)
   (dict)
@@ -8,7 +9,6 @@
   (list)
   (lowered-register-language)
   (maybe)
-  (numbers)
   (prim)
   (set)
   (tuples)
@@ -53,7 +53,7 @@
            (single-jl #")"))))]))
 
 (define (Reg) (live-variables [f : (FunctionDefinition Reg)]
-                              [reg-cmp : (Reg Reg -> Ordering)]) : (Dict Int (BlockState Reg))
+                              [reg-cmp : (Reg Reg -> Ordering)]) : (Dict BlockNumber (BlockState Reg))
   (match-define (function-definition _ _ block-map) f)
   (match-define blocks (block-map-blocks block-map))
   (match-define jump-index (make-jump-index blocks))
@@ -65,38 +65,44 @@
     (reverse-jump-index jump-index)
     (dict-keys blocks)))
 
-(define (Reg) (make-jump-index [blocks : (Dict Int (BasicBlock Reg))]) : (Dict Int (Set Int))
+(define (Reg) (make-jump-index [blocks : (Dict BlockNumber (BasicBlock Reg))])
+  : (Dict BlockNumber (Set BlockNumber))
   (dict-value-map
     blocks
     (lambda ([block : (BasicBlock Reg)])
       (terminal-next-blocks (basic-block-terminal block)))))
 
-(define (reverse-jump-index [jump-index : (Dict Int (Set Int))]) : (Dict Int (Set Int))
+(define (reverse-jump-index [jump-index : (Dict BlockNumber (Set BlockNumber))])
+  : (Dict BlockNumber (Set BlockNumber))
   (dict-fold
     jump-index
-    (lambda ([index : Int] [targets : (Set Int)] [acc : (Dict Int (Set Int))])
+    (lambda ([index : BlockNumber] [targets : (Set BlockNumber)]
+                                   [acc : (Dict BlockNumber (Set BlockNumber))])
       (set-fold
         targets
-        (lambda ([target : Int] [acc : (Dict Int (Set Int))])
+        (lambda ([target : BlockNumber] [acc : (Dict BlockNumber (Set BlockNumber))])
           (dict-update
             acc
             target
-            (lambda ([set : (Set Int)]) (set-add set index))
-            (make-set int-cmp)))
+            (lambda ([set : (Set BlockNumber)]) (set-add set index))
+            (make-set block-number-cmp)))
         acc))
     (dict-value-map
       jump-index
-      (lambda ([ignored : (Set Int)]) (make-set int-cmp)))))
+      (lambda ([ignored : (Set BlockNumber)]) (make-set block-number-cmp)))))
 
-(define (Reg) (print-blocks [blocks : (Dict Int (BlockState Reg))] [reg->bytes : (Reg -> Bytes)]) : Bytes
+(define (Reg) (print-blocks [blocks : (Dict BlockNumber (BlockState Reg))]
+                            [reg->bytes : (Reg -> Bytes)])
+  : Bytes
   (bytes-append
     (dict-map
       blocks
-      (lambda ([i : Int] [block : (BlockState Reg)])
+      (lambda ([i : BlockNumber] [block : (BlockState Reg)])
         (print-block-state i block reg->bytes)))))
 
 
-(define (Reg) (print-block-state [i : Int] [block : (BlockState Reg)] [reg->bytes : (Reg -> Bytes)]) : Bytes
+(define (Reg) (print-block-state [block-num : BlockNumber] [block : (BlockState Reg)]
+                                 [reg->bytes : (Reg -> Bytes)]) : Bytes
   (match-define (block-state instructions terminal-live terminal-def) block)
   (match-define print-live-set
     (lambda ([live : (Set Reg)]) : (JoinList Bytes)
@@ -121,7 +127,7 @@
     (jl->list
       (varargs append-jl*
         (single-jl #"block: ")
-        (single-jl (integer->decimal-bytes i))
+        (single-jl (block-number->bytes block-num))
         (single-jl #"\n")
         (concat-jl (map print-point-state instructions))
         (single-jl #"term-def: ")
@@ -131,12 +137,12 @@
         (single-jl #"\n")))))
 
 (define (Reg) (fully-propagate-live-variables/blocks
-                [blocks : (Dict Int (BlockState Reg))]
+                [blocks : (Dict BlockNumber (BlockState Reg))]
                 [reg-cmp : (Reg Reg -> Ordering)]
-                [jump-index : (Dict Int (Set Int))]
-                [reverse-jump-index : (Dict Int (Set Int))]
-                [worklist : (Set Int)])
-  : (Dict Int (BlockState Reg))
+                [jump-index : (Dict BlockNumber (Set BlockNumber))]
+                [reverse-jump-index : (Dict BlockNumber (Set BlockNumber))]
+                [worklist : (Set BlockNumber)])
+  : (Dict BlockNumber (BlockState Reg))
   (case (set-split worklist)
     [(nothing) blocks]
     [(just (tuple2 block-num worklist))
@@ -153,7 +159,7 @@
             (set-union*
               (make-set reg-cmp)
               (map
-                (lambda ([num : Int]) : (Set Reg)
+                (lambda ([num : BlockNumber]) : (Set Reg)
                   (case (dict-ref blocks num)
                     [(nothing)
                      (panic #"Unknown block")]
@@ -175,7 +181,7 @@
              (set-union
                worklist
                (case (dict-ref reverse-jump-index block-num)
-                 [(nothing) (ann (Set Int) (panic #"Unknown block"))]
+                 [(nothing) (ann (Set BlockNumber) (panic #"Unknown block"))]
                  [(just block-nums) block-nums])))])])]))
 
 (define (Reg) (propagate-live-variables/block [state : (BlockState Reg)] [incoming-live-in : (Set Reg)])
@@ -445,12 +451,12 @@
 
 
 (define (Reg) (add-live-variables-to-graph/blocks
-                [blocks : (Dict Int (BlockState Reg))]
+                [blocks : (Dict BlockNumber (BlockState Reg))]
                 [g : (Graph Reg VertexData EdgeData)]
                 [reg->bytes : (Reg -> Bytes)]) : (Graph Reg VertexData EdgeData)
   (dict-fold
     blocks
-    (lambda ([block-num : Int] [state : (BlockState Reg)] [acc : (Graph Reg VertexData EdgeData)])
+    (lambda ([block-num : BlockNumber] [state : (BlockState Reg)] [acc : (Graph Reg VertexData EdgeData)])
       : (Graph Reg VertexData EdgeData)
       (case state
         [(block-state instructions term-live-in term-defined)
@@ -519,11 +525,11 @@
 
 
 (define (Reg) (add-interference-edges-to-graph/blocks
-                [blocks : (Dict Int (BlockState Reg))]
+                [blocks : (Dict BlockNumber (BlockState Reg))]
                 [g : (Graph Reg VertexData EdgeData)]) : (Graph Reg VertexData EdgeData)
   (dict-fold
     blocks
-    (lambda ([block-num : Int] [state : (BlockState Reg)] [acc : (Graph Reg VertexData EdgeData)])
+    (lambda ([block-num : BlockNumber] [state : (BlockState Reg)] [acc : (Graph Reg VertexData EdgeData)])
       : (Graph Reg VertexData EdgeData)
       (foldl
         (lambda ([s : (LiveOutState Reg)] [g : (Graph Reg VertexData EdgeData)])
@@ -533,11 +539,11 @@
     g))
 
 (define (Reg) (add-move-edges-to-graph/blocks
-                [blocks : (Dict Int (BlockState Reg))]
+                [blocks : (Dict BlockNumber (BlockState Reg))]
                 [g : (Graph Reg VertexData EdgeData)]) : (Graph Reg VertexData EdgeData)
   (dict-fold
     blocks
-    (lambda ([block-num : Int] [state : (BlockState Reg)] [acc : (Graph Reg VertexData EdgeData)])
+    (lambda ([block-num : BlockNumber] [state : (BlockState Reg)] [acc : (Graph Reg VertexData EdgeData)])
       : (Graph Reg VertexData EdgeData)
       (foldl
         (lambda ([s : (LiveOutState Reg)] [g : (Graph Reg VertexData EdgeData)])
@@ -547,7 +553,7 @@
     g))
 
 (define (Reg) (print-graph
-                [blocks : (Dict Int (BlockState Reg))]
+                [blocks : (Dict BlockNumber (BlockState Reg))]
                 [reg-cmp : (Reg Reg -> Ordering)]
                 [reg->bytes : (Reg -> Bytes)]
                 [fixed-regs : (Set Reg)]) : Bytes
@@ -566,7 +572,7 @@
             (ann (Graph Reg VertexData EdgeData) (empty-graph reg-cmp)))
           reg->bytes)))))
 
-(define (Reg) (blocks->live-out-states [blocks : (Dict Int (BlockState Reg))])
+(define (Reg) (blocks->live-out-states [blocks : (Dict BlockNumber (BlockState Reg))])
   : (List (LiveOutState Reg))
   (append* (map (lambda ([b : (BlockState Reg)]) (block->live-out-states b))
                 (dict-values blocks))))

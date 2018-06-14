@@ -31,6 +31,15 @@ yaspl_binary(
 )
 
 yaspl_bootstrap_library(
+    name = "block-number",
+    srcs = ["block-number.yaspl"],
+    deps = [
+        "//libraries/data:numbers",
+        "//libraries/data:ordering",
+    ],
+)
+
+yaspl_bootstrap_library(
     name = "color-graph",
     srcs = ["color-graph.yaspl"],
     deps = [
@@ -70,6 +79,7 @@ yaspl_bootstrap_library(
     name = "lower-x86-64",
     srcs = ["lower-x86-64.yaspl"],
     deps = [
+        ":block-number",
         ":lowered-register-language",
         ":prim-language",
         ":register-language",
@@ -103,12 +113,12 @@ yaspl_bootstrap_library(
     name = "lowered-register-language",
     srcs = ["lowered-register-language.yaspl"],
     deps = [
+        ":block-number",
         "//libraries/algorithms:find-chains",
         "//libraries/data:dict",
         "//libraries/data:either",
         "//libraries/data:list",
         "//libraries/data:maybe",
-        "//libraries/data:numbers",
         "//libraries/data:set",
         "//libraries/data:set-multi-dict",
         "//libraries/data:tuples",
@@ -121,6 +131,7 @@ yaspl_bootstrap_library(
     name = "lowered-live-variables",
     srcs = ["lowered-live-variables.yaspl"],
     deps = [
+        ":block-number",
         ":lowered-register-language",
         "//libraries:graphviz",
         "//libraries/data:bytes",
@@ -128,7 +139,6 @@ yaspl_bootstrap_library(
         "//libraries/data:join-list",
         "//libraries/data:list",
         "//libraries/data:maybe",
-        "//libraries/data:numbers",
         "//libraries/data:ordering",
         "//libraries/data:set",
         "//libraries/data:tuples",
@@ -140,6 +150,7 @@ yaspl_bootstrap_library(
     name = "lowered-register-language-to-x86-64",
     srcs = ["lowered-register-language-to-x86-64.yaspl"],
     deps = [
+        ":block-number",
         ":lower-x86-64",
         ":lowered-register-language",
         "//libraries/data:bytes",
@@ -148,7 +159,7 @@ yaspl_bootstrap_library(
         "//libraries/data:join-list",
         "//libraries/data:list",
         "//libraries/data:maybe",
-        "//libraries/data:numbers",
+        "//libraries/data:ordering",
         "//libraries/yaspl:math-operations",
         "//libraries/yaspl:x86-64-assembly",
     ],
@@ -283,6 +294,7 @@ yaspl_library(
     name = "print-lowered-register-language",
     srcs = ["print-lowered-register-language.yaspl"],
     deps = [
+        ":block-number",
         ":lowered-register-language",
         "//libraries/data:bytes",
         "//libraries/data:dict",
@@ -297,6 +309,7 @@ yaspl_library(
     name = "print-register-language",
     srcs = ["print-register-language.yaspl"],
     deps = [
+        ":block-number",
         ":prim-language",
         ":register-language",
         ":syscalls",
@@ -314,6 +327,7 @@ yaspl_bootstrap_library(
     name = "prim-to-register",
     srcs = ["prim-to-register.yaspl"],
     deps = [
+        ":block-number",
         ":prim-language",
         ":register-language",
         ":register-language-builder",
@@ -321,7 +335,6 @@ yaspl_bootstrap_library(
         "//libraries/data:dict",
         "//libraries/data:list",
         "//libraries/data:maybe",
-        "//libraries/data:numbers",
         "//libraries/data:set",
         "//libraries/data:tuples",
         "//libraries/yaspl:math-operations",
@@ -333,6 +346,7 @@ yaspl_bootstrap_library(
     name = "register-language",
     srcs = ["register-language.yaspl"],
     deps = [
+        ":block-number",
         ":prim-language",
         ":syscalls",
         "//libraries/data:dict",
@@ -347,6 +361,7 @@ yaspl_bootstrap_library(
     name = "register-language-builder",
     srcs = ["register-language-builder.yaspl"],
     deps = [
+        ":block-number",
         ":register-language",
         "//libraries/data:dict",
         "//libraries/data:list",
@@ -380,12 +395,12 @@ yaspl_bootstrap_library(
     name = "simplify-lowered-register-language",
     srcs = ["simplify-lowered-register-language.yaspl"],
     deps = [
+        ":block-number",
         ":lowered-register-language",
         "//libraries/data:dict",
         "//libraries/data:either",
         "//libraries/data:list",
         "//libraries/data:maybe",
-        "//libraries/data:numbers",
         "//libraries/data:set",
         "//libraries/data:set-multi-dict",
         "//libraries/data:unique-dict",
@@ -397,6 +412,7 @@ yaspl_bootstrap_library(
     name = "simplify-register-language",
     srcs = ["simplify-register-language.yaspl"],
     deps = [
+        ":block-number",
         ":prim-language",
         ":register-language",
         "//libraries/data:dict",
@@ -415,6 +431,7 @@ yaspl_bootstrap_library(
     name = "spill-lowered-register-language",
     srcs = ["spill-lowered-register-language.yaspl"],
     deps = [
+        ":block-number",
         ":lower-x86-64",
         ":lowered-live-variables",
         ":lowered-register-language",
