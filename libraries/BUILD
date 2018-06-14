@@ -454,6 +454,7 @@ yaspl_bootstrap_library(
     deps = [
         ":io",
         "//libraries/data:bytes",
+        "//libraries/data:lifted-primitives",
         "//libraries/data:either",
         "//libraries/data:list",
         "//libraries/data:numbers",

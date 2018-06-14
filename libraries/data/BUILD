@@ -232,6 +232,7 @@ yaspl_bootstrap_library(
         ":maybe",
         ":ordering",
         ":tuples",
+        ":lifted-primitives",
         "//libraries:sexp-parser",
     ],
 )

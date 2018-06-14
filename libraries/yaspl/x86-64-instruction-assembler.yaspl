@@ -19,7 +19,10 @@
   (define-type RexRequirement
     (rex-mandatory)
     (rex-forbidden)
-    (rex-optional)))
+    (rex-optional))
+  (define-type RexByte
+    (no-rex-byte)
+    (rex-byte [v : U8])))
 
 (define (mc-bytes* [bytes : Bytes]) : (JoinList MCCommand)
   (single-jl (mc-bytes bytes)))
@@ -188,7 +191,7 @@
      (let ([reg-val (register->byte reg)])
        (varargs join-list
          (mc-bytes (add-maybe-byte
-                     (rex-byte #t (>= reg-val 8) #f #f)
+                     (make-rex-byte #t (>= reg-val 8) #f #f)
                      (bytes/2 (u8 #x8D) (u8 (mod-rm-byte #x00 reg-val #x05)))))
          (mc-signed-relocation label)))]))
 
@@ -202,19 +205,19 @@
 (define (single-byte-op/O [opcode : Int] [reg : Register]) : Bytes
   (let ([reg-val (register->byte reg)])
     (add-maybe-byte
-      (rex-byte #f #f #f (>= reg-val 8))
+      (make-rex-byte #f #f #f (>= reg-val 8))
       (bytes/1
         (u8 (bitwise-ior opcode (bitwise-and reg-val #x07)))))))
 
 (define (single-byte-op/M [opcode : Int] [op-ext : Int] [rexW : Boolean] [reg : Register]) : Bytes
   (let ([rm (register->byte reg)])
     (add-maybe-byte
-      (rex-byte rexW #f #f (>= rm 8))
+      (make-rex-byte rexW #f #f (>= rm 8))
       (bytes/2 (u8 opcode) (u8 (mod-rm-byte #x03 op-ext rm))))))
 
 (define (single-byte-op/I [opcode : Int] [rexW : Boolean] [imm : S32]) : Bytes
   (add-maybe-byte
-    (rex-byte rexW #f #f #f)
+    (make-rex-byte rexW #f #f #f)
     (let ([v (bytes/5 (u8 opcode) (u8 0) (u8 0) (u8 0) (u8 0))])
       (begin
         (bytes-set!/s32-le v 1 imm)
@@ -223,7 +226,7 @@
  (define (single-byte-op-s64/IO [opcode : Int] [rexW : Boolean] [imm : S64] [reg : Register]) : Bytes
    (let ([reg-val (register->byte reg)])
      (add-maybe-byte
-       (rex-byte rexW #f #f (>= reg-val 8))
+       (make-rex-byte rexW #f #f (>= reg-val 8))
        (let ([v (bytes/9
                   (u8 (bitwise-ior opcode (bitwise-and reg-val #x07)))
                   (u8 0) (u8 0) (u8 0) (u8 0) (u8 0) (u8 0) (u8 0) (u8 0))])
@@ -243,7 +246,7 @@
 (define (single-byte-op/M/direct-mem [opcode : Int] [op-ext : Int] [rexW : Boolean] [reg : Register]) : Bytes
   (let ([rm (register->byte reg)])
     (add-maybe-byte
-      (rex-byte rexW #f #f (>= rm 8))
+      (make-rex-byte rexW #f #f (>= rm 8))
       (bytes/2 (u8 opcode) (u8 (mod-rm-byte #x00 op-ext rm))))))
 
 ;; Doesn't support rsp or r12. This is because the instruction set doesn't support them.
@@ -251,7 +254,7 @@
           [opcode : Int] [op-ext : Int] [rexW : Boolean] [reg : Register] [displacement : S32]) : Bytes
   (let ([rm (register->byte reg)])
     (add-maybe-byte
-      (rex-byte rexW #f #f (>= rm 8))
+      (make-rex-byte rexW #f #f (>= rm 8))
       (let ([v (bytes/6 (u8 opcode) (u8 (mod-rm-byte #x02 op-ext rm)) (u8 0) (u8 0) (u8 0) (u8 0))])
         (begin
           (bytes-set!/s32-le v 2 displacement)
@@ -263,7 +266,7 @@
   (let ([base (register->byte reg1)])
     (let ([index (register->byte reg2)])
       (add-maybe-byte
-        (rex-byte rexW #f (>= index 8) (>= base 8))
+        (make-rex-byte rexW #f (>= index 8) (>= base 8))
         (let ([v (bytes/7 (u8 opcode) (u8 (mod-rm-byte #x02 op-ext #x04))
                           (u8 (sib-byte scale reg2 reg1)) (u8 0) (u8 0) (u8 0) (u8 0))])
           (begin
@@ -300,7 +303,7 @@
                                [val : S32] [reg : Register]) : Bytes
   (let ([rm (register->byte reg)])
     (add-maybe-byte
-      (rex-byte rexW #f #f (>= rm 8))
+      (make-rex-byte rexW #f #f (>= rm 8))
       (let ([v (bytes/6 (u8 opcode) (u8 (mod-rm-byte #x03 op-ext rm)) (u8 0) (u8 0) (u8 0) (u8 0))])
         (begin
           (bytes-set!/s32-le v 2 val)
@@ -310,7 +313,7 @@
                                  [val : U8] [reg : Register8]) : Bytes
   (let ([rm (register8->byte reg)])
     (add-maybe-byte
-      (rex-byte rexW #f #f (>= rm 8))
+      (make-rex-byte rexW #f #f (>= rm 8))
       (bytes/3 (u8 opcode) (u8 (mod-rm-byte #x03 op-ext rm)) val))))
 
 ;; This takes a 64 bit register but 8 bit immediate value.
@@ -318,14 +321,14 @@
                                 [val : U8] [reg : Register]) : Bytes
   (let ([rm (register->byte reg)])
     (add-maybe-byte
-      (rex-byte rexW #f #f (>= rm 8))
+      (make-rex-byte rexW #f #f (>= rm 8))
       (bytes/3 (u8 opcode) (u8 (mod-rm-byte #x03 op-ext rm)) val))))
 
 (define (single-byte-op/IM/direct-mem [opcode : Int] [op-ext : Int] [rexW : Boolean]
                                       [val : S32] [reg : Register]) : Bytes
   (let ([rm (register->byte reg)])
     (add-maybe-byte
-      (rex-byte rexW #f #f (>= rm 8))
+      (make-rex-byte rexW #f #f (>= rm 8))
       (let ([v (bytes/6 (u8 opcode) (u8 (mod-rm-byte #x00 op-ext rm)) (u8 0) (u8 0) (u8 0) (u8 0))])
         (begin
           (bytes-set!/s32-le v 2 val)
@@ -335,7 +338,7 @@
                                         [val : U8] [reg : Register]) : Bytes
   (let ([rm (register->byte reg)])
     (add-maybe-byte
-      (rex-byte rexW #f #f (>= rm 8))
+      (make-rex-byte rexW #f #f (>= rm 8))
       (bytes/3 (u8 opcode) (u8 (mod-rm-byte #x00 op-ext rm)) val))))
 
 
@@ -345,7 +348,7 @@
           [reg : Register] [displacement : S32]) : Bytes
   (let ([rm (register->byte reg)])
     (add-maybe-byte
-      (rex-byte rexW #f #f (>= rm 8))
+      (make-rex-byte rexW #f #f (>= rm 8))
       (let ([v (bytes/10
                  (u8 opcode)
                  (u8 (mod-rm-byte #x02 op-ext rm))
@@ -360,7 +363,7 @@
           [reg : Register] [displacement : S32]) : Bytes
   (let ([rm (register->byte reg)])
     (add-maybe-byte
-      (rex-byte rexW #f #f (>= rm 8))
+      (make-rex-byte rexW #f #f (>= rm 8))
       (let ([v (bytes/7
                  (u8 opcode)
                  (u8 (mod-rm-byte #x02 op-ext rm))
@@ -375,7 +378,7 @@
   (let ([base (register->byte reg1)])
     (let ([index (register->byte reg2)])
       (add-maybe-byte
-        (rex-byte rexW #f (>= index 8) (>= base 8))
+        (make-rex-byte rexW #f (>= index 8) (>= base 8))
         (let ([v (bytes/11
                    (u8 opcode)
                    (u8 (mod-rm-byte #x02 op-ext #x04))
@@ -392,7 +395,7 @@
   (let ([base (register->byte reg1)])
     (let ([index (register->byte reg2)])
       (add-maybe-byte
-        (rex-byte rexW #f (>= index 8) (>= base 8))
+        (make-rex-byte rexW #f (>= index 8) (>= base 8))
         (let ([v (bytes/8
                    (u8 opcode)
                    (u8 (mod-rm-byte #x02 op-ext #x04))
@@ -435,14 +438,14 @@
   (let ([reg (register->byte reg1)])
     (let ([rm (register->byte reg2)])
       (add-maybe-byte
-        (rex-byte rexW (>= reg 8) #f (>= rm 8))
+        (make-rex-byte rexW (>= reg 8) #f (>= rm 8))
         (bytes/2 (u8 opcode) (u8 (mod-rm-byte #x03 reg rm)))))))
 
 (define (single-byte-op/RM/reg/8 [opcode : Int] [rexW : Boolean] [reg1 : Register8] [reg2 : Register8]) : Bytes
   (let ([reg (register8->byte reg1)])
     (let ([rm (register8->byte reg2)])
       (add-maybe-byte
-        (rex-byte rexW (>= reg 8) #f (>= rm 8))
+        (make-rex-byte rexW (>= reg 8) #f (>= rm 8))
         (bytes/2 (u8 opcode) (u8 (mod-rm-byte #x03 reg rm)))))))
 
 
@@ -452,7 +455,7 @@
   (let ([reg (register->byte reg1)])
     (let ([rm (register->byte reg2)])
       (add-maybe-byte
-        (rex-byte rexW (>= reg 8) #f (>= rm 8))
+        (make-rex-byte rexW (>= reg 8) #f (>= rm 8))
         (bytes/2 (u8 opcode) (u8 (mod-rm-byte #x00 reg rm)))))))
 
 (define (single-byte-op/RM/direct-mem/8 [opcode : Int] [rexW : Boolean]
@@ -460,7 +463,7 @@
   (let ([reg (register8->byte reg1)])
     (let ([rm (register->byte reg2)])
       (add-maybe-byte
-        (rex-byte* rexW (>= reg 8) #f (>= rm 8) reg1)
+        (make-rex-byte* rexW (>= reg 8) #f (>= rm 8) reg1)
         (bytes/2 (u8 opcode) (u8 (mod-rm-byte #x00 reg rm)))))))
 
 ;; Doesn't support rsp or r12. This is because the instruction set doesn't support them.
@@ -471,7 +474,7 @@
   (let ([reg (register->byte reg1)])
     (let ([rm (register->byte reg2)])
       (add-maybe-byte
-        (rex-byte rexW (>= reg 8) #f (>= rm 8))
+        (make-rex-byte rexW (>= reg 8) #f (>= rm 8))
         (let ([v (bytes/6 (u8 opcode) (u8 (mod-rm-byte #x02 reg rm)) (u8 0) (u8 0) (u8 0) (u8 0))])
           (begin
             (bytes-set!/s32-le v 2 displacement)
@@ -484,7 +487,7 @@
   (let ([reg (register8->byte reg1)])
     (let ([rm (register->byte reg2)])
       (add-maybe-byte
-        (rex-byte* rexW (>= reg 8) #f (>= rm 8) reg1)
+        (make-rex-byte* rexW (>= reg 8) #f (>= rm 8) reg1)
         (let ([v (bytes/6 (u8 opcode) (u8 (mod-rm-byte #x02 reg rm)) (u8 0) (u8 0) (u8 0) (u8 0))])
           (begin
             (bytes-set!/s32-le v 2 displacement)
@@ -498,7 +501,7 @@
     (let ([base (register->byte reg2)])
       (let ([index (register->byte reg3)])
         (add-maybe-byte
-          (rex-byte rexW (>= reg 8) (>= index 8) (>= base 8))
+          (make-rex-byte rexW (>= reg 8) (>= index 8) (>= base 8))
           (let ([v (bytes/7
                      (u8 opcode)
                      (u8 (mod-rm-byte #x02 reg #x04))
@@ -516,7 +519,7 @@
     (let ([base (register->byte reg2)])
       (let ([index (register->byte reg3)])
         (add-maybe-byte
-          (rex-byte* rexW (>= reg 8) (>= index 8) (>= base 8) reg1)
+          (make-rex-byte* rexW (>= reg 8) (>= index 8) (>= base 8) reg1)
           (let ([v (bytes/7
                      (u8 opcode)
                      (u8 (mod-rm-byte #x02 reg #x04))
@@ -532,7 +535,7 @@
   (let ([reg (register->byte reg2)])
     (let ([rm (register->byte reg1)])
       (add-maybe-byte
-        (rex-byte rexW (>= reg 8) #f (>= rm 8))
+        (make-rex-byte rexW (>= reg 8) #f (>= rm 8))
         (let ([v (bytes/6
                    (u8 opcode)
                    (u8 (mod-rm-byte #x03 reg rm))
@@ -545,7 +548,7 @@
   (let ([rm (register->byte reg1)])
     (let ([reg (register->byte reg2)])
       (add-maybe-byte
-        (rex-byte rexW (>= reg 8) #f (>= rm 8))
+        (make-rex-byte rexW (>= reg 8) #f (>= rm 8))
         (bytes/3 (u8 #x0F) (u8 opcode) (u8 (mod-rm-byte #x03 reg rm)))))))
 (define (double-byte-op/RM [opcode : Int] [rexW : Boolean] [reg1 : Register] [reg2 : Register]) : Bytes
   (double-byte-op/MR opcode rexW reg2 reg1))
@@ -554,7 +557,7 @@
   (let ([rm (register8->byte reg1)])
     (let ([reg (register->byte reg2)])
       (add-maybe-byte
-        (rex-byte* rexW (>= reg 8) #f (>= rm 8) reg1)
+        (make-rex-byte* rexW (>= reg 8) #f (>= rm 8) reg1)
         (bytes/3 (u8 #x0F) (u8 opcode) (u8 (mod-rm-byte #x03 reg rm)))))))
 
 (define (double-byte-op/MR/mem [opcode : Int] [rexW : Boolean]
@@ -571,7 +574,7 @@
   (let ([rm (register->byte reg1)])
     (let ([reg (register->byte reg2)])
       (add-maybe-byte
-        (rex-byte rexW (>= reg 8) #f (>= rm 8))
+        (make-rex-byte rexW (>= reg 8) #f (>= rm 8))
         (bytes/3
           (u8 #x0F)
           (u8 opcode)
@@ -584,7 +587,7 @@
   (let ([rm (register->byte reg1)])
     (let ([reg (register->byte reg2)])
       (add-maybe-byte
-        (rex-byte rexW (>= reg 8) #f (>= rm 8))
+        (make-rex-byte rexW (>= reg 8) #f (>= rm 8))
         (let ([v (bytes/7
                    (u8 #x0F)
                    (u8 opcode)
@@ -602,7 +605,7 @@
     (let ([index (register->byte reg2)])
       (let ([reg (register->byte reg3)])
         (add-maybe-byte
-          (rex-byte rexW (>= reg 8) (>= index 8) (>= base 8))
+          (make-rex-byte rexW (>= reg 8) (>= index 8) (>= base 8))
           (let ([v (bytes/8
                      (u8 #x0F)
                      (u8 opcode)
@@ -617,22 +620,21 @@
 (define (double-byte-op/M/8 [opcode : Int] [op-ext : Int] [rexW : Boolean] [reg : Register8]) : Bytes
   (let ([rm (register8->byte reg)])
     (add-maybe-byte
-      (rex-byte* rexW #f #f (>= rm 8) reg)
+      (make-rex-byte* rexW #f #f (>= rm 8) reg)
       (bytes/3
         (u8 #x0F)
         (u8 opcode)
         (u8 (mod-rm-byte #x03 op-ext rm))))))
 
-;; TODO make this take a U8
-(define (add-maybe-byte [mv : (Maybe Int)] [bs : Bytes]) : Bytes
-  (case mv
-    [(nothing) bs]
-    [(just v) (bytes-append (cons (bytes/1 (u8 v)) (cons bs (empty))))]))
+(define (add-maybe-byte [rb : RexByte] [bs : Bytes]) : Bytes
+  (case rb
+    [(no-rex-byte) bs]
+    [(rex-byte v) (bytes-append (cons (bytes/1 v) (cons bs (empty))))]))
 
 
 ;; TODO make this return a U8
-(define (rex-byte [w : Boolean] [r : Boolean] [x : Boolean] [b : Boolean])
-  : (Maybe Int)
+(define (make-rex-byte [w : Boolean] [r : Boolean] [x : Boolean] [b : Boolean])
+  : RexByte
   (let ([ind (lambda ([v : Boolean]) (if v 1 0))])
     (let ([val (bitwise-ior #x40
                  (bitwise-ior (logical-shift-left (ind w) 3)
@@ -640,8 +642,8 @@
                      (bitwise-ior (logical-shift-left (ind x) 1)
                                   (ind b)))))])
       (if (= val #x40)
-          (nothing)
-          (just val)))))
+          (no-rex-byte)
+          (rex-byte (u8 val))))))
 
 (define (rex-requirement [reg : Register8]) : RexRequirement
   (case reg
@@ -666,19 +668,19 @@
     [(r14b) (rex-optional)]
     [(r15b) (rex-optional)]))
 
-(define (rex-byte* [w : Boolean] [r : Boolean] [x : Boolean] [b : Boolean] [reg : Register8])
-  : (Maybe Int)
-  (match-define computed-rex (rex-byte w r x b))
+(define (make-rex-byte* [w : Boolean] [r : Boolean] [x : Boolean] [b : Boolean] [reg : Register8])
+  : RexByte
+  (match-define computed-rex (make-rex-byte w r x b))
   (case (rex-requirement reg)
     [(rex-optional) computed-rex]
     [(rex-mandatory)
      (case computed-rex
-       [(just x) computed-rex]
-       [(nothing) (just #x40)])]
+       [(no-rex-byte) (rex-byte (u8 #x40))]
+       [_ computed-rex])]
     [(rex-forbidden)
      (case computed-rex
-       [(just x) (panic #"Cannot encode rex prefix and use this register")]
-       [(nothing) (nothing)])]))
+       [(no-rex-byte) (no-rex-byte)]
+       [(rex-byte _) (panic #"Cannot encode rex prefix and use this register")])]))
 
 ;; TODO make this return a U8
 (define (sib-byte [scale : Scale] [index : Register] [base : Register]) : Int
