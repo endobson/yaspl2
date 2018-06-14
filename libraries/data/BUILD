@@ -160,6 +160,7 @@ yaspl_bootstrap_library(
     srcs = ["list.yaspl"],
     deps = [
         ":either",
+        ":lifted-primitives",
         ":maybe",
         ":ordering",
         ":tuples",
@@ -212,7 +213,6 @@ yaspl_bootstrap_library(
     srcs = ["numbers.yaspl"],
     deps = [
         ":lifted-primitives",
-        ":list",
         ":maybe",
         ":ordering",
     ],
