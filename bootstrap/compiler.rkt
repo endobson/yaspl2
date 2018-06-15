@@ -74,43 +74,54 @@
   ;; Mapping to identifiers
   (define global-env (make-primitive-environment))
 
-  (define definitions
+  (define definitionss
     (for/list ([module (topo-sort (set->list modules))])
-      ;;mapping to identifiers
-      (define local-env (make-hash))
-      (define local-pattern-env (make-hash))
+      (define-values (definitions new-global-entries)
+        (compile-module module signatures (hash-copy/immutable global-env)))
+      (hash-union! global-env new-global-entries)
+      definitions))
+  (values
+    (append* definitionss)
+    global-env))
 
-      (for ([imports (in-list (module&-imports module))])
-        (match imports
-          [(partial-imports& mod-name _ values _)
-           (for ([import (in-list values)])
-             (hash-set! local-env (import&-local-name import)
-                        (hash-ref global-env
-                          (full-name mod-name (import&-exported-name import)))))]
-          [(full-imports& mod-name)
-           (match (hash-ref signatures mod-name)
-             [(module-signature _ values _ _)
-              (for ([export (in-hash-keys values)])
-                (hash-set! local-env export
-                           (hash-ref global-env
-                             (full-name mod-name export))))])]))
+(define (compile-module module signatures global-env)
+  ;;mapping to identifiers
+  (define local-env (make-hash))
+  (define local-pattern-env (make-hash))
 
-
-      ;; TODO actually support more complicated pattern bindings
-      (for ([imports (in-list (module&-imports module))])
-        (match imports
-          [(partial-imports& mod-name _ _ patterns)
-           (for ([import (in-list patterns)])
-             (hash-set! local-pattern-env (import&-local-name import)
-                        (import&-exported-name import)))]
-          [(full-imports& mod-name)
-           (match (hash-ref signatures mod-name)
-             [(module-signature _ _ _ patterns)
-              (for ([export (in-hash-keys patterns)])
-                (hash-set! local-pattern-env export export))])]))
+  (for ([imports (in-list (module&-imports module))])
+    (match imports
+      [(partial-imports& mod-name _ values _)
+       (for ([import (in-list values)])
+         (hash-set! local-env (import&-local-name import)
+                    (hash-ref global-env
+                      (full-name mod-name (import&-exported-name import)))))]
+      [(full-imports& mod-name)
+       (match (hash-ref signatures mod-name)
+         [(module-signature _ values _ _)
+          (for ([export (in-hash-keys values)])
+            (hash-set! local-env export
+                       (hash-ref global-env
+                         (full-name mod-name export))))])]))
 
 
-      (define variant-defs
+  ;; TODO actually support more complicated pattern bindings
+  (for ([imports (in-list (module&-imports module))])
+    (match imports
+      [(partial-imports& mod-name _ _ patterns)
+       (for ([import (in-list patterns)])
+         (hash-set! local-pattern-env (import&-local-name import)
+                    (import&-exported-name import)))]
+      [(full-imports& mod-name)
+       (match (hash-ref signatures mod-name)
+         [(module-signature _ _ _ patterns)
+          (for ([export (in-hash-keys patterns)])
+            (hash-set! local-pattern-env export export))])]))
+
+
+  (define variant-defs
+    (append*
+      (append*
         (for/list ([type (in-list (module&-types module))])
           (for/list ([variant (in-list (define-type&-variants type))])
             (define variant-name (variant&-name variant))
@@ -133,39 +144,39 @@
                 (hash-set! local-env
                   (string->symbol (format "~a-~a" variant-name field-name))
                   field-id)
-                `(,define-sym (,field-id v) (,app-sym ,vector-ref-sym (,app-sym ,variant-val-fields-sym v) ',index)))))))
+                `(,define-sym (,field-id v)
+                    (,app-sym ,vector-ref-sym (,app-sym ,variant-val-fields-sym v)
+                              ',index)))))))))
 
 
-      (for ([(name _) (in-hash (module&-definitions module))])
-        (define temporary (generate-temporary name))
-        (hash-set! local-env name temporary))
+  (for ([(name _) (in-hash (module&-definitions module))])
+    (define temporary (generate-temporary name))
+    (hash-set! local-env name temporary))
 
-      (define immutable-local-env (hash-copy/immutable local-env))
-      (define immutable-local-pattern-env (hash-copy/immutable local-pattern-env))
+  (define immutable-local-env (hash-copy/immutable local-env))
+  (define immutable-local-pattern-env (hash-copy/immutable local-pattern-env))
 
-      (define function-defs
-        (for/list ([(name def) (in-hash (module&-definitions module))])
-          (match def
-            [(definition& _ args (block& defs body))
-             (define temporaries (generate-temporaries args))
-             `(,define-sym (,(hash-ref local-env name) ,@temporaries)
-                 ,(compile-block
-                      immutable-local-pattern-env
-                      (for/fold ([env immutable-local-env])
-                                ([a (in-list args)] [t (in-list temporaries)])
-                        (hash-set env a t))
-                      defs
-                      body))])))
+  (define function-defs
+    (for/list ([(name def) (in-hash (module&-definitions module))])
+      (match def
+        [(definition& _ args (block& defs body))
+         (define temporaries (generate-temporaries args))
+         `(,define-sym (,(hash-ref local-env name) ,@temporaries)
+             ,(compile-block
+                  immutable-local-pattern-env
+                  (for/fold ([env immutable-local-env])
+                            ([a (in-list args)] [t (in-list temporaries)])
+                    (hash-set env a t))
+                  defs
+                  body))])))
 
-      (for ([export (in-list (exports&-values (module&-exports module)))])
-        (match-define (export& in-name out-name) export)
-        (define local-val (hash-ref local-env in-name #f))
-        (when local-val
-          (hash-set! global-env (full-name (module&-name module) out-name) local-val)))
-      (append (append* (append* variant-defs)) function-defs)))
   (values
-    (append* definitions)
-    global-env))
+    (append variant-defs function-defs)
+    (for/hash ([export (in-list (exports&-values (module&-exports module)))])
+      (match-define (export& in-name out-name) export)
+      (values
+        (full-name (module&-name module) out-name)
+        (hash-ref local-env in-name)))))
 
 (define (compile-block pat-env env defs body)
   (match defs
