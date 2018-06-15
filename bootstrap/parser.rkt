@@ -122,7 +122,7 @@
   (define parse parse-expression)
   (match sexp
     [(? exact-integer? num) (byte& num)]
-    [(? (and/c bytes? immutable?) bytes) (bytes& bytes)]
+    [(? bytes? bytes) (bytes& (bytes->immutable-bytes bytes))]
     [(? boolean? bool) (boolean& bool)]
     [(? symbol? sym) (variable& sym)]
     [`(if ,cond ,true ,false)
@@ -152,7 +152,7 @@
 
 (define (parse-pattern sexp)
   (match sexp
-    [(? (and/c bytes? immutable?) v) (bytes-pattern& v)]
+    [(? bytes? bytes) (bytes-pattern& (bytes->immutable-bytes bytes))]
     ['_ (ignore-pattern&)]
     [(? symbol? v) (variable-pattern& v)]
     [(? integer? v) (byte-pattern& v)]
