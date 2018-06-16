@@ -26,10 +26,10 @@
     [(ignore-pattern&)
      succ]
     [(abstraction-pattern& pattern-binding pats)
-     #`(if (equal? (variant-val-variant-name #,val) '#,(hash-ref pat-env pattern-binding))
+     #`(if (equal? (#,variant-val-variant-name #,val) '#,(hash-ref pat-env pattern-binding))
            #,(for/fold ([succ succ]) ([pat (in-list pats)] [index (in-naturals)])
                (define field-temp (generate-temporary 'field))
-               #`(let ([#,field-temp (vector-ref (variant-val-fields #,val) '#,index)])
+               #`(let ([#,field-temp (vector-ref (#,variant-val-fields #,val) '#,index)])
                    #,(convert pat pat-env temp-env field-temp fail succ)))
            #,fail)]))
 

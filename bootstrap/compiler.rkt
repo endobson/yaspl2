@@ -44,12 +44,7 @@
          (require
            (only-in ',(mod-name->racket-mod-name module-name)
              [,main-name main-fun]))
-         ;main-fun
-         (let ()
-           (define variant-val ,variant-val)
-           (define variant-val-fields ,variant-val-fields)
-           ,@definitions
-           ,main-fun-id))
+         main-fun)
       ns))
 
   (define process-args (list->vector (cons #"/binary-path" supplied-args)))
@@ -101,6 +96,7 @@
 (define (compile-module module signatures global-env)
   ;;mapping to identifiers
   (define local-env (make-hash))
+  (define module-local-env (make-hash))
   (define local-pattern-env (make-hash))
 
   (for ([imports (in-list (module&-imports module))])
@@ -141,6 +137,7 @@
             (define variant-name (variant&-name variant))
             (define constructor-id (generate-temporary variant-name))
             (hash-set! local-env variant-name constructor-id)
+            (hash-set! module-local-env variant-name constructor-id)
             (hash-set! local-pattern-env variant-name variant-name)
 
             (cons
@@ -158,6 +155,9 @@
                 (hash-set! local-env
                   (string->symbol (format "~a-~a" variant-name field-name))
                   field-id)
+                (hash-set! module-local-env
+                  (string->symbol (format "~a-~a" variant-name field-name))
+                  field-id)
                 `(,define-sym (,field-id v)
                     (,app-sym ,vector-ref-sym (,app-sym ,variant-val-fields-sym v)
                               ',index)))))))))
@@ -165,9 +165,32 @@
 
   (for ([(name _) (in-hash (module&-definitions module))])
     (define temporary (generate-temporary name))
-    (hash-set! local-env name temporary))
+    (hash-set! local-env name temporary)
+    (hash-set! module-local-env name temporary))
+
+
+  (define module-import-forms
+    (for/list ([imports (in-list (module&-imports module))])
+      (match imports
+        [(partial-imports& mod-name _ values _)
+         `(require
+            (only-in ',(mod-name->racket-mod-name mod-name)
+              ,@(for/list ([import (in-list values)])
+                  (define id (generate-temporary (import&-local-name import)))
+                  (hash-set! module-local-env (import&-local-name import) id)
+                  `[,(import&-exported-name import) ,id])))]
+        [(full-imports& mod-name)
+         `(require
+            (only-in ',(mod-name->racket-mod-name mod-name)
+              ,@(match (hash-ref signatures mod-name)
+                  [(module-signature _ values _ _)
+                   (for/list ([export (in-hash-keys values)])
+                     (define id (generate-temporary export))
+                     (hash-set! module-local-env export id)
+                     `[,export ,id])])))])))
 
   (define immutable-local-env (hash-copy/immutable local-env))
+  (define immutable-module-local-env (hash-copy/immutable module-local-env))
   (define immutable-local-pattern-env (hash-copy/immutable local-pattern-env))
 
   (define function-defs
@@ -186,38 +209,29 @@
 
   (define racket-mod-name (mod-name->racket-mod-name (module&-name module)))
 
-  (define module-local-env
-    (make-hash))
 
   (define racket-mod
     `(module ,racket-mod-name racket/base
        (define variant-val ,variant-val)
        (define variant-val-fields ,variant-val-fields)
 
-       ,@(for/list ([imports (in-list (module&-imports module))])
-           (match imports
-             [(partial-imports& mod-name _ values _)
-              `(require
-                 (only-in ',(mod-name->racket-mod-name mod-name)
-                   ,@(for/list ([import (in-list values)])
-                       (define id (generate-temporary (import&-local-name import)))
-                       (hash-set! module-local-env (import&-local-name import) id)
-                       `[,(import&-exported-name import) ,id])))]
-             [(full-imports& mod-name)
-              `(require
-                 (only-in ',(mod-name->racket-mod-name mod-name)
-                   ,@(match (hash-ref signatures mod-name)
-                       [(module-signature _ values _ _)
-                        (for/list ([export (in-hash-keys values)])
-                          (define id (generate-temporary export))
-                          (hash-set! module-local-env export id)
-                          `[,export ,id])])))]))
+       ,@module-import-forms
 
        ,@variant-defs
+
        ,@(for/list ([(name def) (in-hash (module&-definitions module))])
-           (define id (hash-ref local-env name))
-           `(begin
-              (define ,id #f)))
+           (match def
+             [(definition& _ args (block& defs body))
+              (define temporaries (generate-temporaries args))
+              `(,define-sym (,(hash-ref module-local-env name) ,@temporaries)
+                  ,(compile-block
+                       immutable-local-pattern-env
+                       (for/fold ([env immutable-module-local-env])
+                                 ([a (in-list args)] [t (in-list temporaries)])
+                         (hash-set env a t))
+                       defs
+                       body))]))
+
        (provide
          (rename-out
            ,@(for/list ([export (in-list (exports&-values (module&-exports module)))])
