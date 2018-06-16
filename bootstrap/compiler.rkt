@@ -24,7 +24,7 @@
 
 (define (run-program modules signatures module-name main-name #:stdin stdin-bytes
                      #:args [supplied-args empty])
-  (define-values (definitions env) (compile-modules modules signatures))
+  (define-values (racket-modules definitions env) (compile-modules modules signatures))
   (define full-main-name (full-name module-name main-name))
   (define main-fun-id (hash-ref env full-main-name #f))
   (unless main-fun-id
@@ -35,9 +35,21 @@
     (namespace-require 'racket/base))
   (define main-fun
     (eval
-      `(let ()
-          ,@definitions
-          ,main-fun-id)
+      `(begin
+         (module prim racket/base
+           (provide (all-defined-out))
+           ,@(for/list ([(prim-name prim-val) (in-hash supported-primitives)])
+               `(define ,prim-name ,prim-val)))
+         ,@racket-modules
+         (require
+           (only-in ',(mod-name->racket-mod-name module-name)
+             [,main-name main-fun]))
+         ;main-fun
+         (let ()
+           (define variant-val ,variant-val)
+           (define variant-val-fields ,variant-val-fields)
+           ,@definitions
+           ,main-fun-id))
       ns))
 
   (define process-args (list->vector (cons #"/binary-path" supplied-args)))
@@ -62,8 +74,9 @@
 (define let-sym (datum->syntax #'let 'let))
 (define vector-sym (datum->syntax #'vector 'vector))
 (define vector-ref-sym (datum->syntax #'vector-ref 'vector-ref))
-(define variant-val-sym (datum->syntax #'variant-val 'variant-val))
-(define variant-val-fields-sym (datum->syntax #'variant-val-fields 'variant-val-fields))
+;;
+(define variant-val-sym 'variant-val)
+(define variant-val-fields-sym 'variant-val-fields)
 
 (define (compile-modules modules signatures)
   (define (make-primitive-environment)
@@ -74,14 +87,15 @@
   ;; Mapping to identifiers
   (define global-env (make-primitive-environment))
 
-  (define definitionss
-    (for/list ([module (topo-sort (set->list modules))])
-      (define-values (definitions new-global-entries)
+  (define-values (mods defs)
+    (for/lists (mods defs) ([module (topo-sort (set->list modules))])
+      (define-values (definitions racket-module new-global-entries)
         (compile-module module signatures (hash-copy/immutable global-env)))
       (hash-union! global-env new-global-entries)
-      definitions))
+      (values racket-module definitions)))
   (values
-    (append* definitionss)
+    mods
+    (append* defs)
     global-env))
 
 (define (compile-module module signatures global-env)
@@ -170,8 +184,49 @@
                   defs
                   body))])))
 
+  (define racket-mod-name (mod-name->racket-mod-name (module&-name module)))
+
+  (define module-local-env
+    (make-hash))
+
+  (define racket-mod
+    `(module ,racket-mod-name racket/base
+       (define variant-val ,variant-val)
+       (define variant-val-fields ,variant-val-fields)
+
+       ,@(for/list ([imports (in-list (module&-imports module))])
+           (match imports
+             [(partial-imports& mod-name _ values _)
+              `(require
+                 (only-in ',(mod-name->racket-mod-name mod-name)
+                   ,@(for/list ([import (in-list values)])
+                       (define id (generate-temporary (import&-local-name import)))
+                       (hash-set! module-local-env (import&-local-name import) id)
+                       `[,(import&-exported-name import) ,id])))]
+             [(full-imports& mod-name)
+              `(require
+                 (only-in ',(mod-name->racket-mod-name mod-name)
+                   ,@(match (hash-ref signatures mod-name)
+                       [(module-signature _ values _ _)
+                        (for/list ([export (in-hash-keys values)])
+                          (define id (generate-temporary export))
+                          (hash-set! module-local-env export id)
+                          `[,export ,id])])))]))
+
+       ,@variant-defs
+       ,@(for/list ([(name def) (in-hash (module&-definitions module))])
+           (define id (hash-ref local-env name))
+           `(begin
+              (define ,id #f)))
+       (provide
+         (rename-out
+           ,@(for/list ([export (in-list (exports&-values (module&-exports module)))])
+               (match-define (export& in-name out-name) export)
+               `[,(hash-ref local-env in-name) ,out-name])))))
+
   (values
     (append variant-defs function-defs)
+    racket-mod
     (for/hash ([export (in-list (exports&-values (module&-exports module)))])
       (match-define (export& in-name out-name) export)
       (values
@@ -269,3 +324,12 @@
        (for/fold ([acc acc]) ([pat (in-list pats)])
          (recur pat acc))]))
   (recur p empty))
+
+(define (mod-name->racket-mod-name mod-name)
+  (match mod-name
+    [(module-name& parts)
+     (string->symbol
+       (apply string-append
+         (add-between
+           (map symbol->string parts)
+           "_")))]))
