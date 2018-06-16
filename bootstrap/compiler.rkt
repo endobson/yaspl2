@@ -13,11 +13,13 @@
   racket/set
   syntax/stx
   racket/hash
+  racket/runtime-path
   racket/match)
 (provide
   run-program
   (struct-out program-result))
 
+(define-runtime-path machine-structs-path "machine-structs.rkt")
 
 (struct program-result (exit-code error-info stdout stderr))
 (define-namespace-anchor anchor)
@@ -160,19 +162,22 @@
                     body))]))))
 
   (define racket-mod-name (mod-name->racket-mod-name (module&-name module)))
-  `(module ,racket-mod-name racket/base
-     (define variant-val ,variant-val)
-     (define variant-val-fields ,variant-val-fields)
+  (define racket-module
+    `(module ,racket-mod-name racket/base
+       (require
+         (only-in (file ,(path->string machine-structs-path))
+                  variant-val variant-val-variant-name variant-val-fields))
 
-     ,@module-import-forms
-     ,@variant-defs
-     ,@function-defs
+       ,@module-import-forms
+       ,@variant-defs
+       ,@function-defs
 
-     (provide
-       (rename-out
-         ,@(for/list ([export (in-list (exports&-values (module&-exports module)))])
-             (match-define (export& in-name out-name) export)
-             `[,(hash-ref local-env in-name) ,out-name])))))
+       (provide
+         (rename-out
+           ,@(for/list ([export (in-list (exports&-values (module&-exports module)))])
+               (match-define (export& in-name out-name) export)
+               `[,(hash-ref local-env in-name) ,out-name])))))
+  racket-module)
 
 
 (define (compile-block pat-env env defs body)
