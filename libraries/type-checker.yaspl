@@ -114,8 +114,7 @@
           [type-vars : (List Bytes)]
           [gen-accessors : Boolean]
           [self-type : Type]
-          [all-variants : (List Bytes)]
-          [ctx : Context]) : Context
+          [all-variants : (List Bytes)]) : Context
   (case def
     [(variant-definition name fields)
      (context
@@ -153,7 +152,12 @@
     [(nothing) (empty)]
     [(just vars) vars]))
 
-(define (type-definition->context [mod-name : ModName] [def : TypeDefinition] [ctx : Context]) : Context
+
+(define (type-definitions->context [mod-name : ModName] [defs : (List TypeDefinition)]) : Context
+  (merge-contexts*
+    (map (lambda ([def : TypeDefinition]) (type-definition->context mod-name def)) defs)))
+
+(define (type-definition->context [mod-name : ModName] [def : TypeDefinition]) : Context
   (case def
     [(type-definition name type-vars variants)
      (let ([simple-type-vars (simplify-type-vars type-vars)])
@@ -165,7 +169,7 @@
              (merge-contexts*
                (map (lambda ([v : VariantDefinition])
                       (variant-definition->context v simple-type-vars gen-accessors self-type
-                                                   all-variants ctx))
+                                                   all-variants))
                     variants))))))]))
 
 (define (function-definition->type [def : FunctionDefinition]) : Type
@@ -175,35 +179,25 @@
         (map (lambda ([t : (Tuple2 Bytes Type)]) (case t [(tuple2 _ t) t])) args))
      (fun-type type-vars arg-types result-type)]))
 
-(define (get-function-types [defs : (List FunctionDefinition)])
-  : (List (Tuple2 Bytes Type))
-  (map (lambda ([def : FunctionDefinition])
-         (tuple2 (function-definition-name def)
-                 (function-definition->type def)))
-       defs))
+(define (function-definitions->context [defs : (List FunctionDefinition)])
+  : Context
+  (context
+    (make-dict bytes-cmp)
+    (dict-add-all
+      (make-dict bytes-cmp)
+      (map (lambda ([def : FunctionDefinition]) : (Tuple2 Bytes Type)
+             (tuple2 (function-definition-name def)
+                     (function-definition->type def)))
+        defs))))
 
-(define (create-context [mod : Module]) : (Either Bytes Context)
+(define (create-context [mod : Module]) : Context
   (case mod
     [(module mod-name imports _ types defs)
-     (let ([init-context (imports->context imports)])
-       (let ([context/local-types
-               (merge-contexts
-                 init-context
-                 (context
-                   (make-dict bytes-cmp)
-                   (make-dict bytes-cmp)))])
-         (let ([fun-types (get-function-types defs)])
-           (right
-             (merge-contexts*
-               (cons
-                 context/local-types
-                 (cons
-                   (context
-                     (make-dict bytes-cmp)
-                     (dict-add-all (make-dict bytes-cmp) fun-types))
-                   (map (lambda ([def : TypeDefinition])
-                          (type-definition->context mod-name def context/local-types))
-                        types))))))))]))
+     (merge-contexts*
+       (varargs list
+         (imports->context imports)
+         (function-definitions->context defs)
+         (type-definitions->context mod-name types)))]))
 
 (define (type-check/definition
           [def : FunctionDefinition]
@@ -804,13 +798,11 @@
                           s))])])]))])])]))
 
 (define (type-check [mod : Module]) : (Either TypeCheckError Context)
-  (match-define (module name imports _ _ definitions) mod)
-  (case (create-context mod)
-    [(left v) (left (type-check-error name (varargs list v)))]
-    [(right context)
-     (case (filter-map
-             (lambda ([def : FunctionDefinition]) (type-check/definition def context))
-             definitions)
-       [(empty) (right context)]
-       [vs
-        (left (type-check-error name vs))])]))
+  (match-define (module name _ _ _ definitions) mod)
+  (match-define context (create-context mod))
+  (case (filter-map
+          (lambda ([def : FunctionDefinition]) (type-check/definition def context))
+          definitions)
+    [(empty) (right context)]
+    [vs
+     (left (type-check-error name vs))]))
