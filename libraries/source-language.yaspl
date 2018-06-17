@@ -98,16 +98,6 @@
 (define (nothing/pre-type) : (Maybe PreType)
   (nothing))
 
-(define (a b) (leftmost-error [eithers : (List (Either a b))]) : (Either a (List b))
-  (leftmost-error/helper eithers (empty)))
-
-(define (a b) (leftmost-error/helper [eithers : (List (Either a b))] [acc : (List b)]) : (Either a (List b))
-  (case eithers
-    [(empty) (right (reverse acc))]
-    [(cons (left v) _) (left v)]
-    [(cons (right v) es)
-     (leftmost-error/helper es (cons v acc))]))
-
 (define (a b r)
   (either-app2
     [f : (a b -> r)]
@@ -228,13 +218,13 @@
            (cons (node (cons (keyword-sexp #"values") value-exports))
              (cons (node (cons (keyword-sexp #"patterns") pattern-exports))
                (empty))))))
-     (case (leftmost-error (map parse-exported-symbol type-exports))
+     (case (extract-rights (map parse-exported-symbol type-exports))
        [(left v) (left v)]
        [(right type-names)
-        (case (leftmost-error (map parse-exported-symbol value-exports))
+        (case (extract-rights (map parse-exported-symbol value-exports))
           [(left v) (left v)]
           [(right value-names)
-           (case (leftmost-error (map parse-exported-symbol pattern-exports))
+           (case (extract-rights (map parse-exported-symbol pattern-exports))
              [(left v) (left v)]
              [(right pattern-names)
               (let ([convert (lambda ([name : Bytes]) (export name name))])
@@ -254,7 +244,7 @@
 (define (parse-types/top [sexp : Sexp]) : (Either Bytes (List TypeDefinition))
   (case sexp
     [(node (cons (symbol-sexp #"types") type-definitions))
-     (leftmost-error (map parse-type-definition type-definitions))]
+     (extract-rights (map parse-type-definition type-definitions))]
     [_ (left #"Bad types")]))
 
 (define (parse-type-definition [sexp : Sexp]) : (Either Bytes TypeDefinition)
@@ -266,7 +256,7 @@
         (case (extract-type-vars type-name/vars)
           [(left v) (left v)]
           [(right type-vars)
-           (case (leftmost-error (map parse-variant variants))
+           (case (extract-rights (map parse-variant variants))
              [(left v) (left v)]
              [(right variants)
               (right (type-definition type-name type-vars variants))])])])]
@@ -275,7 +265,7 @@
 (define (parse-variant [sexp : Sexp]) : (Either Bytes VariantDefinition)
   (case sexp
     [(node (cons (symbol-sexp variant-name) fields))
-     (case (leftmost-error (map parse-variant-field fields))
+     (case (extract-rights (map parse-variant-field fields))
        [(left v) (left v)]
        [(right fields)
         (right (variant-definition variant-name fields))])]
@@ -303,7 +293,7 @@
     [(symbol-sexp _)
      (right (nothing))]
     [(node (cons _ type-var-sexps))
-     (case (leftmost-error (map parse-type-var-symbol type-var-sexps))
+     (case (extract-rights (map parse-type-var-symbol type-var-sexps))
        [(left v) (left v)]
        [(right type-vars)
         (right (just type-vars))])]
@@ -358,7 +348,7 @@
                 [(right result)
                  (right (fun-pre-type (empty) (cons arg1 (cons arg2 (cons arg3 (empty)))) result))])])])])]
     [(node (cons (symbol-sexp constructor) args))
-     (case (leftmost-error (map parse-pre-type args))
+     (case (extract-rights (map parse-pre-type args))
        [(left v) (left v)]
        [(right args)
         (right (type-app-pre-type constructor args))])]
@@ -371,10 +361,10 @@
                        (cons (node (cons (symbol-sexp function-name) args))
                              (cons (symbol-sexp #":")
                                    (cons result-type body))))))
-     (case (leftmost-error (map parse-arg args))
+     (case (extract-rights (map parse-arg args))
        [(left v) (left v)]
        [(right parsed-args)
-        (case (leftmost-error (map parse-type-var-symbol type-vars))
+        (case (extract-rights (map parse-type-var-symbol type-vars))
           [(left v) (left v)]
           [(right type-vars)
            (case (parse-pre-type result-type)
@@ -394,7 +384,7 @@
                  (cons (node (cons (symbol-sexp function-name) args))
                        (cons (symbol-sexp #":")
                              (cons result-type body)))))
-     (case (leftmost-error (map parse-arg args))
+     (case (extract-rights (map parse-arg args))
        [(left v) (left v)]
        [(right parsed-args)
         (case (parse-pre-type result-type)
@@ -469,13 +459,13 @@
         (left #"Begin requires at least one expression")]
        [(cons last-expr exprs)
         (either-app2 begin-expr
-          (leftmost-error (map (lambda ([s : Sexp]) (parse-expression #f s)) (reverse exprs)))
+          (extract-rights (map (lambda ([s : Sexp]) (parse-expression #f s)) (reverse exprs)))
           (parse-expression tail-position last-expr))])]
     [(node (cons (symbol-sexp #"varargs") (cons op-expr exprs)))
      (case (parse-expression #f op-expr)
        [(left v) (left v)]
        [(right op-expr)
-        (case (leftmost-error (map (lambda ([s : Sexp]) (parse-expression #f s)) exprs))
+        (case (extract-rights (map (lambda ([s : Sexp]) (parse-expression #f s)) exprs))
           [(left v) (left v)]
           [(right exprs)
            (right (varargs-app-expr tail-position op-expr exprs))])])]
@@ -484,7 +474,7 @@
     [(node (cons (symbol-sexp #"case") (cons expr clauses)))
      (either-app2 case-expr
        (parse-expression #f expr)
-       (leftmost-error (map (lambda ([s : Sexp]) (parse-case-clause tail-position s))
+       (extract-rights (map (lambda ([s : Sexp]) (parse-case-clause tail-position s))
                             clauses)))]
     [(node (cons (symbol-sexp #"lambda") lambda-sexps))
      (parse-lambda-sexps lambda-sexps)]
@@ -504,7 +494,7 @@
      (case (parse-expression #f op-expr)
        [(left v) (left v)]
        [(right op-expr)
-        (case (leftmost-error (map (lambda ([s : Sexp]) (parse-expression #f s)) arg-exprs))
+        (case (extract-rights (map (lambda ([s : Sexp]) (parse-expression #f s)) arg-exprs))
           [(left v) (left v)]
           [(right arg-exprs)
            (right (app-expr tail-position op-expr arg-exprs))])])]
@@ -541,7 +531,7 @@
   (case sexps
     [(cons (node arg+tys) (cons body-expr (empty)))
      (either-app3 lambda-expr
-       (leftmost-error (map parse-arg arg+tys))
+       (extract-rights (map parse-arg arg+tys))
        (right/bytes (nothing/pre-type))
        (parse-expression #t body-expr))]
     [(cons (node arg+tys)
@@ -552,7 +542,7 @@
        [(left v) (left v)]
        [(right pre-type)
         (either-app3 lambda-expr
-          (leftmost-error (map parse-arg arg+tys))
+          (extract-rights (map parse-arg arg+tys))
           (right/bytes (just pre-type))
           (parse-expression #t body-expr))])]
     [_
@@ -575,7 +565,7 @@
     [(node (cons (symbol-sexp name) patterns))
      (either-app2 abstraction-pattern
        (right/bytes name)
-       (leftmost-error (map parse-pattern patterns)))]
+       (extract-rights (map parse-pattern patterns)))]
     [_ (left #"Not a valid pattern")]))
 
 
@@ -605,7 +595,7 @@
               (case (parse-types/top types)
                 [(left v) (left v)]
                 [(right types)
-                 (case (leftmost-error (map parse-function-definition definitions))
+                 (case (extract-rights (map parse-function-definition definitions))
                    [(left v) (left v)]
                    [(right defs)
                     (right (module module-name imports exports types defs))])])])])])]
