@@ -574,54 +574,71 @@
         (case (type-check/expr expr context def-expected-type)
           [(left v) (left v)]
           [(right type)
-           (case (unify-pattern pattern context type)
+           (case (type-check/pattern pattern context type)
              [(left v) (left v)]
-             [(right var-types)
-              (type-check/block
-                defs
-                body
-                (context-set-values context var-types)
-                expected-type)])])])]))
+             [(right context)
+              (type-check/block defs body context expected-type)])])])]))
 
-(define (unify-pattern
-          [pattern : Pattern]
-          [context : Context]
-          [argument-type : Type]) : (Either Bytes (List (Tuple2 Bytes Type)))
-  (case
-    (pattern-constrainable->constraints
-      pattern
-      (type->constrainable argument-type (make-dict bytes-cmp))
-      (new-uvar-source)
-      context)
+(define (type-check/pattern [pattern : Pattern] [context : Context] [arg-type : Type])
+  : (Either Bytes Context)
+  (case (type-check/pattern* pattern context arg-type (empty))
     [(left v) (left v)]
-    [(right (tuple2 (tuple2 vars constraints) source))
-     (case (unify (jl->list constraints))
-       [(nothing)
-        (left
-          (bytes-append
-            (cons
-              (bytes-append
-                (varargs list
-                  #"Type: "
-                  (print-sexp (type->sexp argument-type))
-                  #"\n"))
-              (map
-                (lambda ([c : Constraint])
-                  (bytes-append (varargs list (constraint->bytes c) #"\n")))
-                (jl->list constraints)))))]
-       [(just uvar-types)
-        (case (extract-justs
-                (dict-map
-                  vars
-                  (lambda ([var : Bytes] [uvar : UnificationVar]) : (Maybe (Tuple2 Bytes Type))
-                    (case (dict-ref uvar-types uvar)
-                      [(nothing) (nothing)]
-                      [(just type) (just (tuple2 var type))]))))
-          [(nothing)
-           (left #"Unification didn't have a value for a variable")]
-          [(just var-types)
-           (right var-types)])])]))
+    [(right var-types)
+     (right (context-set-values context var-types))]))
 
+(define (type-check/pattern* [pattern : Pattern] [context : Context] [arg-type : Type]
+                             [var-types : (List (Tuple2 Bytes Type))])
+  : (Either Bytes (List (Tuple2 Bytes Type)))
+  (case pattern
+    [(bytes-pattern _)
+     (if (type=? arg-type (bytes-type))
+         (right var-types)
+         (left #"Cannot match _ against bytes literal"))]
+    [(int-pattern _)
+     (if (type=? arg-type (int-type))
+         (right var-types)
+         (left #"Cannot match _ against int literal"))]
+    [(variable-pattern v)
+     (right (cons (tuple2 v arg-type) var-types))]
+    [(ignore-pattern)
+     (right var-types)]
+    [(abstraction-pattern name sub-patterns)
+     (case (context-ref-pattern context name)
+       [(nothing) (left #"Couldn't find pattern in context")]
+       [(just (pattern-descriptor type-vars input-type input-field-types _ _))
+        (case arg-type
+          [(abstract-type arg-mod-name arg-type-name arg-sub-types _)
+           (case input-type
+             [(abstract-type pat-mod-name pat-type-name _ _)
+              (if (and (mod-name=? arg-mod-name pat-mod-name)
+                       (bytes=? arg-type-name pat-type-name))
+                  (case (zip type-vars arg-sub-types)
+                    [(nothing) (left #"Bad sub-types")]
+                    [(just var-sub-types)
+                     (match-define subst : (Dict Bytes Type)
+                       (dict-add-all (make-dict bytes-cmp) var-sub-types))
+                     (match-define field-types
+                        (map (lambda ([input-field-type : Type])
+                               (substitute input-field-type subst))
+                             input-field-types))
+                     (case (zip sub-patterns field-types)
+                       [(nothing) (left #"Number of patterns doesn't match number of fields")]
+                       [(just sub-pattern-types)
+                        (type-check/patterns* sub-pattern-types context var-types)])])
+                  (left #"Got pattern for different type"))]
+             [_ (left #"Bad internal pattern type")])]
+          [_ (left #"Abstraction pattern cannot match non abstract-type")])])]))
+
+(define (type-check/patterns* [zipped : (List (Tuple2 Pattern Type))] [context : Context]
+                              [var-types : (List (Tuple2 Bytes Type))])
+  : (Either Bytes (List (Tuple2 Bytes Type)))
+  (case zipped
+    [(empty) (right var-types)]
+    [(cons (tuple2 pat type) zipped)
+     (case (type-check/pattern* pat context type var-types)
+       [(left v) (left v)]
+       [(right var-types)
+        (type-check/patterns* zipped context var-types)])]))
 
 (define (type-check/case-clause
           [pattern : Pattern]
@@ -629,16 +646,12 @@
           [context : Context]
           [argument-type : Type]
           [expected-type : (Maybe Type)]) : (Either Bytes Type)
-  (case (unify-pattern pattern context argument-type)
+  (case (type-check/pattern pattern context argument-type)
     [(left v) (left v)]
-    [(right var-types)
+    [(right context)
      (case block
        [(block defs body)
-        (type-check/block
-          defs
-          body
-          (context-set-values context var-types)
-          expected-type)])]))
+        (type-check/block defs body context expected-type)])]))
 
 (define (a b s) (map-state [f : (a s -> (Tuple2 b s))] [l : (List a)] [s : s]) : (Tuple2 (List b) s)
   (case l
@@ -650,138 +663,7 @@
           [(tuple2 vs s)
            (tuple2 (cons v vs) s)])])]))
 
-(define (a b e s) (map-either-state [f : (a s -> (Either e (Tuple2 b s)))] [l : (List a)] [s : s]) :
-  (Either e (Tuple2 (List b) s))
-  (case l
-    [(empty) (right (tuple2 (empty) s))]
-    [(cons e l)
-     (case (f e s)
-       [(left v) (left v)]
-       [(right (tuple2 v s))
-        (case (map-either-state f l s)
-          [(left v) (left v)]
-          [(right (tuple2 vs s))
-           (right (tuple2 (cons v vs) s))])])]))
 
-
-(define (pattern-constrainable->constraints
-          [p : Pattern]
-          [c : Constrainable]
-          [s : UnificationVarSource]
-          [ctx : Context]) :
-  (Either
-    Bytes
-    (Tuple2
-      (Tuple2
-        (Dict Bytes UnificationVar)
-        (JoinList Constraint))
-      UnificationVarSource))
-  (case (uvar-source-next s)
-    [(tuple2 u s)
-     (case (pattern->constraints p u s ctx)
-       [(left v) (left v)]
-       [(right (tuple2 (tuple2 vars constraints) s))
-        (right
-          (tuple2
-            (tuple2
-              vars
-              (cons-jl
-                (eq-constraint (constrain-uvar u) c)
-                constraints))
-            s))])]))
-
-(define (pattern->constraints
-          [p : Pattern]
-          [u : UnificationVar]
-          [s : UnificationVarSource]
-          [ctx : Context]) :
-  (Either
-    Bytes
-    (Tuple2
-      (Tuple2
-        (Dict Bytes UnificationVar)
-        (JoinList Constraint))
-      UnificationVarSource))
-  (case p
-    [(bytes-pattern _)
-     (right
-       (tuple2
-         (tuple2
-           (make-dict bytes-cmp)
-           (single-jl
-             (eq-constraint
-               (type->constrainable (bytes-type) (make-dict bytes-cmp))
-               (constrain-uvar u))))
-         s))]
-    [(int-pattern _)
-     (right
-       (tuple2
-         (tuple2
-           (make-dict bytes-cmp)
-           (single-jl
-             (eq-constraint
-               (type->constrainable (int-type) (make-dict bytes-cmp))
-               (constrain-uvar u))))
-         s))]
-    [(variable-pattern v)
-     (right
-       (tuple2
-         (tuple2
-           (dict-add (make-dict bytes-cmp) v u)
-           (empty-jl))
-         s))]
-    [(ignore-pattern)
-     (right (tuple2 (tuple2 (make-dict bytes-cmp) (empty-jl)) s))]
-    [(abstraction-pattern name patterns)
-     (case (context-ref-pattern ctx name)
-       ;; TODO add name here
-       [(nothing) (left #"Couldn't find pattern in context")]
-       [(just (pattern-descriptor type-vars input-type field-types _ _))
-        (case (map-state (lambda ([tv : Bytes] [s : UnificationVarSource])
-                           (case (uvar-source-next s)
-                             [(tuple2 u s)
-                              (tuple2 (tuple2 tv u) s)]))
-                         type-vars s)
-          [(tuple2 type-var-uvars s)
-           (let ([field-constrainables
-                   (map (lambda ([t : Type])
-                          ;; TODO make the dictionary construction happen once instead of once
-                          ;; per field.
-                          (type->constrainable t (dict-add-all (make-dict bytes-cmp) type-var-uvars)))
-                        field-types)])
-             (case (zip field-constrainables patterns)
-               [(nothing)
-                (left (bytes-append
-                        (varargs list
-                                 #"Number of fields doesn't match number of subpatterns:"
-                                 #" Pattern: " name
-                                 #" Fields " (integer->decimal-bytes (length field-constrainables))
-                                 #" Subpatterns " (integer->decimal-bytes (length patterns)))))]
-               [(just zipped-patterns)
-                (case
-                  (map-either-state
-                    (lambda ([t : (Tuple2 Constrainable Pattern)] [s : UnificationVarSource])
-                      (case t
-                        [(tuple2 t p)
-                         (pattern-constrainable->constraints p t s ctx)]))
-                    zipped-patterns
-                    s)
-                  [(left v) (left v)]
-                  [(right (tuple2 sub-matches s))
-                   (case (unzip sub-matches)
-                     [(tuple2 varss constraintss)
-                      (right
-                        (tuple2
-                          (tuple2
-                            (merge-dicts* (make-dict bytes-cmp) varss)
-                            (cons-jl
-                              (eq-constraint
-                                (constrain-uvar u)
-                                (type->constrainable
-                                  input-type
-                                  (dict-add-all (make-dict bytes-cmp) type-var-uvars)))
-                              (concat-jl constraintss)))
-                          s))])])]))])])]))
 
 (define (type-check [mod : Module]) : (Either TypeCheckError Context)
   (match-define (module name _ _ _ definitions) mod)
