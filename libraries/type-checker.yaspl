@@ -306,12 +306,18 @@
              (new-uvar-source))
        [(tuple2 type-var-uvars s)
         (let ([constraints
-                (varargs list
+                (cons
                   (eq-constraint
                     (type->constrainable t (make-dict bytes-cmp))
                     (type->constrainable
                       result-type
-                      (dict-add-all (make-dict bytes-cmp) type-var-uvars))))])
+                      (dict-add-all (make-dict bytes-cmp) type-var-uvars)))
+                  (map
+                    (lambda ([t : (Tuple2 Bytes UnificationVar)])
+                      (case t
+                        [(tuple2 _ uvar)
+                         (star-kind-constraint uvar)]))
+                    type-var-uvars))])
           (case (unify constraints)
             [(nothing) (nothing)]
             [(just uvar-dict)
@@ -440,21 +446,31 @@
                   (new-uvar-source)))
               (match-define (tuple2 u s) (uvar-source-next s))
               (match-define constraints
-                (varargs list
-                  (eq-constraint
-                    (constrain-uvar u)
-                    (case expected-type
-                      [(nothing) (constrain-uvar u)]
-                      [(just t) (type->constrainable t (make-dict bytes-cmp))]))
-                  (eq-constraint
-                    (type->constrainable
-                      (fun-type (empty) arg-types result-type)
-                      (dict-add-all (make-dict bytes-cmp) type-var-uvars))
-                    (constrain-fun-type
-                      (map (lambda ([arg-type : Type])
-                             (type->constrainable arg-type (make-dict bytes-cmp)))
-                           actual-arg-types)
-                      (constrain-uvar u)))))
+                  (cons
+                    (eq-constraint
+                      (type->constrainable
+                        (fun-type (empty) arg-types result-type)
+                        (dict-add-all (make-dict bytes-cmp) type-var-uvars))
+                      (constrain-fun-type
+                        (map (lambda ([arg-type : Type])
+                               (type->constrainable arg-type (make-dict bytes-cmp)))
+                             actual-arg-types)
+                        (constrain-uvar u)))
+                    (map
+                      (lambda ([type-var-uvar : (Tuple2 Bytes UnificationVar)])
+                        (case type-var-uvar
+                          [(tuple2 _ uvar)
+                           (star-kind-constraint uvar)]))
+                      type-var-uvars)))
+             (match-define constraints
+               (case expected-type
+                 [(nothing) constraints]
+                 [(just t)
+                  (cons
+                    (eq-constraint
+                      (constrain-uvar u)
+                      (type->constrainable t (make-dict bytes-cmp)))
+                    constraints)]))
               (case (unify constraints)
                 [(nothing)
                  (left
@@ -511,12 +527,19 @@
                (eq-constraint
                  (type->constrainable result-type type-var-uvar-dict)
                  (constrain-uvar u))
-               (map
-                 (lambda ([t : Type])
-                   (eq-constraint
-                     (type->constrainable t type-var-uvar-dict)
-                     (type->constrainable arg-type type-var-uvar-dict)))
-                 actual-types)))
+               (append
+                 (map
+                   (lambda ([t : Type])
+                     (eq-constraint
+                       (type->constrainable t type-var-uvar-dict)
+                       (type->constrainable arg-type type-var-uvar-dict)))
+                   actual-types)
+                 (map
+                   (lambda ([type-var-uvar : (Tuple2 Bytes UnificationVar)])
+                     (case type-var-uvar
+                       [(tuple2 _ uvar)
+                        (star-kind-constraint uvar)]))
+                   type-var-uvars))))
            (case (unify constraints)
              [(nothing)
               (left

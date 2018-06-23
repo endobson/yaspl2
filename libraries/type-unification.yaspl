@@ -1,13 +1,16 @@
 #:module (type-unification)
 #:import {
   (bytes)
+  (data lifted-primitives)
   (data ordering)
   (dict)
+  (either)
   (list)
   (maybe)
   (module-name)
   (numbers)
   (prim)
+  (set)
   (sexp-parser)
   (sexp-printer)
   (tuples)
@@ -16,7 +19,7 @@
 (export
   (#:types UnificationVar UnificationVarSource Constraint Constrainable)
   (#:values unify uvar constrain-uvar constrain-var-type constrain-abstract-type
-            constrain-fun-type eq-constraint uvar->bytes uvar-source-next
+            constrain-fun-type eq-constraint star-kind-constraint uvar->bytes uvar-source-next
             type->constrainable new-uvar-source constraint->bytes)
   (#:patterns))
 (types
@@ -29,30 +32,46 @@
                              [kind : Kind])
     (constrain-fun-type [args : (List Constrainable)] [result : Constrainable]))
   (define-type Constraint
+    (star-kind-constraint [v : UnificationVar])
     (eq-constraint [lhs : Constrainable] [rhs : Constrainable]))
+  (define-type TypeConstraint
+    (eq-constraint/type [lhs : Constrainable] [rhs : Constrainable]))
+  (define-type KindConstraint
+    (star-kind-constraint/kind [v : UnificationVar]))
   (define-type UnificationVarSource
     (uvar-source [counter : Int])))
 
 (define (unify [constraints : (List Constraint)]) : (Maybe (Dict UnificationVar Type))
-  (case (unify* constraints (make-dict uvar-cmp))
+  (match-define (tuple2 type-constraints kind-constraints)
+    (split-constraints constraints))
+  (match-define star-kind-uvars
+    (set-add-all
+      (make-set uvar-cmp)
+      (map star-kind-constraint/kind-v kind-constraints)))
+
+  (case (unify* type-constraints (make-dict uvar-cmp))
     [(nothing) (nothing)]
     [(just solution)
-     (case (extract-justs
+     (case (extract-rights
              (dict-map
                solution
                (lambda ([uvar : UnificationVar] [c : Constrainable])
-                 : (Maybe (Tuple2 UnificationVar Type))
+                 : (Either LiftedVoid (Tuple2 UnificationVar Type))
                  (case (constrainable->type c)
-                   [(nothing) (nothing)]
-                   [(just t) (just (tuple2 uvar t))]))))
-       [(nothing) (nothing)]
-       [(just uvar-types)
+                   [(nothing) (left (lifted-void))]
+                   [(just t)
+                    (if (and (set-member? star-kind-uvars uvar)
+                             (not (kind=? (star-kind) (type->kind t))))
+                        (left (lifted-void))
+                        (right (tuple2 uvar t)))]))))
+       [(left _) (nothing)]
+       [(right uvar-types)
         (just (dict-add-all (make-dict uvar-cmp) uvar-types))])]))
 
 (define (unify*/var
           [uvar : UnificationVar]
           [c : Constrainable]
-          [constraints : (List Constraint)]
+          [constraints : (List TypeConstraint)]
           [solution : (Dict UnificationVar Constrainable)])
   : (Maybe (Dict UnificationVar Constrainable))
   (unify*
@@ -62,30 +81,30 @@
       uvar c)))
 
 (define (unify*
-          [constraints : (List Constraint)]
+          [constraints : (List TypeConstraint)]
           [solution : (Dict UnificationVar Constrainable)])
   : (Maybe (Dict UnificationVar Constrainable))
   (case constraints
     [(empty) (just solution)]
     [(cons constraint constraints)
      (case constraint
-       [(eq-constraint (constrain-uvar v1) (constrain-uvar v2))
+       [(eq-constraint/type (constrain-uvar v1) (constrain-uvar v2))
         (if (uvar=? v1 v2)
             (unify* constraints solution)
             (unify*/var v1 (constrain-uvar v2) constraints solution))]
-       [(eq-constraint (constrain-uvar v1) c2)
+       [(eq-constraint/type (constrain-uvar v1) c2)
         (if (occurs-check? v1 c2)
             (nothing)
             (unify*/var v1 c2 constraints solution))]
-       [(eq-constraint c1 (constrain-uvar v2))
+       [(eq-constraint/type c1 (constrain-uvar v2))
         (if (occurs-check? v2 c1)
             (nothing)
             (unify*/var v2 c1 constraints solution))]
-       [(eq-constraint (constrain-var-type v1) (constrain-var-type v2))
+       [(eq-constraint/type (constrain-var-type v1) (constrain-var-type v2))
         (if (bytes=? v1 v2)
             (unify* constraints solution)
             (nothing))]
-       [(eq-constraint
+       [(eq-constraint/type
           (constrain-abstract-type mod1 name1 types1 kind1)
           (constrain-abstract-type mod2 name2 types2 kind2))
         (if (and (mod-name=? mod1 mod2)
@@ -97,12 +116,12 @@
                  (append
                    (map (lambda ([t : (Tuple2 Constrainable Constrainable)])
                           (case t
-                            [(tuple2 lhs rhs) (eq-constraint lhs rhs)]))
+                            [(tuple2 lhs rhs) (eq-constraint/type lhs rhs)]))
                         zipped-types)
                    constraints)
                  solution)])
             (nothing))]
-       [(eq-constraint (constrain-fun-type args1 res1) (constrain-fun-type args2 res2))
+       [(eq-constraint/type (constrain-fun-type args1 res1) (constrain-fun-type args2 res2))
         (case (zip args1 args2)
           [(nothing) (nothing)]
           [(just zipped-args)
@@ -111,21 +130,21 @@
                (map
                  (lambda ([t : (Tuple2 Constrainable Constrainable)])
                    (case t
-                     [(tuple2 lhs rhs) (eq-constraint lhs rhs)]))
+                     [(tuple2 lhs rhs) (eq-constraint/type lhs rhs)]))
                  (cons (tuple2 res1 res2) zipped-args))
                constraints)
              solution)])]
-       [(eq-constraint (constrain-abstract-type _ _ _ _) (constrain-fun-type _ _))
+       [(eq-constraint/type (constrain-abstract-type _ _ _ _) (constrain-fun-type _ _))
         (nothing)]
-       [(eq-constraint (constrain-fun-type _ _) (constrain-abstract-type _ _ _ _))
+       [(eq-constraint/type (constrain-fun-type _ _) (constrain-abstract-type _ _ _ _))
         (nothing)]
-       [(eq-constraint (constrain-var-type _) (constrain-fun-type _ _))
+       [(eq-constraint/type (constrain-var-type _) (constrain-fun-type _ _))
         (nothing)]
-       [(eq-constraint (constrain-fun-type _ _) (constrain-var-type _))
+       [(eq-constraint/type (constrain-fun-type _ _) (constrain-var-type _))
         (nothing)]
-       [(eq-constraint (constrain-var-type _) (constrain-abstract-type _ _ _ _))
+       [(eq-constraint/type (constrain-var-type _) (constrain-abstract-type _ _ _ _))
         (nothing)]
-       [(eq-constraint (constrain-abstract-type _ _ _ _) (constrain-var-type _))
+       [(eq-constraint/type (constrain-abstract-type _ _ _ _) (constrain-var-type _))
         (nothing)])]))
 
 
@@ -134,11 +153,11 @@
   (lambda ([c2 : Constrainable])  (subst* uvar c c2)))
 
 (define (subst/constraint [uvar : UnificationVar] [c : Constrainable])
-  : (Constraint -> Constraint)
-  (lambda ([c2 : Constraint])
+  : (TypeConstraint -> TypeConstraint)
+  (lambda ([c2 : TypeConstraint])
     (case c2
-      [(eq-constraint lhs rhs)
-       (eq-constraint
+      [(eq-constraint/type lhs rhs)
+       (eq-constraint/type
          (subst* uvar c lhs)
          (subst* uvar c rhs))])))
 
@@ -237,7 +256,12 @@
      (node (varargs list
              (constrainable->sexp lhs)
              (symbol-sexp #"=")
-             (constrainable->sexp rhs)))]))
+             (constrainable->sexp rhs)))]
+    [(star-kind-constraint (uvar id))
+     (node (varargs list
+             (node (varargs list (symbol-sexp #"uvar") (number-sexp id)))
+             (symbol-sexp #"=")
+             (symbol-sexp #"*")))]))
 
 (define (constrainable->sexp [c : Constrainable]) : Sexp
   (case c
@@ -254,3 +278,13 @@
      (node (append
              (map constrainable->sexp args)
              (varargs list (symbol-sexp #"->") (constrainable->sexp result))))]))
+
+(define (split-constraints [cs : (List Constraint)]) : (Tuple2 (List TypeConstraint)
+                                                              (List KindConstraint))
+  (partition-eithers
+    (map
+      (lambda ([c : Constraint]) : (Either TypeConstraint KindConstraint)
+        (case c
+          [(eq-constraint lhs rhs) (left (eq-constraint/type lhs rhs))]
+          [(star-kind-constraint v) (right (star-kind-constraint/kind v))]))
+      cs)))
