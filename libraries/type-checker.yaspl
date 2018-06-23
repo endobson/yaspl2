@@ -364,33 +364,33 @@
        [(right actual-type)
         (check-expected actual-type expected-type)])]
     [(lambda-expr named-arg-types maybe-return-type body)
-        (match-define arg-types
-          (map (lambda ([t : (Tuple2 Bytes Type)]) (case t [(tuple2 _ ty) ty])) named-arg-types))
-        (case
-          (ann (Either Bytes (Maybe Type))
-            (case maybe-return-type
-              [(just return-type)
-               (right (just return-type))]
-              [(nothing)
+     (match-define arg-types
+       (map (lambda ([t : (Tuple2 Bytes Type)]) (case t [(tuple2 _ ty) ty])) named-arg-types))
+     (case
+       (ann (Either Bytes (Maybe Type))
+         (case maybe-return-type
+           [(just return-type)
+            (right (just return-type))]
+           [(nothing)
+            (case expected-type
+              [(nothing) (right (nothing))]
+              [(just expected-type)
                (case expected-type
-                 [(nothing) (right (nothing))]
-                 [(just expected-type)
-                  (case expected-type
-                    [(fun-type (empty) _ expected-body-type)
-                     (right (just expected-body-type))]
-                    [_
-                     (left #"Lambda can only match monomorphic function type.")])])]))
-          [(left v) (left v)]
-          [(right inner-expected-type)
-           (case (type-check/expr
-                   body
-                   (context-set-values context named-arg-types)
-                   inner-expected-type)
-              [(left v) (left v)]
-              [(right return-type)
-               (check-expected
-                (fun-type (empty) arg-types return-type)
-                expected-type)])])]
+                 [(fun-type (empty) _ expected-body-type)
+                  (right (just expected-body-type))]
+                 [_
+                  (left #"Lambda can only match monomorphic function type.")])])]))
+       [(left v) (left v)]
+       [(right inner-expected-type)
+        (case (type-check/expr
+                body
+                (context-set-values context named-arg-types)
+                inner-expected-type)
+           [(left v) (left v)]
+           [(right return-type)
+            (check-expected
+             (fun-type (empty) arg-types return-type)
+             expected-type)])])]
     [(app-expr _ op args)
      (case (type-check/expr op context (nothing))
        [(left v) (left v)]
@@ -404,135 +404,121 @@
                  #"\nGot: " (integer->decimal-bytes (length args))
                  #"\nExpected: " (integer->decimal-bytes (length arg-types)))))]
           [(just merged-args)
+           (match-define maybe-subst
+             (attempt-result-based-unification type-vars result-type expected-type))
            (case
-             (case (attempt-result-based-unification type-vars result-type expected-type)
-               [(nothing)
-                (extract-rights (map (lambda ([arg : (Tuple2 Expression Type)])
-                                       (case arg
-                                         [(tuple2 arg _)
-                                          (type-check/expr arg context (nothing))]))
-                                     merged-args))]
-               [(just subst)
-                (extract-rights (map (lambda ([arg : (Tuple2 Expression Type)])
-                                        (case arg
-                                          [(tuple2 arg type)
-                                           (type-check/expr
-                                             arg
-                                             context
-                                             (just (substitute type subst)))]))
-                                     merged-args))])
-             [(left v)
-              (left v)]
+             (extract-rights
+               (map (lambda ([arg : (Tuple2 Expression Type)])
+                      (case arg
+                        [(tuple2 arg type)
+                         (case maybe-subst
+                           [(nothing) (type-check/expr arg context (nothing))]
+                           [(just subst) (type-check/expr arg context
+                                                          (just (substitute type subst)))])]))
+                    merged-args))
+             [(left v) (left v)]
              [(right actual-arg-types)
-              (case (map-state
-                      (lambda ([type-var : Bytes] [s : UnificationVarSource])
-                        (case (uvar-source-next s)
-                          [(tuple2 u s)
-                           (tuple2 (tuple2 type-var u) s)]))
-                      type-vars
-                      (new-uvar-source))
-                [(tuple2 type-var-uvars s)
-                 (case (uvar-source-next s)
-                   [(tuple2 u s)
-                    (let ([constraints
-                           (varargs list
-                             (eq-constraint
-                               (constrain-uvar u)
-                               (case expected-type
-                                 [(nothing)
-                                  (constrain-uvar u)]
-                                 [(just t)
-                                  (type->constrainable t (make-dict bytes-cmp))]))
-                             (eq-constraint
-                               (type->constrainable
-                                 (fun-type (empty) arg-types result-type)
-                                 (dict-add-all (make-dict bytes-cmp) type-var-uvars))
-                               (constrain-fun-type
-                                 (map (lambda ([arg-type : Type])
-                                        (type->constrainable arg-type (make-dict bytes-cmp)))
-                                      actual-arg-types)
-                                 (constrain-uvar u))))])
-                      (case (unify constraints)
-                        [(nothing)
-                         (left
-                           (bytes-append
-                             (map
-                               (lambda ([c : Constraint])
-                                 (bytes-append (varargs list (constraint->bytes c) #"\n")))
-                               constraints)))]
-                        [(just uvar-dict)
-                         (case (dict-ref uvar-dict u)
-                           [(nothing)
-                            (left #"No binding for uvar in output of unification")]
-                           [(just type)
-                            (check-expected type expected-type)])]))])])])])]
+              (match-define (tuple2 type-var-uvars s)
+                (map-state
+                  (lambda ([type-var : Bytes] [s : UnificationVarSource])
+                    (case (uvar-source-next s)
+                      [(tuple2 u s)
+                       (tuple2 (tuple2 type-var u) s)]))
+                  type-vars
+                  (new-uvar-source)))
+              (match-define (tuple2 u s) (uvar-source-next s))
+              (match-define constraints
+                (varargs list
+                  (eq-constraint
+                    (constrain-uvar u)
+                    (case expected-type
+                      [(nothing) (constrain-uvar u)]
+                      [(just t) (type->constrainable t (make-dict bytes-cmp))]))
+                  (eq-constraint
+                    (type->constrainable
+                      (fun-type (empty) arg-types result-type)
+                      (dict-add-all (make-dict bytes-cmp) type-var-uvars))
+                    (constrain-fun-type
+                      (map (lambda ([arg-type : Type])
+                             (type->constrainable arg-type (make-dict bytes-cmp)))
+                           actual-arg-types)
+                      (constrain-uvar u)))))
+              (case (unify constraints)
+                [(nothing)
+                 (left
+                   (bytes-append
+                     (map
+                       (lambda ([c : Constraint])
+                         (bytes-append (varargs list (constraint->bytes c) #"\n")))
+                       constraints)))]
+                [(just uvar-dict)
+                 (case (dict-ref uvar-dict u)
+                   [(nothing)
+                    (left #"No binding for uvar in output of unification")]
+                   [(just type)
+                    (check-expected type expected-type)])])])])]
        [(right t)
         (left
           (bytes-append
             (varargs list #"Cannot apply non function: " (print-sexp (type->sexp t)))))])]
     [(varargs-app-expr _ op args)
      (case (type-check/expr op context (nothing))
-       [(left v)
-        (left v)]
+       [(left v) (left v)]
        [(right (fun-type type-vars
                          (cons (abstract-type (mod-name (cons #"prim" (empty)))
                                               #"Array"
                                               (cons arg-type (empty))
                                               _) (empty))
                          result-type))
+        (match-define maybe-subst
+          (attempt-result-based-unification type-vars result-type expected-type))
         (case
-          (case (attempt-result-based-unification type-vars result-type expected-type)
-            [(nothing)
-             (extract-rights (map (lambda ([arg : Expression])
-                                    (type-check/expr arg context (nothing)))
-                                  args))]
-            [(just subst)
-             (extract-rights (map (lambda ([arg : Expression])
-                                    (type-check/expr arg context (just (substitute arg-type subst))))
-                                  args))])
+          (extract-rights
+            (map (lambda ([arg : Expression])
+                   (case maybe-subst
+                     [(nothing)
+                      (type-check/expr arg context (nothing))]
+                     [(just subst)
+                      (type-check/expr arg context (just (substitute arg-type subst)))]))
+                 args))
           [(left v) (left v)]
           [(right actual-types)
-           (case (map-state
-                   (lambda ([type-var : Bytes] [s : UnificationVarSource])
-                     (case (uvar-source-next s)
-                       [(tuple2 u s)
-                        (tuple2 (tuple2 type-var u) s)]))
-                   type-vars
-                   (new-uvar-source))
-             [(tuple2 type-var-uvars s)
-              (case (uvar-source-next s)
-                [(tuple2 u s)
-                 (let ([constraints
-                         (cons
-                           (eq-constraint
-                             (type->constrainable
-                               result-type
-                               (dict-add-all (make-dict bytes-cmp) type-var-uvars))
-                             (constrain-uvar u))
-                           (map
-                             (lambda ([t : Type])
-                               (eq-constraint
-                                 (type->constrainable
-                                   t
-                                   (dict-add-all (make-dict bytes-cmp) type-var-uvars))
-                                 (type->constrainable
-                                   arg-type
-                                   (dict-add-all (make-dict bytes-cmp) type-var-uvars))))
-                             actual-types))])
-                   (case (unify constraints)
-                     [(nothing)
-                      (left
-                        (bytes-append
-                          (map
-                            (lambda ([c : Constraint])
-                              (bytes-append (varargs list (constraint->bytes c) #"\n")))
-                            constraints)))]
-                     [(just uvar-dict)
-                      (case (dict-ref uvar-dict u)
-                        [(nothing)
-                         (left #"No binding for uvar in output of unification")]
-                        [(just type)
-                         (check-expected type expected-type)])]))])])])]
+           (match-define (tuple2 type-var-uvars s)
+             (map-state
+               (lambda ([type-var : Bytes] [s : UnificationVarSource])
+                 (case (uvar-source-next s)
+                   [(tuple2 u s)
+                    (tuple2 (tuple2 type-var u) s)]))
+               type-vars
+               (new-uvar-source)))
+           (match-define type-var-uvar-dict : (Dict Bytes UnificationVar)
+             (dict-add-all (make-dict bytes-cmp) type-var-uvars))
+           (match-define (tuple2 u s) (uvar-source-next s))
+           (match-define constraints
+             (cons
+               (eq-constraint
+                 (type->constrainable result-type type-var-uvar-dict)
+                 (constrain-uvar u))
+               (map
+                 (lambda ([t : Type])
+                   (eq-constraint
+                     (type->constrainable t type-var-uvar-dict)
+                     (type->constrainable arg-type type-var-uvar-dict)))
+                 actual-types)))
+           (case (unify constraints)
+             [(nothing)
+              (left
+                (bytes-append
+                  (map
+                    (lambda ([c : Constraint])
+                      (bytes-append (varargs list (constraint->bytes c) #"\n")))
+                    constraints)))]
+             [(just uvar-dict)
+              (case (dict-ref uvar-dict u)
+                [(nothing)
+                 (left #"No binding for uvar in output of unification")]
+                [(just type)
+                 (check-expected type expected-type)])])])]
        [(right t)
         (case t
           [(fun-type _ _ _)
@@ -724,7 +710,7 @@
            (make-dict bytes-cmp)
            (single-jl
              (eq-constraint
-               (constrain-abstract-type (mod-name (varargs list #"prim")) #"Bytes" (empty) (star-kind))
+               (type->constrainable (bytes-type) (make-dict bytes-cmp))
                (constrain-uvar u))))
          s))]
     [(int-pattern _)
@@ -734,7 +720,7 @@
            (make-dict bytes-cmp)
            (single-jl
              (eq-constraint
-               (constrain-abstract-type (mod-name (varargs list #"prim")) #"Int" (empty) (star-kind))
+               (type->constrainable (int-type) (make-dict bytes-cmp))
                (constrain-uvar u))))
          s))]
     [(variable-pattern v)
