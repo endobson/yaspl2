@@ -8,6 +8,7 @@
   (lower-x86-64)
   (lowered-live-variables)
   (maybe)
+  (panic)
   (prim)
   (set)
   (tuples)
@@ -254,21 +255,25 @@
   (+
     (case (graph-vertex-label g v)
       [(nothing)
-       (panic
+       (panic/int
          (bytes-append
            (varargs list #"Bad context: " (var->bytes v))))]
       [(just (vertex-data fixed-constraints _))
        (set-count fixed-constraints)])
     (case (graph-vertex-edges g v)
-      [(nothing) (panic #"Bad vertex")]
+      [(nothing) (panic/int #"Bad vertex")]
       [(just edges)
-       (dict-fold
-         edges
-         (lambda ([v : Var] [e : EdgeData] [acc : Int]) : Int
-           (case e
-             [(move-edge) acc]
-             [(interference-edge) (+ 1 acc)]))
-         0)])))
+       (case
+         (dict-fold
+           edges
+           (lambda ([v : Var] [e : EdgeData] [acc : LiftedInt]) : LiftedInt
+             (case e
+               [(move-edge) acc]
+               [(interference-edge)
+                (case acc
+                  [(lifted-int v) (lifted-int (+ 1 v))])]))
+           (lifted-int 0))
+         [(lifted-int v) v])])))
 
 (define (state-empty? [state : State]) : Boolean
   (dict-empty? (graph-vertices (state-graph state))))
@@ -293,7 +298,7 @@
 
 (define (move-related-vertex? [state : State] [v : Var]) : Boolean
   (case (graph-vertex-edges (state-graph state) v)
-    [(nothing) (panic #"Bad vertex")]
+    [(nothing) (panic/boolean #"Bad vertex")]
     [(just edges)
      (case
        (dict-find
@@ -549,21 +554,24 @@
   (match-define (state g _) s)
 
   (< (+ (case (graph-vertex-edges g v)
-          [(nothing) (panic #"Bad vertex")]
+          [(nothing) (panic/int #"Bad vertex")]
           [(just edges)
-           (dict-fold
-             edges
-             (lambda ([v : Var] [e : EdgeData] [acc : Int]) : Int
-               (case e
-                 [(move-edge) acc]
-                 [(interference-edge)
-                  (case (graph-vertex-label g v)
-                    [(nothing) (panic #"Bad vertex")]
-                    [(just (vertex-data fixed-regs _))
-                     (if (set-member? fixed-regs reg)
-                         acc
-                         (+ 1 acc))])]))
-             0)])
+           (case
+             (dict-fold
+               edges
+               (lambda ([v : Var] [e : EdgeData] [acc : LiftedInt]) : LiftedInt
+                 (case e
+                   [(move-edge) acc]
+                   [(interference-edge)
+                    (case (graph-vertex-label g v)
+                      [(nothing) (panic #"Bad vertex")]
+                      [(just (vertex-data fixed-regs _))
+                       (if (set-member? fixed-regs reg)
+                           acc
+                           (case acc
+                             [(lifted-int v) (lifted-int (+ 1 v))]))])]))
+               (lifted-int 0))
+             [(lifted-int v) v])])
         (set-count (fixed-interfering-neighbors s v)))
      (num-valid-temporary-x86-64-registers)))
 
@@ -572,14 +580,13 @@
 (define (is-coalescable-edge [s : State] [v1 : Var] [v2 : Var]) : Boolean
   (match-define (state g _) s)
   (match-define fixed-count
-    (ann Int
-      (case (graph-vertex-label g v1)
-        [(nothing) (panic #"Bad vertex")]
-        [(just (vertex-data regs1 _))
-         (case (graph-vertex-label g v2)
-           [(nothing) (panic #"Bad vertex")]
-           [(just (vertex-data regs2 _))
-            (set-count (set-union regs1 regs2))])])))
+    (case (graph-vertex-label g v1)
+      [(nothing) (panic/int #"Bad vertex")]
+      [(just (vertex-data regs1 _))
+       (case (graph-vertex-label g v2)
+         [(nothing) (panic/int #"Bad vertex")]
+         [(just (vertex-data regs2 _))
+          (set-count (set-union regs1 regs2))])]))
   (< (+ fixed-count
         (set-filter-count
           (set-union

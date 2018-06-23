@@ -45,6 +45,7 @@ yaspl_bootstrap_library(
     deps = [
         ":lower-x86-64",
         ":lowered-live-variables",
+        "//libraries:panic",
         "//libraries/data:bytes",
         "//libraries/data:dict",
         "//libraries/data:either",
@@ -331,6 +332,7 @@ yaspl_bootstrap_library(
         ":prim-language",
         ":register-language",
         ":register-language-builder",
+        "//libraries:panic",
         "//libraries/data:bytes",
         "//libraries/data:dict",
         "//libraries/data:list",
@@ -415,6 +417,7 @@ yaspl_bootstrap_library(
         ":block-number",
         ":prim-language",
         ":register-language",
+        "//libraries:panic",
         "//libraries/data:dict",
         "//libraries/data:lifted-primitives",
         "//libraries/data:list",

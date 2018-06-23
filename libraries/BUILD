@@ -76,10 +76,12 @@ yaspl_bootstrap_library(
     name = "assembler",
     srcs = ["assembler.yaspl"],
     deps = [
+        ":panic",
         ":structured-mach-o",
         "//libraries/data:aligned-bytes",
         "//libraries/data:bytes",
         "//libraries/data:join-list",
+        "//libraries/data:lifted-primitives",
         "//libraries/data:list",
         "//libraries/data:maybe",
         "//libraries/data:numbers",
@@ -314,6 +316,7 @@ yaspl_bootstrap_library(
     name = "io",
     srcs = ["io.yaspl"],
     deps = [
+        ":panic",
         "//libraries/data:bytes",
     ],
 )
@@ -454,6 +457,7 @@ yaspl_bootstrap_library(
     srcs = ["mach-o.yaspl"],
     deps = [
         ":io",
+        ":panic",
         "//libraries/data:bytes",
         "//libraries/data:either",
         "//libraries/data:lifted-primitives",
@@ -483,6 +487,7 @@ yaspl_bootstrap_library(
         ":io",
         ":linker_lib",
         ":mach-o",
+        ":panic",
         ":structured-mach-o",
         "//libraries/data:aligned-bytes",
         "//libraries/data:bytes",
@@ -575,6 +580,12 @@ yaspl_test(
         "//libraries/data:maybe",
         "//libraries/data:tuples",
     ],
+)
+
+yaspl_bootstrap_library(
+    name = "panic",
+    srcs = ["panic.yaspl"],
+    deps = [],
 )
 
 yaspl_bootstrap_library(
@@ -899,6 +910,7 @@ yaspl_bootstrap_library(
     name = "totality-checker",
     srcs = ["totality-checker.yaspl"],
     deps = [
+        ":panic",
         ":source-language",
         ":type-checker-context",
         "//libraries/data:bytes",
