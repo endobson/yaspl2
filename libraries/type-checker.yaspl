@@ -3,7 +3,6 @@
   (bytes)
   (dict)
   (either)
-  (join-list)
   (list)
   (maybe)
   (module-name)
@@ -104,16 +103,29 @@
        (dict-value-map patterns
          (lambda ([p : PatternSignature])
            (case p
-            [(pattern-signature var-name tag type-vars self-type field-types
-                                (type-signature all-variant-names))
-             (pattern-descriptor type-vars self-type field-types var-name all-variant-names)])))
+            [(pattern-signature var-name tag mod-name type-name
+                                type-vars field-types (type-signature all-variant-names))
+             (pattern-descriptor mod-name type-name
+                                 (map (type-var-abstract type-vars) field-types)
+                                 var-name all-variant-names)])))
        (dict-value-map values value-signature-type))]))
+
+(define (type-var-abstract [type-vars : (List Bytes)]) : (Type -> ((List Type) -> Type))
+  (lambda ([t : Type])
+    (lambda ([sub-types : (List Type)]) : Type
+      (case (zip type-vars sub-types)
+        [(nothing) (panic #"Bad number of types")]
+        [(just var-types)
+         (substitute t (dict-add-all (make-dict bytes-cmp) var-types))]))))
+
 
 (define (variant-definition->context
           [def : VariantDefinition]
           [type-vars : (List Bytes)]
           [gen-accessors : Boolean]
           [self-type : Type]
+          [mod-name : ModName]
+          [type-name : Bytes]
           [all-variants : (List Bytes)]) : Context
   (case def
     [(variant-definition name fields)
@@ -122,9 +134,9 @@
          (make-dict bytes-cmp)
          name
          (pattern-descriptor
-           type-vars
-           self-type
-           (map variant-field-type fields)
+           mod-name
+           type-name
+           (map (type-var-abstract type-vars) (map variant-field-type fields))
            name
            all-variants))
        (dict-add-all
@@ -169,7 +181,7 @@
              (merge-contexts*
                (map (lambda ([v : VariantDefinition])
                       (variant-definition->context v simple-type-vars gen-accessors self-type
-                                                   all-variants))
+                                                   mod-name name all-variants))
                     variants))))))]))
 
 (define (function-definition->type [def : FunctionDefinition]) : Type
@@ -605,28 +617,19 @@
     [(abstraction-pattern name sub-patterns)
      (case (context-ref-pattern context name)
        [(nothing) (left #"Couldn't find pattern in context")]
-       [(just (pattern-descriptor type-vars input-type input-field-types _ _))
+       [(just (pattern-descriptor pat-mod-name pat-type-name input-field-types _ _))
         (case arg-type
           [(abstract-type arg-mod-name arg-type-name arg-sub-types _)
-           (case input-type
-             [(abstract-type pat-mod-name pat-type-name _ _)
-              (if (and (mod-name=? arg-mod-name pat-mod-name)
-                       (bytes=? arg-type-name pat-type-name))
-                  (case (zip type-vars arg-sub-types)
-                    [(nothing) (left #"Bad sub-types")]
-                    [(just var-sub-types)
-                     (match-define subst : (Dict Bytes Type)
-                       (dict-add-all (make-dict bytes-cmp) var-sub-types))
-                     (match-define field-types
-                        (map (lambda ([input-field-type : Type])
-                               (substitute input-field-type subst))
-                             input-field-types))
-                     (case (zip sub-patterns field-types)
-                       [(nothing) (left #"Number of patterns doesn't match number of fields")]
-                       [(just sub-pattern-types)
-                        (type-check/patterns* sub-pattern-types context var-types)])])
-                  (left #"Got pattern for different type"))]
-             [_ (left #"Bad internal pattern type")])]
+           (if (and (mod-name=? arg-mod-name pat-mod-name)
+                    (bytes=? arg-type-name pat-type-name))
+               (let ([field-types
+                      (map (lambda ([f : ((List Type) -> Type)]) (f arg-sub-types))
+                           input-field-types)])
+                 (case (zip sub-patterns field-types)
+                   [(nothing) (left #"Number of patterns doesn't match number of fields")]
+                   [(just sub-pattern-types)
+                    (type-check/patterns* sub-pattern-types context var-types)]))
+               (left #"Got pattern for different type"))]
           [_ (left #"Abstraction pattern cannot match non abstract-type")])])]))
 
 (define (type-check/patterns* [zipped : (List (Tuple2 Pattern Type))] [context : Context]

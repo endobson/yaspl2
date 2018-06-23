@@ -665,7 +665,6 @@ yaspl_test(
         ":resolved-imports-language",
         ":source-language",
         ":top-level-name",
-        ":types",
         ":yunit",
         "//libraries/data:bytes",
         "//libraries/data:dict",
@@ -969,7 +968,6 @@ yaspl_bootstrap_library(
         "//libraries/data:bytes",
         "//libraries/data:dict",
         "//libraries/data:either",
-        "//libraries/data:join-list",
         "//libraries/data:list",
         "//libraries/data:maybe",
         "//libraries/data:numbers",
@@ -982,6 +980,7 @@ yaspl_bootstrap_library(
     name = "type-checker-context",
     srcs = ["type-checker-context.yaspl"],
     deps = [
+        ":module-name",
         ":types",
         "//libraries/data:bytes",
         "//libraries/data:dict",
