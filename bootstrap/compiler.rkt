@@ -184,7 +184,7 @@
   (match defs
     [(list)
      (compile-expr pat-env env body)]
-    [(cons (match-def& pattern expr) defs)
+    [(cons (match-def& pattern type expr) defs)
      (define vars (pattern-variables pattern))
      (define body-vars (generate-temporaries vars))
      (define body-env

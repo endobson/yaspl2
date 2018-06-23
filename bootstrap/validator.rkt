@@ -75,7 +75,7 @@
   (define (recur/block env defs body)
     (match defs
       [(list) ((recur/env env) body)]
-      [(cons (match-def& pattern expr) defs)
+      [(cons (match-def& pattern type expr) defs)
        ((recur/env env) expr)
        (define binders (pattern-binding-variables pattern))
        (when (check-duplicates binders)
@@ -524,9 +524,15 @@
 (define (type-check/block env defs body type)
   (match defs
     [(list) ((type-check/env env) body type)]
-    [(cons (match-def& pattern expr) defs)
+    [(cons (match-def& pattern def-pre-type expr) defs)
      (check-patterns-complete/not-useless env (list pattern))
-     (define expr-type ((type-check/env env) expr (unknown-ty)))
+     (define expr-type
+       (if def-pre-type
+           (let ([def-type ((parse-type/env (binding-env-types env)) def-pre-type)])
+             ((type-check/env env) expr def-type)
+             def-type)
+           ((type-check/env env) expr (unknown-ty))))
+
      (match-define (template-data type-vars var-types constraints pattern-type)
        ((pattern->template-data/env env) pattern))
 

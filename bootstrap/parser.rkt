@@ -115,7 +115,10 @@
       [`(,expr)
        (block& (reverse rev-defs) (parse-expression expr))]
       [`((match-define ,pattern ,expr) . ,sexps)
-        (recur sexps (cons (match-def& (parse-pattern pattern) (parse-expression expr)) rev-defs))]))
+        (recur sexps (cons (match-def& (parse-pattern pattern) #f (parse-expression expr)) rev-defs))]
+      [`((match-define ,pattern : ,type ,expr) . ,sexps)
+        (recur sexps (cons (match-def& (parse-pattern pattern) (parse-pre-type type) (parse-expression expr))
+                           rev-defs))]))
   (recur sexps empty))
 
 (define (parse-expression sexp)

@@ -14,7 +14,7 @@
 (struct definition& (type args body))
 
 (struct block& (definitions body) #:transparent)
-(struct match-def& (pattern expr) #:transparent)
+(struct match-def& (pattern type expr) #:transparent)
 
 (struct expression& () #:transparent)
 (struct byte& expression& (v) #:transparent)
