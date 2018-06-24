@@ -82,6 +82,7 @@ yaspl_library(
         "//libraries:ip",
         "//libraries:udp",
         "//libraries/data:bytes",
+        "//libraries/data:lifted-primitives",
         "//libraries/data:numbers",
         "//libraries/data:tuples",
     ],

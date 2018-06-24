@@ -1,66 +1,11 @@
 #:module (extra-action-parser)
 #:import {
-  {(bytes)
-    {#:values
-      subbytes
-    }
-  }
-  {(either)
-    {#:types
-      Either
-    }
-    {#:values
-      left
-      right
-    }
-    {#:patterns
-      left
-      right
-    }
-  }
-  {(io)
-    {#:values
-      write-all-bytes
-      write-line
-    }
-  }
-  {(list)
-    {#:types
-      List
-    }
-    {#:values
-      cons
-      empty
-      for-each
-      reverse
-    }
-    {#:patterns
-      cons
-      empty
-    }
-  }
-  {(prim)
-    {#:types
-      Boolean
-      Bytes
-      Int
-      OutputPort
-      Void
-    }
-    {#:values
-      *
-      +
-      -
-      =
-      >
-      >=
-      bitwise-and
-      bytes-ref
-      logical-shift-right
-      u8->s64
-      void
-    }
-  }
+  (bytes)
+  (data lifted-primitives)
+  (either)
+  (io)
+  (list)
+  (prim)
 }
 (export
   (#:types)
@@ -90,25 +35,25 @@
   (define-type SpawnInfo
     (spawn-info [arguments : (List Bytes)] [input-files : (List Bytes)] [output-files : (List Bytes)])))
 
-(define (read-varint [parser : ProtoParser]) : (Result Int)
+(define (read-varint [parser : ProtoParser]) : (Result LiftedInt)
   (case parser
     [(proto-parser input pos limit)
      (read-varint/loop input pos limit)]))
 
-(define (read-varint/loop [bytes : Bytes] [offset : Int] [limit : Int]) : (Result Int)
+(define (read-varint/loop [bytes : Bytes] [offset : Int] [limit : Int]) : (Result LiftedInt)
   (if (>= offset limit)
       (error #"Varint not terminated correctly.)")
       (let ([v (u8->s64 (bytes-ref bytes offset))])
         (if (>= v 128)
             (case (read-varint/loop bytes (+ 1 offset) limit)
               [(error msg) (error msg)]
-              [(result v2 parser) (result (+ (- v 128) (* v2 128)) parser)])
-            (result v (proto-parser bytes (+ 1 offset) limit))))))
+              [(result (lifted-int v2) parser) (result (lifted-int (+ (- v 128) (* v2 128))) parser)])
+            (result (lifted-int v) (proto-parser bytes (+ 1 offset) limit))))))
 
 (define (read-tag [parser : ProtoParser]) : (Result FieldTag)
   (case (read-varint parser)
     [(error msg) (error msg)]
-    [(result v parser)
+    [(result (lifted-int v) parser)
      (let ([field-number (logical-shift-right v 3)])
        (case (bitwise-and v #x07)
          [0 (result (field-tag field-number (tag-varint)) parser)]
@@ -125,7 +70,7 @@
        [(tag-length-delimited)
         (case (read-varint parser)
           [(error msg) (error msg)]
-          [(result length (proto-parser bytes offset limit))
+          [(result (lifted-int length) (proto-parser bytes offset limit))
            (let ([new-limit (+ offset length)])
              (if (> new-limit limit)
                  (error #"Bad length in length delimited field")

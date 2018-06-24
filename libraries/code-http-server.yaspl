@@ -17,6 +17,7 @@
   (list)
   (maybe)
   (numbers)
+  (panic)
   (prim)
   (print-register-language)
   {(register-language)
@@ -183,38 +184,35 @@
     [(r:tail-call _ _) (empty)]
     [(r:jump i args) (varargs list i)]))
 
-(define (panic/int [bytes : Bytes]) : Int
-  (panic bytes))
 (define (panic/basic-block-list [bytes : Bytes]) : (List r:BasicBlock)
-  (panic bytes))
-(define (panic/dict-int-basic-block-list [bytes : Bytes]) : (Dict Int (List r:BasicBlock))
   (panic bytes))
 (define (empty/basic-block-list) : (List r:BasicBlock)
   (empty))
 
-(define (max* [v : Int] [vs : (List Int)]) : Int
+(define (max* [v : Int] [vs : (List LiftedInt)]) : Int
   (case vs
     [(empty) v]
-    [(cons v2 vs) (max* (max v v2) vs)]))
+    [(cons (lifted-int v2) vs) (max* (max v v2) vs)]))
 
 (define (make-blocks-by-depth
-          [depths : (Dict BlockNumber Int)]
+          [depths : (Dict BlockNumber LiftedInt)]
           [blocks : (Dict BlockNumber r:BasicBlock)])
-  : (Dict Int (List r:BasicBlock))
+  : (Dict LiftedInt (List r:BasicBlock))
   (foldl
-    (lambda ([entry : (Tuple2 BlockNumber Int)] [acc : (Dict Int (List r:BasicBlock))])
+    (lambda ([entry : (Tuple2 BlockNumber LiftedInt)] [acc : (Dict LiftedInt (List r:BasicBlock))])
+      : (Dict LiftedInt (List r:BasicBlock))
       (case entry
         [(tuple2 index depth)
          (case (dict-ref blocks index)
-           [(nothing) (panic/dict-int-basic-block-list #"Bad index")]
+           [(nothing) (panic #"Bad index")]
            [(just block)
             (dict-update
               acc
               depth
               (lambda ([blocks : (List r:BasicBlock)]) (cons block blocks))
               (empty/basic-block-list))])]))
-    (dict-map depths (lambda ([key : BlockNumber] [value : Int]) (tuple2 key value)))
-    (ann (Dict Int (List r:BasicBlock)) (make-dict int-cmp))))
+    (dict-map depths (lambda ([key : BlockNumber] [value : LiftedInt]) (tuple2 key value)))
+    (ann (Dict LiftedInt (List r:BasicBlock)) (make-dict lifted-int-cmp))))
 
 (define (layer-blocks [blocks : (Dict BlockNumber r:BasicBlock)]) : (List (List r:BasicBlock))
   (let ([succ
@@ -223,53 +221,57 @@
               [(nothing) (panic #"Bad index")]
               [(just block) (terminal->successors (r:basic-block-terminal block))]))])
     (let ([ordered-indices (depth-first-search succ (varargs list (initial-block-number)) block-number-cmp)])
-      (let ([depths (compute-depths succ ordered-indices (dict-add (make-dict block-number-cmp)
-                                                                   (initial-block-number) 0))])
+      (let ([depths (compute-depths succ ordered-indices
+                                    (dict-add (make-dict block-number-cmp)
+                                              (initial-block-number)
+                                              (lifted-int 0)))])
         (let ([max-depth (max* 0 (dict-values depths))])
           (let ([blocks-by-depth (make-blocks-by-depth depths blocks)])
             (let ([ref (lambda ([depth : Int])
-                         (case (dict-ref blocks-by-depth depth)
+                         (case (dict-ref blocks-by-depth (lifted-int depth))
                            [(nothing) (panic/basic-block-list #"Bad index")]
                            [(just blocks) blocks]))])
               (build-list (+ max-depth 1) ref))))))))
 
 
 (define (compute-depths [succ : (BlockNumber -> (List BlockNumber))] [vs : (List BlockNumber)]
-                        [acc : (Dict BlockNumber Int)]) : (Dict BlockNumber Int)
+                        [acc : (Dict BlockNumber LiftedInt)]) : (Dict BlockNumber LiftedInt)
   (case vs
     [(empty) acc]
     [(cons v vs)
      (let ([cur-height
             (case (dict-ref acc v)
               [(nothing) (panic/int #"Bad index")]
-              [(just v) v])])
+              [(just (lifted-int v)) v])])
        (compute-depths
          succ
          vs
-         (foldl (lambda ([v : BlockNumber] [acc : (Dict BlockNumber Int)])
+         (foldl (lambda ([v : BlockNumber] [acc : (Dict BlockNumber LiftedInt)])
                   (dict-update acc v
-                               (lambda ([old-height : Int])
-                                 (max old-height (+ 1 cur-height)))
-                               0))
+                               (lambda ([old-height : LiftedInt])
+                                 (case old-height
+                                   [(lifted-int old-height)
+                                    (lifted-int (max old-height (+ 1 cur-height)))]))
+                               (lifted-int 0)))
                 (succ v)
                 acc)))]))
 
 (define (layout-blocks [blocks : (List (List r:BasicBlock))]) : (List Node)
   (case
     (foldl
-      (lambda ([blocks : (List r:BasicBlock)] [acc : (Tuple2 Int (List Node))])
+      (lambda ([blocks : (List r:BasicBlock)] [acc : (Tuple2 LiftedInt (List Node))])
         (case acc
-          [(tuple2 y-offset nodes)
+          [(tuple2 (lifted-int y-offset) nodes)
            (case
              (foldl
-               (lambda ([block : r:BasicBlock] [acc : (Tuple3 Int Int (List Node))])
+               (lambda ([block : r:BasicBlock] [acc : (Tuple3 LiftedInt LiftedInt (List Node))])
                  (case acc
-                   [(tuple3 x-offset max-height nodes)
+                   [(tuple3 (lifted-int x-offset) (lifted-int max-height) nodes)
                     (case (block->graphic-block block)
                       [(graphic-block width height html)
                        (tuple3
-                         (+ (+ x-offset width) 20)
-                         (max max-height height)
+                         (lifted-int (+ (+ x-offset width) 20))
+                         (lifted-int (max max-height height))
                          (cons
                            (rect x-offset y-offset width height
                                  (varargs list (fill #"none") (stroke #"black")))
@@ -277,11 +279,11 @@
                              (foreign-object x-offset y-offset width height (empty) (varargs list html))
                              nodes)))])]))
                blocks
-               (tuple3 10 0 nodes))
-             [(tuple3 _ height nodes)
-              (tuple2 (+ y-offset (+ height 20)) nodes)])]))
+               (tuple3 (lifted-int 10) (lifted-int 0) nodes))
+             [(tuple3 _ (lifted-int height) nodes)
+              (tuple2 (lifted-int (+ y-offset (+ height 20))) nodes)])]))
       blocks
-      (tuple2 10 (empty/node)))
+      (tuple2 (lifted-int 10) (empty/node)))
     [(tuple2 _ nodes) nodes]))
 
 
