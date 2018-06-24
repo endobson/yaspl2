@@ -90,6 +90,7 @@ yaspl_bootstrap_library(
     name = "dict",
     srcs = ["dict.yaspl"],
     deps = [
+        ":lifted-primitives",
         ":list",
         ":maybe",
         ":ordering",
