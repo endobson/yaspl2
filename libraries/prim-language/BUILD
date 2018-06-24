@@ -442,6 +442,7 @@ yaspl_bootstrap_library(
         "//libraries/data:either",
         "//libraries/data:list",
         "//libraries/data:maybe",
+        "//libraries/data:ordering",
         "//libraries/data:set",
         "//libraries/data:tuples",
         "//libraries/yaspl:var",

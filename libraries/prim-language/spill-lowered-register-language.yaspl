@@ -1,6 +1,7 @@
 #:module (spill-lowered-register-language)
 #:import {
   (block-number)
+  (data ordering)
   (dict)
   (either)
   (list)
@@ -33,7 +34,7 @@
   (match-define (tuple2 unvalidated-block-map next-var)
     (unvalidated-block-map-map/acc
       (block-map->unvalidated-block-map block-map)
-      (lambda ([index : BlockNumber] [b : (BasicBlock Reg)] [next-var : Int])
+      (lambda ([index : BlockNumber] [b : (BasicBlock Reg)] [next-var : VarNumber])
         (spill-variables/block b spilled next-var))
       next-var))
   (case (validate-block-map unvalidated-block-map)
@@ -41,23 +42,23 @@
     [(right block-map)
      (function-definition name new-num-temporaries block-map)]))
 
-(define (compute-next-var [blocks : (BlockMap Reg)]) : Int
+(define (compute-next-var [blocks : (BlockMap Reg)]) : VarNumber
   (foldl
-    (lambda ([s : (Set Var)] [next-var : Int])
+    (lambda ([s : (Set Var)] [next-var : VarNumber])
       (set-fold
         s
-        (lambda ([v : Var] [next-var : Int])
+        (lambda ([v : Var] [next-var : VarNumber])
           (case v
             [(var _ c)
-             (if (< c next-var)
-                 next-var
-                 (+ 1 c))]))
+             (case (var-number-cmp c next-var)
+               [(less-than) next-var]
+               [_ (next-var-number c)])]))
         next-var))
     (dict-map
       (block-map-blocks blocks)
       (lambda ([i : BlockNumber] [b : (BasicBlock Reg)])
         (used-vars/block b)))
-    0))
+    (initial-var-number)))
 
 (define (used-vars/block [b : (BasicBlock Reg)]) : (Set Var)
   (match-define (basic-block instructions terminal) b)
@@ -81,8 +82,8 @@
     (make-set var-cmp)))
 
 
-(define (spill-variables/block [b : (BasicBlock Reg)] [spilled : (Dict Var Int)] [next-var : Int])
-  : (Tuple2 (BasicBlock Reg) Int)
+(define (spill-variables/block [b : (BasicBlock Reg)] [spilled : (Dict Var Int)] [next-var : VarNumber])
+  : (Tuple2 (BasicBlock Reg) VarNumber)
   (case b
     [(basic-block instructions terminal)
      (match-define (tuple3 term-instructions terminal next-var)
@@ -101,8 +102,8 @@
 
 
 (define (maybe-spill-reg [reg : Reg] [spilled : (Dict Var Int)] [loads : (Dict Var Int)]
-                         [next-var : Int])
-  : (Tuple3 Reg (Dict Var Int) Int)
+                         [next-var : VarNumber])
+  : (Tuple3 Reg (Dict Var Int) VarNumber)
   (case reg
     [(fixed-reg _) (tuple3 reg loads next-var)]
     [(temporary-reg v)
@@ -115,14 +116,15 @@
         (tuple3
           (temporary-reg new-var)
           (dict-add loads new-var temp)
-          (+ 1 next-var))])]))
+          (next-var-number next-var))])]))
 
 
 (define (empty-loads) : (Dict Var Int)
   (make-dict var-cmp))
 
-(define (spill-variables/terminal [t : (Terminal Reg)] [spilled : (Dict Var Int)] [next-var : Int])
-  : (Tuple3 (List (Instruction Reg)) (Terminal Reg) Int)
+(define (spill-variables/terminal [t : (Terminal Reg)] [spilled : (Dict Var Int)]
+                                  [next-var : VarNumber])
+  : (Tuple3 (List (Instruction Reg)) (Terminal Reg) VarNumber)
   (match-define loads (empty-loads))
   (match-define (tuple3 t loads next-var)
     (case t
@@ -166,7 +168,7 @@
                    (maybe-spill-reg v spilled loads next-var))
                  (tuple3 (compare-mem-arg-ptr r) loads next-var)]))
             (match-define (tuple3 new-reg-imm2 loads next-var)
-              (ann (Tuple3 (RegOrS32 Reg) (Dict Var Int) Int)
+              (ann (Tuple3 (RegOrS32 Reg) (Dict Var Int) VarNumber)
                 (case reg-imm2
                   [(reg-or-s32-reg r)
                    (match-define (tuple3 new-r loads next-var) (maybe-spill-reg r spilled loads next-var))
@@ -186,7 +188,7 @@
                    (maybe-spill-reg v spilled loads next-var))
                  (tuple3 (compare-mem-arg-ptr r) loads next-var)]))
             (match-define (tuple3 new-reg-imm2 loads next-var)
-              (ann (Tuple3 (RegOrU8 Reg) (Dict Var Int) Int)
+              (ann (Tuple3 (RegOrU8 Reg) (Dict Var Int) VarNumber)
                 (case reg-imm2
                   [(reg-or-u8-reg r)
                    (match-define (tuple3 new-r loads next-var) (maybe-spill-reg r spilled loads next-var))
@@ -205,8 +207,8 @@
           [instructions : (List (Instruction Reg))]
           [acc : (List (Instruction Reg))]
           [spilled : (Dict Var Int)]
-          [next-var : Int])
-  : (Tuple2 (List (Instruction Reg)) Int)
+          [next-var : VarNumber])
+  : (Tuple2 (List (Instruction Reg)) VarNumber)
   (case instructions
     [(empty) (tuple2 acc next-var)]
     [(cons inst instructions)
@@ -227,8 +229,9 @@
     instructions))
 
 
-(define (spill-instruction [instruction : (Instruction Reg)] [spilled : (Dict Var Int)] [next-var : Int])
-  : (Tuple2 (List (Instruction Reg)) Int)
+(define (spill-instruction [instruction : (Instruction Reg)] [spilled : (Dict Var Int)]
+                           [next-var : VarNumber])
+  : (Tuple2 (List (Instruction Reg)) VarNumber)
   (match-define in (input-registers instruction reg-cmp))
   (match-define out (dirtied-registers instruction reg-cmp))
   (match-define (tuple2 actual-spilled-regs next-var)
@@ -266,11 +269,11 @@
 (define (empty-spills) : (Dict Reg (Tuple2 Reg Int))
   (make-dict reg-cmp))
 
-(define (compute-spills [regs : (Set Reg)] [spilled : (Dict Var Int)] [next-var : Int])
-  : (Tuple2 (Dict Reg (Tuple2 Reg Int)) Int)
+(define (compute-spills [regs : (Set Reg)] [spilled : (Dict Var Int)] [next-var : VarNumber])
+  : (Tuple2 (Dict Reg (Tuple2 Reg Int)) VarNumber)
   (set-fold
     regs
-    (lambda ([reg : Reg] [acc : (Tuple2 (Dict Reg (Tuple2 Reg Int)) Int)])
+    (lambda ([reg : Reg] [acc : (Tuple2 (Dict Reg (Tuple2 Reg Int)) VarNumber)])
       (case reg
         [(fixed-reg _) acc]
         [(temporary-reg v)
@@ -281,5 +284,5 @@
             (match-define (var n _) v)
             (tuple2
               (dict-add actual-spills reg (tuple2 (temporary-reg (var n next-var)) temp))
-              (+ 1 next-var))])]))
+              (next-var-number next-var))])]))
     (tuple2 (empty-spills) next-var)))
