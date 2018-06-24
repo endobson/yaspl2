@@ -850,6 +850,7 @@ yaspl_bootstrap_library(
         ":type-checker-context",
         ":types",
         "//libraries/data:bytes",
+        "//libraries/data:lifted-primitives",
         "//libraries/data:dict",
         "//libraries/data:either",
         "//libraries/data:list",

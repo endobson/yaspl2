@@ -202,6 +202,7 @@ yaspl_bootstrap_library(
     srcs = ["multi-set.yaspl"],
     deps = [
         ":dict",
+        ":lifted-primitives",
         ":list",
         ":maybe",
         ":ordering",
