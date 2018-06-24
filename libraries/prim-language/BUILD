@@ -439,6 +439,7 @@ yaspl_bootstrap_library(
         ":lowered-live-variables",
         ":lowered-register-language",
         "//libraries/data:dict",
+        "//libraries/data:lifted-primitives",
         "//libraries/data:either",
         "//libraries/data:list",
         "//libraries/data:maybe",
