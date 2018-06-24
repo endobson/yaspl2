@@ -109,7 +109,6 @@ yaspl_test(
         ":dict",
         ":list",
         ":maybe",
-        ":numbers",
         ":set",
         ":tuples",
         "//libraries:yunit",
@@ -121,8 +120,8 @@ yaspl_library(
     srcs = ["directed-graph.yaspl"],
     deps = [
         ":dict",
+        ":lifted-primitives",
         ":maybe",
-        ":numbers",
         ":tuples",
     ],
 )
@@ -153,6 +152,7 @@ yaspl_bootstrap_library(
     name = "lifted-primitives",
     srcs = ["lifted-primitives.yaspl"],
     deps = [
+        ":ordering",
     ],
 )
 
@@ -174,6 +174,7 @@ yaspl_test(
     main_module = "list_test",
     deps = [
         ":bytes",
+        ":lifted-primitives",
         ":list",
         ":maybe",
         ":tuples",
@@ -191,6 +192,7 @@ yaspl_test(
     srcs = ["maybe-test.yaspl"],
     main_module = "maybe_test",
     deps = [
+        ":bytes",
         ":list",
         ":maybe",
         "//libraries:yunit",
@@ -248,7 +250,6 @@ yaspl_test(
         ":bytes",
         ":list",
         ":maybe",
-        ":numbers",
         ":red-black-tree",
         ":tuples",
         "//libraries:yunit",
@@ -310,8 +311,8 @@ yaspl_test(
     srcs = ["set-test.yaspl"],
     main_module = "set_test",
     deps = [
+        ":bytes",
         ":list",
-        ":numbers",
         ":set",
         "//libraries:yunit",
     ],
