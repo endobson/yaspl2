@@ -124,6 +124,7 @@ yaspl_library(
         ":compile-module-args",
         "//libraries:compiler_lib",
         "//libraries:io",
+        "//libraries:panic",
         "//libraries/data:bytes",
         "//libraries/data:dict",
         "//libraries/data:either",

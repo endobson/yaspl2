@@ -96,6 +96,7 @@ yaspl_library(
     name = "buffered-port",
     srcs = ["buffered-port.yaspl"],
     deps = [
+        ":panic",
         "//libraries/data:bytes",
         "//libraries/data:maybe",
     ],
@@ -447,6 +448,7 @@ yaspl_library(
     name = "mach",
     srcs = ["mach.yaspl"],
     deps = [
+        ":panic",
         "//libraries/data:bytes",
         "//libraries/data:list",
     ],
@@ -625,6 +627,7 @@ yaspl_bootstrap_library(
     srcs = ["pretty-print.yaspl"],
     deps = [
         "//libraries/data:join-list",
+        "//libraries/data:lifted-primitives",
         "//libraries/data:list",
         "//libraries/data:maybe",
         "//libraries/data:tuples",
@@ -768,6 +771,7 @@ yaspl_bootstrap_library(
         "//libraries/data:bytes",
         "//libraries/data:dict",
         "//libraries/data:either",
+        "//libraries/data:lifted-primitives",
         "//libraries/data:list",
         "//libraries/data:maybe",
     ],
@@ -850,9 +854,9 @@ yaspl_bootstrap_library(
         ":type-checker-context",
         ":types",
         "//libraries/data:bytes",
-        "//libraries/data:lifted-primitives",
         "//libraries/data:dict",
         "//libraries/data:either",
+        "//libraries/data:lifted-primitives",
         "//libraries/data:list",
         "//libraries/data:maybe",
         "//libraries/data:numbers",
@@ -1068,6 +1072,7 @@ yaspl_library(
     srcs = ["udp.yaspl"],
     deps = [
         ":ip",
+        "//libraries/data:lifted-primitives",
         "//libraries/data:tuples",
     ],
 )
