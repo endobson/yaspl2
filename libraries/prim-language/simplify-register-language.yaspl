@@ -1,6 +1,7 @@
 #:module (simplify-register-language)
 #:import {
   (block-number)
+  (bytes)
   (data lifted-primitives)
   (dict)
   (list)
@@ -37,13 +38,14 @@
     (known-var-condition [v : Var] [negated : Boolean])))
 
 (define (simplify-function-definition [f : FunctionDefinition]) : FunctionDefinition
-  (match-define (function-definition name entry-block blocks next-var-number next-block-number) f)
+  (match-define (function-definition name calling-convention blocks next-var-number next-block-number) f)
   (match-define abstract-values (compute-abstract-values blocks))
   (match-define new-blocks
     (remove-dead-instructions
-      (optimize-constants abstract-values
-        (optimize-conditional-jumps abstract-values blocks))))
-  (function-definition name entry-block new-blocks next-var-number next-block-number))
+      (optimize-self-tail-calls name calling-convention
+        (optimize-constants abstract-values
+          (optimize-conditional-jumps abstract-values blocks)))))
+  (function-definition name calling-convention new-blocks next-var-number next-block-number))
 
 (define (optimize-conditional-jumps
           [abstract-values : (Dict Var AbstractValue)]
@@ -370,3 +372,32 @@
     [(just val)
      val]
     [(nothing) (panic #"No abstract value for var")]))
+
+(define (optimize-self-tail-calls
+          [function-name : Bytes]
+          [calling-convention : CallingConvention]
+          [blocks : (Dict BlockNumber BasicBlock)]) : (Dict BlockNumber BasicBlock)
+  (case calling-convention
+    [(closure-convention _ block-number 0)
+     (dict-value-map blocks
+       (lambda ([b : BasicBlock])
+         (optimize-self-tail-calls/block function-name block-number b)))]
+    [(plain-function-convention _ block-number)
+     (dict-value-map blocks
+       (lambda ([b : BasicBlock])
+         (optimize-self-tail-calls/block function-name block-number b)))]
+    [(closure-convention _ _ _)
+     blocks]))
+
+
+(define (optimize-self-tail-calls/block
+          [function-name : Bytes]
+          [entry-block : BlockNumber]
+          [block : BasicBlock]) : BasicBlock
+  (match-define (basic-block args instructions term) block)
+  (case term
+    [(tail-call (direct-call called-function) called-args)
+     (if (bytes=? called-function function-name)
+         (basic-block args instructions (jump entry-block called-args))
+         block)]
+    [_ block]))
