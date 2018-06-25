@@ -33,6 +33,8 @@
       [basic-block r:basic-block]
       [cond-jump r:cond-jump]
       function-definition
+      plain-function-convention
+      closure-convention
       [halt r:halt]
       [jump r:jump]
       [return r:return]
@@ -214,16 +216,17 @@
     (dict-map depths (lambda ([key : BlockNumber] [value : LiftedInt]) (tuple2 key value)))
     (ann (Dict LiftedInt (List r:BasicBlock)) (make-dict lifted-int-cmp))))
 
-(define (layer-blocks [blocks : (Dict BlockNumber r:BasicBlock)]) : (List (List r:BasicBlock))
+(define (layer-blocks [initial-block : BlockNumber]
+                      [blocks : (Dict BlockNumber r:BasicBlock)]) : (List (List r:BasicBlock))
   (let ([succ
           (lambda ([index : BlockNumber]) : (List BlockNumber)
             (case (dict-ref blocks index)
               [(nothing) (panic #"Bad index")]
               [(just block) (terminal->successors (r:basic-block-terminal block))]))])
-    (let ([ordered-indices (depth-first-search succ (varargs list (initial-block-number)) block-number-cmp)])
+    (let ([ordered-indices (depth-first-search succ (varargs list initial-block) block-number-cmp)])
       (let ([depths (compute-depths succ ordered-indices
                                     (dict-add (make-dict block-number-cmp)
-                                              (initial-block-number)
+                                              initial-block
                                               (lifted-int 0)))])
         (let ([max-depth (max* 0 (dict-values depths))])
           (let ([blocks-by-depth (make-blocks-by-depth depths blocks)])
@@ -237,24 +240,27 @@
 (define (compute-depths [succ : (BlockNumber -> (List BlockNumber))] [vs : (List BlockNumber)]
                         [acc : (Dict BlockNumber LiftedInt)]) : (Dict BlockNumber LiftedInt)
   (case vs
-    [(empty) acc]
+    [(empty) (make-dict block-number-cmp)]
     [(cons v vs)
      (let ([cur-height
             (case (dict-ref acc v)
               [(nothing) (panic/int #"Bad index")]
               [(just (lifted-int v)) v])])
-       (compute-depths
-         succ
-         vs
-         (foldl (lambda ([v : BlockNumber] [acc : (Dict BlockNumber LiftedInt)])
-                  (dict-update acc v
-                               (lambda ([old-height : LiftedInt])
-                                 (case old-height
-                                   [(lifted-int old-height)
-                                    (lifted-int (max old-height (+ 1 cur-height)))]))
-                               (lifted-int 0)))
-                (succ v)
-                acc)))]))
+       (dict-add
+         (compute-depths
+           succ
+           vs
+           (foldl (lambda ([v : BlockNumber] [acc : (Dict BlockNumber LiftedInt)])
+                    (dict-update acc v
+                                 (lambda ([old-height : LiftedInt])
+                                   (case old-height
+                                     [(lifted-int old-height)
+                                      (lifted-int (max old-height (+ 1 cur-height)))]))
+                                 (lifted-int 0)))
+                  (succ v)
+                  acc))
+         v
+         (lifted-int cur-height)))]))
 
 (define (layout-blocks [blocks : (List (List r:BasicBlock))]) : (List Node)
   (case
@@ -306,9 +312,14 @@
           (body (filter-map top-level-object->node objects))))
       (case (find-function name objects)
         [(nothing) (not-found)]
-        [(just (function-definition _ _ basic-blocks _ _))
+        [(just (function-definition _ calling-convention basic-blocks _ _))
+         (match-define initial-block-number
+           (case calling-convention
+             [(plain-function-convention _ block) block]
+             [(closure-convention _ block _) block]))
+
          (svg-ok-response
-           (svg (layout-blocks (layer-blocks basic-blocks))))])))
+           (svg (layout-blocks (layer-blocks initial-block-number basic-blocks))))])))
 
 (define (block->node [block : r:BasicBlock]) : Node
   (pre*
