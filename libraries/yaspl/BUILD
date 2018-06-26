@@ -17,6 +17,7 @@ yaspl_bootstrap_library(
         "//libraries:top-level-name",
         "//libraries/data:bytes",
         "//libraries/data:dict",
+        "//libraries/data:indexed-set",
         "//libraries/data:list",
         "//libraries/data:maybe",
         "//libraries/data:tuples",

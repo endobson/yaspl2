@@ -2,6 +2,7 @@
 #:import {
   (block-number)
   (bytes)
+  (data indexed-set)
   (data lifted-primitives)
   (dict)
   (list)
@@ -49,15 +50,16 @@
 
 (define (optimize-conditional-jumps
           [abstract-values : (Dict Var AbstractValue)]
-          [blocks : (Dict BlockNumber BasicBlock)]) : (Dict BlockNumber BasicBlock)
-  (dict-value-map blocks
+          [blocks : (IndexedSet BasicBlock BlockNumber)])
+  : (IndexedSet BasicBlock BlockNumber)
+  (indexed-set-value-map blocks
     (lambda ([b : BasicBlock])
       (optimize-conditional-jumps/block abstract-values b))))
 
 (define (optimize-conditional-jumps/block
           [abstract-values : (Dict Var AbstractValue)]
           [b : BasicBlock]) : BasicBlock
-  (match-define (basic-block args instructions terminal) b)
+  (match-define (basic-block block-num args instructions terminal) b)
   (case terminal
     [(cond-jump c t t-args f f-args)
      (case
@@ -70,13 +72,13 @@
        [(just (known-var-condition v negated?))
         (case (abstract-value-resolve abstract-values v)
           [(av-comparison c l r)
-           (basic-block args instructions
+           (basic-block block-num args instructions
              (cond-jump
                (comparison-condition (if negated? (negate-comparison c) c)
                                      (compare-s64 (compare-mem-arg-val l) (var-or-s32-var r)))
                t t-args f f-args))]
           [(av-memory-comparison size v1 v2)
-           (basic-block args instructions
+           (basic-block block-num args instructions
              (cond-jump
                (memory-compare-condition negated? size v1 v2)
                t t-args f f-args))]
@@ -92,15 +94,17 @@
     [(equal-op) (not-equal-op)]
     [(not-equal-op) (equal-op)]))
 
-(define (remove-dead-instructions [blocks : (Dict BlockNumber BasicBlock)]) : (Dict BlockNumber BasicBlock)
+(define (remove-dead-instructions [blocks : (IndexedSet BasicBlock BlockNumber)])
+  : (IndexedSet BasicBlock BlockNumber)
   (match-define used-vars (compute-used-vars blocks))
-  (dict-value-map blocks
+  (indexed-set-value-map blocks
     (lambda ([b : BasicBlock])
       (remove-dead-instructions/block b used-vars))))
 
 (define (remove-dead-instructions/block [b : BasicBlock] [used-vars : (Set Var)]) : BasicBlock
-  (match-define (basic-block args instructions terminal) b)
+  (match-define (basic-block block-num args instructions terminal) b)
   (basic-block
+    block-num
     args
     (filter
       (lambda ([i : Instruction])
@@ -112,15 +116,15 @@
       instructions)
     terminal))
 
-(define (compute-used-vars [blocks : (Dict BlockNumber BasicBlock)]) : (Set Var)
-  (dict-fold
+(define (compute-used-vars [blocks : (IndexedSet BasicBlock BlockNumber)]) : (Set Var)
+  (indexed-set-fold
     blocks
-    (lambda ([k : BlockNumber] [v : BasicBlock] [s : (Set Var)])
+    (lambda ([v : BasicBlock] [s : (Set Var)])
       (set-union s (used-vars/block v)))
     (make-set var-cmp)))
 
 (define (used-vars/block [b : BasicBlock]) : (Set Var)
-  (match-define (basic-block args instructions terminal) b)
+  (match-define (basic-block _ args instructions terminal) b)
   (foldl
     (lambda ([instruction : Instruction] [acc : (Set Var)])
       (case instruction
@@ -216,16 +220,17 @@
 
 (define (optimize-constants
           [abstract-values : (Dict Var AbstractValue)]
-          [blocks : (Dict BlockNumber BasicBlock)]) : (Dict BlockNumber BasicBlock)
-  (dict-value-map blocks
+          [blocks : (IndexedSet BasicBlock BlockNumber)]) : (IndexedSet BasicBlock BlockNumber)
+  (indexed-set-value-map blocks
     (lambda ([b : BasicBlock])
       (optimize-constants/block abstract-values b))))
 
 (define (optimize-constants/block
           [abstract-values : (Dict Var AbstractValue)]
           [b : BasicBlock]) : BasicBlock
-  (match-define (basic-block args instructions terminal) b)
+  (match-define (basic-block block-num args instructions terminal) b)
   (basic-block
+    block-num
     args
     (map
       (lambda ([i : Instruction])
@@ -328,13 +333,13 @@
     [(not-equal-op) (not-equal-op)]))
 
 ;; TODO Use better flow analysis across blocks
-(define (compute-abstract-values [blocks : (Dict BlockNumber BasicBlock)])
+(define (compute-abstract-values [blocks : (IndexedSet BasicBlock BlockNumber)])
   : (Dict Var AbstractValue)
-  (dict-fold
+  (indexed-set-fold
     blocks
-    (lambda ([i : BlockNumber] [b : BasicBlock] [acc : (Dict Var AbstractValue)])
+    (lambda ([b : BasicBlock] [acc : (Dict Var AbstractValue)])
       (case b
-        [(basic-block args instructions terminal)
+        [(basic-block _ args instructions terminal)
          (foldl
            (lambda ([arg : Var] [acc : (Dict Var AbstractValue)])
              (dict-set acc arg (av-unknown)))
@@ -376,14 +381,15 @@
 (define (optimize-self-tail-calls
           [function-name : Bytes]
           [calling-convention : CallingConvention]
-          [blocks : (Dict BlockNumber BasicBlock)]) : (Dict BlockNumber BasicBlock)
+          [blocks : (IndexedSet BasicBlock BlockNumber)])
+  : (IndexedSet BasicBlock BlockNumber)
   (case calling-convention
     [(closure-convention _ block-number 0)
-     (dict-value-map blocks
+     (indexed-set-value-map blocks
        (lambda ([b : BasicBlock])
          (optimize-self-tail-calls/block function-name block-number b)))]
     [(plain-function-convention _ block-number)
-     (dict-value-map blocks
+     (indexed-set-value-map blocks
        (lambda ([b : BasicBlock])
          (optimize-self-tail-calls/block function-name block-number b)))]
     [(closure-convention _ _ _)
@@ -394,10 +400,10 @@
           [function-name : Bytes]
           [entry-block : BlockNumber]
           [block : BasicBlock]) : BasicBlock
-  (match-define (basic-block args instructions term) block)
+  (match-define (basic-block block-num args instructions term) block)
   (case term
     [(tail-call (direct-call called-function) called-args)
      (if (bytes=? called-function function-name)
-         (basic-block args instructions (jump entry-block called-args))
+         (basic-block block-num args instructions (jump entry-block called-args))
          block)]
     [_ block]))

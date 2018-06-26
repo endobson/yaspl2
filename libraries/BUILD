@@ -241,6 +241,7 @@ yaspl_library(
         "//libraries/data:bytes",
         "//libraries/data:dict",
         "//libraries/data:either",
+        "//libraries/data:indexed-set",
         "//libraries/data:join-list",
         "//libraries/data:lifted-primitives",
         "//libraries/data:list",

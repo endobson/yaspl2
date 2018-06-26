@@ -2,6 +2,7 @@
 #:import {
   (block-number)
   (bytes)
+  (data indexed-set)
   (data lifted-primitives)
   (data ordering)
   (dict)
@@ -382,11 +383,10 @@
     (compute-saved-register-pairs next-var))
 
   (match-define (tuple2 next-block new-blocks)
-    (dict-fold
+    (indexed-set-fold
       blocks
-      (lambda ([index : BlockNumber]  [b : r:BasicBlock]
-               [acc : (Tuple2 BlockNumber (l:UnvalidatedBlockMap Reg))])
-        (lower-block index b blocks saved-register-pairs acc))
+      (lambda ([b : r:BasicBlock] [acc : (Tuple2 BlockNumber (l:UnvalidatedBlockMap Reg))])
+        (lower-block b blocks saved-register-pairs acc))
       (tuple2 next-block (empty-blocks lowered-entry-block))))
   (match-define entry-block (make-entry-block convention blocks saved-register-pairs))
   (match-define new-blocks
@@ -422,7 +422,8 @@
        (args/extra-registers args (+ offset 8) overflow-register))]))
 
 
-(define (make-entry-block [convention : r:CallingConvention] [blocks : (Dict BlockNumber r:BasicBlock)]
+(define (make-entry-block [convention : r:CallingConvention]
+                          [blocks : (IndexedSet r:BasicBlock BlockNumber)]
                           [saved-register-pairs : (List (Tuple2 X8664Register Var))])
   : (l:BasicBlock Reg)
   (match-define arg-registers (varargs list (rdi) (rsi) (rdx) (rcx) (r8) (r9)))
@@ -436,18 +437,18 @@
       saved-register-pairs))
   (case convention
     [(r:plain-function-convention num-args entry-block-num)
-     (case (dict-ref blocks entry-block-num)
+     (case (indexed-set-ref blocks entry-block-num)
        [(nothing) (panic #"No entry block")]
-       [(just (r:basic-block args _ _))
+       [(just (r:basic-block _ args _ _))
         (l:basic-block
           (append
             save-register-instructions
             (args/registers args arg-registers overflow-arg-register))
           (ann (l:Terminal Reg) (l:jump entry-block-num)))])]
     [(r:closure-convention num-args entry-block-num num-free-vars)
-     (case (dict-ref blocks entry-block-num)
+     (case (indexed-set-ref blocks entry-block-num)
        [(nothing) (panic #"No entry block")]
-       [(just (r:basic-block args _ _))
+       [(just (r:basic-block _ args _ _))
         (l:basic-block
           (append
             save-register-instructions
@@ -482,30 +483,30 @@
       next-var)))
 
 
-(define (lower-block [index : BlockNumber]  [b : r:BasicBlock]
-                     [blocks : (Dict BlockNumber r:BasicBlock)]
+(define (lower-block [b : r:BasicBlock]
+                     [blocks : (IndexedSet r:BasicBlock BlockNumber)]
                      [saved-register-pairs : (List (Tuple2 X8664Register Var))]
                      [acc : (Tuple2 BlockNumber (l:UnvalidatedBlockMap Reg))])
   : (Tuple2 BlockNumber (l:UnvalidatedBlockMap Reg))
-  (match-define (r:basic-block _ instructions terminal) b)
+  (match-define (r:basic-block block-num _ instructions terminal) b)
   (match-define (tuple3 end-insts terminal (tuple2 next-block acc-blocks))
     (lower-terminal terminal blocks saved-register-pairs acc))
   (tuple2
     next-block
     (l:unvalidated-block-map-add-block
       acc-blocks
-      index
+      block-num
       (l:basic-block
         (append
           (append* (map lower-instruction instructions))
           end-insts)
         terminal))))
 
-(define (match-args [index : BlockNumber] [args : (List Var)] [blocks : (Dict BlockNumber r:BasicBlock)])
+(define (match-args [index : BlockNumber] [args : (List Var)] [blocks : (IndexedSet r:BasicBlock BlockNumber)])
   : (List (Tuple2 Var Var))
-  (case (dict-ref blocks index)
+  (case (indexed-set-ref blocks index)
     [(nothing) (panic #"No block")]
-    [(just (r:basic-block block-args _ _))
+    [(just (r:basic-block _ block-args _ _))
      (case (zip block-args args)
        [(nothing)
         (panic
@@ -558,7 +559,8 @@
 (define (ann-term [t : (l:Terminal Reg)]) : (l:Terminal Reg)
   t)
 
-(define (lower-terminal [t : r:Terminal] [blocks : (Dict BlockNumber r:BasicBlock)]
+(define (lower-terminal [t : r:Terminal]
+                        [blocks : (IndexedSet r:BasicBlock BlockNumber)]
                         [saved-register-pairs : (List (Tuple2 X8664Register Var))]
                         [acc : (Tuple2 BlockNumber (l:UnvalidatedBlockMap Reg))])
   : (Tuple3 (List (l:Instruction Reg)) (l:Terminal Reg) (Tuple2 BlockNumber (l:UnvalidatedBlockMap Reg)))
