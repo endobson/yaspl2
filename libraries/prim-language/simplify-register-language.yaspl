@@ -42,11 +42,12 @@
   (match-define (function-definition name calling-convention blocks next-var-number next-block-number) f)
   (match-define abstract-values (compute-abstract-values blocks))
   (match-define new-blocks
-    (collapse-trivial-blocks
-      (remove-dead-instructions
-        (optimize-self-tail-calls name calling-convention
-          (optimize-constants abstract-values
-            (optimize-conditional-jumps abstract-values blocks))))))
+    (remove-dead-blocks calling-convention
+      (collapse-trivial-blocks
+        (remove-dead-instructions
+          (optimize-self-tail-calls name calling-convention
+            (optimize-constants abstract-values
+              (optimize-conditional-jumps abstract-values blocks)))))))
   (function-definition name calling-convention new-blocks next-var-number next-block-number))
 
 (define (optimize-conditional-jumps
@@ -487,3 +488,52 @@
                         [(nothing) v]
                         [(just new) new])) args))])
           trivial-blocks)])]))
+
+(define (remove-dead-blocks
+          [calling-convention : CallingConvention]
+          [blocks : (IndexedSet BasicBlock BlockNumber)])
+  : (IndexedSet BasicBlock BlockNumber)
+  (case calling-convention
+    [(closure-convention _ entry-block _)
+     (match-define referenced-block-numbers
+       (find-referenced-blocks (varargs list entry-block) blocks (make-set block-number-cmp)))
+     (indexed-set-filter
+       blocks
+       (lambda ([b : BasicBlock])
+         (set-member? referenced-block-numbers (basic-block-number b))))]
+    [(plain-function-convention _ entry-block)
+     (match-define referenced-block-numbers
+       (find-referenced-blocks (varargs list entry-block) blocks (make-set block-number-cmp)))
+     (indexed-set-filter
+       blocks
+       (lambda ([b : BasicBlock])
+         (set-member? referenced-block-numbers (basic-block-number b))))]))
+
+
+(define (terminal->next-blocks [t : Terminal]) : (List BlockNumber)
+  (case t
+    [(return var) (empty)]
+    [(halt) (empty)]
+    [(tail-call f args)
+     (empty)]
+    [(cond-jump con (jump-target t _) (jump-target f _))
+     (varargs list t f)]
+    [(jump (jump-target num _))
+     (varargs list num)]))
+
+(define (find-referenced-blocks
+          [to-visit : (List BlockNumber)]
+          [blocks : (IndexedSet BasicBlock BlockNumber)]
+          [visited : (Set BlockNumber)])
+  : (Set BlockNumber)
+  (case to-visit
+    [(empty) visited]
+    [(cons num to-visit)
+     (if (set-member? visited num)
+         (find-referenced-blocks to-visit blocks visited)
+         (case (indexed-set-ref blocks num)
+           [(nothing) (panic #"Bad block num")]
+           [(just (basic-block _ _ _ term))
+            (find-referenced-blocks (append (terminal->next-blocks term) to-visit)
+                                    blocks
+                                    (set-add visited num))]))]))
