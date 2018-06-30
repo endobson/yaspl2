@@ -42,10 +42,11 @@
   (match-define (function-definition name calling-convention blocks next-var-number next-block-number) f)
   (match-define abstract-values (compute-abstract-values blocks))
   (match-define new-blocks
-    (remove-dead-instructions
-      (optimize-self-tail-calls name calling-convention
-        (optimize-constants abstract-values
-          (optimize-conditional-jumps abstract-values blocks)))))
+    (collapse-trivial-blocks
+      (remove-dead-instructions
+        (optimize-self-tail-calls name calling-convention
+          (optimize-constants abstract-values
+            (optimize-conditional-jumps abstract-values blocks))))))
   (function-definition name calling-convention new-blocks next-var-number next-block-number))
 
 (define (optimize-conditional-jumps
@@ -412,3 +413,77 @@
          (basic-block block-num args instructions (jump (jump-target entry-block called-args)))
          block)]
     [_ block]))
+
+(define (collapse-trivial-blocks [blocks : (IndexedSet BasicBlock BlockNumber)])
+  : (IndexedSet BasicBlock BlockNumber)
+  (match-define trivial-blocks (find-trivial-blocks blocks))
+  (indexed-set-value-map blocks
+    (lambda ([b : BasicBlock])
+      (collapse-trivial-blocks/block b trivial-blocks))))
+
+(define (find-trivial-blocks [blocks : (IndexedSet BasicBlock BlockNumber)])
+  : (Dict BlockNumber (Tuple2 (List Var) JumpTarget))
+  (indexed-set-fold
+    blocks
+    (lambda ([b : BasicBlock] [acc : (Dict BlockNumber (Tuple2 (List Var) JumpTarget))])
+      : (Dict BlockNumber (Tuple2 (List Var) JumpTarget))
+      (case (find-trivial-blocks/block b)
+        [(nothing) acc]
+        [(just mapping) (dict-add acc (basic-block-number b) mapping)]))
+    (ann
+      (Dict BlockNumber (Tuple2 (List Var) JumpTarget))
+      (make-dict block-number-cmp))))
+
+(define (find-trivial-blocks/block [b : BasicBlock])
+  : (Maybe (Tuple2 (List Var) JumpTarget))
+  (match-define (basic-block block-num args instructions terminal) b)
+  (case instructions
+    [(cons _ _) (nothing)]
+    [(empty)
+     (case terminal
+       [(jump jt)
+        (just (tuple2 args jt))]
+       [_ (nothing)])]))
+
+(define (collapse-trivial-blocks/block
+          [b : BasicBlock]
+          [trivial-blocks : (Dict BlockNumber (Tuple2 (List Var) JumpTarget))])
+  : BasicBlock
+  (match-define (basic-block block-num args instructions terminal) b)
+  (case terminal
+    [(jump jt)
+     (basic-block block-num args instructions
+                  (jump (collapse-trivial-blocks/jump-target jt trivial-blocks)))]
+    [(cond-jump c t f)
+     (basic-block block-num args instructions
+                  (cond-jump
+                    c
+                    (collapse-trivial-blocks/jump-target t trivial-blocks)
+                    (collapse-trivial-blocks/jump-target f trivial-blocks)))]
+    [_ b]))
+
+
+(define (collapse-trivial-blocks/jump-target
+          [jt : JumpTarget]
+          [trivial-blocks : (Dict BlockNumber (Tuple2 (List Var) JumpTarget))])
+  : JumpTarget
+  (match-define (jump-target block-num args) jt)
+  (case (dict-ref trivial-blocks block-num)
+    [(nothing) jt]
+    [(just (tuple2 block-vars new-jt))
+     (case (zip block-vars args)
+       [(nothing) (panic #"Block vars don't line up.")]
+       [(just var-args)
+        (match-define subst
+          (ann
+            (Dict Var Var)
+            (dict-add-all (make-dict var-cmp) var-args)))
+        (collapse-trivial-blocks/jump-target
+          (case new-jt
+            [(jump-target block-num args)
+             (jump-target block-num
+               (map (lambda ([v : Var])
+                      (case (dict-ref subst v)
+                        [(nothing) v]
+                        [(just new) new])) args))])
+          trivial-blocks)])]))
