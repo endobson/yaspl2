@@ -218,6 +218,7 @@
        [(tuple2 array-size-var acc)
         (case (fresh-var acc #"arr")
           [(tuple2 array-var acc)
+           (match-define (tuple2 value-vars acc) (convert-exprs args env acc))
            (match-define acc
              (add-instruction
                (add-instruction
@@ -227,7 +228,7 @@
                  (r:int-literal array-size-var (length args)))
                (r:pointer-set!-inst (eight-byte-mem-op) array-var (fixed-pointer-offset 0)
                                     array-size-var)))
-           (match-define acc (fill-array array-var 8 args env acc))
+           (match-define acc (fill-array array-var 8 value-vars acc))
            (tuple2 array-var acc)])])]
     [(array-length-expr array)
      (match-define (tuple2 array-var acc) (convert-expr array env acc))
@@ -319,6 +320,7 @@
      (match-define symbol (mangle-top-level-name name))
      (match-define (tuple2 closure-var acc) (fresh-var acc #"clos"))
      (match-define (tuple2 symbol-var acc) (fresh-var acc #"sym"))
+     (match-define (tuple2 value-vars acc) (convert-exprs exprs env acc))
      (match-define acc
        (add-instructions
          acc
@@ -326,12 +328,12 @@
            (r:heap-allocate-inst/static closure-var (s32 (* (+ 1 (length exprs)) 8)))
            (r:symbol-address-inst symbol-var symbol)
            (r:pointer-set!-inst (eight-byte-mem-op) closure-var (fixed-pointer-offset 0) symbol-var))))
-     (match-define acc (fill-array closure-var 8 exprs env acc))
+     (match-define acc (fill-array closure-var 8 value-vars acc))
      (tuple2 closure-var acc)]
     [(make-variant-expr tag fields)
      (match-define (tuple2 tag-var acc) (fresh-var acc #"tag"))
      (match-define (tuple2 variant-var acc) (fresh-var acc #"variant"))
-
+     (match-define (tuple2 value-vars acc) (convert-exprs fields env acc))
      (match-define acc
        (add-instruction acc (r:heap-allocate-inst/static variant-var
                                                          (s32 (+ 8 (* 8 (length fields)))))))
@@ -341,7 +343,7 @@
        (add-instruction acc
          (r:pointer-set!-inst (eight-byte-mem-op) variant-var
                               (fixed-pointer-offset 0) tag-var)))
-     (match-define acc (fill-array variant-var 8 fields env acc))
+     (match-define acc (fill-array variant-var 8 value-vars acc))
      (tuple2 variant-var acc)]
     [(variant-field-ref-expr expr field-index)
      (match-define (tuple2 variant-var acc) (convert-expr expr env acc))
@@ -441,21 +443,19 @@
      (convert-sub-patterns patterns ptr (+ offset 8) fail-block env acc)]))
 
 
-(define (fill-array [base : Var] [offset : Int] [exprs : (List Expression)]
-                    [env : Environment] [acc : Accumulator]) : Accumulator
-  (case exprs
+(define (fill-array [base : Var] [offset : Int] [vars : (List Var)]
+                    [acc : Accumulator]) : Accumulator
+  (case vars
     [(empty) acc]
-    [(cons expr exprs)
-     (case (convert-expr expr env acc)
-       [(tuple2 value-var acc)
-        (fill-array
-          base
-          (+ offset 8)
-          exprs
-          env
-          (add-instruction
-            acc
-            (r:pointer-set!-inst (eight-byte-mem-op) base (fixed-pointer-offset offset) value-var)))])]))
+    [(cons var vars)
+     (fill-array
+       base
+       (+ offset 8)
+       vars
+       (add-instruction
+         acc
+         (r:pointer-set!-inst (eight-byte-mem-op) base (fixed-pointer-offset offset) var)))]))
+
 
 (define (convert-begin [exprs : (List Expression)] [env : Environment] [acc : Accumulator])
   : Accumulator
