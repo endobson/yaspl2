@@ -61,7 +61,7 @@
           [b : BasicBlock]) : BasicBlock
   (match-define (basic-block block-num args instructions terminal) b)
   (case terminal
-    [(cond-jump c t t-args f f-args)
+    [(cond-jump c t f)
      (case
        (ann (Maybe KnownVarCondition)
          (case c
@@ -76,12 +76,12 @@
              (cond-jump
                (comparison-condition (if negated? (negate-comparison c) c)
                                      (compare-s64 (compare-mem-arg-val l) (var-or-s32-var r)))
-               t t-args f f-args))]
+               t f))]
           [(av-memory-comparison size v1 v2)
            (basic-block block-num args instructions
              (cond-jump
                (memory-compare-condition negated? size v1 v2)
-               t t-args f f-args))]
+               t f))]
           [_ b])])]
     [_ b]))
 
@@ -171,7 +171,7 @@
        (append
          (used-vars/function-kind f)
          args)]
-      [(cond-jump con _ t-args _ f-args)
+      [(cond-jump con t f)
        (append
          (case con
            [(var-condition var) (varargs list var)]
@@ -179,8 +179,13 @@
            [(comparison-condition op args)
             (used-vars/compare-args args)]
            [(memory-compare-condition _ size v1 v2) (varargs list size v1 v2)])
-         (append t-args f-args))]
-      [(jump _ args) args])))
+         (append (used-vars/jump-target t) (used-vars/jump-target f)))]
+      [(jump jt) (used-vars/jump-target jt)])))
+
+(define (used-vars/jump-target [jt : JumpTarget]) : (List Var)
+  (case jt
+    [(jump-target _ args) args]))
+
 
 (define (used-vars/compare-args [args : CompareArgs]) : (List Var)
   (case args
@@ -310,14 +315,14 @@
           [_ i]))
       instructions)
     (case terminal
-      [(cond-jump cond t t-args f f-args)
+      [(cond-jump cond t f)
        (case cond
          [(comparison-condition op (compare-s64 l (var-or-s32-var r)))
           (case (abstract-value-resolve abstract-values r)
             [(av-int rv)
              (case (maybe-s32 rv)
                [(just (lifted-s32 rv))
-                (cond-jump (comparison-condition op (compare-s64 l (var-or-s32-s32 rv))) t t-args f f-args)]
+                (cond-jump (comparison-condition op (compare-s64 l (var-or-s32-s32 rv))) t f)]
                [_ terminal])]
             [_ terminal])]
          [_ terminal])]
@@ -404,6 +409,6 @@
   (case term
     [(tail-call (direct-call called-function) called-args)
      (if (bytes=? called-function function-name)
-         (basic-block block-num args instructions (jump entry-block called-args))
+         (basic-block block-num args instructions (jump (jump-target entry-block called-args)))
          block)]
     [_ block]))
