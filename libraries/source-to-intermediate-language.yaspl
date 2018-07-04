@@ -71,6 +71,9 @@
     {#:types
       Imports
     }
+    {#:values
+      imports-patterns
+    }
     {#:patterns
       imports
     }
@@ -211,7 +214,8 @@
              (i:module
                name
                (convert-imports imports)
-               (convert-exports name exports (context-values context) global-env type-definitions)
+               (convert-exports name exports (context-values context) global-env
+                                (imports-patterns imports) type-definitions)
                (append
                  funcs
                  (create-datatype-definitions name type-functions))
@@ -232,13 +236,14 @@
           [exports : Exports]
           [value-env : (Dict Bytes Type)]
           [global-env : (Dict Bytes TopLevelName)]
+          [imported-patterns : (Dict Bytes PatternSignature)]
           [type-defs : (List i-TypeDefinition)]) : i:Exports
   (case exports
     [(exports types values patterns)
      (i:exports
        (map convert-type-export types)
        (map (lambda ([e : Export]) (convert-value-export e value-env global-env)) values)
-       (convert-pattern-exports mod-name patterns type-defs))]))
+       (convert-pattern-exports mod-name patterns imported-patterns type-defs))]))
 
 (define (convert-type-export [export : TypeExport]) : i:TypeExport
   (case export
@@ -261,6 +266,7 @@
 (define (convert-pattern-exports
           [mod-name : ModName]
           [exports : (List Export)]
+          [imported-patterns : (Dict Bytes PatternSignature)]
           [type-defs : (List i-TypeDefinition)])
   : (List i:PatternExport)
   (let ([export-map (foldl
@@ -270,28 +276,35 @@
                            (dict-add acc local exported)]))
                       exports
                       (ann (Dict Bytes Bytes) (make-dict bytes-cmp)))])
-    (foldl
-      (lambda ([t : i-TypeDefinition] [acc : (List i:PatternExport)])
-        (case t
-          [(i-type-definition type-name type-vars self-type variants)
-           (match-define type-sig (type-signature (map i-variant-definition-name variants)))
-           (foldl
-             (lambda ([v : i-VariantDefinition] [acc : (List i:PatternExport)])
-               (case v
-                 [(i-variant-definition name tag fields)
-                  (case (dict-ref export-map name)
-                    [(nothing) acc]
-                    [(just exported-name)
-                     (cons
-                       (i:pattern-export
-                         exported-name
-                         (pattern-signature name tag mod-name type-name
-                                            type-vars (map i-variant-field-type fields) type-sig))
-                       acc)])]))
-             variants
-             acc)]))
-      type-defs
-      (ann (List i:PatternExport) (empty)))))
+    (dict-fold
+      imported-patterns
+      (lambda ([name : Bytes] [sig : PatternSignature] [acc : (List i:PatternExport)])
+        (case (dict-ref export-map name)
+          [(nothing) acc]
+          [(just exported-name)
+           (cons (i:pattern-export exported-name sig) acc)]))
+      (foldl
+        (lambda ([t : i-TypeDefinition] [acc : (List i:PatternExport)])
+          (case t
+            [(i-type-definition type-name type-vars self-type variants)
+             (match-define type-sig (type-signature (map i-variant-definition-name variants)))
+             (foldl
+               (lambda ([v : i-VariantDefinition] [acc : (List i:PatternExport)])
+                 (case v
+                   [(i-variant-definition name tag fields)
+                    (case (dict-ref export-map name)
+                      [(nothing) acc]
+                      [(just exported-name)
+                       (cons
+                         (i:pattern-export
+                           exported-name
+                           (pattern-signature name tag mod-name type-name
+                                              type-vars (map i-variant-field-type fields) type-sig))
+                         acc)])]))
+               variants
+               acc)]))
+        type-defs
+        (ann (List i:PatternExport) (empty))))))
 
 (define (create-closures
           [funs : (List FunctionDefinition)]

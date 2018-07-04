@@ -343,7 +343,7 @@
          (values
            out-name
            (or
-             (for/first ([ind-sig (in-list module-inductive-signatures)]
+             (for/first ([ind-sig (in-list inductive-signatures)]
                          #:when (equal? (inductive-signature-name ind-sig) in-name))
                ind-sig)
              (raise-user-error 'bad-export "No datatype with name ~a" in-name)))))
@@ -764,20 +764,20 @@
     (define variant-name (pattern-spec-variant-name pattern-spec))
     (define input-type (pattern-spec-input-type pattern-spec))
     (define ind-sigs
-      (for*/list ([ind-sig (in-list (binding-env-inductive-signatures env))]
-                  #:when
-                    (and (equal? (inductive-signature-module-name ind-sig)
-                                 (data-ty-module-name input-type))
-                         (equal? (inductive-signature-name ind-sig)
-                                 (data-ty-name input-type))))
+      (for*/set ([ind-sig (in-list (binding-env-inductive-signatures env))]
+                 #:when
+                   (and (equal? (inductive-signature-module-name ind-sig)
+                                (data-ty-module-name input-type))
+                        (equal? (inductive-signature-name ind-sig)
+                                (data-ty-name input-type))))
         ind-sig))
-    ;; TODO avoid this issue
-    (unless (= (length ind-sigs) 1)
+    (unless (= (set-count ind-sigs) 1)
       (for ([ind-sig (in-list (binding-env-inductive-signatures env))])
         (eprintf "~a~n" ind-sig))
-      (error 'lookup-other-variants "Bad variant ~s: ~s ~s" variant-name input-type ind-sigs))
+      (error 'lookup-other-variants "Bad variant ~s: ~s ~s" variant-name input-type
+             (set->list ind-sigs)))
     (define abstract-values
-      (for/hash ([variant-sig (in-list (inductive-signature-variants (first ind-sigs)))])
+      (for/hash ([variant-sig (in-list (inductive-signature-variants (set-first ind-sigs)))])
         (define name (variant-signature-name variant-sig))
         (values
           name
