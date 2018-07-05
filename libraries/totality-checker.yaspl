@@ -4,11 +4,9 @@
   (either)
   (list)
   (maybe)
-  (panic)
   (prim)
   (resolved-types-language)
   (tuples)
-  (type-checker-context)
 }
 (export
   (#:types)
@@ -25,8 +23,8 @@
       [matched-values : (List AbstractValue)]
       [any-matches : Boolean])))
 
-(define (totality-check-patterns [context : Context] [patterns : (List Pattern)]) : (Maybe Bytes)
-  (case (check-patterns* context patterns (varargs list (any-value)))
+(define (totality-check-patterns [patterns : (List Pattern)]) : (Maybe Bytes)
+  (case (check-patterns* patterns (varargs list (any-value)))
     [(left v) (just v)]
     [(right (empty)) (nothing)]
     [(right values)
@@ -54,7 +52,7 @@
                 fields)
            (varargs list #")"))))]))
 
-(define (check-patterns* [context : Context] [patterns : (List Pattern)] [vals : (List AbstractValue)]) :
+(define (check-patterns* [patterns : (List Pattern)] [vals : (List AbstractValue)]) :
   (Either Bytes (List AbstractValue))
   (case patterns
     [(empty) (right vals)]
@@ -63,17 +61,17 @@
        [(empty)
         (left #"No values left for patterns to match")]
        [_
-        (match-define (match-result unmatched-vals _ matched) (abstract-match/values context pat vals))
+        (match-define (match-result unmatched-vals _ matched) (abstract-match/values pat vals))
         (if matched
-            (check-patterns* context patterns unmatched-vals)
+            (check-patterns* patterns unmatched-vals)
             (left #"Pattern didn't match any values"))])]))
 
-(define (abstract-match/values [context : Context] [pat : Pattern] [vals : (List AbstractValue)])
+(define (abstract-match/values [pat : Pattern] [vals : (List AbstractValue)])
   : MatchResult
-  (abstract-match/values* context pat vals (empty) (empty) #f))
+  (abstract-match/values* pat vals (empty) (empty) #f))
 
 (define (abstract-match/values*
-          [context : Context] [pat : Pattern] [vals : (List AbstractValue)]
+          [pat : Pattern] [vals : (List AbstractValue)]
           [acc-unmatched-values : (List AbstractValue)]
           [acc-matched-values : (List AbstractValue)]
           [acc-matched : Boolean])
@@ -82,31 +80,11 @@
     [(empty) (match-result acc-unmatched-values acc-matched-values acc-matched)]
     [(cons val vals)
      (match-define (match-result unmatched-values matched-values matched)
-       (abstract-match context pat val))
-     (abstract-match/values* context pat vals
+       (abstract-match pat val))
+     (abstract-match/values* pat vals
                              (append unmatched-values acc-unmatched-values)
                              (append matched-values acc-matched-values)
                              (or matched acc-matched))]))
-
-(define (lookup-variants [context : Context] [name : Bytes]) : AbstractValue
-  (case (context-ref-pattern context name)
-    [(nothing) (panic #"Bad pattern")]
-    [(just (pattern-descriptor _ _ _ _ _ all-variants))
-     (full-variants all-variants)]))
-
-(define (matches-variant [context : Context] [pat-name : Bytes] [var-name : Bytes])
-  : Boolean
-  (case (context-ref-pattern context pat-name)
-    [(nothing) (panic/boolean #"Bad pattern")]
-    [(just (pattern-descriptor _ _ _ _ matched-name _))
-     (bytes=? matched-name var-name)]))
-
-(define (find-matching-variant [context : Context] [pat-name : Bytes] [var-names : (List Bytes)])
-  : (Maybe (Tuple2 Bytes (List Bytes)))
-  (case (context-ref-pattern context pat-name)
-    [(nothing) (panic #"Bad pattern")]
-    [(just (pattern-descriptor _ _ _ _ matched-name _))
-     (find/remove matched-name var-names)]))
 
 (define (find/remove [e : Bytes] [l : (List Bytes)]) : (Maybe (Tuple2 Bytes (List Bytes)))
   (case l
@@ -121,15 +99,13 @@
 
 
 
-(define (abstract-match/vec [context : Context]
-                            [variant-name : Bytes]
+(define (abstract-match/vec [variant-name : Bytes]
                             [pat/vals : (List (Tuple2 Pattern AbstractValue))])
   : MatchResult
-  (abstract-match/vec* context variant-name (reverse pat/vals) (empty) (varargs list (empty)) #t))
+  (abstract-match/vec* variant-name (reverse pat/vals) (empty) (varargs list (empty)) #t))
 
 
-(define (abstract-match/vec* [context : Context]
-                             [variant-name : Bytes]
+(define (abstract-match/vec* [variant-name : Bytes]
                              [pat/vals : (List (Tuple2 Pattern AbstractValue))]
                              [unmatched-vecs : (List (List AbstractValue))]
                              [matched-vecs : (List (List AbstractValue))]
@@ -145,9 +121,8 @@
        acc-matched)]
     [(cons (tuple2 pat val) pat/vals)
      (match-define (match-result unmatched-vals matched-vals matched)
-       (abstract-match context pat val))
+       (abstract-match pat val))
      (abstract-match/vec*
-       context
        variant-name
        pat/vals
        (append
@@ -168,7 +143,7 @@
           tails))
       heads)))
 
-(define (abstract-match [context : Context] [pattern : Pattern] [val : AbstractValue])
+(define (abstract-match [pattern : Pattern] [val : AbstractValue])
   : MatchResult
   (case pattern
     [(bytes-pattern _)
@@ -179,19 +154,19 @@
      (match-result (empty) (varargs list val) #t)]
     [(ignore-pattern)
      (match-result (empty) (varargs list val) #t)]
-    [(abstraction-pattern name patterns)
+    [(abstraction-pattern (pattern-descriptor _ _ _ _ matched-name all-variants) patterns)
      (case val
        [(any-value)
-        (abstract-match context pattern (lookup-variants context name))]
+        (abstract-match pattern (full-variants all-variants))]
        [(full-variants var-names)
-        (case (find-matching-variant context name var-names)
+        (case (find/remove matched-name var-names)
           [(just (tuple2 var-name var-names))
            (case var-names
              [(empty)
-              (abstract-match/vec context var-name
+              (abstract-match/vec var-name
                 (map (lambda ([p : Pattern]) (tuple2 p (any-value))) patterns))]
              [_
-               (case (abstract-match/vec context var-name
+               (case (abstract-match/vec var-name
                        (map (lambda ([p : Pattern]) (tuple2 p (any-value))) patterns))
                  [(match-result unmatched-values matched-values matched)
                   (match-result
@@ -201,9 +176,9 @@
           [(nothing)
            (match-result (varargs list val) (empty) #f)])]
        [(variant var-name fields)
-        (if (matches-variant context name var-name)
+        (if (bytes=? matched-name var-name)
             (case (zip patterns fields)
               [(nothing) (panic #"Some pattern doesn't match its spec")]
               [(just pat/vals)
-               (abstract-match/vec context var-name pat/vals) ])
+               (abstract-match/vec var-name pat/vals) ])
             (match-result (varargs list val) (empty) #f))])]))

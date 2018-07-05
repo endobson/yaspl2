@@ -1,11 +1,13 @@
 #:module (resolved-types-language)
 #:import {
   (bytes)
+  (data lifted-primitives)
   (dict)
   (either)
   (list)
   (maybe)
   (module-name)
+  (module-signature)
   (prim)
   {(resolved-imports-language)
     {#:types
@@ -72,7 +74,7 @@
   (#:values resolve-types module-definitions module-imports module-name case-clause-pattern
             function-definition-name type-definition-name variant-definition-name variant-field-type
             variant-field-name var-expr int-literal case-expr case-clause bytes-literal boolean-literal
-            block app-expr imports-patterns pattern-descriptor bytes-pattern ignore-pattern)
+            block app-expr imports-patterns bytes-pattern ignore-pattern)
   (#:patterns module annotated-expr app-expr type-export exports begin-expr block boolean-literal
               bytes-literal case-clause case-expr function-definition if-expr int-literal lambda-expr let-expr
               match-def type-definition var-expr varargs-app-expr variant-definition variant-field
@@ -133,11 +135,12 @@
     (int-pattern [v : Int])
     (variable-pattern [v : Bytes])
     (ignore-pattern)
-    (abstraction-pattern [name : Bytes] [patterns : (List Pattern)]))
+    (abstraction-pattern [descriptor : PatternDescriptor] [patterns : (List Pattern)]))
 
   (define-type Context
     (context
-      [types : (Dict Bytes Type)]))
+      [types : (Dict Bytes Type)]
+      [patterns : (Dict Bytes PatternDescriptor)]))
 
   (define-type PatternDescriptor
     (pattern-descriptor
@@ -157,6 +160,7 @@
   (case (resolve-types/type-defs types ctx)
     [(left v) (error v)]
     [(right types)
+     (match-define ctx (context-add-defined-patterns ctx name types))
      (case (resolve-types/functions definitions ctx)
        [(left v) (error v)]
        [(right definitions)
@@ -169,7 +173,82 @@
   (match-define (ri:module mod-name imports _ type-defs _) mod)
   (match-define (imports imported-types _ _ _) imports)
   (context
-    (type-definitions->types mod-name type-defs imported-types)))
+    (type-definitions->types mod-name type-defs imported-types)
+    (imports->patterns imports)))
+
+(define (context-add-defined-patterns [ctx : Context] [mod-name : ModName] [defs : (List TypeDefinition)])
+  : Context
+  (match-define (context types patterns) ctx)
+  (context
+    types
+    (type-definitions->patterns mod-name defs patterns)))
+
+
+(define (type-definitions->patterns [mod-name : ModName] [defs : (List TypeDefinition)]
+                                    [acc : (Dict Bytes PatternDescriptor)])
+  : (Dict Bytes PatternDescriptor)
+  (foldl
+    (lambda ([def : TypeDefinition] [acc : (Dict Bytes PatternDescriptor)])
+      (type-definition->patterns mod-name def acc))
+    defs
+    acc))
+
+
+(define (type-definition->patterns [mod-name : ModName] [def : TypeDefinition]
+                                   [acc : (Dict Bytes PatternDescriptor)])
+  : (Dict Bytes PatternDescriptor)
+  (case def
+    [(type-definition type-name type-vars variants)
+     (let ([simple-type-vars (simplify-type-vars type-vars)])
+       (let ([self-type (abstract-type mod-name type-name (map var-type simple-type-vars) (star-kind))])
+         (let ([all-variants (map variant-definition-name variants)])
+           (foldl
+             (lambda ([tagged-vdef : (Tuple2 VariantDefinition LiftedU8)]
+                      [acc : (Dict Bytes PatternDescriptor)])
+               (case tagged-vdef
+                 [(tuple2 (variant-definition variant-name fields) (lifted-u8 variant-tag))
+                  (dict-add
+                    acc
+                    variant-name
+                    (pattern-descriptor
+                      mod-name
+                      type-name
+                      (map (type-var-abstract simple-type-vars) (map variant-field-type fields))
+                      variant-tag
+                      variant-name
+                      all-variants))]))
+             (map/indexed
+               (lambda ([vdef : VariantDefinition] [index : Int])
+                 (tuple2 vdef (lifted-u8 (u8 index))))
+               variants)
+             acc))))]))
+
+(define (simplify-type-vars [type-vars : (Maybe (List Bytes))]) : (List Bytes)
+  (case type-vars
+    [(nothing) (empty)]
+    [(just vars) vars]))
+
+
+(define (imports->patterns [imports : Imports])
+  : (Dict Bytes PatternDescriptor)
+  (case imports
+    [(imports types values patterns _)
+     (dict-value-map patterns
+       (lambda ([p : PatternSignature])
+         (case p
+          [(pattern-signature var-name tag mod-name type-name
+                              type-vars field-types (type-signature all-variant-names))
+           (pattern-descriptor mod-name type-name
+                               (map (type-var-abstract type-vars) field-types)
+                               tag var-name all-variant-names)])))]))
+
+(define (type-var-abstract [type-vars : (List Bytes)]) : (Type -> ((List Type) -> Type))
+  (lambda ([t : Type])
+    (lambda ([sub-types : (List Type)]) : Type
+      (case (zip type-vars sub-types)
+        [(nothing) (panic #"Bad number of types")]
+        [(just var-types)
+         (substitute-types t (dict-add-all (make-dict bytes-cmp) var-types))]))))
 
 (define (type-definitions->types
           [mod-name : ModName]
@@ -465,24 +544,27 @@
     [(ri:ignore-pattern)
      (right (ignore-pattern))]
     [(ri:abstraction-pattern name patterns)
-     (case (extract-rights
-             (map
-               (lambda ([p : ri:Pattern])
-                 (resolve-types/pattern p ctx))
-               patterns))
-       [(left v) (left v)]
-       [(right patterns)
-        (right (abstraction-pattern name patterns))])]))
+     (case (context-ref-pattern ctx name)
+       [(nothing) (left #"Unbound pattern")]
+       [(just descriptor)
+        (case (extract-rights
+                (map
+                  (lambda ([p : ri:Pattern])
+                    (resolve-types/pattern p ctx))
+                  patterns))
+          [(left v) (left v)]
+          [(right patterns)
+           (right (abstraction-pattern descriptor patterns))])])]))
 
 (define (context-ref-type [ctx : Context] [name : Bytes]) : (Maybe Type)
   (case ctx
-    [(context types)
+    [(context types patterns)
      (dict-ref types name)]))
 
 (define (context-add-type [ctx : Context] [name : Bytes] [type : Type]) : Context
   (case ctx
-    [(context types)
-     (context (dict-add types name type))]))
+    [(context types patterns)
+     (context (dict-add types name type) patterns)]))
 
 (define (context-add-var-types [context : Context] [names : (List Bytes)]) : Context
   (case names
@@ -492,6 +574,10 @@
        (context-add-type context name (var-type name))
        names)]))
 
+(define (context-ref-pattern [ctx : Context] [name : Bytes]) : (Maybe PatternDescriptor)
+  (case ctx
+    [(context types patterns)
+     (dict-ref patterns name)]))
 
 (define (pre-type->type [pre : PreType] [context : Context]) : (Either Bytes Type)
   (case pre

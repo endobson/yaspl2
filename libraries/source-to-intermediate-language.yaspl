@@ -115,6 +115,7 @@
       let-expr
       match-def
       module
+      pattern-descriptor
       type-definition
       type-export
       var-expr
@@ -139,7 +140,6 @@
 (types
   (define-type Environment
     (environment
-      [variant-bindings : (Dict Bytes LiftedU8)]
       [local-variables : (Dict Bytes Var)]
       [global-variables : (Dict Bytes TopLevelName)]
       [module-name : ModName]))
@@ -185,11 +185,10 @@
        [(module name imports exports types definitions)
         (match-define type-functions (type-definitions->functions types))
         (match-define global-env (setup-value-environment mod type-functions))
-        (match-define variant-bindings (setup-variant-bindings imports type-functions))
         (match-define type-definitions (convert-type-definitions name types))
         (case (convert-function-definitions
                 definitions
-                (environment variant-bindings (make-dict bytes-cmp) global-env name)
+                (environment (make-dict bytes-cmp) global-env name)
                 (state (empty) (empty) 0))
           [(state funcs byte-constants _)
            (match-define constants
@@ -434,11 +433,11 @@
 
 (define (environment-add-local [env : Environment] [local : Bytes] [state : State])
   : (Tuple3 Environment Var State)
-  (match-define (environment variants locals globals name) env)
+  (match-define (environment locals globals name) env)
   (match-define (tuple2 (lifted-int index) state) (get-next-index state))
   (match-define v (var local (var-number index)))
   (tuple3
-    (environment variants (dict-set locals local v) globals name)
+    (environment (dict-set locals local v) globals name)
     v
     state))
 
@@ -460,7 +459,7 @@
     [(variable-pattern v)
      (cons v acc)]
     [(ignore-pattern) acc]
-    [(abstraction-pattern name pats)
+    [(abstraction-pattern _ pats)
      (foldl pattern-bound-vars* pats acc)]))
 
 (define (convert-function-definitions
@@ -638,13 +637,10 @@
         (tuple2 (i:variable-pattern var) acc)])]
     [(ignore-pattern)
      (tuple2 (i:ignore-pattern) acc)]
-    [(abstraction-pattern name pats)
-     (case (dict-ref (environment-variant-bindings env) name)
-       [(nothing) (panic #"Unbound abstraction pattern")]
-       [(just (lifted-u8 tag))
-        (case (convert-patterns pats env acc)
-          [(tuple2 ipats acc)
-           (tuple2 (i:abstraction-pattern name tag ipats) acc)])])]))
+    [(abstraction-pattern (pattern-descriptor _ _ _ tag variant-name _) pats)
+     (case (convert-patterns pats env acc)
+       [(tuple2 ipats acc)
+        (tuple2 (i:abstraction-pattern variant-name tag ipats) acc)])]))
 
 (define (convert-patterns [pats : (List Pattern)] [env : Environment] [acc : State]) : (Tuple2 (List i:Pattern) State)
   (case pats
@@ -714,40 +710,6 @@
   (case acc
     [(state funcs bytes counter)
      (tuple2 (lifted-int counter) (state funcs bytes (+ 1 counter)))]))
-
-(define (setup-variant-bindings [imports : Imports] [datatype-funs : (List DatatypeFunction)])
-  : (Dict Bytes LiftedU8)
-  (add-all-imported-patterns
-    (add-datatype-patterns
-      (make-dict bytes-cmp)
-      datatype-funs)
-    imports))
-
-(define (add-all-imported-patterns [env : (Dict Bytes LiftedU8)] [imports : Imports])
-  : (Dict Bytes LiftedU8)
-  (match-define (imports _ _ patterns _) imports)
-  (merge-dicts
-    (dict-value-map
-      patterns
-      (lambda ([p : PatternSignature])
-        (case p
-          [(pattern-signature _ tag _ _ _ _ _)
-           (lifted-u8 tag)])))
-    env))
-
-(define (add-datatype-patterns
-          [env : (Dict Bytes LiftedU8)]
-          [funs : (List DatatypeFunction)])
-  : (Dict Bytes LiftedU8)
-  (foldl
-    (lambda ([f : DatatypeFunction] [env : (Dict Bytes LiftedU8)])
-      (case f
-        [(variant-constructor type-name variant-name _ tag)
-         (dict-add env variant-name (lifted-u8 tag))]
-        [(variant-accessor type-name variant-name field-name _)
-         env]))
-    funs
-    env))
 
 (define (setup-value-environment [mod : Module]
                                  [datatype-funs : (List DatatypeFunction)])

@@ -699,12 +699,14 @@ yaspl_bootstrap_library(
     srcs = ["resolved-types-language.yaspl"],
     deps = [
         ":module-name",
+        ":module-signature",
         ":resolved-imports-language",
         ":sexp-printer",
         ":types",
         "//libraries/data:bytes",
         "//libraries/data:dict",
         "//libraries/data:either",
+        "//libraries/data:lifted-primitives",
         "//libraries/data:list",
         "//libraries/data:maybe",
         "//libraries/data:tuples",
@@ -917,9 +919,7 @@ yaspl_bootstrap_library(
     name = "totality-checker",
     srcs = ["totality-checker.yaspl"],
     deps = [
-        ":panic",
         ":resolved-types-language",
-        ":type-checker-context",
         "//libraries/data:bytes",
         "//libraries/data:either",
         "//libraries/data:list",
@@ -999,7 +999,6 @@ yaspl_bootstrap_library(
     name = "type-checker-context",
     srcs = ["type-checker-context.yaspl"],
     deps = [
-        ":resolved-types-language",
         ":types",
         "//libraries/data:bytes",
         "//libraries/data:dict",
