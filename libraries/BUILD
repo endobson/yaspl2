@@ -918,7 +918,7 @@ yaspl_bootstrap_library(
     srcs = ["totality-checker.yaspl"],
     deps = [
         ":panic",
-        ":source-language",
+        ":resolved-types-language",
         ":type-checker-context",
         "//libraries/data:bytes",
         "//libraries/data:either",
@@ -979,7 +979,6 @@ yaspl_bootstrap_library(
         ":resolved-imports-language",
         ":resolved-types-language",
         ":sexp-printer",
-        ":source-language",
         ":totality-checker",
         ":type-checker-context",
         ":type-unification",
