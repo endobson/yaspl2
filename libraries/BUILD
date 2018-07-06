@@ -998,7 +998,7 @@ yaspl_bootstrap_library(
     name = "type-checker-context",
     srcs = ["type-checker-context.yaspl"],
     deps = [
-        ":module-name",
+        ":resolved-types-language",
         ":types",
         "//libraries/data:bytes",
         "//libraries/data:dict",
