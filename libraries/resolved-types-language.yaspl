@@ -18,27 +18,25 @@
       [FunctionDefinition ri:FunctionDefinition]
       Imports
       [Module ri:Module]
-      Pattern
+      [Pattern ri:Pattern]
       PreType
       [TypeDefinition ri:TypeDefinition]
       [VariantDefinition ri:VariantDefinition]
       [VariantField ri:VariantField]
     }
     {#:values
-      bytes-pattern
-      ignore-pattern
       imports-patterns
       [type-definition-name ri:type-definition-name]
     }
     {#:patterns
-      abstraction-pattern
+      [abstraction-pattern ri:abstraction-pattern]
       [annotated-expr ri:annotated-expr]
       [app-expr ri:app-expr]
       [begin-expr ri:begin-expr]
       [block ri:block]
       [boolean-literal ri:boolean-literal]
       [bytes-literal ri:bytes-literal]
-      bytes-pattern
+      [bytes-pattern ri:bytes-pattern]
       [case-clause ri:case-clause]
       [case-expr ri:case-expr]
       export
@@ -46,10 +44,10 @@
       fun-pre-type
       [function-definition ri:function-definition]
       [if-expr ri:if-expr]
-      ignore-pattern
+      [ignore-pattern ri:ignore-pattern]
       imports
       [int-literal ri:int-literal]
-      int-pattern
+      [int-pattern ri:int-pattern]
       [lambda-expr ri:lambda-expr]
       [let-expr ri:let-expr]
       [match-def ri:match-def]
@@ -59,7 +57,7 @@
       [var-expr ri:var-expr]
       var-pre-type
       [varargs-app-expr ri:varargs-app-expr]
-      variable-pattern
+      [variable-pattern ri:variable-pattern]
       [variant-definition ri:variant-definition]
       [variant-field ri:variant-field]
     }
@@ -129,6 +127,13 @@
 
   (define-type CaseClause
     (case-clause [pattern : Pattern] [body : Block]))
+
+  (define-type Pattern
+    (bytes-pattern [v : Bytes])
+    (int-pattern [v : Int])
+    (variable-pattern [v : Bytes])
+    (ignore-pattern)
+    (abstraction-pattern [name : Bytes] [patterns : (List Pattern)]))
 
   (define-type Context
     (context
@@ -404,10 +409,13 @@
 (define (resolve-types/case-clause [clause : ri:CaseClause] [ctx : Context])
   : (Either Bytes CaseClause)
   (match-define (ri:case-clause pattern body) clause)
-  (case (resolve-types/block body ctx)
+  (case (resolve-types/pattern pattern ctx)
     [(left v) (left v)]
-    [(right body)
-     (right (case-clause pattern body))]))
+    [(right pattern)
+     (case (resolve-types/block body ctx)
+       [(left v) (left v)]
+       [(right body)
+        (right (case-clause pattern body))])]))
 
 (define (resolve-types/block [b : ri:Block] [ctx : Context])
   : (Either Bytes Block)
@@ -418,21 +426,24 @@
         (lambda ([def : ri:BlockDefinition]) : (Either Bytes BlockDefinition)
           (case def
             [(ri:match-def pattern type expr)
-             (case
-               (ann (Either Bytes (Maybe Type))
-                 (case type
-                   [(nothing) (right (nothing))]
-                   [(just type)
-                    (case (pre-type->type type ctx)
-                      [(left v) (left v)]
-                      [(right t)
-                       (right (just t))])]))
+             (case (resolve-types/pattern pattern ctx)
                [(left v) (left v)]
-               [(right type)
-                (case (resolve-types/expr expr ctx)
+               [(right pattern)
+                (case
+                  (ann (Either Bytes (Maybe Type))
+                    (case type
+                      [(nothing) (right (nothing))]
+                      [(just type)
+                       (case (pre-type->type type ctx)
+                         [(left v) (left v)]
+                         [(right t)
+                          (right (just t))])]))
                   [(left v) (left v)]
-                  [(right expr)
-                   (right (match-def pattern type expr))])])]))
+                  [(right type)
+                   (case (resolve-types/expr expr ctx)
+                     [(left v) (left v)]
+                     [(right expr)
+                      (right (match-def pattern type expr))])])])]))
         defs))
     [(left v) (left v)]
     [(right defs)
@@ -441,6 +452,26 @@
        [(right expr)
         (right (block defs expr))])]))
 
+(define (resolve-types/pattern [pattern : ri:Pattern] [ctx : Context])
+  : (Either Bytes Pattern)
+  (case pattern
+    [(ri:bytes-pattern v)
+     (right (bytes-pattern v))]
+    [(ri:int-pattern v)
+     (right (int-pattern v))]
+    [(ri:variable-pattern v)
+     (right (variable-pattern v))]
+    [(ri:ignore-pattern)
+     (right (ignore-pattern))]
+    [(ri:abstraction-pattern name patterns)
+     (case (extract-rights
+             (map
+               (lambda ([p : ri:Pattern])
+                 (resolve-types/pattern p ctx))
+               patterns))
+       [(left v) (left v)]
+       [(right patterns)
+        (right (abstraction-pattern name patterns))])]))
 
 (define (context-ref-type [ctx : Context] [name : Bytes]) : (Maybe Type)
   (case ctx

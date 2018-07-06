@@ -1014,7 +1014,6 @@ yaspl_test(
     main_module = "type_checker_test",
     deps = [
         ":resolved-types-language",
-        ":source-language",
         ":type-checker",
         ":type-checker-context",
         ":types",
