@@ -936,6 +936,7 @@ yaspl_bootstrap_library(
         ":sexp-parser",
         ":sexp-printer",
         "//libraries/data:bytes",
+        "//libraries/data:dict",
         "//libraries/data:list",
         "//libraries/data:maybe",
         "//libraries/data:ordering",
