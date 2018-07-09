@@ -69,6 +69,14 @@
   (prim)
   {(resolved-types-language)
     {#:types
+      [Module rt:Module]
+    }
+  }
+  (set)
+  (top-level-name)
+  (tuples)
+  {(type-checked-language)
+    {#:types
       Block
       BlockDefinition
       CaseClause
@@ -81,6 +89,7 @@
       Pattern
       TypeDefinition
       TypeExport
+      ValueExport
       VariantDefinition
       VariantField
     }
@@ -118,6 +127,7 @@
       pattern-descriptor
       type-definition
       type-export
+      value-export
       var-expr
       varargs-app-expr
       variable-pattern
@@ -125,11 +135,7 @@
       variant-field
     }
   }
-  (set)
-  (top-level-name)
-  (tuples)
   (type-checker)
-  (type-checker-context)
   (types)
   (yaspl var)
 }
@@ -176,11 +182,11 @@
       [name : Bytes]
       [type : Type])))
 
-(define (source->intermediate [mod : Module])
+(define (source->intermediate [mod : rt:Module])
   : (Either Bytes i:Module)
   (case (type-check mod)
     [(left v) (left (type-check-error->bytes v))]
-    [(right context)
+    [(right mod)
      (case mod
        [(module name imports exports types definitions)
         (match-define type-functions (type-definitions->functions types))
@@ -199,8 +205,7 @@
              (i:module
                name
                (convert-imports imports)
-               (convert-exports name exports (context-values context) global-env
-                                (imports-patterns imports) type-definitions)
+               (convert-exports name exports global-env (imports-patterns imports) type-definitions)
                (append
                  funcs
                  (create-datatype-definitions name type-functions))
@@ -219,7 +224,6 @@
 (define (convert-exports
           [mod-name : ModName]
           [exports : Exports]
-          [value-env : (Dict Bytes Type)]
           [global-env : (Dict Bytes TopLevelName)]
           [imported-patterns : (Dict Bytes PatternSignature)]
           [type-defs : (List i-TypeDefinition)]) : i:Exports
@@ -227,7 +231,7 @@
     [(exports types values patterns)
      (i:exports
        (map convert-type-export types)
-       (map (lambda ([e : Export]) (convert-value-export e value-env global-env)) values)
+       (map (lambda ([e : ValueExport]) (convert-value-export e global-env)) values)
        (convert-pattern-exports mod-name patterns imported-patterns type-defs))]))
 
 (define (convert-type-export [export : TypeExport]) : i:TypeExport
@@ -235,18 +239,14 @@
     [(type-export exported type)
      (i:type-export exported type)]))
 
-(define (convert-value-export [export : Export]
-                              [env : (Dict Bytes Type)]
+(define (convert-value-export [export : ValueExport]
                               [global-env : (Dict Bytes TopLevelName)]) : i:ValueExport
   (case export
-    [(export local exported)
-     (case (dict-ref env local)
+    [(value-export local exported type)
+     (case (dict-ref global-env local)
        [(nothing) (panic #"Export not in environment")]
-       [(just type)
-        (case (dict-ref global-env local)
-          [(nothing) (panic #"Export not in environment")]
-          [(just top-level)
-           (i:value-export exported top-level type)])])]))
+       [(just top-level)
+        (i:value-export exported top-level type)])]))
 
 (define (convert-pattern-exports
           [mod-name : ModName]

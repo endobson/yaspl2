@@ -854,8 +854,8 @@ yaspl_bootstrap_library(
         ":module-signature",
         ":resolved-types-language",
         ":top-level-name",
+        ":type-checked-language",
         ":type-checker",
-        ":type-checker-context",
         ":types",
         "//libraries/data:bytes",
         "//libraries/data:dict",
@@ -971,6 +971,17 @@ yaspl_library(
 )
 
 yaspl_bootstrap_library(
+    name = "type-checked-language",
+    srcs = ["type-checked-language.yaspl"],
+    deps = [
+        ":module-name",
+        ":resolved-types-language",
+        ":types",
+        "//libraries/data:list",
+    ],
+)
+
+yaspl_bootstrap_library(
     name = "type-checker",
     srcs = ["type-checker.yaspl"],
     deps = [
@@ -981,6 +992,7 @@ yaspl_bootstrap_library(
         ":resolved-types-language",
         ":sexp-printer",
         ":totality-checker",
+        ":type-checked-language",
         ":type-checker-context",
         ":type-unification",
         ":types",

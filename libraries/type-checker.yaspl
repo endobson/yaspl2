@@ -23,6 +23,7 @@
       Block
       BlockDefinition
       CaseClause
+      Export
       Expression
       FunctionDefinition
       Module
@@ -48,6 +49,8 @@
       bytes-pattern
       case-clause
       case-expr
+      export
+      exports
       function-definition
       if-expr
       ignore-pattern
@@ -70,6 +73,17 @@
   (sexp-printer)
   (totality-checker)
   (tuples)
+  {(type-checked-language)
+    {#:types
+      [Module tc:Module]
+      [ValueExport tc:ValueExport]
+    }
+    {#:values
+      [exports tc:exports]
+      [module tc:module]
+      [value-export tc:value-export]
+    }
+  }
   (type-checker-context)
   (type-unification)
   (types)
@@ -640,14 +654,34 @@
           [(tuple2 vs s)
            (tuple2 (cons v vs) s)])])]))
 
+(define (convert-exports [m : Module] [ctx : Context]) : tc:Module
+  (match-define (module name imports exports types definitions) m)
+  (match-define (exports exported-types exported-values exported-patterns) exports)
+  (tc:module
+    name
+    imports
+    (tc:exports
+      exported-types
+      (map
+        (lambda ([export : Export]) : tc:ValueExport
+          (case export
+            [(export local exported)
+             (case (context-ref-value ctx local)
+               [(nothing) (panic #"Unbound export")]
+               [(just type)
+                (tc:value-export local exported type)])]))
+        exported-values)
+      exported-patterns)
+    types
+    definitions))
 
-
-(define (type-check [mod : Module]) : (Either TypeCheckError Context)
+(define (type-check [mod : Module]) : (Either TypeCheckError tc:Module)
   (match-define (module name _ _ _ definitions) mod)
   (match-define context (create-context mod))
   (case (filter-map
           (lambda ([def : FunctionDefinition]) (type-check/definition def context))
           definitions)
-    [(empty) (right context)]
+    [(empty)
+     (right (convert-exports mod context))]
     [vs
      (left (type-check-error name vs))]))
