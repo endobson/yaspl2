@@ -920,6 +920,7 @@ yaspl_bootstrap_library(
     name = "totality-checker",
     srcs = ["totality-checker.yaspl"],
     deps = [
+        ":module-signature",
         ":resolved-types-language",
         "//libraries/data:bytes",
         "//libraries/data:either",

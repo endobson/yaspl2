@@ -70,7 +70,7 @@
 }
 (export
   (#:types Module Block BlockDefinition CaseClause Expression FunctionDefinition TypeDefinition
-           VariantDefinition VariantField Exports TypeExport Imports Export Pattern PatternDescriptor)
+           VariantDefinition VariantField Exports TypeExport Imports Export Pattern)
   (#:values resolve-types module-definitions module-imports module-name case-clause-pattern
             function-definition-name type-definition-name variant-definition-name variant-field-type
             variant-field-name var-expr int-literal case-expr case-clause bytes-literal boolean-literal
@@ -79,7 +79,7 @@
               bytes-literal case-clause case-expr function-definition if-expr int-literal lambda-expr let-expr
               match-def type-definition var-expr varargs-app-expr variant-definition variant-field
               imports abstraction-pattern bytes-pattern export ignore-pattern int-pattern
-              variable-pattern pattern-descriptor))
+              variable-pattern))
 (types
   (define-type Module
     (module [name : ModName]
@@ -140,21 +140,12 @@
     (int-pattern [v : Int])
     (variable-pattern [v : Bytes])
     (ignore-pattern)
-    (abstraction-pattern [descriptor : PatternDescriptor] [patterns : (List Pattern)]))
+    (abstraction-pattern [descriptor : PatternSignature] [patterns : (List Pattern)]))
 
   (define-type Context
     (context
       [types : (Dict Bytes Type)]
-      [patterns : (Dict Bytes PatternDescriptor)]))
-
-  (define-type PatternDescriptor
-    (pattern-descriptor
-      [mod-name : ModName]
-      [type-name : Bytes]
-      [field-types : (List ((List Type) -> Type))]
-      [variant-tag : U8]
-      [variant-name : Bytes]
-      [all-variant-names : (List Bytes)])))
+      [patterns : (Dict Bytes PatternSignature)])))
 
 (define (resolve-types [mod : ri:Module]) : (Either Bytes Module)
   (match-define ctx (init-context mod))
@@ -191,38 +182,39 @@
 
 
 (define (type-definitions->patterns [mod-name : ModName] [defs : (List TypeDefinition)]
-                                    [acc : (Dict Bytes PatternDescriptor)])
-  : (Dict Bytes PatternDescriptor)
+                                    [acc : (Dict Bytes PatternSignature)])
+  : (Dict Bytes PatternSignature)
   (foldl
-    (lambda ([def : TypeDefinition] [acc : (Dict Bytes PatternDescriptor)])
+    (lambda ([def : TypeDefinition] [acc : (Dict Bytes PatternSignature)])
       (type-definition->patterns mod-name def acc))
     defs
     acc))
 
 
 (define (type-definition->patterns [mod-name : ModName] [def : TypeDefinition]
-                                   [acc : (Dict Bytes PatternDescriptor)])
-  : (Dict Bytes PatternDescriptor)
+                                   [acc : (Dict Bytes PatternSignature)])
+  : (Dict Bytes PatternSignature)
   (case def
     [(type-definition type-name type-vars variants)
      (let ([simple-type-vars (simplify-type-vars type-vars)])
        (let ([self-type (abstract-type mod-name type-name (map var-type simple-type-vars) (star-kind))])
-         (let ([all-variants (map variant-definition-name variants)])
+         (let ([type-sig (type-signature (map variant-definition-name variants))])
            (foldl
              (lambda ([tagged-vdef : (Tuple2 VariantDefinition LiftedU8)]
-                      [acc : (Dict Bytes PatternDescriptor)])
+                      [acc : (Dict Bytes PatternSignature)])
                (case tagged-vdef
                  [(tuple2 (variant-definition variant-name fields) (lifted-u8 variant-tag))
                   (dict-add
                     acc
                     variant-name
-                    (pattern-descriptor
+                    (pattern-signature
+                      variant-name
+                      variant-tag
                       mod-name
                       type-name
-                      (map (type-var-abstract simple-type-vars) (map variant-field-type fields))
-                      variant-tag
-                      variant-name
-                      all-variants))]))
+                      simple-type-vars
+                      (map variant-field-type fields)
+                      type-sig))]))
              (map/indexed
                (lambda ([vdef : VariantDefinition] [index : Int])
                  (tuple2 vdef (lifted-u8 (u8 index))))
@@ -234,27 +226,11 @@
     [(nothing) (empty)]
     [(just vars) vars]))
 
-
 (define (imports->patterns [imports : ri:Imports])
-  : (Dict Bytes PatternDescriptor)
+  : (Dict Bytes PatternSignature)
   (case imports
     [(ri:imports types values patterns _)
-     (dict-value-map patterns
-       (lambda ([p : PatternSignature])
-         (case p
-          [(pattern-signature var-name tag mod-name type-name
-                              type-vars field-types (type-signature all-variant-names))
-           (pattern-descriptor mod-name type-name
-                               (map (type-var-abstract type-vars) field-types)
-                               tag var-name all-variant-names)])))]))
-
-(define (type-var-abstract [type-vars : (List Bytes)]) : (Type -> ((List Type) -> Type))
-  (lambda ([t : Type])
-    (lambda ([sub-types : (List Type)]) : Type
-      (case (zip type-vars sub-types)
-        [(nothing) (panic #"Bad number of types")]
-        [(just var-types)
-         (substitute-types t (dict-add-all (make-dict bytes-cmp) var-types))]))))
+     patterns]))
 
 (define (type-definitions->types
           [mod-name : ModName]
@@ -585,7 +561,7 @@
        (context-add-type context name (var-type name))
        names)]))
 
-(define (context-ref-pattern [ctx : Context] [name : Bytes]) : (Maybe PatternDescriptor)
+(define (context-ref-pattern [ctx : Context] [name : Bytes]) : (Maybe PatternSignature)
   (case ctx
     [(context types patterns)
      (dict-ref patterns name)]))
