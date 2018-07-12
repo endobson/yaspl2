@@ -70,7 +70,7 @@
 }
 (export
   (#:types Module Block BlockDefinition CaseClause Expression FunctionDefinition TypeDefinition
-           VariantDefinition VariantField Exports TypeExport Imports Export Pattern)
+           VariantDefinition VariantField Exports TypeExport PatternExport Imports Export Pattern)
   (#:values resolve-types module-definitions module-imports module-name case-clause-pattern
             function-definition-name type-definition-name variant-definition-name variant-field-type
             variant-field-name var-expr int-literal case-expr case-clause bytes-literal boolean-literal
@@ -79,7 +79,7 @@
               bytes-literal case-clause case-expr function-definition if-expr int-literal lambda-expr let-expr
               match-def type-definition var-expr varargs-app-expr variant-definition variant-field
               imports abstraction-pattern bytes-pattern export ignore-pattern int-pattern
-              variable-pattern))
+              variable-pattern pattern-export))
 (types
   (define-type Module
     (module [name : ModName]
@@ -95,9 +95,11 @@
   (define-type Exports
     (exports [types : (List TypeExport)]
              [values : (List Export)]
-             [patterns : (List Export)]))
+             [patterns : (List PatternExport)]))
   (define-type TypeExport
     (type-export [exported-name : Bytes] [type : Type]))
+  (define-type PatternExport
+    (pattern-export [exported-name : Bytes] [desc : PatternSignature]))
 
   (define-type TypeDefinition
     (type-definition [name : Bytes] [vars : (Maybe (List Bytes))] [variants : (List VariantDefinition)]))
@@ -260,7 +262,10 @@
   (case (resolve-types/type-exports types ctx)
     [(left v) (left v)]
     [(right types)
-     (right (exports types values patterns))]))
+     (case (resolve-types/pattern-exports patterns ctx)
+       [(left v) (left v)]
+       [(right patterns)
+        (right (exports types values patterns))])]))
 
 (define (resolve-types/type-exports [exports : (List Export)] [ctx : Context])
   : (Either Bytes (List TypeExport))
@@ -276,6 +281,21 @@
     [(nothing) (left (bytes-append (varargs list #"Unbound exported type:" local-name)))]
     [(just v)
      (right (type-export exported-name v))]))
+
+(define (resolve-types/pattern-exports [exports : (List Export)] [ctx : Context])
+  : (Either Bytes (List PatternExport))
+  (extract-rights
+    (map
+      (lambda ([export : Export]) (resolve-types/pattern-export export ctx))
+      exports)))
+
+(define (resolve-types/pattern-export [export : Export] [ctx : Context])
+  : (Either Bytes PatternExport)
+  (match-define (export local-name exported-name) export)
+  (case (context-ref-pattern ctx local-name)
+    [(nothing) (left (bytes-append (varargs list #"Unbound exported pattern:" local-name)))]
+    [(just v)
+     (right (pattern-export exported-name v))]))
 
 (define (resolve-types/type-defs [defs : (List ri:TypeDefinition)] [ctx : Context])
   : (Either Bytes (List TypeDefinition))

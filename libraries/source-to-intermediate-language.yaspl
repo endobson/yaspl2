@@ -80,13 +80,13 @@
       Block
       BlockDefinition
       CaseClause
-      Export
       Exports
       Expression
       FunctionDefinition
       Imports
       Module
       Pattern
+      PatternExport
       TypeDefinition
       TypeExport
       ValueExport
@@ -95,7 +95,6 @@
     }
     {#:values
       function-definition-name
-      imports-patterns
       module-definitions
       module-imports
       module-name
@@ -112,7 +111,6 @@
       bytes-pattern
       case-clause
       case-expr
-      export
       exports
       function-definition
       if-expr
@@ -124,6 +122,7 @@
       let-expr
       match-def
       module
+      pattern-export
       type-definition
       type-export
       value-export
@@ -161,25 +160,7 @@
       [type-name : Bytes]
       [variant-name : Bytes]
       [field-name : Bytes]
-      [field-offset : Int]))
-
-  ;; TODO remove these/make them not needed
-  (define-type i-TypeDefinition
-    (i-type-definition
-      [name : Bytes]
-      [type-vars : (List Bytes)]
-      ;; This is what the variants return
-      [constructed-type : Type]
-      [variants : (List i-VariantDefinition)]))
-  (define-type i-VariantDefinition
-    (i-variant-definition
-      [name : Bytes]
-      [tag : U8]
-      [fields : (List i-VariantField)]))
-  (define-type i-VariantField
-    (i-variant-field
-      [name : Bytes]
-      [type : Type])))
+      [field-offset : Int])))
 
 (define (source->intermediate [mod : rt:Module])
   : (Either Bytes i:Module)
@@ -190,7 +171,6 @@
        [(module name imports exports types definitions)
         (match-define type-functions (type-definitions->functions types))
         (match-define global-env (setup-value-environment mod type-functions))
-        (match-define type-definitions (convert-type-definitions name types))
         (case (convert-function-definitions
                 definitions
                 (environment (make-dict bytes-cmp) global-env name)
@@ -204,7 +184,7 @@
              (i:module
                name
                (convert-imports imports)
-               (convert-exports name exports global-env (imports-patterns imports) type-definitions)
+               (convert-exports exports global-env)
                (append
                  funcs
                  (create-datatype-definitions name type-functions))
@@ -221,22 +201,24 @@
      (i:imports static-info)]))
 
 (define (convert-exports
-          [mod-name : ModName]
           [exports : Exports]
-          [global-env : (Dict Bytes TopLevelName)]
-          [imported-patterns : (Dict Bytes PatternSignature)]
-          [type-defs : (List i-TypeDefinition)]) : i:Exports
+          [global-env : (Dict Bytes TopLevelName)]) : i:Exports
   (case exports
     [(exports types values patterns)
      (i:exports
        (map convert-type-export types)
        (map (lambda ([e : ValueExport]) (convert-value-export e global-env)) values)
-       (convert-pattern-exports mod-name patterns imported-patterns type-defs))]))
+       (map convert-pattern-export patterns))]))
 
 (define (convert-type-export [export : TypeExport]) : i:TypeExport
   (case export
     [(type-export exported type)
      (i:type-export exported type)]))
+
+(define (convert-pattern-export [export : PatternExport]) : i:PatternExport
+  (case export
+    [(pattern-export exported type)
+     (i:pattern-export exported type)]))
 
 (define (convert-value-export [export : ValueExport]
                               [global-env : (Dict Bytes TopLevelName)]) : i:ValueExport
@@ -246,49 +228,6 @@
        [(nothing) (panic #"Export not in environment")]
        [(just top-level)
         (i:value-export exported top-level type)])]))
-
-(define (convert-pattern-exports
-          [mod-name : ModName]
-          [exports : (List Export)]
-          [imported-patterns : (Dict Bytes PatternSignature)]
-          [type-defs : (List i-TypeDefinition)])
-  : (List i:PatternExport)
-  (let ([export-map (foldl
-                      (lambda ([export : Export] [acc : (Dict Bytes Bytes)])
-                        (case export
-                          [(export local exported)
-                           (dict-add acc local exported)]))
-                      exports
-                      (ann (Dict Bytes Bytes) (make-dict bytes-cmp)))])
-    (dict-fold
-      imported-patterns
-      (lambda ([name : Bytes] [sig : PatternSignature] [acc : (List i:PatternExport)])
-        (case (dict-ref export-map name)
-          [(nothing) acc]
-          [(just exported-name)
-           (cons (i:pattern-export exported-name sig) acc)]))
-      (foldl
-        (lambda ([t : i-TypeDefinition] [acc : (List i:PatternExport)])
-          (case t
-            [(i-type-definition type-name type-vars self-type variants)
-             (match-define type-sig (type-signature (map i-variant-definition-name variants)))
-             (foldl
-               (lambda ([v : i-VariantDefinition] [acc : (List i:PatternExport)])
-                 (case v
-                   [(i-variant-definition name tag fields)
-                    (case (dict-ref export-map name)
-                      [(nothing) acc]
-                      [(just exported-name)
-                       (cons
-                         (i:pattern-export
-                           exported-name
-                           (pattern-signature name tag mod-name type-name
-                                              type-vars (map i-variant-field-type fields) type-sig))
-                         acc)])]))
-               variants
-               acc)]))
-        type-defs
-        (ann (List i:PatternExport) (empty))))))
 
 (define (create-closures
           [funs : (List FunctionDefinition)]
@@ -381,54 +320,6 @@
              (empty)
              (i:variant-field-ref-expr (i:local-var-expr arg) index)))]))
     funs))
-
-
-(define (convert-type-definitions [mod-name : ModName] [types : (List TypeDefinition)])
-  : (List i-TypeDefinition)
-  (map
-    (lambda ([def : TypeDefinition]) (convert-type-definition mod-name def))
-    types))
-
-(define (simplify-type-vars [tvs : (Maybe (List Bytes))]) : (List Bytes)
-  (case tvs
-    [(nothing) (empty)]
-    [(just tvs) tvs]))
-
-(define (convert-type-definition [mod-name : ModName] [type : TypeDefinition])
-  : i-TypeDefinition
-  (case type
-    [(type-definition name type-vars variants)
-     (let ([type-vars (simplify-type-vars type-vars)])
-       (i-type-definition
-         name
-         type-vars
-         (abstract-type mod-name name (map var-type type-vars) (star-kind))
-         (convert-variant-definitions variants 0)))]))
-
-(define (convert-variant-definitions [variants : (List VariantDefinition)] [index : Int])
-  : (List i-VariantDefinition)
-  (case variants
-    [(empty) (empty)]
-    [(cons v vs)
-     (cons
-       (convert-variant-definition v index)
-       (convert-variant-definitions vs (+ index 1)))]))
-
-(define (convert-variant-definition
-          [variant : VariantDefinition]
-          [index : Int])
-  : i-VariantDefinition
-  (case variant
-    [(variant-definition name fields)
-     (i-variant-definition
-       name
-       (u8 index)
-       (map convert-variant-field fields))]))
-
-(define (convert-variant-field [field : VariantField]) : i-VariantField
-  (case field
-    [(variant-field name type)
-     (i-variant-field name type)]))
 
 (define (environment-add-local [env : Environment] [local : Bytes] [state : State])
   : (Tuple3 Environment Var State)
