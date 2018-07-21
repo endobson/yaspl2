@@ -1,0 +1,178 @@
+#:module (expanded-datatypes-language)
+#:import {
+  (list)
+  (module-name)
+  (prim)
+  (tuples)
+  {(type-checked-language)
+    {#:types
+      Block
+      BlockDefinition
+      CaseClause
+      Exports
+      Expression
+      [FunctionDefinition tc:FunctionDefinition]
+      Imports
+      [Module tc:Module]
+      Pattern
+      PatternExport
+      TypeDefinition
+      TypeExport
+      ValueExport
+      VariantDefinition
+      VariantField
+    }
+    {#:values
+      exports
+      value-export
+      variant-field-name
+    }
+    {#:patterns
+      abstraction-pattern
+      annotated-expr
+      app-expr
+      begin-expr
+      block
+      boolean-literal
+      bytes-literal
+      bytes-pattern
+      case-clause
+      case-expr
+      exports
+      [function-definition tc:function-definition]
+      if-expr
+      ignore-pattern
+      imports
+      int-literal
+      int-pattern
+      lambda-expr
+      let-expr
+      match-def
+      [module tc:module]
+      pattern-export
+      type-definition
+      type-export
+      value-export
+      var-expr
+      varargs-app-expr
+      variable-pattern
+      variant-definition
+      variant-field
+    }
+  }
+  (types)
+}
+(export
+  (#:types
+    Block BlockDefinition CaseClause Exports Expression FunctionDefinition Imports Module
+    Pattern TypeExport PatternExport ValueExport)
+  (#:values
+   expand-datatypes
+   module exports value-export module-definitions module-imports module-name
+   )
+  (#:patterns
+    module annotated-expr app-expr type-export exports begin-expr block boolean-literal
+    bytes-literal case-clause case-expr function-definition if-expr int-literal lambda-expr let-expr
+    match-def var-expr varargs-app-expr imports abstraction-pattern bytes-pattern ignore-pattern
+    int-pattern variable-pattern value-export pattern-export
+    variant-constructor variant-accessor))
+(types
+  (define-type Module
+    (module [name : ModName]
+            [imports : Imports]
+            [exports : Exports]
+            [definitions : (List FunctionDefinition)]))
+
+  (define-type FunctionDefinition
+    (function-definition [name : Bytes]
+                         [type-vars : (List Bytes)]
+                         [args : (List (Tuple2 Bytes Type))]
+                         [return-type : Type]
+                         [body : Block])
+    (variant-constructor
+      [type-name : Bytes]
+      [variant-name : Bytes]
+      ;; TODO include something more useful than field names here
+      [fields : (List Bytes)]
+      [tag : U8])
+    (variant-accessor
+      [type-name : Bytes]
+      [variant-name : Bytes]
+      [field-name : Bytes]
+      [field-offset : Int])))
+
+(define (expand-datatypes [mod : tc:Module]) : Module
+  (case mod
+    [(tc:module name imports exports types definitions)
+     (module name imports exports (append (expand-datatypes/type-definitions types)
+                                          (expand-datatypes/function-definitions definitions)))]))
+
+(define (expand-datatypes/function-definitions [defs : (List tc:FunctionDefinition)])
+  : (List FunctionDefinition)
+  (map
+    (lambda ([def : tc:FunctionDefinition])
+      (case def
+        [(tc:function-definition name type-vars args return-type body)
+         (function-definition name type-vars args return-type body)]))
+    defs))
+
+(define (expand-datatypes/type-definitions [defs : (List TypeDefinition)])
+  : (List FunctionDefinition)
+  (foldl
+    (lambda ([def : TypeDefinition] [acc : (List FunctionDefinition)])
+      (case def
+        [(type-definition name _ (cons variant (empty)))
+         (case variant
+           [(variant-definition variant-name fields)
+            (variant-definition->accessors
+              (variant-definition->constructor acc (u8 0) name variant)
+              0 name variant-name fields)])]
+        [(type-definition name _ variants)
+         (variant-definitions->constructors acc 0 name variants)]))
+    defs
+    (ann (List FunctionDefinition) (empty))))
+
+(define (variant-definitions->constructors
+          [acc : (List FunctionDefinition)]
+          [tag : Int]
+          [type-name : Bytes]
+          [defs : (List VariantDefinition)]) : (List FunctionDefinition)
+  (case defs
+    [(empty) acc]
+    [(cons def defs)
+     (variant-definitions->constructors
+       (variant-definition->constructor acc (u8 tag) type-name def)
+       (+ 1 tag)
+       type-name
+       defs)]))
+
+(define (variant-definition->constructor
+          [acc : (List FunctionDefinition)]
+          [tag : U8]
+          [type-name : Bytes]
+          [def : VariantDefinition]) : (List FunctionDefinition)
+  (case def
+    [(variant-definition name fields)
+     (cons
+       (variant-constructor type-name name
+                            (map variant-field-name fields)
+                            tag)
+       acc)]))
+
+(define (variant-definition->accessors
+          [acc : (List FunctionDefinition)]
+          [offset : Int]
+          [type-name : Bytes]
+          [variant-name : Bytes]
+          [fields : (List VariantField)]) : (List FunctionDefinition)
+  (case fields
+    [(empty) acc]
+    [(cons (variant-field name type) fields)
+     (variant-definition->accessors
+       (cons
+         (variant-accessor type-name variant-name name offset)
+         acc)
+       (+ offset 1)
+       type-name
+       variant-name
+       fields)]))

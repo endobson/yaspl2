@@ -434,6 +434,18 @@ yaspl_bootstrap_library(
 )
 
 yaspl_bootstrap_library(
+    name = "expanded-datatypes-language",
+    srcs = ["expanded-datatypes-language.yaspl"],
+    deps = [
+        ":module-name",
+        ":type-checked-language",
+        ":types",
+        "//libraries/data:list",
+        "//libraries/data:tuples",
+    ],
+)
+
+yaspl_bootstrap_library(
     name = "linker_lib",
     srcs = ["linker.yaspl"],
     deps = [
@@ -849,13 +861,13 @@ yaspl_bootstrap_library(
     name = "source-to-intermediate-language",
     srcs = ["source-to-intermediate-language.yaspl"],
     deps = [
+        ":expanded-datatypes-language",
         ":intermediate-expression",
         ":intermediate-language",
         ":module-name",
         ":module-signature",
         ":resolved-types-language",
         ":top-level-name",
-        ":type-checked-language",
         ":type-checker",
         ":types",
         "//libraries/data:bytes",
