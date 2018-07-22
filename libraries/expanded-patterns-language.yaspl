@@ -1,0 +1,252 @@
+#:module (expanded-pattern-language)
+#:import {
+  (list)
+  (maybe)
+  (module-name)
+  (module-signature)
+  (prim)
+  {(resolved-vars-language)
+    {#:types
+      [CaseClause rv:CaseClause]
+      Exports
+      [Expression rv:Expression]
+      [FunctionDefinition rv:FunctionDefinition]
+      Imports
+      [Module rv:Module]
+      [Pattern rv:Pattern]
+    }
+    {#:patterns
+      [abstraction-pattern rv:abstraction-pattern]
+      [annotated-expr rv:annotated-expr]
+      [app-expr rv:app-expr]
+      [begin-expr rv:begin-expr]
+      [boolean-literal rv:boolean-literal]
+      [bytes-literal rv:bytes-literal]
+      [bytes-pattern rv:bytes-pattern]
+      [case-clause rv:case-clause]
+      [case-expr rv:case-expr]
+      [function-definition rv:function-definition]
+      [global-var-expr rv:global-var-expr]
+      [if-expr rv:if-expr]
+      [int-literal rv:int-literal]
+      [int-pattern rv:int-pattern]
+      [lambda-expr rv:lambda-expr]
+      [let-expr rv:let-expr]
+      [local-var-expr rv:local-var-expr]
+      [module rv:module]
+      [varargs-app-expr rv:varargs-app-expr]
+      [variable-pattern rv:variable-pattern]
+      [variant-accessor rv:variant-accessor]
+      [variant-constructor rv:variant-constructor]
+    }
+  }
+  (top-level-name)
+  (tuples)
+  (types)
+  (yaspl var)
+}
+(export
+  (#:types)
+  (#:values expand-patterns)
+  (#:patterns))
+(types
+  (define-type Module
+    (module [name : ModName]
+            [imports : Imports]
+            [exports : Exports]
+            [definitions : (List FunctionDefinition)]))
+
+  (define-type FunctionDefinition
+    (function-definition [name : Bytes]
+                         [type-vars : (List Bytes)]
+                         [args : (List (Tuple2 Var Type))]
+                         [return-type : Type]
+                         [body : Expression])
+    (variant-constructor
+      [name : Bytes]
+      ;; TODO include something more useful than field names here
+      [fields : (List Bytes)]
+      [tag : U8])
+    (variant-accessor
+      [name : Bytes]
+      [field-offset : Int]))
+
+  (define-type Expression
+    (int-literal [v : Int])
+    (bytes-literal [v : Bytes])
+    (boolean-literal [v : Boolean])
+    (local-var-expr [v : Var])
+    (global-var-expr [v : TopLevelName])
+    (annotated-expr [t : Type] [e : Expression])
+    (if-expr [cond : Expression] [true : Expression] [false : Expression])
+    (begin-expr [exprs : (List Expression)] [last-expr : Expression])
+    (app-expr [tail-position : Boolean] [op : Expression] [args : (List Expression)])
+    (varargs-app-expr [tail-position : Boolean] [op : Expression] [args : (List Expression)])
+    (let-expr [var : Var] [expr : Expression] [body : Expression])
+    (lambda-expr [args : (List (Tuple2 Var Type))] [type : (Maybe Type)] [body : Expression])
+
+    (variant-case-expr
+      [expr : Expression]
+      [clause : VariantCaseClause]
+      [default : DefaultCaseClause])
+    (int-case-expr
+      [expr : Expression]
+      [clause : IntCaseClause]
+      [default : DefaultCaseClause])
+    (bytes-case-expr
+      [expr : Expression]
+      [clause : BytesCaseClause]
+      [default : DefaultCaseClause])
+    (join-point-expr
+      [join-var : Var]
+      [join-expr : Expression]
+      [body : Expression])
+    (join-expr [join-var : Var])
+    (halt-expr))
+
+  (define-type DefaultCaseClause
+    (default-case-clause [expr : Expression]))
+  (define-type VariantCaseClause
+    (variant-case-clause
+      [sig : PatternSignature]
+      [fields : (List Var)]
+      [expr : Expression]))
+  (define-type IntCaseClause
+    (int-case-clause [val : Int] [expr : Expression]))
+  (define-type BytesCaseClause
+    (bytes-case-clause [val : Bytes] [expr : Expression]))
+
+  (define-type State
+    (state)))
+
+(define (expand-patterns [mod : rv:Module]) : Module
+  (case mod
+    [(rv:module name imports exports funcs)
+     (module name imports exports (map expand-patterns/function-definition funcs))]))
+
+(define (expand-patterns/function-definition [fun : rv:FunctionDefinition]) : FunctionDefinition
+  (case fun
+    [(rv:variant-constructor name fields tag)
+     (variant-constructor name fields tag)]
+    [(rv:variant-accessor name offset)
+     (variant-accessor name offset)]
+    [(rv:function-definition name type-vars args return-type body)
+     (match-define state (state))
+     (match-define (tuple2 body state) (expand-patterns/expression body state))
+     (function-definition name type-vars args return-type body) ]))
+
+(define (expand-patterns/expression [expr : rv:Expression] [state : State])
+  : (Tuple2 Expression State)
+  (case expr
+    [(rv:case-expr expr clauses)
+     (match-define (tuple2 expr state) (expand-patterns/expression expr state))
+     (match-define expr-var (ann Var (panic #"nyi")))
+     (match-define (tuple2 body-expr state) (expand-patterns/clauses expr-var clauses state))
+     (tuple2 (let-expr expr-var expr body-expr) state)]
+    ;; Recur structurally
+    [(rv:int-literal v)
+     (tuple2 (int-literal v) state)]
+    [(rv:bytes-literal v)
+     (tuple2 (bytes-literal v) state)]
+    [(rv:boolean-literal v)
+     (tuple2 (boolean-literal v) state)]
+    [(rv:local-var-expr v)
+     (tuple2 (local-var-expr v) state)]
+    [(rv:global-var-expr v)
+     (tuple2 (global-var-expr v) state)]
+    [(rv:annotated-expr t e)
+     (match-define (tuple2 e state) (expand-patterns/expression e state))
+     (tuple2 (annotated-expr t e) state)]
+    [(rv:if-expr c t f )
+     (match-define (tuple2 c state) (expand-patterns/expression c state))
+     (match-define (tuple2 t state) (expand-patterns/expression t state))
+     (match-define (tuple2 f state) (expand-patterns/expression f state))
+     (tuple2 (if-expr c t f) state)]
+    [(rv:begin-expr exprs last)
+     (match-define (tuple2 exprs state) (expand-patterns/expressions exprs state))
+     (match-define (tuple2 last state) (expand-patterns/expression last state))
+     (tuple2 (begin-expr exprs last) state)]
+    [(rv:app-expr tail op args)
+     (match-define (tuple2 op state) (expand-patterns/expression op state))
+     (match-define (tuple2 args state) (expand-patterns/expressions args state))
+     (tuple2 (app-expr tail op args) state)]
+    [(rv:varargs-app-expr tail op args)
+     (match-define (tuple2 op state) (expand-patterns/expression op state))
+     (match-define (tuple2 args state) (expand-patterns/expressions args state))
+     (tuple2 (varargs-app-expr tail op args) state)]
+    [(rv:let-expr name expr body)
+     (match-define (tuple2 expr state) (expand-patterns/expression expr state))
+     (match-define (tuple2 body state) (expand-patterns/expression body state))
+     (tuple2 (let-expr name expr body) state)]
+    [(rv:lambda-expr args type body)
+     (match-define (tuple2 body state) (expand-patterns/expression body state))
+     (tuple2 (lambda-expr args type body) state)]))
+
+
+(define (expand-patterns/expressions [es : (List rv:Expression)] [state : State])
+  : (Tuple2 (List Expression) State)
+  (case es
+    [(empty) (tuple2 (empty) state)]
+    [(cons e es)
+     (match-define (tuple2 e state) (expand-patterns/expression e state))
+     (match-define (tuple2 es state) (expand-patterns/expressions es state))
+     (tuple2 (cons e es) state)]))
+
+
+(define (expand-patterns/clauses [v : Var] [clauses : (List rv:CaseClause)] [state : State])
+  : (Tuple2 Expression State)
+  (case clauses
+    [(empty)
+     (tuple2 (halt-expr) state)]
+    [(cons clause clauses)
+     (match-define fail-var (ann Var (panic #"nyi")))
+     (match-define (tuple2 clause-expr state) (expand-patterns/clause v clause fail-var state))
+     (match-define (tuple2 clauses-expr state) (expand-patterns/clauses v clauses state))
+     (tuple2 (join-point-expr fail-var clauses-expr clause-expr) state)]))
+
+
+(define (expand-patterns/clause [v : Var] [clause : rv:CaseClause] [fail-var : Var] [state : State])
+  : (Tuple2 Expression State)
+  (match-define (rv:case-clause pat body) clause)
+  (match-define (tuple2 body state) (expand-patterns/expression body state))
+  (expand-patterns/pattern v pat fail-var body state))
+
+(define (expand-patterns/pattern
+          [v : Var] [pat : rv:Pattern] [fail-var : Var] [succ : Expression] [state : State])
+  : (Tuple2 Expression State)
+  (case pat
+    [(rv:variable-pattern pat-v)
+     (tuple2 (let-expr pat-v (local-var-expr v) succ)
+             state)]
+    [(rv:bytes-pattern val)
+     (tuple2
+       (bytes-case-expr (local-var-expr v)
+          (bytes-case-clause val succ)
+          (default-case-clause (join-expr fail-var)))
+       state)]
+    [(rv:int-pattern val)
+     (tuple2
+       (int-case-expr (local-var-expr v)
+          (int-case-clause val succ)
+          (default-case-clause (join-expr fail-var)))
+       state)]
+    [(rv:abstraction-pattern sig pats)
+     (match-define annotated-pats (ann (List (Tuple2 Var rv:Pattern)) (panic #"nyi")))
+     (match-define new-vars (map (lambda ([t : (Tuple2 Var rv:Pattern)])
+                                   (case t [(tuple2 v _ ) v])) annotated-pats))
+     (match-define (tuple2 succ state)
+       (expand-patterns/patterns annotated-pats fail-var succ state))
+     (tuple2
+       (variant-case-expr (local-var-expr v)
+         (variant-case-clause sig new-vars succ)
+         (default-case-clause (join-expr fail-var)))
+       state)]))
+
+(define (expand-patterns/patterns
+          [ann-pats : (List (Tuple2 Var rv:Pattern))] [fail-var : Var] [succ : Expression] [state : State])
+  : (Tuple2 Expression State)
+  (case ann-pats
+    [(empty) (tuple2 succ state)]
+    [(cons (tuple2 v pat) ann-pats)
+     (match-define (tuple2 succ state) (expand-patterns/patterns ann-pats fail-var succ state))
+     (expand-patterns/pattern v pat fail-var succ state)]))

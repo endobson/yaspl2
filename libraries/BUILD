@@ -446,6 +446,22 @@ yaspl_bootstrap_library(
 )
 
 yaspl_bootstrap_library(
+    name = "expanded-patterns-language",
+    srcs = ["expanded-patterns-language.yaspl"],
+    deps = [
+        ":module-name",
+        ":module-signature",
+        ":resolved-vars-language",
+        ":top-level-name",
+        ":types",
+        "//libraries/data:list",
+        "//libraries/data:maybe",
+        "//libraries/data:tuples",
+        "//libraries/yaspl:var",
+    ],
+)
+
+yaspl_bootstrap_library(
     name = "linker_lib",
     srcs = ["linker.yaspl"],
     deps = [
@@ -730,11 +746,11 @@ yaspl_bootstrap_library(
     name = "resolved-vars-language",
     srcs = ["resolved-vars-language.yaspl"],
     deps = [
+        ":expanded-datatypes-language",
         ":module-name",
         ":module-signature",
         ":top-level-name",
         ":types",
-        ":expanded-datatypes-language",
         "//libraries/data:bytes",
         "//libraries/data:dict",
         "//libraries/data:lifted-primitives",
@@ -884,9 +900,9 @@ yaspl_bootstrap_library(
         ":intermediate-expression",
         ":intermediate-language",
         ":module-name",
-        ":resolved-vars-language",
         ":module-signature",
         ":resolved-types-language",
+        ":resolved-vars-language",
         ":top-level-name",
         ":type-checker",
         ":types",
