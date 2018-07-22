@@ -91,7 +91,9 @@
 (types
   (define-type Environment
     (environment
-      [module-name : ModName]))
+      [module-name : ModName]
+      ;; The next var for lifted functions
+      [next-var : VarNumber]))
   (define-type State
     (state [funcs : (List i:FunctionDefinition)] [bytes : (List i:ConstantDefinition)]
            [counter : Int])))
@@ -107,7 +109,7 @@
        [(module name imports exports definitions)
         (case (convert-function-definitions
                 definitions
-                (environment name)
+                name
                 (state (empty) (empty) 0))
           [(state funcs byte-constants _)
            (match-define constants
@@ -197,23 +199,24 @@
 
 (define (convert-function-definitions
           [funs : (List FunctionDefinition)]
-          [env : Environment]
+          [mod-name : ModName]
           [acc : State]) : State
   (case funs
     [(empty) acc]
     [(cons fun funs)
-     (convert-function-definitions funs env (convert-function-definition fun env acc))]))
+     (convert-function-definitions funs mod-name (convert-function-definition fun mod-name acc))]))
 
 (define (convert-function-definition
           [fun : FunctionDefinition]
-          [env : Environment]
+          [mod-name : ModName]
           [acc : State])
   : State
   (case fun
-    [(function-definition name type-vars args result-type _ body)
+    [(function-definition name type-vars args result-type next-var body)
      (match-define arg-names (map parse-arg-name args))
      (match-define arg-types (map parse-arg-type args))
      (match-define new-type (fun-type type-vars arg-types result-type))
+     (match-define env (environment mod-name next-var))
      (case (convert-expression body env acc)
        [(tuple2 i:body acc)
         (add-function
@@ -221,7 +224,9 @@
             (bytes-append (varargs list name #"-code"))
             new-type
             arg-names
-            (empty) i:body)
+            (empty)
+            next-var
+            i:body)
           acc)])]
     [(variant-constructor name (empty) tag)
      (match-define const-name
@@ -232,7 +237,8 @@
          (var-type #"bogus")
          (empty)
          (empty)
-         (i:global-var-expr (top-level-name (environment-module-name env) const-name)))
+         (initial-var-number)
+         (i:global-var-expr (top-level-name mod-name const-name)))
        acc)]
     [(variant-constructor name field-names tag)
      (match-define args
@@ -243,6 +249,7 @@
          (var-type #"bogus")
          args
          (empty)
+         (var-number (length field-names))
          (i:make-variant-expr tag (map i:local-var-expr args)))
        acc)]
     [(variant-accessor name index)
@@ -253,6 +260,7 @@
          (var-type #"bogus")
          (varargs list arg)
          (empty)
+         (next-var-number (initial-var-number))
          (i:variant-field-ref-expr (i:local-var-expr arg) index))
        acc)]))
 
@@ -328,7 +336,9 @@
                        (map (lambda ([t : (Tuple2 Var Type)])
                               (case t [(tuple2 var type) var]))
                             args+tys)
-                       fv ibody)
+                       fv
+                       (environment-next-var env)
+                       ibody)
                      acc))])]))))]
     [(app-expr tail-position op args)
      (case (convert-expression op env acc)
