@@ -73,7 +73,8 @@
 (types
   (define-type Environment
     (environment
-      [vars : (Dict Var Var)])))
+      [vars : (Dict Var Var)]
+      [join-vars : (Dict Var BlockNumber)])))
 
 
 (define (module-to-top-level-objects [mod : Module]) : (List TopLevelObject)
@@ -90,8 +91,16 @@
 
 (define (env-set [env : Environment] [name : Var] [var : Var]) : Environment
   (case env
-    [(environment vars)
-     (environment (dict-set vars name var))]))
+    [(environment vars join-vars)
+     (environment (dict-set vars name var) join-vars)]))
+
+(define (env-add-join-var [env : Environment] [name : Var] [block-number : BlockNumber]) : Environment
+  (case env
+    [(environment vars join-vars)
+     (environment vars (dict-add join-vars name block-number))]))
+
+(define (env-ref-join-var [env : Environment] [name : Var]) : (Maybe BlockNumber)
+  (dict-ref (environment-join-vars env) name))
 
 (define (convert-function [mod-name : ModName] [f : FunctionDefinition]) :
   r:FunctionDefinition
@@ -107,7 +116,7 @@
   (match-define freshened-args+free-vars (append freshened-args freshened-free-vars))
 
   (match-define acc (start-block start-block-num (map new-arg2 freshened-args+free-vars) acc))
-  (match-define env (environment (make-dict var-cmp)))
+  (match-define env (environment (make-dict var-cmp) (make-dict var-cmp)))
   (match-define env
     (foldl
       (lambda ([t : (Tuple2 Var Var)] [env : Environment])
@@ -354,6 +363,33 @@
        (start-block join-block (varargs list join-var) acc))]
     [(halt-expr)
      (match-define acc (add-terminal acc (r:halt)))
+     (match-define (tuple2 dead-block-num acc) (fresh-block-number* acc))
+     (match-define (tuple2 result-var acc) (fresh-var* acc #"res"))
+     (tuple2
+       result-var
+       (start-block dead-block-num (varargs list result-var) acc))]
+    [(join-point-expr join-var expr body)
+     (match-define (tuple2 escape-block-num acc) (fresh-block-number acc))
+     (match-define (tuple2 converge-block-num acc) (fresh-block-number acc))
+
+     (match-define env-with-join (env-add-join-var env join-var escape-block-num))
+     (match-define (tuple2 body-return-var acc) (convert-expr body env-with-join acc))
+     (match-define acc
+       (add-terminal acc (r:jump (jump-target converge-block-num (varargs list body-return-var)))))
+     (match-define acc (start-block escape-block-num (empty) acc))
+     (match-define (tuple2 escape-return-var acc) (convert-expr expr env acc))
+     (match-define acc
+       (add-terminal acc (r:jump (jump-target converge-block-num (varargs list escape-return-var)))))
+     (match-define (tuple2 result-var acc) (fresh-var* acc #"res"))
+     (tuple2
+       result-var
+       (start-block converge-block-num (varargs list result-var) acc))]
+    [(join-expr join-var)
+     (match-define join-block-num : BlockNumber
+        (case (env-ref-join-var env join-var)
+          [(just n) n]
+          [(nothing) (panic #"Unbound join var")]))
+     (match-define acc (add-terminal acc (r:jump (jump-target join-block-num (empty)))))
      (match-define (tuple2 dead-block-num acc) (fresh-block-number* acc))
      (match-define (tuple2 result-var acc) (fresh-var* acc #"res"))
      (tuple2
