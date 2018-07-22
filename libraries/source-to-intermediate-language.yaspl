@@ -9,11 +9,10 @@
       expand-datatypes
     }
   }
+  (expanded-patterns-language)
   {(intermediate-expression)
     {#:types
-      [CaseClause i:CaseClause]
       [Expression i:Expression]
-      [Pattern i:Pattern]
     }
     {#:values
       [abstraction-pattern i:abstraction-pattern]
@@ -30,6 +29,8 @@
       [if-expr i:if-expr]
       [int-literal i:int-literal]
       [int-pattern i:int-pattern]
+      [join-expr i:join-expr]
+      [join-point-expr i:join-point-expr]
       [let-expr i:let-expr]
       [local-var-expr i:local-var-expr]
       [make-variant-expr i:make-variant-expr]
@@ -77,7 +78,11 @@
       [Module rt:Module]
     }
   }
-  (resolved-vars-language)
+  {(resolved-vars-language)
+    {#:values
+      resolve-vars
+    }
+  }
   (set)
   (top-level-name)
   (tuples)
@@ -106,6 +111,7 @@
     [(right mod)
      (match-define mod (expand-datatypes mod))
      (match-define mod (resolve-vars mod))
+     (match-define mod (expand-patterns mod))
      (case mod
        [(module name imports exports definitions)
         (case (convert-function-definitions
@@ -186,17 +192,6 @@
            acc)]))
     funs
     acc))
-
-(define (pattern-bound-vars [p : Pattern]) : (List Var)
-  (pattern-bound-vars* p (empty)))
-(define (pattern-bound-vars* [p : Pattern] [acc : (List Var)]) : (List Var)
-  (case p
-    [(bytes-pattern v) acc]
-    [(int-pattern v) acc]
-    [(variable-pattern v)
-     (cons v acc)]
-    [(abstraction-pattern _ pats)
-     (foldl pattern-bound-vars* pats acc)]))
 
 (define (convert-function-definitions
           [funs : (List FunctionDefinition)]
@@ -308,12 +303,63 @@
         (case (convert-expression body env acc)
           [(tuple2 ibody acc)
            (tuple2 (i:let-expr var iexpr ibody) acc)])])]
-    [(case-expr expr clauses)
+    [(halt-expr)
+     (tuple2 (i:halt-expr) acc)]
+    [(join-expr j)
+     (tuple2 (i:join-expr j) acc)]
+    [(join-point-expr j expr body)
      (case (convert-expression expr env acc)
        [(tuple2 iexpr acc)
-        (case (convert-clauses clauses env acc)
-          [(tuple2 iclauses acc)
-           (tuple2 (i:case-expr iexpr iclauses (i:halt-expr)) acc)])])]
+        (case (convert-expression body env acc)
+          [(tuple2 ibody acc)
+           (tuple2 (i:join-point-expr j iexpr ibody) acc)])])]
+    [(variant-case-expr expr (variant-case-clause sig fields body) (default-case-clause def))
+     (match-define (pattern-signature variant-name tag  _ _ _ _ _) sig)
+     (case (convert-expression expr env acc)
+       [(tuple2 iexpr acc)
+        (case (convert-expression body env acc)
+          [(tuple2 ibody acc)
+           (case (convert-expression def env acc)
+             [(tuple2 idef acc)
+              (tuple2
+                (i:case-expr iexpr
+                  (varargs list
+                    (i:case-clause
+                      (i:abstraction-pattern variant-name tag (map i:variable-pattern fields))
+                      ibody))
+                  idef)
+                acc)])])])]
+    [(int-case-expr expr (int-case-clause val body) (default-case-clause def))
+     (case (convert-expression expr env acc)
+       [(tuple2 iexpr acc)
+        (case (convert-expression body env acc)
+          [(tuple2 ibody acc)
+           (case (convert-expression def env acc)
+             [(tuple2 idef acc)
+              (tuple2
+                (i:case-expr iexpr
+                  (varargs list (i:case-clause (i:int-pattern val) ibody))
+                  idef)
+                acc)])])])]
+    [(bytes-case-expr expr (bytes-case-clause val body) (default-case-clause def))
+     (case (get-next-index acc)
+       [(tuple2 (lifted-int index) acc)
+        (let ([constant-name
+                (bytes-append (cons #"bytes-" (cons (integer->decimal-bytes index) (empty))))])
+          (case (convert-expression expr env acc)
+            [(tuple2 iexpr acc)
+             (case (convert-expression body env acc)
+               [(tuple2 ibody acc)
+                (case (convert-expression def env acc)
+                  [(tuple2 idef acc)
+                   (tuple2
+                     (i:case-expr iexpr
+                       (varargs list
+                         (i:case-clause (i:bytes-pattern (top-level-name (environment-module-name env)
+                                                                         constant-name))
+                                        ibody))
+                       idef)
+                     (add-bytes-constant constant-name val acc))])])]))])]
     [(annotated-expr _ expr)
      (convert-expression expr env acc)]
     [(lambda-expr args+tys _ body)
@@ -354,45 +400,6 @@
           [(tuple2 iargs acc)
            (tuple2 (i:call-closure-expr tail-position iop (varargs list (i:array-expr iargs))) acc)])])]))
 
-(define (convert-clause [clause : CaseClause] [env : Environment] [acc : State])
-  : (Tuple2 i:CaseClause State)
-  (case clause
-    [(case-clause pat expr)
-     (case (convert-pattern pat env acc)
-       [(tuple2 ipat acc)
-        (case (convert-expression expr env acc)
-          [(tuple2 iexpr acc)
-           (tuple2 (i:case-clause ipat iexpr) acc)])])]))
-
-(define (convert-pattern [pat : Pattern] [env : Environment] [acc : State]) : (Tuple2 i:Pattern State)
-  (case pat
-    [(bytes-pattern v)
-     (case (get-next-index acc)
-       [(tuple2 (lifted-int index) acc)
-        (let ([constant-name
-                (bytes-append (cons #"bytes-" (cons (integer->decimal-bytes index) (empty))))])
-          (tuple2 (i:bytes-pattern (top-level-name (environment-module-name env) constant-name))
-                  (add-bytes-constant constant-name v acc)))])]
-    [(int-pattern v)
-     (tuple2 (i:int-pattern v) acc)]
-    [(variable-pattern var)
-     (tuple2 (i:variable-pattern var) acc)]
-    [(abstraction-pattern (pattern-signature variant-name tag  _ _ _ _ _) pats)
-     (case (convert-patterns pats env acc)
-       [(tuple2 ipats acc)
-        (tuple2 (i:abstraction-pattern variant-name tag ipats) acc)])]))
-
-(define (convert-patterns [pats : (List Pattern)] [env : Environment] [acc : State]) : (Tuple2 (List i:Pattern) State)
-  (case pats
-    [(empty) (tuple2 (empty) acc)]
-    [(cons pat pats)
-     (case (convert-pattern pat env acc)
-       [(tuple2 ipat acc)
-        (case (convert-patterns pats env acc)
-          [(tuple2 ipats acc)
-           (tuple2 (cons ipat ipats) acc)])])]))
-
-
 (define (convert-expressions
           [exprs : (List Expression)]
           [env : Environment]
@@ -406,20 +413,6 @@
         (case (convert-expressions es env acc)
           [(tuple2 ies acc)
            (tuple2 (cons ie ies) acc)])])]))
-
-(define (convert-clauses
-          [clauses : (List CaseClause)]
-          [env : Environment]
-          [acc : State])
-  : (Tuple2 (List i:CaseClause) State)
-  (case clauses
-    [(empty) (tuple2 (empty) acc)]
-    [(cons c cs)
-     (case (convert-clause c env acc)
-       [(tuple2 ic acc)
-        (case (convert-clauses cs env acc)
-          [(tuple2 ics acc)
-           (tuple2 (cons ic ics) acc)])])]))
 
 (define (add-function [func : i:FunctionDefinition] [acc : State]) : State
   (case acc
@@ -523,10 +516,19 @@
      (free-variables/list (cons op args) env acc)]
     [(let-expr name expr body)
      (free-variables/expr body (set-add env name) (free-variables/expr expr env acc))]
-    [(case-expr expr clauses)
-     (free-variables/clauses clauses env (free-variables/expr expr env acc))]
+    [(join-expr _) acc]
+    [(join-point-expr _ expr body)
+     (free-variables/list (varargs list expr body) env acc)]
     [(lambda-expr args+tys _ body)
      (free-variables/expr body (set-add-all env (map parse-arg-name args+tys)) acc)]
+    [(halt-expr) acc]
+    [(int-case-expr expr (int-case-clause val body) (default-case-clause def))
+     (free-variables/list (varargs list expr body def) env acc)]
+    [(bytes-case-expr expr (bytes-case-clause val body) (default-case-clause def))
+     (free-variables/list (varargs list expr body def) env acc)]
+    [(variant-case-expr expr (variant-case-clause sig fields body) (default-case-clause def))
+     (free-variables/expr body (set-add-all env fields)
+                          (free-variables/list (varargs list expr def) env acc))]
     [(global-var-expr _) acc]
     [(local-var-expr v)
      (if (set-member? env v)
@@ -541,17 +543,3 @@
     [(empty) acc]
     [(cons expr exprs)
      (free-variables/list exprs env (free-variables/expr expr env acc))]))
-
-(define (free-variables/clauses
-          [exprs : (List CaseClause)]
-          [env : (Set Var)]
-          [acc : (Set Var)]) : (Set Var)
-  (case exprs
-    [(empty) acc]
-    [(cons (case-clause pattern body) clauses)
-     (free-variables/clauses
-       clauses env
-       (free-variables/expr
-         body
-         (set-add-all env (pattern-bound-vars pattern))
-         acc))]))

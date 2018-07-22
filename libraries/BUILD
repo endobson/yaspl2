@@ -896,6 +896,7 @@ yaspl_bootstrap_library(
     srcs = ["source-to-intermediate-language.yaspl"],
     deps = [
         ":expanded-datatypes-language",
+        ":expanded-patterns-language",
         ":intermediate-expression",
         ":intermediate-language",
         ":module-name",
