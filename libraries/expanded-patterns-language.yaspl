@@ -61,6 +61,7 @@
                          [type-vars : (List Bytes)]
                          [args : (List (Tuple2 Var Type))]
                          [return-type : Type]
+                         [next-var : VarNumber]
                          [body : Expression])
     (variant-constructor
       [name : Bytes]
@@ -133,15 +134,15 @@
      (variant-accessor name offset)]
     [(rv:function-definition name type-vars args return-type next-var body)
      (match-define state (state next-var))
-     (match-define (tuple2 body state) (expand-patterns/expression body state))
-     (function-definition name type-vars args return-type body) ]))
+     (match-define (tuple2 body (state next-var)) (expand-patterns/expression body state))
+     (function-definition name type-vars args return-type next-var body)]))
 
 (define (expand-patterns/expression [expr : rv:Expression] [state : State])
   : (Tuple2 Expression State)
   (case expr
     [(rv:case-expr expr clauses)
      (match-define (tuple2 expr state) (expand-patterns/expression expr state))
-     (match-define expr-var (ann Var (panic #"nyi")))
+     (match-define (tuple2 expr-var state) (fresh-var #"case-val" state))
      (match-define (tuple2 body-expr state) (expand-patterns/clauses expr-var clauses state))
      (tuple2 (let-expr expr-var expr body-expr) state)]
     ;; Recur structurally
@@ -200,7 +201,7 @@
     [(empty)
      (tuple2 (halt-expr) state)]
     [(cons clause clauses)
-     (match-define fail-var (ann Var (panic #"nyi")))
+     (match-define (tuple2 fail-var state) (fresh-var #"fail" state))
      (match-define (tuple2 clause-expr state) (expand-patterns/clause v clause fail-var state))
      (match-define (tuple2 clauses-expr state) (expand-patterns/clauses v clauses state))
      (tuple2 (join-point-expr fail-var clauses-expr clause-expr) state)]))
@@ -232,7 +233,7 @@
           (default-case-clause (join-expr fail-var)))
        state)]
     [(rv:abstraction-pattern sig pats)
-     (match-define annotated-pats (ann (List (Tuple2 Var rv:Pattern)) (panic #"nyi")))
+     (match-define (tuple2 annotated-pats state) (fresh-sub-pattern-vars pats state))
      (match-define new-vars (map (lambda ([t : (Tuple2 Var rv:Pattern)])
                                    (case t [(tuple2 v _ ) v])) annotated-pats))
      (match-define (tuple2 succ state)
@@ -251,3 +252,17 @@
     [(cons (tuple2 v pat) ann-pats)
      (match-define (tuple2 succ state) (expand-patterns/patterns ann-pats fail-var succ state))
      (expand-patterns/pattern v pat fail-var succ state)]))
+
+(define (fresh-var [base : Bytes] [s : State]) : (Tuple2 Var State)
+  (case s
+    [(state counter)
+     (tuple2 (var base counter) (state (next-var-number counter)))]))
+
+(define (fresh-sub-pattern-vars [pats : (List rv:Pattern)] [state : State])
+  : (Tuple2 (List (Tuple2 Var rv:Pattern)) State)
+  (case pats
+    [(empty) (tuple2 (empty) state)]
+    [(cons pat pats)
+     (match-define (tuple2 var state) (fresh-var #"pat-field" state))
+     (match-define (tuple2 ann-pats state) (fresh-sub-pattern-vars pats state))
+     (tuple2 (cons (tuple2 var pat) ann-pats) state)]))
