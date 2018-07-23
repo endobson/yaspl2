@@ -13,6 +13,7 @@
   {(intermediate-expression)
     {#:types
       [Expression i:Expression]
+      [VariantCaseClause i:VariantCaseClause]
     }
     {#:values
       [array-expr i:array-expr]
@@ -314,19 +315,15 @@
         (case (convert-expression body env acc)
           [(tuple2 ibody acc)
            (tuple2 (i:join-point-expr j iexpr ibody) acc)])])]
-    [(variant-case-expr expr (variant-case-clause sig fields body) (default-case-clause def))
-     (match-define (pattern-signature variant-name tag  _ _ _ _ _) sig)
+    [(variant-case-expr expr clauses (default-case-clause def))
      (case (convert-expression expr env acc)
        [(tuple2 iexpr acc)
-        (case (convert-expression body env acc)
-          [(tuple2 ibody acc)
+        (case (convert-variant-case-clauses clauses env acc)
+          [(tuple2 clauses acc)
            (case (convert-expression def env acc)
              [(tuple2 idef acc)
               (tuple2
-                (i:variant-case-expr iexpr
-                  (varargs list
-                    (i:variant-case-clause variant-name tag fields ibody))
-                  (i:default-case-clause idef))
+                (i:variant-case-expr iexpr clauses (i:default-case-clause idef))
                 acc)])])])]
     [(int-case-expr expr (int-case-clause val body) (default-case-clause def))
      (case (convert-expression expr env acc)
@@ -411,6 +408,21 @@
         (case (convert-expressions es env acc)
           [(tuple2 ies acc)
            (tuple2 (cons ie ies) acc)])])]))
+
+(define (convert-variant-case-clauses
+          [clauses : (List VariantCaseClause)]
+          [env : Environment]
+          [acc : State])
+  : (Tuple2 (List i:VariantCaseClause) State)
+  (case clauses
+    [(empty) (tuple2 (empty) acc)]
+    [(cons (variant-case-clause sig fields body) clauses)
+     (match-define (pattern-signature variant-name tag  _ _ _ _ _) sig)
+     (match-define (tuple2 body acc) (convert-expression body env acc))
+     (match-define (tuple2 clauses acc) (convert-variant-case-clauses clauses env acc))
+     (tuple2
+       (cons (i:variant-case-clause variant-name tag fields body) clauses)
+       acc)]))
 
 (define (add-function [func : i:FunctionDefinition] [acc : State]) : State
   (case acc
@@ -524,9 +536,8 @@
      (free-variables/list (varargs list expr body def) env acc)]
     [(bytes-case-expr expr (bytes-case-clause val body) (default-case-clause def))
      (free-variables/list (varargs list expr body def) env acc)]
-    [(variant-case-expr expr (variant-case-clause sig fields body) (default-case-clause def))
-     (free-variables/expr body (set-add-all env fields)
-                          (free-variables/list (varargs list expr def) env acc))]
+    [(variant-case-expr expr clauses (default-case-clause def))
+     (free-variables/variant-case-clauses clauses env (free-variables/list (varargs list expr def) env acc))]
     [(global-var-expr _) acc]
     [(local-var-expr v)
      (if (set-member? env v)
@@ -541,3 +552,14 @@
     [(empty) acc]
     [(cons expr exprs)
      (free-variables/list exprs env (free-variables/expr expr env acc))]))
+
+(define (free-variables/variant-case-clauses
+          [clauses : (List VariantCaseClause)]
+          [env : (Set Var)]
+          [acc : (Set Var)]) : (Set Var)
+  (case clauses
+    [(empty) acc]
+    [(cons (variant-case-clause sig fields body) clauses)
+     (free-variables/variant-case-clauses
+       clauses env
+       (free-variables/expr body (set-add-all env fields) acc))]))
