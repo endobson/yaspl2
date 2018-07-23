@@ -455,6 +455,8 @@ yaspl_bootstrap_library(
         ":top-level-name",
         ":types",
         "//libraries/data:list",
+        "//libraries/data:dict",
+        "//libraries/data:bytes",
         "//libraries/data:maybe",
         "//libraries/data:tuples",
         "//libraries/yaspl:var",

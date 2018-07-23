@@ -1,5 +1,7 @@
 #:module (expanded-patterns-language)
 #:import {
+  (bytes)
+  (dict)
   (list)
   (maybe)
   (module-name)
@@ -134,7 +136,11 @@
 
   (define-type State
     (state
-      [next-var : VarNumber])))
+      [next-var : VarNumber]))
+  (define-type PatternRow
+    (pattern-row [pats : (List rv:Pattern)] [expr : Expression]))
+  (define-type AbstractionPattern
+    (abstraction-pattern [sig : PatternSignature] [sub-patterns : (List rv:Pattern)])))
 
 (define (expand-patterns [mod : rv:Module]) : Module
   (case mod
@@ -158,8 +164,15 @@
     [(rv:case-expr expr clauses)
      (match-define (tuple2 expr state) (expand-patterns/expression expr state))
      (match-define (tuple2 expr-var state) (fresh-var #"case-val" state))
-     (match-define (tuple2 body-expr state) (expand-patterns/clauses expr-var clauses state))
-     (tuple2 (let-expr expr-var expr body-expr) state)]
+     (match-define (tuple2 pattern-rows state) (case-clauses->pattern-rows clauses state))
+     (match-define (tuple2 fail-var state) (fresh-var #"fail" state))
+     (match-define (tuple2 body state)
+       (expand-patterns/matrix
+         (varargs list expr-var)
+         pattern-rows
+         fail-var
+         state))
+     (tuple2 (join-point-expr fail-var (halt-expr) (let-expr expr-var expr body)) state)]
     ;; Recur structurally
     [(rv:int-literal v)
      (tuple2 (int-literal v) state)]
@@ -209,26 +222,19 @@
      (match-define (tuple2 es state) (expand-patterns/expressions es state))
      (tuple2 (cons e es) state)]))
 
-
-(define (expand-patterns/clauses [v : Var] [clauses : (List rv:CaseClause)] [state : State])
-  : (Tuple2 Expression State)
-  (case clauses
+(define (case-clauses->pattern-rows [cs : (List rv:CaseClause)] [state : State])
+  : (Tuple2 (List PatternRow) State)
+  (case cs
     [(empty)
-     (tuple2 (halt-expr) state)]
-    [(cons clause clauses)
-     (match-define (tuple2 fail-var state) (fresh-var #"fail" state))
-     (match-define (tuple2 clause-expr state) (expand-patterns/clause v clause fail-var state))
-     (match-define (tuple2 clauses-expr state) (expand-patterns/clauses v clauses state))
-     (tuple2 (join-point-expr fail-var clauses-expr clause-expr) state)]))
+     (tuple2 (empty) state)]
+    [(cons (rv:case-clause pattern expr) cs)
+     (match-define (tuple2 expr state) (expand-patterns/expression expr state))
+     (match-define (tuple2 rows state) (case-clauses->pattern-rows cs state))
+     (tuple2
+       (cons (pattern-row (varargs list pattern) expr) rows)
+       state)]))
 
-
-(define (expand-patterns/clause [v : Var] [clause : rv:CaseClause] [fail-var : Var] [state : State])
-  : (Tuple2 Expression State)
-  (match-define (rv:case-clause pat body) clause)
-  (match-define (tuple2 body state) (expand-patterns/expression body state))
-  (expand-patterns/pattern v pat fail-var body state))
-
-(define (expand-patterns/pattern
+(define (expand-patterns/pattern/simple
           [v : Var] [pat : rv:Pattern] [fail-var : Var] [succ : Expression] [state : State])
   : (Tuple2 Expression State)
   (case pat
@@ -252,26 +258,168 @@
      (match-define new-vars (map (lambda ([t : (Tuple2 Var rv:Pattern)])
                                    (case t [(tuple2 v _ ) v])) annotated-pats))
      (match-define (tuple2 succ state)
-       (expand-patterns/patterns annotated-pats fail-var succ state))
+       (expand-patterns/patterns/simple annotated-pats fail-var succ state))
      (tuple2
        (variant-case-expr (local-var-expr v)
          (varargs list (variant-case-clause sig new-vars succ))
          (default-case-clause (join-expr fail-var)))
        state)]))
 
-(define (expand-patterns/patterns
+(define (expand-patterns/patterns/simple
           [ann-pats : (List (Tuple2 Var rv:Pattern))] [fail-var : Var] [succ : Expression] [state : State])
   : (Tuple2 Expression State)
   (case ann-pats
     [(empty) (tuple2 succ state)]
     [(cons (tuple2 v pat) ann-pats)
-     (match-define (tuple2 succ state) (expand-patterns/patterns ann-pats fail-var succ state))
-     (expand-patterns/pattern v pat fail-var succ state)]))
+     (match-define (tuple2 succ state) (expand-patterns/patterns/simple ann-pats fail-var succ state))
+     (expand-patterns/pattern/simple v pat fail-var succ state)]))
+
+(define (expand-patterns/matrix
+          [vars : (List Var)]
+          [rows : (List PatternRow)]
+          [fail-var : Var]
+          [state : State])
+  : (Tuple2 Expression State)
+  (case rows
+    [(empty)
+     (tuple2 (join-expr fail-var) state)]
+    [(cons (pattern-row (empty) succ-expr) _)
+     (tuple2 succ-expr state)]
+    [(cons top-row other-rows)
+     (match-define first-patterns
+       (map pattern-row-first-pattern rows))
+     (match-define (tuple2 first-var other-vars) : (Tuple2 Var (List Var))
+       (case vars
+         [(cons first-var other-vars)
+          (tuple2 first-var other-vars)]
+         [_ (panic #"Bad matrix")]))
+
+     (case (extract-justs (map find-abstraction-pattern first-patterns))
+       [(just abstraction-patterns)
+        (case (zip abstraction-patterns (map pattern-row-drop-first-pattern rows))
+          [(nothing) (panic #"Bad zip")]
+          [(just zipped-rows)
+           (match-define grouped-rows : (List (Tuple2 PatternSignature (List PatternRow)))
+             (group-rows zipped-rows))
+           (match-define (tuple2 clauses state)
+             (all-grouped-rows->variant-case-clauses other-vars fail-var grouped-rows state))
+
+           (tuple2
+             (variant-case-expr
+               (local-var-expr first-var)
+               clauses
+               (default-case-clause (join-expr fail-var)))
+             state)
+           ;(expand-pattern/matrix/split-top-row vars top-row other-rows fail-var state)
+           ])]
+       [_
+        (expand-pattern/matrix/split-top-row vars top-row other-rows fail-var state)])]))
+
+(define (group-rows [rows : (List (Tuple2 AbstractionPattern PatternRow))])
+  : (List (Tuple2 PatternSignature (List PatternRow)))
+  (group-rows* (reverse rows) (make-dict bytes-cmp)))
+
+(define (group-rows* [rows : (List (Tuple2 AbstractionPattern PatternRow))]
+                     [acc : (Dict Bytes (Tuple2 PatternSignature (List PatternRow)))])
+  : (List (Tuple2 PatternSignature (List PatternRow)))
+  (case rows
+    [(empty)
+     (dict-values acc)]
+    [(cons (tuple2 (abstraction-pattern sig sub-patterns) (pattern-row pats succ)) rows)
+     (match-define (pattern-signature variant-name _ _ _ _ _ _) sig)
+     (group-rows*
+       rows
+       (dict-update
+         acc
+         variant-name
+         (lambda ([v : (Tuple2 PatternSignature (List PatternRow))])
+           (case v
+             [(tuple2 sig pat-rows)
+              (tuple2 sig (cons (pattern-row (append sub-patterns pats) succ) pat-rows))]))
+         (tuple2 sig (empty))))]))
+
+(define (all-grouped-rows->variant-case-clauses
+          [vars : (List Var)]
+          [fail-var : Var]
+          [grouped-rows : (List (Tuple2 PatternSignature (List PatternRow)))]
+          [state : State])
+  : (Tuple2 (List VariantCaseClause) State)
+  (case grouped-rows
+    [(empty)
+     (tuple2 (empty) state)]
+    [(cons rows other-grouped-rows)
+     (match-define (tuple2 clause state)
+       (grouped-rows->variant-case-clause vars fail-var rows state))
+     (match-define (tuple2 clauses state)
+       (all-grouped-rows->variant-case-clauses vars fail-var other-grouped-rows state))
+     (tuple2 (cons clause clauses) state)]))
+
+(define (grouped-rows->variant-case-clause
+          [vars : (List Var)]
+          [fail-var : Var]
+          [grouped-rows : (Tuple2 PatternSignature (List PatternRow))]
+          [state : State])
+  : (Tuple2 VariantCaseClause State)
+  (case grouped-rows
+    [(tuple2 sig rows)
+     (match-define (pattern-signature variant-name tag _ _ _ fields _) sig)
+     (match-define (tuple2 field-vars state) (fresh-field-vars fields state))
+     (match-define (tuple2 expr state)
+       (expand-patterns/matrix (append field-vars vars) rows fail-var state))
+     (tuple2 (variant-case-clause sig field-vars expr) state)]))
+
+
+(define (expand-pattern/matrix/split-top-row
+          [vars : (List Var)]
+          [row : PatternRow]
+          [other-rows : (List PatternRow)]
+          [fail-var : Var]
+          [state : State])
+  : (Tuple2 Expression State)
+ (match-define (pattern-row pats succ-expr) row)
+ (match-define ann-pats : (List (Tuple2 Var rv:Pattern))
+   (case (zip vars pats)
+     [(nothing) (panic #"Bad pattern matrix")]
+     [(just v) v]))
+ (match-define (tuple2 new-fail-var state) (fresh-var #"fail" state))
+ (match-define (tuple2 first-row-expr state)
+   (expand-patterns/patterns/simple ann-pats new-fail-var succ-expr state))
+ (match-define (tuple2 other-rows-expr state)
+   (expand-patterns/matrix vars other-rows fail-var state))
+ (tuple2
+   (join-point-expr new-fail-var other-rows-expr first-row-expr)
+   state))
+
+(define (pattern-row-first-pattern [p : PatternRow]) : rv:Pattern
+  (case p
+    [(pattern-row (cons p _) _) p]
+    [_ (panic #"Pattern row had no columns")]))
+
+(define (pattern-row-drop-first-pattern [p : PatternRow]) : PatternRow
+  (case p
+    [(pattern-row (cons _ pats) expr)
+     (pattern-row pats expr)]
+    [_ (panic #"Pattern row had no columns")]))
+
+
+(define (find-abstraction-pattern [p : rv:Pattern]) : (Maybe AbstractionPattern)
+  (case p
+    [(rv:abstraction-pattern sig pats)
+     (just (abstraction-pattern sig pats))]
+    [_ (nothing)]))
 
 (define (fresh-var [base : Bytes] [s : State]) : (Tuple2 Var State)
   (case s
     [(state counter)
      (tuple2 (var base counter) (state (next-var-number counter)))]))
+
+(define (fresh-field-vars [ts : (List Type)] [state : State]) : (Tuple2 (List Var) State)
+  (case ts
+    [(empty) (tuple2 (empty) state)]
+    [(cons t ts)
+     (match-define (tuple2 var state) (fresh-var #"field" state))
+     (match-define (tuple2 vars state) (fresh-field-vars ts state))
+     (tuple2 (cons var vars) state)]))
 
 (define (fresh-sub-pattern-vars [pats : (List rv:Pattern)] [state : State])
   : (Tuple2 (List (Tuple2 Var rv:Pattern)) State)
