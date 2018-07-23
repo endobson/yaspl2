@@ -353,14 +353,6 @@
        (add-instruction acc
          (r:variant-ref-inst field-var variant-var field-index)))
      (tuple2 field-var acc)]
-    [(case-expr expr clauses default-expr)
-     (match-define (tuple2 value-var acc) (convert-expr expr env acc))
-     (match-define (tuple2 join-block acc) (fresh-block-number acc))
-     (match-define acc (convert-clauses clauses default-expr value-var join-block env acc))
-     (match-define (tuple2 join-var acc) (fresh-var* acc #"join"))
-     (tuple2
-       join-var
-       (start-block join-block (varargs list join-var) acc))]
     [(int-case-expr expr (int-case-clause val body) (default-case-clause default-expr))
      (match-define (tuple2 value-var acc) (convert-expr expr env acc))
      (match-define (tuple2 continue-block acc) (fresh-block-number acc))
@@ -478,89 +470,6 @@
      (tuple2
        result-var
        (start-block dead-block-num (varargs list result-var) acc))]))
-
-(define (convert-clauses [clauses : (List CaseClause)] [default-expr : Expression]
-                         [value : Var] [join-block : BlockNumber]
-                         [env : Environment] [acc : Accumulator]) : BlockAccumulator
-  (case clauses
-    [(empty)
-     (match-define (tuple2 default-val acc) (convert-expr default-expr env acc))
-     (add-terminal acc (r:jump (jump-target join-block (varargs list default-val))))]
-    [(cons (case-clause pattern expr) clauses)
-     (match-define (tuple2 fail-block acc) (fresh-block-number acc))
-
-     (match-define (tuple2 inner-env acc) (convert-pattern pattern value fail-block env acc))
-     (match-define (tuple2 value-var acc) (convert-expr expr inner-env acc))
-     (match-define acc
-       (start-block fail-block (empty)
-                    (add-terminal acc (r:jump (jump-target join-block (varargs list value-var))))))
-     (convert-clauses clauses default-expr value join-block env acc)]))
-
-(define (convert-pattern [pattern : Pattern] [value : Var] [fail-block : BlockNumber]
-                         [env : Environment] [acc : Accumulator]) : (Tuple2 Environment Accumulator)
-  (case pattern
-    [(variable-pattern var)
-     (tuple2 (env-set env var value) acc)]
-    [(int-pattern exp)
-     ;; TODO handle int patterns that are larger than S32
-     (match-define (tuple2 continue-block acc) (fresh-block-number acc))
-     (tuple2
-       env
-       (start-block
-         continue-block
-         (empty)
-         (add-terminal acc (r:cond-jump (comparison-condition
-                                          (not-equal-op)
-                                          (compare-s64
-                                            (compare-mem-arg-val value)
-                                            (var-or-s32-s32 (s32 exp))))
-                                        (jump-target fail-block (empty))
-                                        (jump-target continue-block (empty))))))]
-    [(bytes-pattern name)
-     (match-define symbol (mangle-top-level-name name))
-     (match-define (tuple2 bytes-var acc) (fresh-var acc #"bytes"))
-     (match-define (tuple2 adj-size-var acc) (fresh-var acc #"adj"))
-     (match-define (tuple2 base-size-var acc) (fresh-var acc #"base-size"))
-     (match-define (tuple2 size-var acc) (fresh-var acc #"size"))
-     (match-define acc (add-instruction acc (r:symbol-address-inst bytes-var symbol)))
-     (match-define acc
-       (add-instruction acc (r:pointer-ref-inst base-size-var (eight-byte-mem-op) bytes-var
-                                                (fixed-pointer-offset 8))))
-     (match-define acc (add-instruction acc (r:int-literal adj-size-var 16)))
-     (match-define acc (add-instruction acc (r:bin-op-inst size-var (numeric-bin-op (add-op))
-                                                           base-size-var adj-size-var)))
-     (match-define (tuple2 continue-block acc) (fresh-block-number acc))
-     (tuple2
-       env
-       (start-block
-         continue-block
-         (empty)
-         (add-terminal acc (r:cond-jump (memory-compare-condition #t size-var bytes-var value)
-                                        (jump-target fail-block (empty))
-                                        (jump-target continue-block (empty))))))]
-    [(abstraction-pattern name tag patterns)
-     (match-define (tuple2 continue-block acc) (fresh-block-number acc))
-     (match-define acc
-       (start-block
-         continue-block
-         (empty)
-         (add-terminal acc (r:cond-jump (variant-tag-condition value tag)
-                                        (jump-target continue-block (empty))
-                                        (jump-target fail-block (empty))))))
-     (convert-sub-patterns patterns value 0 fail-block env acc)]))
-
-(define (convert-sub-patterns
-          [patterns : (List Pattern)] [ptr : Var] [index : Int] [fail-block : BlockNumber]
-          [env : Environment] [acc : Accumulator]) : (Tuple2 Environment Accumulator)
-  (case patterns
-    [(empty) (tuple2 env acc)]
-    [(cons pattern patterns)
-     (match-define (tuple2 new-value acc) (fresh-var acc #"val"))
-     (match-define acc
-       (add-instruction acc
-         (r:variant-ref-inst new-value ptr index)))
-     (match-define (tuple2 env acc) (convert-pattern pattern new-value fail-block env acc))
-     (convert-sub-patterns patterns ptr (+ index 1) fail-block env acc)]))
 
 (define (extract-fields [val : Var] [field-vars : (List Var)] [env : Environment] [acc : Accumulator])
   : (Tuple2 Environment Accumulator)
