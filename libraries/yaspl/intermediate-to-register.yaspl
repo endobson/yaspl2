@@ -411,26 +411,10 @@
      (tuple2
        join-var
        (start-block join-block (varargs list join-var) acc))]
-    [(variant-case-expr expr (variant-case-clause _ tag fields body) (default-case-clause default-expr))
+    [(variant-case-expr expr clauses default-clause)
      (match-define (tuple2 value-var acc) (convert-expr expr env acc))
-     (match-define (tuple2 continue-block acc) (fresh-block-number acc))
-     (match-define (tuple2 fail-block acc) (fresh-block-number acc))
-
-     (match-define acc
-       (add-terminal acc (r:cond-jump (variant-tag-condition value-var tag)
-                                      (jump-target continue-block (empty))
-                                      (jump-target fail-block (empty)))))
-
-     (match-define (tuple2 join-block acc) (fresh-block-number* acc))
-
-     (match-define acc (start-block continue-block (empty) acc))
-     (match-define (tuple2 continue-env acc) (extract-fields value-var fields env acc))
-     (match-define (tuple2 success-val acc) (convert-expr body continue-env acc))
-     (match-define acc (add-terminal acc (r:jump (jump-target join-block (varargs list success-val)))))
-
-     (match-define (tuple2 fail-val acc)
-       (convert-expr default-expr env (start-block fail-block (empty) acc)))
-     (match-define acc (add-terminal acc (r:jump (jump-target join-block (varargs list fail-val)))))
+     (match-define (tuple2 join-block acc) (fresh-block-number acc))
+     (match-define acc (convert-variant-clauses value-var clauses default-clause join-block env acc))
      (match-define (tuple2 join-var acc) (fresh-var* acc #"join"))
      (tuple2
        join-var
@@ -470,6 +454,33 @@
      (tuple2
        result-var
        (start-block dead-block-num (varargs list result-var) acc))]))
+
+(define (convert-variant-clauses
+          [value-var : Var]
+          [clauses : (List VariantCaseClause)]
+          [default-clause : DefaultCaseClause]
+          [join-block : BlockNumber]
+          [env : Environment]
+          [acc : Accumulator])
+  : BlockAccumulator
+  (case clauses
+    [(empty)
+     (match-define (default-case-clause default-expr) default-clause)
+     (match-define (tuple2 fail-val acc) (convert-expr default-expr env acc))
+     (add-terminal acc (r:jump (jump-target join-block (varargs list fail-val))))]
+    [(cons (variant-case-clause _ tag fields body) clauses)
+     (match-define (tuple2 continue-block acc) (fresh-block-number acc))
+     (match-define (tuple2 fail-block acc) (fresh-block-number acc))
+     (match-define acc
+       (add-terminal acc (r:cond-jump (variant-tag-condition value-var tag)
+                                      (jump-target continue-block (empty))
+                                      (jump-target fail-block (empty)))))
+     (match-define acc (start-block continue-block (empty) acc))
+     (match-define (tuple2 continue-env acc) (extract-fields value-var fields env acc))
+     (match-define (tuple2 success-val acc) (convert-expr body continue-env acc))
+     (match-define acc (add-terminal acc (r:jump (jump-target join-block (varargs list success-val)))))
+     (match-define acc (start-block fail-block (empty) acc))
+     (convert-variant-clauses value-var clauses default-clause join-block env acc)]))
 
 (define (extract-fields [val : Var] [field-vars : (List Var)] [env : Environment] [acc : Accumulator])
   : (Tuple2 Environment Accumulator)
