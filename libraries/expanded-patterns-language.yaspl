@@ -6,6 +6,7 @@
   (maybe)
   (module-name)
   (module-signature)
+  (panic)
   (prim)
   {(resolved-vars-language)
     {#:types
@@ -50,6 +51,7 @@
       [variant-constructor rv:variant-constructor]
     }
   }
+  (set)
   (top-level-name)
   (tuples)
   (types)
@@ -106,7 +108,7 @@
     (variant-case-expr
       [expr : Expression]
       [clause : (List VariantCaseClause)]
-      [default : DefaultCaseClause])
+      [default : (Maybe DefaultCaseClause)])
     (int-case-expr
       [expr : Expression]
       [clause : IntCaseClause]
@@ -262,7 +264,7 @@
      (tuple2
        (variant-case-expr (local-var-expr v)
          (varargs list (variant-case-clause sig new-vars succ))
-         (default-case-clause (join-expr fail-var)))
+         (just (default-case-clause (join-expr fail-var))))
        state)]))
 
 (define (expand-patterns/patterns/simple
@@ -303,15 +305,18 @@
              (group-rows zipped-rows))
            (match-define (tuple2 clauses state)
              (all-grouped-rows->variant-case-clauses other-vars fail-var grouped-rows state))
+           (match-define all-variants-covered
+             (all-variants-covered? (map (lambda ([t : (Tuple2 PatternSignature (List PatternRow))])
+                                           (case t [(tuple2 sig _) sig])) grouped-rows)))
 
            (tuple2
              (variant-case-expr
                (local-var-expr first-var)
                clauses
-               (default-case-clause (join-expr fail-var)))
-             state)
-           ;(expand-pattern/matrix/split-top-row vars top-row other-rows fail-var state)
-           ])]
+               (if all-variants-covered
+                   (nothing)
+                   (just (default-case-clause (join-expr fail-var)))))
+             state)])]
        [_
         (expand-pattern/matrix/split-top-row vars top-row other-rows fail-var state)])]))
 
@@ -368,6 +373,14 @@
        (expand-patterns/matrix (append field-vars vars) rows fail-var state))
      (tuple2 (variant-case-clause sig field-vars expr) state)]))
 
+(define (all-variants-covered? [sigs : (List PatternSignature)]) : Boolean
+  (case sigs
+    [(empty)
+     (panic/boolean #"Cannot try to cover with no rows")]
+    [(cons (pattern-signature _ _ _ _ _ _ (type-signature all-variants)) _)
+     (set=?
+       (set-add-all (make-set bytes-cmp) (map pattern-signature-variant-name sigs))
+       (set-add-all (make-set bytes-cmp) all-variants))]))
 
 (define (expand-pattern/matrix/split-top-row
           [vars : (List Var)]
