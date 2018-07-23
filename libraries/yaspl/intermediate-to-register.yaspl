@@ -361,6 +361,89 @@
      (tuple2
        join-var
        (start-block join-block (varargs list join-var) acc))]
+    [(int-case-expr expr (int-case-clause val body) (default-case-clause default-expr))
+     (match-define (tuple2 value-var acc) (convert-expr expr env acc))
+     (match-define (tuple2 continue-block acc) (fresh-block-number acc))
+     (match-define (tuple2 fail-block acc) (fresh-block-number acc))
+
+     (match-define acc
+       (add-terminal acc (r:cond-jump (comparison-condition
+                                        (not-equal-op)
+                                        (compare-s64
+                                          (compare-mem-arg-val value-var)
+                                          (var-or-s32-s32 (s32 val))))
+                                      (jump-target fail-block (empty))
+                                      (jump-target continue-block (empty)))))
+
+     (match-define (tuple2 join-block acc) (fresh-block-number* acc))
+     (match-define (tuple2 success-val acc)
+       (convert-expr body env (start-block continue-block (empty) acc)))
+     (match-define acc (add-terminal acc (r:jump (jump-target join-block (varargs list success-val)))))
+     (match-define (tuple2 fail-val acc)
+       (convert-expr default-expr env (start-block fail-block (empty) acc)))
+     (match-define acc (add-terminal acc (r:jump (jump-target join-block (varargs list fail-val)))))
+     (match-define (tuple2 join-var acc) (fresh-var* acc #"join"))
+     (tuple2
+       join-var
+       (start-block join-block (varargs list join-var) acc))]
+    [(bytes-case-expr expr (bytes-case-clause name body) (default-case-clause default-expr))
+     (match-define (tuple2 value-var acc) (convert-expr expr env acc))
+     (match-define (tuple2 continue-block acc) (fresh-block-number acc))
+     (match-define (tuple2 fail-block acc) (fresh-block-number acc))
+
+     (match-define symbol (mangle-top-level-name name))
+     (match-define (tuple2 bytes-var acc) (fresh-var acc #"bytes"))
+     (match-define (tuple2 adj-size-var acc) (fresh-var acc #"adj"))
+     (match-define (tuple2 base-size-var acc) (fresh-var acc #"base-size"))
+     (match-define (tuple2 size-var acc) (fresh-var acc #"size"))
+     (match-define acc (add-instruction acc (r:symbol-address-inst bytes-var symbol)))
+     (match-define acc
+       (add-instruction acc (r:pointer-ref-inst base-size-var (eight-byte-mem-op) bytes-var
+                                                (fixed-pointer-offset 8))))
+     (match-define acc (add-instruction acc (r:int-literal adj-size-var 16)))
+     (match-define acc (add-instruction acc (r:bin-op-inst size-var (numeric-bin-op (add-op))
+                                                           base-size-var adj-size-var)))
+     (match-define acc
+       (add-terminal acc (r:cond-jump (memory-compare-condition #t size-var bytes-var value-var)
+                                      (jump-target fail-block (empty))
+                                      (jump-target continue-block (empty)))))
+
+     (match-define (tuple2 join-block acc) (fresh-block-number* acc))
+     (match-define (tuple2 success-val acc)
+       (convert-expr body env (start-block continue-block (empty) acc)))
+     (match-define acc (add-terminal acc (r:jump (jump-target join-block (varargs list success-val)))))
+     (match-define (tuple2 fail-val acc)
+       (convert-expr default-expr env (start-block fail-block (empty) acc)))
+     (match-define acc (add-terminal acc (r:jump (jump-target join-block (varargs list fail-val)))))
+     (match-define (tuple2 join-var acc) (fresh-var* acc #"join"))
+     (tuple2
+       join-var
+       (start-block join-block (varargs list join-var) acc))]
+    [(variant-case-expr expr (variant-case-clause _ tag fields body) (default-case-clause default-expr))
+     (match-define (tuple2 value-var acc) (convert-expr expr env acc))
+     (match-define (tuple2 continue-block acc) (fresh-block-number acc))
+     (match-define (tuple2 fail-block acc) (fresh-block-number acc))
+
+     (match-define acc
+       (add-terminal acc (r:cond-jump (variant-tag-condition value-var tag)
+                                      (jump-target continue-block (empty))
+                                      (jump-target fail-block (empty)))))
+
+     (match-define (tuple2 join-block acc) (fresh-block-number* acc))
+
+     (match-define acc (start-block continue-block (empty) acc))
+     (match-define (tuple2 continue-env acc) (extract-fields value-var fields env acc))
+     (match-define (tuple2 success-val acc) (convert-expr body continue-env acc))
+     (match-define acc (add-terminal acc (r:jump (jump-target join-block (varargs list success-val)))))
+
+     (match-define (tuple2 fail-val acc)
+       (convert-expr default-expr env (start-block fail-block (empty) acc)))
+     (match-define acc (add-terminal acc (r:jump (jump-target join-block (varargs list fail-val)))))
+     (match-define (tuple2 join-var acc) (fresh-var* acc #"join"))
+     (tuple2
+       join-var
+       (start-block join-block (varargs list join-var) acc))]
+
     [(halt-expr)
      (match-define acc (add-terminal acc (r:halt)))
      (match-define (tuple2 dead-block-num acc) (fresh-block-number* acc))
@@ -479,6 +562,19 @@
      (match-define (tuple2 env acc) (convert-pattern pattern new-value fail-block env acc))
      (convert-sub-patterns patterns ptr (+ index 1) fail-block env acc)]))
 
+(define (extract-fields [val : Var] [field-vars : (List Var)] [env : Environment] [acc : Accumulator])
+  : (Tuple2 Environment Accumulator)
+  (extract-fields* val 0 field-vars env acc))
+
+(define (extract-fields* [val : Var] [index : Int] [field-vars : (List Var)] [env : Environment] [acc : Accumulator])
+  : (Tuple2 Environment Accumulator)
+  (case field-vars
+    [(empty)
+     (tuple2 env acc)]
+    [(cons field-var field-vars)
+     (match-define (tuple2 fresh-var acc) (fresh-var2 acc field-var))
+     (match-define acc (add-instruction acc (r:variant-ref-inst fresh-var val index)))
+     (extract-fields* val (+ 1 index) field-vars (env-set env field-var fresh-var) acc)]))
 
 (define (fill-array [base : Var] [offset : Int] [vars : (List Var)]
                     [acc : Accumulator]) : Accumulator
@@ -518,6 +614,10 @@
 
 (define (fresh-var* [acc : BlockAccumulator] [base-name : Bytes]) : (Tuple2 Var BlockAccumulator)
   (case (fresh-name* base-name acc)
+    [(tuple2 (tuple2 _ v) acc) (tuple2 v acc)]))
+
+(define (fresh-var2 [acc : Accumulator] [base-name : Var]) : (Tuple2 Var Accumulator)
+  (case (fresh-name2 base-name acc)
     [(tuple2 (tuple2 _ v) acc) (tuple2 v acc)]))
 
 (define (a b s) (map-state [f : (a s -> (Tuple2 b s))] [l : (List a)] [s : s]) : (Tuple2 (List b) s)
