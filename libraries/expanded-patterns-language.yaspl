@@ -153,7 +153,12 @@
     (variable-split-matrix
       [top : (List (Tuple2 Var PatternRow))]
       [bottom : (List PatternRow)])
-    (single-row-split-matrix
+    (int-split-matrix
+      [v : Int]
+      [top : PatternRow]
+      [bottom : (List PatternRow)])
+    (bytes-split-matrix
+      [v : Bytes]
       [top : PatternRow]
       [bottom : (List PatternRow)])))
 
@@ -249,46 +254,6 @@
        (cons (pattern-row (varargs list pattern) expr) rows)
        state)]))
 
-(define (expand-patterns/pattern/simple
-          [v : Var] [pat : rv:Pattern] [fail-var : Var] [succ : Expression] [state : State])
-  : (Tuple2 Expression State)
-  (case pat
-    [(rv:variable-pattern pat-v)
-     (tuple2 (let-expr pat-v (local-var-expr v) succ)
-             state)]
-    [(rv:bytes-pattern val)
-     (tuple2
-       (bytes-case-expr (local-var-expr v)
-          (bytes-case-clause val succ)
-          (default-case-clause (join-expr fail-var)))
-       state)]
-    [(rv:int-pattern val)
-     (tuple2
-       (int-case-expr (local-var-expr v)
-          (int-case-clause val succ)
-          (default-case-clause (join-expr fail-var)))
-       state)]
-    [(rv:abstraction-pattern sig pats)
-     (match-define (tuple2 annotated-pats state) (fresh-sub-pattern-vars pats state))
-     (match-define new-vars (map (lambda ([t : (Tuple2 Var rv:Pattern)])
-                                   (case t [(tuple2 v _ ) v])) annotated-pats))
-     (match-define (tuple2 succ state)
-       (expand-patterns/patterns/simple annotated-pats fail-var succ state))
-     (tuple2
-       (variant-case-expr (local-var-expr v)
-         (varargs list (variant-case-clause sig new-vars succ))
-         (just (default-case-clause (join-expr fail-var))))
-       state)]))
-
-(define (expand-patterns/patterns/simple
-          [ann-pats : (List (Tuple2 Var rv:Pattern))] [fail-var : Var] [succ : Expression] [state : State])
-  : (Tuple2 Expression State)
-  (case ann-pats
-    [(empty) (tuple2 succ state)]
-    [(cons (tuple2 v pat) ann-pats)
-     (match-define (tuple2 succ state) (expand-patterns/patterns/simple ann-pats fail-var succ state))
-     (expand-patterns/pattern/simple v pat fail-var succ state)]))
-
 (define (expand-patterns/matrix
           [vars : (List Var)]
           [rows : (List PatternRow)]
@@ -330,8 +295,32 @@
         (tuple2
           (join-point-expr inner-fail bottom-cases top-cases)
           state)]
-       [(single-row-split-matrix top-row other-rows)
-        (expand-pattern/split-top-row-matrix vars top-row other-rows fail-var state)])]))
+       [(int-split-matrix val top-row bottom-rows)
+        (match-define (tuple2 inner-fail state) (fresh-var #"fail" state))
+        (match-define (tuple2 top-case state)
+          (expand-patterns/matrix other-vars (varargs list top-row) inner-fail state))
+        (match-define (tuple2 bottom-cases state)
+          (expand-patterns/matrix vars bottom-rows fail-var state))
+        (tuple2
+          (join-point-expr inner-fail
+            bottom-cases
+            (int-case-expr (local-var-expr first-var)
+              (int-case-clause val top-case)
+              (default-case-clause (join-expr inner-fail))))
+          state)]
+       [(bytes-split-matrix val top-row bottom-rows)
+        (match-define (tuple2 inner-fail state) (fresh-var #"fail" state))
+        (match-define (tuple2 top-case state)
+          (expand-patterns/matrix other-vars (varargs list top-row) inner-fail state))
+        (match-define (tuple2 bottom-cases state)
+          (expand-patterns/matrix vars bottom-rows fail-var state))
+        (tuple2
+          (join-point-expr inner-fail
+            bottom-cases
+            (bytes-case-expr (local-var-expr first-var)
+              (bytes-case-clause val top-case)
+              (default-case-clause (join-expr inner-fail))))
+          state)])]))
 
 (define (expand-patterns/abstraction-matrix
           [first-var : Var]
@@ -385,8 +374,10 @@
      (split-matrix/variable-prefix
        rows
        (varargs list (tuple2 var (pattern-row pats succ))))]
-    [_
-     (single-row-split-matrix top-row rows)]))
+    [(pattern-row (cons (rv:int-pattern val) pats) succ)
+     (int-split-matrix val (pattern-row pats succ) rows)]
+    [(pattern-row (cons (rv:bytes-pattern val) pats) succ)
+     (bytes-split-matrix val (pattern-row pats succ) rows)]))
 
 (define (split-matrix/abstraction-prefix
           [rows : (List PatternRow)]
@@ -484,27 +475,6 @@
        (set-add-all (make-set bytes-cmp) (map pattern-signature-variant-name sigs))
        (set-add-all (make-set bytes-cmp) all-variants))]))
 
-(define (expand-pattern/split-top-row-matrix
-          [vars : (List Var)]
-          [row : PatternRow]
-          [other-rows : (List PatternRow)]
-          [fail-var : Var]
-          [state : State])
-  : (Tuple2 Expression State)
- (match-define (pattern-row pats succ-expr) row)
- (match-define ann-pats : (List (Tuple2 Var rv:Pattern))
-   (case (zip vars pats)
-     [(nothing) (panic #"Bad pattern matrix")]
-     [(just v) v]))
- (match-define (tuple2 new-fail-var state) (fresh-var #"fail" state))
- (match-define (tuple2 first-row-expr state)
-   (expand-patterns/patterns/simple ann-pats new-fail-var succ-expr state))
- (match-define (tuple2 other-rows-expr state)
-   (expand-patterns/matrix vars other-rows fail-var state))
- (tuple2
-   (join-point-expr new-fail-var other-rows-expr first-row-expr)
-   state))
-
 (define (fresh-var [base : Bytes] [s : State]) : (Tuple2 Var State)
   (case s
     [(state counter)
@@ -517,12 +487,3 @@
      (match-define (tuple2 var state) (fresh-var #"field" state))
      (match-define (tuple2 vars state) (fresh-field-vars ts state))
      (tuple2 (cons var vars) state)]))
-
-(define (fresh-sub-pattern-vars [pats : (List rv:Pattern)] [state : State])
-  : (Tuple2 (List (Tuple2 Var rv:Pattern)) State)
-  (case pats
-    [(empty) (tuple2 (empty) state)]
-    [(cons pat pats)
-     (match-define (tuple2 var state) (fresh-var #"pat-field" state))
-     (match-define (tuple2 ann-pats state) (fresh-sub-pattern-vars pats state))
-     (tuple2 (cons (tuple2 var pat) ann-pats) state)]))
