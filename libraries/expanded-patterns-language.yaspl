@@ -142,7 +142,22 @@
   (define-type PatternRow
     (pattern-row [pats : (List rv:Pattern)] [expr : Expression]))
   (define-type AbstractionPattern
-    (abstraction-pattern [sig : PatternSignature] [sub-patterns : (List rv:Pattern)])))
+    (abstraction-pattern [sig : PatternSignature] [sub-patterns : (List rv:Pattern)]))
+
+  (define-type SplitMatrix
+    (abstraction-matrix
+      [rows : (List (Tuple2 AbstractionPattern PatternRow))])
+    (abstraction-split-matrix
+      [top : (List (Tuple2 AbstractionPattern PatternRow))]
+      [bottom : (List PatternRow)])
+    (variable-matrix
+      [rows : (List (Tuple2 Var PatternRow))])
+    (variable-split-matrix
+      [top : (List (Tuple2 Var PatternRow))]
+      [bottom : (List PatternRow)])
+    (single-row-split-matrix
+      [top : PatternRow]
+      [bottom : (List PatternRow)])))
 
 (define (expand-patterns [mod : rv:Module]) : Module
   (case mod
@@ -288,37 +303,128 @@
     [(cons (pattern-row (empty) succ-expr) _)
      (tuple2 succ-expr state)]
     [(cons top-row other-rows)
-     (match-define first-patterns
-       (map pattern-row-first-pattern rows))
      (match-define (tuple2 first-var other-vars) : (Tuple2 Var (List Var))
        (case vars
          [(cons first-var other-vars)
           (tuple2 first-var other-vars)]
          [_ (panic #"Bad matrix")]))
 
-     (case (extract-justs (map find-abstraction-pattern first-patterns))
-       [(just abstraction-patterns)
-        (case (zip abstraction-patterns (map pattern-row-drop-first-pattern rows))
-          [(nothing) (panic #"Bad zip")]
-          [(just zipped-rows)
-           (match-define grouped-rows : (List (Tuple2 PatternSignature (List PatternRow)))
-             (group-rows zipped-rows))
-           (match-define (tuple2 clauses state)
-             (all-grouped-rows->variant-case-clauses other-vars fail-var grouped-rows state))
-           (match-define all-variants-covered
-             (all-variants-covered? (map (lambda ([t : (Tuple2 PatternSignature (List PatternRow))])
-                                           (case t [(tuple2 sig _) sig])) grouped-rows)))
+     (case (split-matrix top-row other-rows)
+       [(abstraction-matrix rows)
+        (expand-patterns/abstraction-matrix first-var other-vars rows fail-var state)]
+       [(variable-matrix rows)
+        (expand-patterns/variable-matrix first-var other-vars rows fail-var state)]
+       [(abstraction-split-matrix top-rows bottom-rows)
+        (match-define (tuple2 inner-fail state) (fresh-var #"fail" state))
+        (match-define (tuple2 top-cases state)
+          (expand-patterns/abstraction-matrix first-var other-vars top-rows inner-fail state))
+        (match-define (tuple2 bottom-cases state)
+          (expand-patterns/matrix vars bottom-rows fail-var state))
+        (tuple2
+          (join-point-expr inner-fail bottom-cases top-cases)
+          state)]
+       [(variable-split-matrix top-rows bottom-rows)
+        (match-define (tuple2 inner-fail state) (fresh-var #"fail" state))
+        (match-define (tuple2 top-cases state)
+          (expand-patterns/variable-matrix first-var other-vars top-rows inner-fail state))
+        (match-define (tuple2 bottom-cases state)
+          (expand-patterns/matrix vars bottom-rows fail-var state))
+        (tuple2
+          (join-point-expr inner-fail bottom-cases top-cases)
+          state)]
+       [(single-row-split-matrix top-row other-rows)
+        (expand-pattern/split-top-row-matrix vars top-row other-rows fail-var state)])]))
 
-           (tuple2
-             (variant-case-expr
-               (local-var-expr first-var)
-               clauses
-               (if all-variants-covered
-                   (nothing)
-                   (just (default-case-clause (join-expr fail-var)))))
-             state)])]
-       [_
-        (expand-pattern/matrix/split-top-row vars top-row other-rows fail-var state)])]))
+(define (expand-patterns/abstraction-matrix
+          [first-var : Var]
+          [other-vars : (List Var)]
+          [rows : (List (Tuple2 AbstractionPattern PatternRow))]
+          [fail-var : Var]
+          [state : State])
+  : (Tuple2 Expression State)
+  (match-define grouped-rows (group-rows rows))
+  (match-define (tuple2 clauses state)
+    (all-grouped-rows->variant-case-clauses other-vars fail-var grouped-rows state))
+  (match-define all-variants-covered
+    (all-variants-covered? (map (lambda ([t : (Tuple2 PatternSignature (List PatternRow))])
+                                  (case t [(tuple2 sig _) sig])) grouped-rows)))
+  (tuple2
+    (variant-case-expr
+      (local-var-expr first-var)
+      clauses
+      (if all-variants-covered
+          (nothing)
+          (just (default-case-clause (join-expr fail-var)))))
+    state))
+
+(define (expand-patterns/variable-matrix
+          [first-var : Var]
+          [other-vars : (List Var)]
+          [rows : (List (Tuple2 Var PatternRow))]
+          [fail-var : Var]
+          [state : State])
+  : (Tuple2 Expression State)
+  (expand-patterns/matrix
+    other-vars
+    (map
+      (lambda ([row : (Tuple2 Var PatternRow)])
+        (case row
+          [(tuple2 inner-var (pattern-row pats succ))
+           (pattern-row pats (let-expr inner-var (local-var-expr first-var) succ))]))
+      rows)
+    fail-var
+    state))
+
+(define (split-matrix [top-row : PatternRow] [rows : (List PatternRow)])
+  : SplitMatrix
+  (case top-row
+    [(pattern-row (empty) _) (panic #"No columns")]
+    [(pattern-row (cons (rv:abstraction-pattern sig sub-pats) pats) succ)
+     (split-matrix/abstraction-prefix
+       rows
+       (varargs list (tuple2 (abstraction-pattern sig sub-pats) (pattern-row pats succ))))]
+    [(pattern-row (cons (rv:variable-pattern var) pats) succ)
+     (split-matrix/variable-prefix
+       rows
+       (varargs list (tuple2 var (pattern-row pats succ))))]
+    [_
+     (single-row-split-matrix top-row rows)]))
+
+(define (split-matrix/abstraction-prefix
+          [rows : (List PatternRow)]
+          [acc : (List (Tuple2 AbstractionPattern PatternRow))])
+  : SplitMatrix
+  (case rows
+    [(empty)
+     (abstraction-matrix (reverse acc))]
+    [(cons
+       (pattern-row (cons (rv:abstraction-pattern sig sub-pats) pats) succ)
+       rows)
+     (split-matrix/abstraction-prefix
+       rows
+       (cons
+         (tuple2 (abstraction-pattern sig sub-pats) (pattern-row pats succ))
+         acc))]
+    [rows
+     (abstraction-split-matrix (reverse acc) rows)]))
+
+(define (split-matrix/variable-prefix
+          [rows : (List PatternRow)]
+          [acc : (List (Tuple2 Var PatternRow))])
+  : SplitMatrix
+  (case rows
+    [(empty)
+     (variable-matrix (reverse acc))]
+    [(cons
+       (pattern-row (cons (rv:variable-pattern var) pats) succ)
+       rows)
+     (split-matrix/variable-prefix
+       rows
+       (cons
+         (tuple2 var (pattern-row pats succ))
+         acc))]
+    [rows
+     (variable-split-matrix (reverse acc) rows)]))
 
 (define (group-rows [rows : (List (Tuple2 AbstractionPattern PatternRow))])
   : (List (Tuple2 PatternSignature (List PatternRow)))
@@ -382,7 +488,7 @@
        (set-add-all (make-set bytes-cmp) (map pattern-signature-variant-name sigs))
        (set-add-all (make-set bytes-cmp) all-variants))]))
 
-(define (expand-pattern/matrix/split-top-row
+(define (expand-pattern/split-top-row-matrix
           [vars : (List Var)]
           [row : PatternRow]
           [other-rows : (List PatternRow)]
@@ -402,24 +508,6 @@
  (tuple2
    (join-point-expr new-fail-var other-rows-expr first-row-expr)
    state))
-
-(define (pattern-row-first-pattern [p : PatternRow]) : rv:Pattern
-  (case p
-    [(pattern-row (cons p _) _) p]
-    [_ (panic #"Pattern row had no columns")]))
-
-(define (pattern-row-drop-first-pattern [p : PatternRow]) : PatternRow
-  (case p
-    [(pattern-row (cons _ pats) expr)
-     (pattern-row pats expr)]
-    [_ (panic #"Pattern row had no columns")]))
-
-
-(define (find-abstraction-pattern [p : rv:Pattern]) : (Maybe AbstractionPattern)
-  (case p
-    [(rv:abstraction-pattern sig pats)
-     (just (abstraction-pattern sig pats))]
-    [_ (nothing)]))
 
 (define (fresh-var [base : Bytes] [s : State]) : (Tuple2 Var State)
   (case s
