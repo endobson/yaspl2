@@ -23,7 +23,7 @@ wasm_demo_page = rule(
   attrs = {
     "wasm_file": attr.label(allow_single_file=[".wasm"]),
     "_html_template": attr.label(
-      default=Label("//webassembly:host.html"),
+      default=Label("//web-assembly:host.html"),
       allow_files=True,
     )
   }

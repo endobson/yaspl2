@@ -1,0 +1,141 @@
+#:module (formats web-assembly)
+#:import {
+  (bytes)
+  (join-list)
+  (list)
+  (prim)
+}
+(export
+  (#:types Module)
+  (#:values module function-type i32 function const-i32-inst export function-export
+            module->binary-bytes)
+  (#:patterns))
+(types
+  (define-type Module
+    (module
+      [types : (List Type)]
+      [funcs : (List Function)]
+      [exports : (List Export)]))
+  (define-type Type
+    (function-type [inputs : (List ValueType)] [outputs : (List ValueType)]))
+  (define-type ValueType
+    (i32)
+    (i64)
+    (f32)
+    (f64))
+  (define-type Function
+    (function [type-index : Int] [locals : (List ValueType)]
+              [expr : (List Instruction)]))
+  (define-type Instruction
+    (const-i32-inst [v : Int]))
+  (define-type Export
+    (export [name : Bytes] [desc : ExportDescription]))
+  (define-type ExportDescription
+    (function-export [index : Int])))
+
+
+(define (module->binary-bytes [mod : Module]) : Bytes
+  (match-define (module types funcs exports) mod)
+  (bytes-append
+    (jl->list
+      (varargs append-jl*
+        (single-jl #"\x00asm\x01\x00\x00\x00")
+        (types->binary-bytes types)
+        (functions->binary-bytes/types funcs)
+        (exports->binary-bytes exports)
+        (functions->binary-bytes/code funcs)))))
+
+(define (types->binary-bytes [types : (List Type)]) : (JoinList Bytes)
+  (encode-section 1 types type->binary-bytes))
+(define (functions->binary-bytes/types [functions : (List Function)]) : (JoinList Bytes)
+  (encode-section 3 functions function->binary-bytes/type))
+(define (functions->binary-bytes/code [functions : (List Function)]) : (JoinList Bytes)
+  (encode-section 10 functions function->binary-bytes/code))
+(define (exports->binary-bytes [exports : (List Export)]) : (JoinList Bytes)
+  (encode-section 7 exports export->binary-bytes))
+
+(define (type->binary-bytes [type : Type]) : (JoinList Bytes)
+  (case type
+    [(function-type inputs outputs)
+     (cons-jl
+       #"\x60"
+       (append-jl
+         (encode-vector inputs value-type->binary-bytes)
+         (encode-vector outputs value-type->binary-bytes)))]))
+
+(define (value-type->binary-bytes [type : ValueType]) : (JoinList Bytes)
+  (single-jl
+    (case type
+      [(i32) #"\x7F"]
+      [(i64) #"\x7E"]
+      [(f32) #"\x7D"]
+      [(f64) #"\x7C"])))
+
+(define (function->binary-bytes/type [f : Function]) : (JoinList Bytes)
+  (case f
+    [(function type-index _ _)
+     (unsigned-leb128 type-index)]))
+
+(define (function->binary-bytes/code [f : Function]) : (JoinList Bytes)
+  (case f
+    [(function _ locals expr)
+     (size-prefixed
+       (append-jl
+         ;; TODO improve compression here
+         (encode-vector locals local->binary-bytes)
+         (instructions->binary-bytes expr)))]))
+
+(define (local->binary-bytes [v : ValueType]) : (JoinList Bytes)
+  (append-jl (unsigned-leb128 1) (value-type->binary-bytes v)))
+
+(define (instruction->binary-bytes [i : Instruction]) : (JoinList Bytes)
+  (case i
+    [(const-i32-inst v)
+     (cons-jl #"\x41" (signed-leb128 v))]))
+
+;; Terminates the instruction with 0x0B (end) as is usually needed
+(define (instructions->binary-bytes [i : (List Instruction)]) : (JoinList Bytes)
+  (snoc-jl
+    (concat-jl (map instruction->binary-bytes i))
+    #"\x0B"))
+
+
+(define (export->binary-bytes [e : Export]) : (JoinList Bytes)
+  (case e
+    [(export name desc)
+     (append-jl
+       (unsigned-leb128 (bytes-length name))
+       (cons-jl
+         name
+         (case desc
+           [(function-export i)
+            (cons-jl #"\x00" (unsigned-leb128 i))])))]))
+
+(define (A) (encode-vector [vec : (List A)] [f : (A -> (JoinList Bytes))]) : (JoinList Bytes)
+  (append-jl (unsigned-leb128 (length vec)) (concat-jl (map f vec))))
+
+(define (A) (encode-section [tag : Int] [items : (List A)] [f : (A -> (JoinList Bytes))]) : (JoinList Bytes)
+  (cons-jl (bytes/1 (u8 tag)) (size-prefixed (encode-vector items f))))
+
+(define (size-prefixed [v : (JoinList Bytes)]) : (JoinList Bytes)
+  (append-jl (unsigned-leb128 (sum-jl bytes-length v)) v))
+
+
+(define (signed-leb128 [v : Int]) : (JoinList Bytes)
+  (if (and (<= 0 v) (< v 64))
+      (single-jl (bytes/1 (u8 v)))
+      (if (and (<= (- 0 64) v) (< v 0))
+          (single-jl (bytes/1 (u8 (+ 128 v))))
+          (cons-jl
+            (bytes/1 (u8 (+ 128 (remainder v 128))))
+            (signed-leb128
+              (if (< v 0)
+                  (- (- 0 (quotient (- 0 v) 128)) 1)
+                  (quotient v 128)))))))
+
+(define (unsigned-leb128 [v : Int]) : (JoinList Bytes)
+  (if (< v 128)
+      (single-jl (bytes/1 (u8 v)))
+      (cons-jl
+        (bytes/1 (u8 (remainder v 128)))
+        (unsigned-leb128 (quotient v 128)))))

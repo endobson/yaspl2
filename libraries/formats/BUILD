@@ -34,3 +34,13 @@ yaspl_library(
         "//libraries/data:list",
     ],
 )
+
+yaspl_library(
+    name = "web-assembly",
+    srcs = ["web-assembly.yaspl"],
+    deps = [
+        "//libraries/data:list",
+        "//libraries/data:bytes",
+        "//libraries/data:join-list",
+    ],
+)
