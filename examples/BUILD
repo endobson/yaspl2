@@ -13,6 +13,22 @@ yaspl_library(
 )
 
 yaspl_binary(
+    name = "elf-file",
+    main_module = "elf_file",
+    deps = [":elf-file_lib"],
+)
+
+yaspl_library(
+    name = "elf-file_lib",
+    srcs = ["elf-file.yaspl"],
+    deps = [
+        "//libraries:io",
+        "//libraries/data:list",
+        "//libraries/formats:elf",
+    ],
+)
+
+yaspl_binary(
     name = "env",
     main_module = "env",
     deps = [":env_lib"],

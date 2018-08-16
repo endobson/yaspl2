@@ -5,23 +5,15 @@ package(
 )
 
 yaspl_library(
-    name = "svg",
-    srcs = ["svg.yaspl"],
-    deps = [
-        ":xml",
-        "//libraries/data:join-list",
-        "//libraries/data:list",
-        "//libraries/data:numbers",
-    ],
-)
-
-yaspl_library(
-    name = "xml",
-    srcs = ["xml.yaspl"],
+    name = "elf",
+    srcs = ["elf.yaspl"],
     deps = [
         "//libraries/data:bytes",
         "//libraries/data:join-list",
+        "//libraries/data:lifted-primitives",
         "//libraries/data:list",
+        "//libraries/data:numbers",
+        "//libraries/data:tuples",
     ],
 )
 
@@ -36,11 +28,32 @@ yaspl_library(
 )
 
 yaspl_library(
+    name = "svg",
+    srcs = ["svg.yaspl"],
+    deps = [
+        ":xml",
+        "//libraries/data:join-list",
+        "//libraries/data:list",
+        "//libraries/data:numbers",
+    ],
+)
+
+yaspl_library(
     name = "web-assembly",
     srcs = ["web-assembly.yaspl"],
     deps = [
-        "//libraries/data:list",
         "//libraries/data:bytes",
         "//libraries/data:join-list",
+        "//libraries/data:list",
+    ],
+)
+
+yaspl_library(
+    name = "xml",
+    srcs = ["xml.yaspl"],
+    deps = [
+        "//libraries/data:bytes",
+        "//libraries/data:join-list",
+        "//libraries/data:list",
     ],
 )

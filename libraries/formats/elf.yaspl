@@ -1,0 +1,163 @@
+#:module (formats elf)
+#:import {
+  (bytes)
+  (data lifted-primitives)
+  (join-list)
+  (list)
+  (numbers)
+  (prim)
+  (tuples)
+}
+(export
+  (#:types)
+  (#:values serialize-elf-file elf-file
+            symbol)
+  (#:patterns))
+(types
+  (define-type ELFFile
+    (elf-file
+      [text-section : Bytes]
+      [symbols : (List Symbol)]))
+
+  (define-type Symbol
+    (symbol [name : Bytes] [addr : Int])))
+
+(define (serialize-elf-file [elf-file : ELFFile]) : Bytes
+  (match-define (elf-file text-section symbols) elf-file)
+  (match-define rounded-text-section-length
+                (round-up (bytes-length text-section) 8))
+  (match-define symbol-table-size (* (+ (length symbols) 4) #x18))
+  (match-define (tuple2 rev-offset-symbols (lifted-int string-table-size))
+    (foldl
+      (lambda ([s : Symbol] [acc : (Tuple2 (List (Tuple2 Symbol LiftedInt)) LiftedInt)])
+        (case acc
+          [(tuple2 offset-symbols (lifted-int current-offset))
+           (tuple2
+             (cons (tuple2 s (lifted-int current-offset)) offset-symbols)
+             (lifted-int (+ current-offset (+ 1 (bytes-length (symbol-name s))))))]))
+      symbols
+      (tuple2
+        (ann (List (Tuple2 Symbol LiftedInt)) (empty))
+        (lifted-int 1))))
+  (match-define offset-symbols (reverse rev-offset-symbols))
+  (match-define section-string-table-size #x2C)
+
+  (match-define symbol-table-start (+ #x40 rounded-text-section-length))
+  (match-define string-table-start (+ symbol-table-start symbol-table-size))
+  (match-define section-string-table-start (+ string-table-start string-table-size))
+  (match-define string-tables-size (+ string-table-size section-string-table-size))
+  (match-define rounded-string-tables-size (round-up string-tables-size 8))
+  (match-define section-header-start
+                (round-up (+ section-string-table-start section-string-table-size) 8))
+  (bytes-append
+    (jl->list
+      (varargs append-jl*
+        (single-jl #"\x7FELF") ;; Magic
+        (single-jl #"\x02") ;; Class (64 bit)
+        (single-jl #"\x01") ;; Data encoding (LSB)
+        (single-jl #"\x01") ;; Version
+        (single-jl #"\x00") ;; OS ABI (SysV)
+        (single-jl #"\x00") ;; OS ABI version
+        (single-jl (make-bytes 7)) ;; Padding
+        (single-jl (bytes/u16-le 1)) ;; Relocatable object file
+        (single-jl (bytes/u16-le #x3E)) ;; Machine type X86_64
+        (single-jl (bytes/u32-le 1)) ;; Version
+        (single-jl (bytes/u64-le 0)) ;; No start address
+        (single-jl (bytes/u64-le 0)) ;; Program header offset
+        ;; TODO This depends on the size of the contents
+        ;(single-jl (bytes/u64-le #x0150)) ;; Section header offset
+        (single-jl (bytes/u64-le section-header-start)) ;; Section header offset
+        (single-jl (bytes/u32-le 0)) ;; FLAGS
+        (single-jl (bytes/u16-le #x40)) ;; ELF header size
+        (single-jl (bytes/u16-le #x00)) ;; Size of program header entry
+        (single-jl (bytes/u16-le #x00)) ;; Number of program header entries
+        (single-jl (bytes/u16-le #x40)) ;; size of section header entry
+        (single-jl (bytes/u16-le #x7)) ;; Number of section header entries
+        (single-jl (bytes/u16-le #x6)) ;; Index of section name section
+        (single-jl text-section)
+        ;; Symbol tables are 8 byte aligned, so add padding as needed
+        (single-jl (make-bytes (- rounded-text-section-length (bytes-length text-section))))
+        (symbol-table-entry 0 0 0 0)
+        (symbol-table-entry 0 3 1 0)
+        (symbol-table-entry 0 3 2 0)
+        (symbol-table-entry 0 3 3 0)
+        (concat-jl
+          (map
+            (lambda ([entry : (Tuple2 Symbol LiftedInt)])
+              (case entry
+                [(tuple2 (symbol _ addr) (lifted-int name-offset))
+                 (symbol-table-entry name-offset 0 1 addr)]))
+            offset-symbols))
+        (single-jl (make-null-terminated #""))
+        (concat-jl
+          (map
+            (lambda ([s : Symbol])
+              (single-jl (make-null-terminated (symbol-name s))))
+            symbols))
+        (single-jl (make-null-terminated #""))
+        (single-jl (make-null-terminated #".symtab"))
+        (single-jl (make-null-terminated #".strtab"))
+        (single-jl (make-null-terminated #".shstrtab"))
+        (single-jl (make-null-terminated #".text"))
+        (single-jl (make-null-terminated #".data"))
+        (single-jl (make-null-terminated #".bss"))
+        ;; Align the section header to 8 Bytes, so add padding as needed.
+        (single-jl (make-bytes (- rounded-string-tables-size string-tables-size)))
+        (single-jl (make-bytes (* 16 4))) ;; Empty section header
+        (section-header 27 1 6 0 #x40 (bytes-length text-section) 0 0 1 0)
+        (section-header 33 1 3 0 (+ #x40 (bytes-length text-section)) 0 0 0 1 0)
+        (section-header 39 8 3 0 (+ #x40 (bytes-length text-section)) 0 0 0 1 0)
+        (section-header 1 2 0 0 symbol-table-start symbol-table-size 5 (+ 4 (length symbols)) 8 24)
+        (section-header 9 3 0 0 string-table-start string-table-size 0 0 1 0)
+        (section-header 17 3 0 0 section-string-table-start section-string-table-size 0 0 1 0)
+        ))))
+
+(define (bytes/u16-le [v : Int]) : Bytes
+  (bytes/2 (u8 (remainder v 256)) (u8 (quotient v 256))))
+
+(define (bytes/u32-le [v : Int]) : Bytes
+  (match-define b (make-bytes 4))
+  (begin
+    (bytes-set!/quad-le b 0 (u32 v))
+    b))
+
+(define (bytes/u64-le [v : Int]) : Bytes
+  (match-define b (make-bytes 8))
+  (begin
+    (bytes-set!/u64-le b 0 (u64 v))
+    b))
+
+(define (section-header
+          [name-offset : Int]
+          [section-type : Int]
+          [section-flags : Int]
+          [section-addr : Int]
+          [section-offset : Int]
+          [section-size : Int]
+          [section-link : Int]
+          [section-info : Int]
+          [section-align : Int]
+          [entry-size : Int]) : (JoinList Bytes)
+  (varargs join-list
+    (bytes/u32-le name-offset)
+    (bytes/u32-le section-type)
+    (bytes/u64-le section-flags)
+    (bytes/u64-le section-addr)
+    (bytes/u64-le section-offset)
+    (bytes/u64-le section-size)
+    (bytes/u32-le section-link)
+    (bytes/u32-le section-info)
+    (bytes/u64-le section-align)
+    (bytes/u64-le entry-size)))
+
+(define (symbol-table-entry
+          [symbol-name-offset : Int]
+          [binding-info : Int]
+          [section-table-index : Int]
+          [symbol-value : Int]) : (JoinList Bytes)
+  (varargs join-list
+    (bytes/u32-le symbol-name-offset)
+    (bytes/2 (u8 binding-info) (u8 0))
+    (bytes/u16-le section-table-index)
+    (bytes/u64-le symbol-value)
+    (make-bytes 8)))
