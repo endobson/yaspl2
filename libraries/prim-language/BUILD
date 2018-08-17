@@ -258,7 +258,6 @@ yaspl_bootstrap_library(
         "//libraries/data:either",
         "//libraries/data:list",
         "//libraries/data:tuples",
-        "//libraries/yaspl:x86-64-assembly",
     ],
 )
 
