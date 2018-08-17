@@ -77,7 +77,7 @@ yaspl_bootstrap_library(
     srcs = ["assembler.yaspl"],
     deps = [
         ":panic",
-        ":structured-mach-o",
+        ":structured-native-code",
         "//libraries/data:aligned-bytes",
         "//libraries/data:bytes",
         "//libraries/data:join-list",
@@ -183,7 +183,7 @@ yaspl_bootstrap_library(
         ":linker_lib",
         ":mach-o",
         ":mach-o-writer",
-        ":structured-mach-o",
+        ":structured-native-code",
         "//libraries/data:either",
         "//libraries/data:list",
         "//libraries/data:maybe",
@@ -472,6 +472,7 @@ yaspl_bootstrap_library(
     deps = [
         ":mach-o",
         ":structured-mach-o",
+        ":structured-native-code",
         "//libraries/data:bytes",
         "//libraries/data:either",
         "//libraries/data:indexed-set",
@@ -511,10 +512,20 @@ yaspl_bootstrap_library(
     srcs = ["structured-mach-o.yaspl"],
     deps = [
         ":mach-o",
+        ":structured-native-code",
+        "//libraries/data:aligned-bytes",
+        "//libraries/data:list",
+        "//libraries/data:maybe",
+    ],
+)
+
+yaspl_bootstrap_library(
+    name = "structured-native-code",
+    srcs = ["structured-native-code.yaspl"],
+    deps = [
         "//libraries/data:aligned-bytes",
         "//libraries/data:bytes",
         "//libraries/data:list",
-        "//libraries/data:maybe",
         "//libraries/data:numbers",
     ],
 )
@@ -528,6 +539,7 @@ yaspl_bootstrap_library(
         ":mach-o",
         ":panic",
         ":structured-mach-o",
+        ":structured-native-code",
         "//libraries/data:aligned-bytes",
         "//libraries/data:bytes",
         "//libraries/data:indexed-set",

@@ -1,56 +1,19 @@
 #:module (structured-mach-o)
 #:import {
   (aligned-bytes)
-  (bytes)
   (list)
   (mach-o)
   (maybe)
-  (numbers)
   (prim)
+  (structured-native-code)
 }
 (export
-  (#:types RelocationKind Relocation DefinedSymbol TextSegment TextSegmentSection)
-  (#:values branch-relocation signed-relocation unsigned-relocation
-            relocation-kind->u8 u8->relocation-kind
-            relocation relocation-symbol
-            defined-symbol defined-symbol-name defined-symbol<
-            combine-sections text-segment-section
-            parse-text-section parse-const-section)
-  (#:patterns branch-relocation signed-relocation unsigned-relocation relocation
-              defined-symbol text-segment text-segment-section))
-(types
-  ;; branch-relocation and signed relocation are treated exactly the same, but are still distinquished
-  ;; in the object file.
-  (define-type RelocationKind
-    (branch-relocation)
-    (signed-relocation)
-    (unsigned-relocation))
-
-  (define-type Relocation
-    (relocation [kind : RelocationKind] [offset : Int] [symbol : Bytes]))
-
-  (define-type DefinedSymbol
-    (defined-symbol [name : Bytes] [offset : Int]))
-
-  (define-type CombinedSectionParts
-    (combined-section-parts
-      [reversed-contents : (List Bytes)]
-      [total-content-size : Int]
-      [relocations : (List Relocation)]
-      [defined-symbols : (List DefinedSymbol)]))
-
-  (define-type TextSegment
-    (text-segment
-      [text-section : TextSegmentSection]
-      [const-section : TextSegmentSection]))
-  (define-type TextSegmentSection
-    (text-segment-section
-      [contents : AlignedBytes]
-      [relocations : (List Relocation)]
-      [symbols : (List DefinedSymbol)])))
-
-(define (defined-symbol< [x : DefinedSymbol] [y : DefinedSymbol]) : Boolean
-  (bytes< (defined-symbol-name x) (defined-symbol-name y)))
+  (#:types)
+  (#:values
+     relocation-kind->u8 u8->relocation-kind
+     parse-text-section parse-const-section)
+  (#:patterns))
+(types)
 
 (define (relocation-kind->u8 [kind : RelocationKind]) : U8
   (case kind
@@ -65,52 +28,6 @@
     [#x0E (unsigned-relocation)]
     [_ (panic #"Unknown relocation kind")]))
 
-(define (combine-sections [sections : (List TextSegmentSection)]) : TextSegmentSection
-  (section-fold sections (empty) 0 0 (empty) (empty)))
-
-(define (section-fold
-          [sections : (List TextSegmentSection)]
-          [reversed-contents : (List Bytes)]
-          [current-offset : Int]
-          [current-max-alignment : Int]
-          [relocations : (List Relocation)]
-          [defined-symbols : (List DefinedSymbol)]) : TextSegmentSection
-  (case sections
-    [(empty)
-     (text-segment-section
-       (aligned-bytes
-         (bytes-append (reverse reversed-contents))
-         current-max-alignment)
-       relocations
-       defined-symbols)]
-    [(cons (text-segment-section (aligned-bytes section-content alignment)
-                                 section-relocations section-symbols)
-           sections)
-     (match-define aligned-offset (round-up current-offset (logical-shift-left 1 alignment)))
-     (match-define reversed-contents
-       (if (= aligned-offset current-offset)
-           reversed-contents
-           (cons (make-bytes (- aligned-offset current-offset)) reversed-contents)))
-
-     (section-fold
-       sections
-       (cons section-content reversed-contents)
-       (+ aligned-offset (bytes-length section-content))
-       (max current-max-alignment alignment)
-       (append
-         (map (lambda ([reloc : Relocation])
-                (case reloc
-                  [(relocation type offset symbol)
-                   (relocation type (+ aligned-offset offset) symbol)]))
-              section-relocations)
-         relocations)
-       (append
-         (map (lambda ([sym : DefinedSymbol])
-                (case sym
-                  [(defined-symbol name offset)
-                   (defined-symbol name (+ aligned-offset offset))]))
-              section-symbols)
-         defined-symbols))]))
 
 (define (find-text-section [load-commands : (List MachOLoadCommand)]) : Section64
   (case load-commands
@@ -192,7 +109,7 @@
 
 
 (define (parse-text-section [mach-o : MachOFile] [symbols : (List SymbolTableEntry)])
-  : TextSegmentSection
+  : ProgramSection
   (case mach-o
     [(mach-o-file header load-commands contents)
      (case (find-text-section load-commands)
@@ -203,13 +120,13 @@
         (match-define relocation-offset (u32->s64 relocation-offset))
         (match-define num-relocations (u32->s64 num-relocations))
         (match-define address (u64->s64 address))
-        (text-segment-section
+        (program-section
           (aligned-bytes (mach-o-raw-contents-subbytes contents offset size) alignment)
           (resolve-relocations (read-relocations num-relocations relocation-offset contents) symbols)
           (symbol-entries->defined-symbols address (filter text-symbol? symbols)))])]))
 
 (define (parse-const-section [mach-o : MachOFile] [symbols : (List SymbolTableEntry)])
-  : TextSegmentSection
+  : ProgramSection
   (case mach-o
     [(mach-o-file header load-commands contents)
      (case (find-const-section load-commands)
@@ -220,7 +137,7 @@
         (match-define relocation-offset (u32->s64 relocation-offset))
         (match-define num-relocations (u32->s64 num-relocations))
         (match-define address (u64->s64 address))
-        (text-segment-section
+        (program-section
           (aligned-bytes (mach-o-raw-contents-subbytes contents offset size) alignment)
           (resolve-relocations (read-relocations num-relocations relocation-offset contents) symbols)
           (symbol-entries->defined-symbols address (filter const-symbol? symbols)))])]))
