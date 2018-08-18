@@ -1,5 +1,9 @@
 load("//libraries:yaspl.bzl", "yaspl_binary", "yaspl_library")
 
+package(
+    default_visibility = ["//visibility:public"],
+)
+
 yaspl_binary(
     name = "hello-world",
     main_module = "hello_world",
@@ -103,5 +107,22 @@ yaspl_library(
         "//libraries/data:lifted-primitives",
         "//libraries/data:numbers",
         "//libraries/data:tuples",
+    ],
+)
+
+test_suite(
+    name = "package_tests",
+)
+
+filegroup(
+    name = "package_binaries",
+    srcs = [
+        ":elf-file",
+        ":env",
+        ":hello-world",
+        ":thread-example",
+        ":true",
+        ":udp-echo-server",
+        ":wc",
     ],
 )

@@ -361,3 +361,14 @@ yaspl_bootstrap_library(
         ":set",
     ],
 )
+
+test_suite(
+    name = "package_tests",
+)
+
+filegroup(
+    name = "package_binaries",
+    srcs = [
+        ":assoc-test-driver",
+    ],
+)

@@ -38,3 +38,11 @@ yaspl_bootstrap_library(
         "//libraries/data:unique-dict",
     ],
 )
+
+test_suite(
+    name = "package_tests",
+)
+
+filegroup(
+    name = "package_binaries",
+)

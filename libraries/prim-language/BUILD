@@ -462,3 +462,16 @@ yaspl_bootstrap_library(
     deps = [
     ],
 )
+
+test_suite(
+    name = "package_tests",
+)
+
+filegroup(
+    name = "package_binaries",
+    srcs = [
+        ":demo",
+        ":prim-language-compiler",
+        ":prim-language-library-compiler",
+    ],
+)

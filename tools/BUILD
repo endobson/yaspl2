@@ -1,6 +1,10 @@
 load("//libraries:yaspl.bzl", "yaspl_binary", "yaspl_library")
 load("@minimal_racket//:racket.bzl", "racket_binary", "racket_library")
 
+package(
+    default_visibility = ["//visibility:public"],
+)
+
 yaspl_binary(
     name = "rewrite-imports",
     main_module = "tools_rewrite_imports",
@@ -10,28 +14,24 @@ yaspl_binary(
 yaspl_binary(
     name = "aspect-linter",
     main_module = "tools_aspect_linter_main",
-    visibility = ["//visibility:public"],
     deps = [":aspect-linter-main"],
 )
 
 yaspl_binary(
     name = "aspect-analysis",
     main_module = "tools_aspect_analysis_main",
-    visibility = ["//visibility:public"],
     deps = [":aspect-analysis-main"],
 )
 
 yaspl_binary(
     name = "ir-printer",
     main_module = "tools_ir_printer_main",
-    visibility = ["//visibility:public"],
     deps = [":ir-printer-main"],
 )
 
 yaspl_binary(
     name = "intermediate-html-printer",
     main_module = "tools_intermediate_html_printer_main",
-    visibility = ["//visibility:public"],
     deps = [":intermediate-html-printer-main"],
 )
 
@@ -180,5 +180,20 @@ yaspl_library(
         "//libraries/data:list",
         "//libraries/data:maybe",
         "//libraries/data:tuples",
+    ],
+)
+
+test_suite(
+    name = "package_tests",
+)
+
+filegroup(
+    name = "package_binaries",
+    srcs = [
+        ":aspect-analysis",
+        ":aspect-linter",
+        ":intermediate-html-printer",
+        ":ir-printer",
+        ":rewrite-imports",
     ],
 )

@@ -1207,3 +1207,19 @@ yaspl_library(
         "//libraries/data:tuples",
     ],
 )
+
+test_suite(
+    name = "package_tests",
+)
+
+filegroup(
+    name = "package_binaries",
+    srcs = [
+        ":code-http-server",
+        ":compiler",
+        ":http-server",
+        ":library-compiler",
+        ":linker",
+        ":main-stub",
+    ],
+)

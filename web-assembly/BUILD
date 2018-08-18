@@ -1,6 +1,10 @@
 load(":wasm.bzl", "wasm_demo_page")
 load("//libraries:yaspl.bzl", "yaspl_binary", "yaspl_library")
 
+package(
+    default_visibility = ["//visibility:public"],
+)
+
 genrule(
     name = "test_gen_wasm",
     outs = ["test.wasm"],
@@ -26,5 +30,16 @@ yaspl_library(
         "//libraries:io",
         "//libraries/data:list",
         "//libraries/formats:web-assembly",
+    ],
+)
+
+test_suite(
+    name = "package_tests",
+)
+
+filegroup(
+    name = "package_binaries",
+    srcs = [
+        ":web-assembly-test",
     ],
 )

@@ -1,5 +1,9 @@
 load("//libraries:yaspl.bzl", "yaspl_binary", "yaspl_library")
 
+package(
+    default_visibility = ["//visibility:public"],
+)
+
 yaspl_binary(
     name = "shell",
     main_module = "tools_shell_shell_main",
@@ -17,5 +21,16 @@ yaspl_library(
         "//libraries/data:lifted-primitives",
         "//libraries/data:list",
         "//libraries/data:maybe",
+    ],
+)
+
+test_suite(
+    name = "package_tests",
+)
+
+filegroup(
+    name = "package_binaries",
+    srcs = [
+        ":shell",
     ],
 )
