@@ -8,6 +8,8 @@ yaspl_library(
     name = "elf",
     srcs = ["elf.yaspl"],
     deps = [
+        "//libraries:structured-native-code",
+        "//libraries/data:aligned-bytes",
         "//libraries/data:bytes",
         "//libraries/data:join-list",
         "//libraries/data:lifted-primitives",

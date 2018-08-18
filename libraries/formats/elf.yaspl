@@ -1,43 +1,39 @@
 #:module (formats elf)
 #:import {
+  (aligned-bytes)
   (bytes)
   (data lifted-primitives)
   (join-list)
   (list)
   (numbers)
   (prim)
+  (structured-native-code)
   (tuples)
 }
 (export
   (#:types)
-  (#:values serialize-elf-file elf-file
-            symbol)
+  (#:values serialize-elf-file)
   (#:patterns))
-(types
-  (define-type ELFFile
-    (elf-file
-      [text-section : Bytes]
-      [symbols : (List Symbol)]))
+(types)
 
-  (define-type Symbol
-    (symbol [name : Bytes] [addr : Int])))
-
-(define (serialize-elf-file [elf-file : ELFFile]) : Bytes
-  (match-define (elf-file text-section symbols) elf-file)
-  (match-define rounded-text-section-length
-                (round-up (bytes-length text-section) 8))
-  (match-define symbol-table-size (* (+ (length symbols) 4) #x18))
+(define (serialize-elf-file [text-section : ProgramSection]) : Bytes
+  (match-define (program-section (aligned-bytes text-section-contents text-section-alignment)
+                                 text-relocation text-symbols)
+    text-section)
+  (match-define text-section-length (bytes-length text-section-contents))
+  (match-define rounded-text-section-length (round-up text-section-length 8))
+  (match-define symbol-table-size (* (+ (length text-symbols) 4) #x18))
   (match-define (tuple2 rev-offset-symbols (lifted-int string-table-size))
     (foldl
-      (lambda ([s : Symbol] [acc : (Tuple2 (List (Tuple2 Symbol LiftedInt)) LiftedInt)])
+      (lambda ([s : DefinedSymbol] [acc : (Tuple2 (List (Tuple2 DefinedSymbol LiftedInt)) LiftedInt)])
         (case acc
           [(tuple2 offset-symbols (lifted-int current-offset))
            (tuple2
              (cons (tuple2 s (lifted-int current-offset)) offset-symbols)
-             (lifted-int (+ current-offset (+ 1 (bytes-length (symbol-name s))))))]))
-      symbols
+             (lifted-int (+ current-offset (+ 1 (bytes-length (defined-symbol-name s))))))]))
+      text-symbols
       (tuple2
-        (ann (List (Tuple2 Symbol LiftedInt)) (empty))
+        (ann (List (Tuple2 DefinedSymbol LiftedInt)) (empty))
         (lifted-int 1))))
   (match-define offset-symbols (reverse rev-offset-symbols))
   (match-define section-string-table-size #x2C)
@@ -74,26 +70,26 @@
         (single-jl (bytes/u16-le #x40)) ;; size of section header entry
         (single-jl (bytes/u16-le #x7)) ;; Number of section header entries
         (single-jl (bytes/u16-le #x6)) ;; Index of section name section
-        (single-jl text-section)
+        (single-jl text-section-contents)
         ;; Symbol tables are 8 byte aligned, so add padding as needed
-        (single-jl (make-bytes (- rounded-text-section-length (bytes-length text-section))))
+        (single-jl (make-bytes (- rounded-text-section-length text-section-length)))
         (symbol-table-entry 0 0 0 0)
         (symbol-table-entry 0 3 1 0)
         (symbol-table-entry 0 3 2 0)
         (symbol-table-entry 0 3 3 0)
         (concat-jl
           (map
-            (lambda ([entry : (Tuple2 Symbol LiftedInt)])
+            (lambda ([entry : (Tuple2 DefinedSymbol LiftedInt)])
               (case entry
-                [(tuple2 (symbol _ addr) (lifted-int name-offset))
+                [(tuple2 (defined-symbol _ addr) (lifted-int name-offset))
                  (symbol-table-entry name-offset 0 1 addr)]))
             offset-symbols))
         (single-jl (make-null-terminated #""))
         (concat-jl
           (map
-            (lambda ([s : Symbol])
-              (single-jl (make-null-terminated (symbol-name s))))
-            symbols))
+            (lambda ([s : DefinedSymbol])
+              (single-jl (make-null-terminated (defined-symbol-name s))))
+            text-symbols))
         (single-jl (make-null-terminated #""))
         (single-jl (make-null-terminated #".symtab"))
         (single-jl (make-null-terminated #".strtab"))
@@ -104,10 +100,10 @@
         ;; Align the section header to 8 Bytes, so add padding as needed.
         (single-jl (make-bytes (- rounded-string-tables-size string-tables-size)))
         (single-jl (make-bytes (* 16 4))) ;; Empty section header
-        (section-header 27 1 6 0 #x40 (bytes-length text-section) 0 0 1 0)
-        (section-header 33 1 3 0 (+ #x40 (bytes-length text-section)) 0 0 0 1 0)
-        (section-header 39 8 3 0 (+ #x40 (bytes-length text-section)) 0 0 0 1 0)
-        (section-header 1 2 0 0 symbol-table-start symbol-table-size 5 (+ 4 (length symbols)) 8 24)
+        (section-header 27 1 6 0 #x40 text-section-length 0 0 1 0)
+        (section-header 33 1 3 0 (+ #x40 text-section-length) 0 0 0 1 0)
+        (section-header 39 8 3 0 (+ #x40 text-section-length) 0 0 0 1 0)
+        (section-header 1 2 0 0 symbol-table-start symbol-table-size 5 (+ 4 (length text-symbols)) 8 24)
         (section-header 9 3 0 0 string-table-start string-table-size 0 0 1 0)
         (section-header 17 3 0 0 section-string-table-start section-string-table-size 0 0 1 0)
         ))))

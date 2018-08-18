@@ -23,6 +23,8 @@ yaspl_library(
     srcs = ["elf-file.yaspl"],
     deps = [
         "//libraries:io",
+        "//libraries:structured-native-code",
+        "//libraries/data:aligned-bytes",
         "//libraries/data:list",
         "//libraries/formats:elf",
     ],
