@@ -24,6 +24,12 @@ yaspl_binary(
 )
 
 yaspl_binary(
+    name = "aspect-missing-imports",
+    main_module = "tools_aspect_missing_imports_main",
+    deps = [":aspect-missing-imports-main"],
+)
+
+yaspl_binary(
     name = "ir-printer",
     main_module = "tools_ir_printer_main",
     deps = [":ir-printer-main"],
@@ -83,6 +89,27 @@ yaspl_library(
         "//libraries:io",
         "//libraries/data:either",
         "//libraries/data:list",
+    ],
+)
+
+yaspl_library(
+    name = "aspect-missing-imports-main",
+    srcs = ["aspect-missing-imports-main.yaspl"],
+    deps = [
+        "//libraries:io",
+        "//libraries:module-name",
+        "//libraries:module-signature",
+        "//libraries:module-signature-serialization",
+        "//libraries:prim-types",
+        "//libraries:sexp-parser",
+        "//libraries:sexp-printer",
+        "//libraries:source-language",
+        "//libraries/data:bytes",
+        "//libraries/data:dict",
+        "//libraries/data:either",
+        "//libraries/data:list",
+        "//libraries/data:maybe",
+        "//libraries/data:set",
     ],
 )
 
@@ -201,6 +228,7 @@ filegroup(
     srcs = [
         ":aspect-analysis",
         ":aspect-linter",
+        ":aspect-missing-imports",
         ":intermediate-html-printer",
         ":ir-printer",
         ":rewrite-imports",

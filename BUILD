@@ -1,3 +1,6 @@
+load("//tools:yaspl-module-index.bzl", "yaspl_module_index_rule")
+load("//tools:yaspl-missing-imports.bzl", "yaspl_missing_imports_rule")
+
 exports_files(["racket.bzl"])
 
 ALL_PACKAGES = [
@@ -20,4 +23,21 @@ test_suite(
 filegroup(
     name = "all_binaries",
     srcs = [pkg + ":package_binaries" for pkg in ALL_PACKAGES],
+)
+
+yaspl_module_index_rule(
+    name = "module_index",
+    visibility = ["//visibility:public"],
+    deps = [
+        ":all_binaries",
+        ":all_tests",
+    ],
+)
+
+yaspl_missing_imports_rule(
+    name = "missing_imports",
+    deps = [
+        ":all_binaries",
+        ":all_tests",
+    ],
 )
