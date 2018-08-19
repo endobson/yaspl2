@@ -1,31 +1,36 @@
 yaspl_provider = provider(fields = ["source_file", "input_signatures", "signature", "transitive_objects"])
 yaspl_src_provider = provider(fields = ["files"])
 
-def _dependent_objects(ctx):
-  return depset(transitive = [dep[yaspl_provider].transitive_objects for dep in ctx.attr.deps])
-
 def _lib_impl(ctx):
   if (len(ctx.files.srcs) != 1):
     fail("Only one source is supported", "srcs")
-  src_path = ctx.files.srcs[0].path
+  src_file = ctx.files.srcs[0]
 
   input_signatures = [dep[yaspl_provider].signature for dep in ctx.attr.deps]
-  input_signature_paths = [sig.path for sig in input_signatures]
 
-  ctx.action(
+  args = ctx.actions.args()
+  args.add(ctx.outputs.object)
+  args.add(ctx.outputs.signature)
+  args.add(src_file)
+  args.add_all(input_signatures)
+
+  ctx.actions.run(
     inputs = input_signatures + ctx.files.srcs + [ctx.executable._library_compiler],
     outputs = [ctx.outputs.object, ctx.outputs.signature],
     mnemonic = "YasplCompile",
     executable = ctx.executable._library_compiler,
-    arguments = [ctx.outputs.object.path, ctx.outputs.signature.path, src_path] + input_signature_paths
+    arguments = [args],
   )
 
   return [
     yaspl_provider(
-      source_file = ctx.files.srcs[0],
+      source_file = src_file,
       input_signatures = input_signatures,
       signature = ctx.outputs.signature,
-      transitive_objects = _dependent_objects(ctx) + [ctx.outputs.object]
+      transitive_objects = depset(
+        direct = [ctx.outputs.object],
+        transitive = [dep[yaspl_provider].transitive_objects for dep in ctx.attr.deps]
+      ),
     )
   ]
 
@@ -36,7 +41,6 @@ def _src_impl(ctx):
   )
   args = ctx.actions.args()
   args.add_joined(transitive_srcs, join_with="\n")
-  transitive_src_paths = [src.path for src in transitive_srcs]
 
   ctx.actions.run_shell(
     outputs = [ctx.outputs.file],
@@ -60,44 +64,50 @@ def _bin_impl(ctx):
     ]
   )
 
-  input_objects = list(_dependent_objects(ctx) + [ctx.outputs.main_stub_object] +
-                                               ctx.attr._runtime_objects.files)
-  input_object_paths = [obj.path for obj in input_objects]
-
-  ctx.action(
-    inputs = [ctx.executable._linker] + input_objects,
-    outputs = [ctx.outputs.executable],
-    mnemonic = "YasplLink2",
-    executable = ctx.executable._linker,
-    arguments = [ctx.outputs.executable.path] + input_object_paths
+  input_objects = depset(
+    direct = [ctx.outputs.main_stub_object],
+    transitive = [ctx.attr._runtime_objects.files] +
+                 [dep[yaspl_provider].transitive_objects for dep in ctx.attr.deps],
   )
+
+  args = ctx.actions.args()
+  args.add(ctx.outputs.executable)
+  args.add_all(input_objects)
+
+  ctx.actions.run(
+    inputs = depset(
+      direct = [ctx.executable._linker],
+      transitive = [input_objects],
+    ),
+    outputs = [ctx.outputs.executable],
+    mnemonic = "YasplLink",
+    executable = ctx.executable._linker,
+    arguments = [args],
+  )
+  return []
 
 _yaspl_src_file_type = FileType([".yaspl"])
 
-
 _bootstrap_library_compiler = attr.label(
- default=Label("//bootstrap:library_compiler"),
- executable=True,
- allow_files=True,
- cfg="host",
+  default=Label("//bootstrap:library_compiler"),
+  executable=True,
+  cfg="host",
 )
 
 _bootstrap_main_stub = attr.label(
- default=Label("//bootstrap:main_stub"),
- executable=True,
- allow_files=True,
- cfg="host",
+  default=Label("//bootstrap:main_stub"),
+  executable=True,
+  cfg="host",
 )
 
 _bootstrap_linker = attr.label(
- default=Label("//bootstrap:linker"),
- executable=True,
- allow_files=True,
- cfg="host",
+  default=Label("//bootstrap:linker"),
+  executable=True,
+  cfg="host",
 )
 
 _yaspl_runtime_objects = attr.label(
- default=Label("//libraries/yaspl/runtime:runtime"),
+  default=Label("//libraries/yaspl/runtime:runtime"),
 )
 
 
@@ -111,46 +121,35 @@ yaspl_library = rule(
     "srcs": attr.label_list(
       allow_files=_yaspl_src_file_type,
       mandatory=True,
-      non_empty=True
+      allow_empty=False
     ),
     "deps": attr.label_list(
-       providers = [yaspl_provider],
+      providers = [yaspl_provider],
     ),
     "_library_compiler": _bootstrap_library_compiler
   }
 )
 
-yaspl_binary = rule(
-  implementation = _bin_impl,
-  outputs = {
-    "main_stub_object": "%{name}_main.o",
-  },
-  executable = True,
-  attrs = {
-    "main_module": attr.string(mandatory=True),
-    "deps": attr.label_list(),
-    "_main_stub": _bootstrap_main_stub,
-    "_linker": _bootstrap_linker,
-    "_runtime_objects": _yaspl_runtime_objects,
-  }
-)
-
-
-yaspl_prim_test = rule(
-  implementation = _bin_impl,
-  outputs = {
-    "main_stub_object": "%{name}_main.o",
-  },
-  executable = True,
-  test=True,
-  attrs = {
-    "main_module": attr.string(mandatory=True),
-    "deps": attr.label_list(),
-    "_main_stub": _bootstrap_main_stub,
-    "_linker": _bootstrap_linker,
-    "_runtime_objects": _yaspl_runtime_objects,
-  }
-)
+def _yaspl_binary_rule(test):
+  return rule(
+    implementation = _bin_impl,
+    outputs = {
+      "main_stub_object": "%{name}_main.o",
+    },
+    executable = True,
+    test = test,
+    attrs = {
+      "main_module": attr.string(mandatory=True),
+      "deps": attr.label_list(
+        providers = [yaspl_provider],
+      ),
+      "_main_stub": _bootstrap_main_stub,
+      "_linker": _bootstrap_linker,
+      "_runtime_objects": _yaspl_runtime_objects,
+    }
+  )
+yaspl_binary = _yaspl_binary_rule(False)
+yaspl_prim_test = _yaspl_binary_rule(True)
 
 yaspl_srcs = rule(
   implementation = _src_impl,
