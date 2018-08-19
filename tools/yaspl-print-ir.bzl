@@ -1,21 +1,23 @@
 load("//libraries:yaspl.bzl", "yaspl_provider")
 
 def _yaspl_print_ir_impl(target, ctx):
-  # TODO use required_aspect_providers once it works
   if ctx.rule.kind != "yaspl_library":
     return struct()
 
   directory = ctx.actions.declare_directory(target.label.name + ".ir")
   src_file = target[yaspl_provider].source_file
-
   input_signatures = target[yaspl_provider].input_signatures
-  input_signature_paths = [sig.path for sig in input_signatures]
+
+  args = ctx.actions.args()
+  args.add(directory)
+  args.add(src_file)
+  args.add_all(input_signatures)
 
   ctx.actions.run(
     inputs = [src_file] + input_signatures,
     outputs = [directory],
     executable = ctx.executable._ir_printer,
-    arguments = [directory.path, src_file.path] + input_signature_paths
+    arguments = [args]
   )
 
   return [
@@ -24,12 +26,10 @@ def _yaspl_print_ir_impl(target, ctx):
 
 yaspl_print_ir = aspect(
   implementation = _yaspl_print_ir_impl,
-  attr_aspects = [],
   attrs = {
     "_ir_printer": attr.label(
        default=Label("//tools:ir-printer"),
        executable=True,
-       allow_files=True,
        cfg="host",
     )
   }
