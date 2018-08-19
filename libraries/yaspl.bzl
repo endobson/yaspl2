@@ -1,18 +1,8 @@
 yaspl_provider = provider(fields = ["source_file", "input_signatures", "signature", "transitive_objects"])
 yaspl_src_provider = provider(fields = ["files"])
 
-def _dependent_srcs(ctx):
-  dependent_srcs = depset(order="postorder")
-  for dep in ctx.attr.deps:
-    dependent_srcs += dep[yaspl_src_provider].files
-  return dependent_srcs
-
 def _dependent_objects(ctx):
-  dependent_objects = depset(order="postorder")
-  for dep in ctx.attr.deps:
-    dependent_objects += dep[yaspl_provider].transitive_objects
-  return dependent_objects
-
+  return depset(transitive = [dep[yaspl_provider].transitive_objects for dep in ctx.attr.deps])
 
 def _lib_impl(ctx):
   if (len(ctx.files.srcs) != 1):
@@ -40,12 +30,18 @@ def _lib_impl(ctx):
   ]
 
 def _src_impl(ctx):
-  transitive_srcs = _dependent_srcs(ctx) + ctx.files.srcs
+  transitive_srcs = depset(
+    direct = ctx.files.srcs,
+    transitive = [dep[yaspl_src_provider].files for dep in ctx.attr.deps],
+  )
+  args = ctx.actions.args()
+  args.add_joined(transitive_srcs, join_with="\n")
   transitive_src_paths = [src.path for src in transitive_srcs]
 
-  ctx.file_action(
-    output = ctx.outputs.file,
-    content = "\n".join(transitive_src_paths)
+  ctx.actions.run_shell(
+    outputs = [ctx.outputs.file],
+    command = 'echo "$1" > %s' % ctx.outputs.file.path,
+    arguments = [args],
   )
 
   return [
