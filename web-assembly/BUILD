@@ -35,6 +35,7 @@ yaspl_library(
 
 test_suite(
     name = "package_tests",
+    testonly = 0,
 )
 
 filegroup(

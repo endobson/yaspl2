@@ -1028,7 +1028,6 @@ yaspl_test(
 
 yaspl_library(
     name = "types-test-utils",
-    testonly = 1,
     srcs = ["types-test-utils.yaspl"],
     deps = [
         ":module-name",
@@ -1210,6 +1209,7 @@ yaspl_library(
 
 test_suite(
     name = "package_tests",
+    testonly = 0,
 )
 
 filegroup(

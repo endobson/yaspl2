@@ -13,6 +13,7 @@ ALL_PACKAGES = [
 
 test_suite(
     name = "all_tests",
+    testonly = 0,
     tests = [pkg + ":package_tests" for pkg in ALL_PACKAGES],
 )
 
