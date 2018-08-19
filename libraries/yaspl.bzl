@@ -1,5 +1,5 @@
-yaspl_provider = provider()
-yaspl_src_provider = provider()
+yaspl_provider = provider(fields = ["source_file", "input_signatures", "signature", "transitive_objects"])
+yaspl_src_provider = provider(fields = ["files"])
 
 def _dependent_srcs(ctx):
   dependent_srcs = depset(order="postorder")
