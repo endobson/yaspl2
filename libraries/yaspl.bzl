@@ -169,17 +169,19 @@ yaspl_srcs = rule(
 
 def yaspl_test(name, main_module, srcs=[], deps=[], size="medium"):
   yaspl_library(
-    testonly = 1,
+    # TODO make this testonly once aspects work better
     name = name + "_lib",
     srcs = srcs,
-    deps = deps
+    deps = deps,
   )
 
   yaspl_prim_test(
     name = name,
     main_module = main_module,
     deps = [name + "_lib"],
-    size = size
+    size = size,
+    # TODO make this testonly once aspects work better
+    testonly = 0,
   )
 
 
