@@ -1,0 +1,53 @@
+#:module (tools command-line)
+#:import {
+  (either)
+  (io)
+  (list)
+  (prim)
+}
+(export
+  (#:types CommandLineTool OutputLocation)
+  (#:values command-line-tool run-command-line-tool
+            output-to-file output-to-stdout)
+  (#:patterns))
+(types
+  (define-type (CommandLineTool Args Result)
+    (command-line-tool
+      [parse-args : ((List Bytes) -> (Either Bytes Args))]
+      [run : (Args InputPort -> (Either Bytes Result))]
+      [get-output-location : (Args -> OutputLocation)]
+      [print-result : (Result OutputPort -> Void)]))
+  (define-type OutputLocation
+    (output-to-file [path : Bytes])
+    (output-to-stdout)))
+
+(define (Args Result) (run-command-line-tool
+                        [args : (Array Bytes)]
+                        [stdin : InputPort]
+                        [stdout : OutputPort]
+                        [stderr : OutputPort]
+                        [tool : (CommandLineTool Args Result)])
+  : Int
+  (match-define (command-line-tool parse-args run get-output print-result) tool)
+  (case (parse-args (array->list args))
+    [(left msg)
+     (begin
+       (write-line msg stderr)
+       1)]
+    [(right args)
+     (case (run args stdin)
+       [(left msg)
+        (begin
+          (write-line msg stderr)
+         1)]
+       [(right result)
+        (begin
+          (case (get-output args)
+            [(output-to-stdout)
+             (print-result result stdout)]
+            [(output-to-file output-path)
+             (call-with-output-file/void
+               output-path
+               (lambda ([output : OutputPort])
+                 (print-result result output)))])
+          0)])]))

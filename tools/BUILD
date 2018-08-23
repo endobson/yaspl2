@@ -46,7 +46,7 @@ yaspl_library(
     srcs = ["aspect-linter-main.yaspl"],
     deps = [
         ":linter_lib",
-        "//libraries:io",
+        ":command-line",
         "//libraries/data:either",
         "//libraries/data:list",
     ],
@@ -70,11 +70,23 @@ yaspl_library(
     srcs = ["aspect-analysis-main.yaspl"],
     deps = [
         ":analysis",
+        ":command-line",
+        "//libraries/data:either",
+        "//libraries/data:list",
+    ],
+)
+
+yaspl_library(
+    name = "command-line",
+    srcs = ["command-line.yaspl"],
+    deps = [
         "//libraries:io",
         "//libraries/data:either",
         "//libraries/data:list",
     ],
 )
+
+
 
 yaspl_library(
     name = "compile-module-args",
