@@ -1,6 +1,7 @@
 #:module (tools linter)
 #:import {
   (bytes)
+  (compiler)
   (data indexed-set)
   (either)
   (io)
@@ -8,10 +9,8 @@
   (module-header-lint)
   (module-name)
   (module-signature)
-  (module-signature-serialization)
   (prim)
   (set)
-  (sexp-parser)
   (source-language)
   (unused-bindings)
 }
@@ -109,15 +108,10 @@
     [(full-imports mod-name) mod-name]))
 
 (define (lint-module [module-file : Bytes] [signatures : (List Bytes)]) : (Either Bytes LintResults)
-  (case (parse-sexps (call-with-input-file module-file read-all-bytes))
+  (case (parse-module-file module-file)
     [(left v) (left v)]
-    [(right module-forms)
-     (case (extract-rights
-             (map
-               (lambda ([input-path : Bytes])
-                 (deserialize-module-signature
-                   (call-with-input-file input-path read-all-bytes)))
-               signatures))
+    [(right module)
+     (case (parse-signature-files signatures)
        [(left v) (left v)]
        [(right signatures)
         (let ([signatures
@@ -126,16 +120,13 @@
                     (indexed-set-add acc sig))
                   signatures
                   (make-indexed-set module-signature-name mod-name-cmp))])
-          (case (parse-module module-forms)
-           [(left v) (left v)]
-           [(right module)
-            (right (lint-results
-                     module-file
-                     (module-unused-bindings module signatures)
-                     (set->list
-                       (set-remove-all
-                         (set-add-all
-                           (make-set mod-name-cmp)
-                           (map module-signature-name (indexed-set->list signatures)))
-                         (map imports-module-name (module-imports module))))
-                     (find-header-violations module)))]))])]))
+          (right (lint-results
+                   module-file
+                   (module-unused-bindings module signatures)
+                   (set->list
+                     (set-remove-all
+                       (set-add-all
+                         (make-set mod-name-cmp)
+                         (map module-signature-name (indexed-set->list signatures)))
+                       (map imports-module-name (module-imports module))))
+                   (find-header-violations module))))])]))

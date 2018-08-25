@@ -45,8 +45,8 @@ yaspl_library(
     name = "aspect-linter-main",
     srcs = ["aspect-linter-main.yaspl"],
     deps = [
-        ":linter_lib",
         ":command-line",
+        ":linter_lib",
         "//libraries/data:either",
         "//libraries/data:list",
     ],
@@ -56,8 +56,8 @@ yaspl_library(
     name = "analysis",
     srcs = ["analysis.yaspl"],
     deps = [
+        "//libraries:compiler_lib",
         "//libraries:io",
-        "//libraries:sexp-parser",
         "//libraries:source-language",
         "//libraries/data:either",
         "//libraries/data:list",
@@ -86,8 +86,6 @@ yaspl_library(
     ],
 )
 
-
-
 yaspl_library(
     name = "compile-module-args",
     srcs = ["compile-module-args.yaspl"],
@@ -95,7 +93,6 @@ yaspl_library(
         "//libraries:compiler_lib",
         "//libraries:io",
         "//libraries:module-signature",
-        "//libraries:module-signature-serialization",
         "//libraries:source-language",
         "//libraries/data:either",
         "//libraries/data:list",
@@ -162,12 +159,11 @@ yaspl_library(
     name = "linter_lib",
     srcs = ["linter.yaspl"],
     deps = [
+        "//libraries:compiler_lib",
         "//libraries:io",
         "//libraries:module-header-lint",
         "//libraries:module-name",
         "//libraries:module-signature",
-        "//libraries:module-signature-serialization",
-        "//libraries:sexp-parser",
         "//libraries:source-language",
         "//libraries:unused-bindings",
         "//libraries/data:bytes",
