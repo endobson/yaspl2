@@ -89,19 +89,19 @@ def _bin_impl(ctx):
 _yaspl_src_file_type = FileType([".yaspl"])
 
 _bootstrap_library_compiler = attr.label(
-  default=Label("//bootstrap:library_compiler"),
+  default=Label("//prebuilt:library_compiler"),
   executable=True,
   cfg="host",
 )
 
 _bootstrap_main_stub = attr.label(
-  default=Label("//bootstrap:main_stub"),
+  default=Label("//prebuilt:main_stub"),
   executable=True,
   cfg="host",
 )
 
 _bootstrap_linker = attr.label(
-  default=Label("//bootstrap:linker"),
+  default=Label("//prebuilt:linker"),
   executable=True,
   cfg="host",
 )
