@@ -98,8 +98,6 @@ yaspl_library(
     deps = [
         "//libraries:io",
         "//libraries:module-name",
-        "//libraries:module-signature",
-        "//libraries:module-signature-serialization",
         "//libraries:prim-types",
         "//libraries:sexp-parser",
         "//libraries:sexp-printer",

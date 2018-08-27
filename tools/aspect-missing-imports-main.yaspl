@@ -7,8 +7,6 @@
   (list)
   (maybe)
   (module-name)
-  (module-signature)
-  (module-signature-serialization)
   (prim)
   (prim-types)
   (set)
@@ -55,23 +53,30 @@
       [(right module)
        (right (map imports-module-name (module-imports module)))])]))
 
-(define (extract-available-modules [signature-files : (List Bytes)]) : (Either Bytes (List ModName))
+(define (extract-available-modules [mod-name-files : (List Bytes)]) : (Either Bytes (List ModName))
   (case (extract-rights
            (map
-             (lambda ([input-path : Bytes])
-               (deserialize-module-signature
-                 (call-with-input-file input-path read-all-bytes)))
-             signature-files))
+             (lambda ([input-path : Bytes]) : (Either Bytes ModName)
+               (case (parse-sexps
+                       (call-with-input-file input-path read-all-bytes))
+                 [(left v) (left v)]
+                 [(right (cons _ (cons mod-name (empty))))
+                  (case (sexp->mod-name mod-name)
+                    [(nothing) (left #"Unparseable mod-name")]
+                    [(just v) (right v)])]
+                 [(right _)
+                  (left #"Bad module-name file")]))
+             mod-name-files))
     [(left v) (left v)]
-    [(right signatures)
-     (right (cons (prim-mod) (map module-signature-name signatures)))]))
+    [(right mod-names)
+     (right (cons (prim-mod) mod-names))]))
 
-(define (compute-missing-imports [module-file : Bytes] [signature-files : (List Bytes)])
+(define (compute-missing-imports [module-file : Bytes] [mod-name-files : (List Bytes)])
   : (Either Bytes (List ModName))
   (case (extract-imported-modules module-file)
     [(left v) (left v)]
     [(right imported-modules)
-     (case (extract-available-modules signature-files)
+     (case (extract-available-modules mod-name-files)
        [(left v) (left v)]
        [(right available-modules)
         (right
@@ -126,9 +131,9 @@
 (define (run [target-label : Bytes]
              [module-index-file : Bytes]
              [module-file : Bytes]
-             [signature-files : (List Bytes)])
+             [mod-name-files : (List Bytes)])
   : (Either Bytes (List Bytes))
-  (case (compute-missing-imports module-file signature-files)
+  (case (compute-missing-imports module-file mod-name-files)
     [(left v) (left v)]
     [(right missing-imports)
      (case (build-module-index module-index-file)
@@ -146,6 +151,6 @@
      (handle-failure-result #"No module index file provided." stderr)]
     [(cons _ (cons _ (cons _ (empty))))
      (handle-failure-result #"No module file provided." stderr)]
-    [(cons _ (cons target-label (cons module-index-file (cons module-file signature-files))))
+    [(cons _ (cons target-label (cons module-index-file (cons module-file mod-name-files))))
      (handle-result stdout stderr
-       (run target-label module-index-file module-file signature-files))]))
+       (run target-label module-index-file module-file mod-name-files))]))

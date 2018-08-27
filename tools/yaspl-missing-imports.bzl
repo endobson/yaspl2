@@ -1,26 +1,30 @@
 load("//libraries:yaspl.bzl", "yaspl_provider")
+load(":yaspl-module-name.bzl", "yaspl_module_name", "yaspl_module_name_provider")
 
 yaspl_missing_imports_provider = provider(fields=["files"])
 
 def _yaspl_library_missing_imports_impl(target, ctx):
   output_file = ctx.actions.declare_file(ctx.label.name + ".missing_imports_part")
   target_yaspl_provider = target[yaspl_provider]
+  deps_module_name_files = [dep[yaspl_module_name_provider].file for dep in ctx.rule.attr.deps]
+
   ctx.actions.run_shell(
      outputs = [output_file],
      inputs = [target_yaspl_provider.source_file,  ctx.executable._missing_imports,
                ctx.file._module_index]
-              + target_yaspl_provider.input_signatures,
+              + deps_module_name_files,
      command = '%s %s %s %s $@ >%s' %
          (ctx.executable._missing_imports.path, 
           ctx.label,
           ctx.file._module_index.path,
           target_yaspl_provider.source_file.path,
           output_file.path),
-     arguments = [sig.path for sig in target_yaspl_provider.input_signatures]
+     arguments = [file.path for file in deps_module_name_files],
   )
   local_provider = yaspl_missing_imports_provider(files=depset([output_file]))
   
-  return [_merge_providers([local_provider] +_extract_providers(ctx.rule.attr.deps))]
+  return [_merge_providers([local_provider] +_extract_providers(ctx.rule.attr.deps)),
+          target[yaspl_module_name_provider]]
 
 def _yaspl_binary_missing_imports_impl(target, ctx):
   return [_merge_providers(_extract_providers(ctx.rule.attr.deps))]
@@ -54,9 +58,10 @@ yaspl_missing_imports = aspect(
   implementation = _yaspl_missing_imports_impl,
   attr_aspects = ["tests", "srcs", "deps"],
   provides = [yaspl_missing_imports_provider],
+  required_aspect_providers = [yaspl_module_name_provider],
   attrs = {
     "_missing_imports": attr.label(
-       default=Label("//tools:aspect-missing-imports"),
+       default=Label("//prebuilt:aspect-missing-imports"),
        executable=True,
        allow_files=True,
        cfg="host",
@@ -85,7 +90,7 @@ def _yaspl_missing_imports_rule_impl(ctx):
 yaspl_missing_imports_rule = rule(
   implementation = _yaspl_missing_imports_rule_impl,
   attrs = {
-    "deps": attr.label_list(aspects=[yaspl_missing_imports])
+    "deps": attr.label_list(aspects=[yaspl_module_name, yaspl_missing_imports])
   },
   outputs = {
     "index": "%{name}.missing_imports"
