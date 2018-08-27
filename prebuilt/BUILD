@@ -2,48 +2,42 @@ package(
     default_visibility = ["//visibility:public"],
 )
 
-filegroup(
-    name = "library_compiler",
-    srcs = select({
-        ":yaspl_bootstrap": ["//bootstrap:bootstrap_library_compiler"],
-        "//conditions:default": [":saved/library_compiler"],
-    }),
-)
+binaries_to_prebuild = {
+    "library_compiler": "//bootstrap:bootstrap_library_compiler",
+    "main_stub": "//bootstrap:bootstrap_main_stub",
+    "linker": "//bootstrap:bootstrap_linker",
+    "prim_language_library_compiler": "//bootstrap:bootstrap_prim_language_library_compiler",
+}
 
-filegroup(
-    name = "main_stub",
-    srcs = select({
-        ":yaspl_bootstrap": ["//bootstrap:bootstrap_main_stub"],
-        "//conditions:default": [":saved/main_stub"],
-    }),
-)
-
-filegroup(
-    name = "linker",
-    srcs = select({
-        ":yaspl_bootstrap": ["//bootstrap:bootstrap_linker"],
-        "//conditions:default": [":saved/linker"],
-    }),
-)
-
-filegroup(
-    name = "prim_language_library_compiler",
-    srcs = select({
-        ":yaspl_bootstrap": ["//bootstrap:bootstrap_prim_language_library_compiler"],
-        "//conditions:default": [":saved/prim_language_library_compiler"],
-    }),
-)
+[
+    filegroup(
+        name = binary_name,
+        srcs = select({
+            ":yaspl_bootstrap": [binaries_to_prebuild[binary_name]],
+            "//conditions:default": [":saved/" + binary_name],
+        }),
+    )
+    for binary_name in binaries_to_prebuild
+]
 
 genrule(
-    name = "build_prebuilt_binaries",
-    outs = ["prebuilt_binaries"],
-    cmd = "touch $@",
-    tools = [
-        "//bootstrap:bootstrap_library_compiler",
-        "//bootstrap:bootstrap_linker",
-        "//bootstrap:bootstrap_main_stub",
-        "//bootstrap:bootstrap_prim_language_library_compiler",
-    ],
+    name = "gen_setup_prebuilt_binaries",
+    outs = ["setup_prebuilt_binaries"],
+    cmd = "printf '%s\n' >>$@ " +
+          " ".join([
+                       "'#!/bin/bash'",
+                       "'set -e'",
+                       "'mkdir -p prebuilt/saved'",
+                   ] + [
+                       "\"cp $(location %s) prebuilt/saved/%s\"" % (target, name)
+                       for (name, target) in binaries_to_prebuild.items()
+                   ] +
+                   [
+                       "\"chmod ug+w prebuilt/saved/%s\"" % name
+                       for name in binaries_to_prebuild
+                   ]),
+    executable = True,
+    tools = binaries_to_prebuild.values(),
 )
 
 config_setting(
