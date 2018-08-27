@@ -8,8 +8,8 @@ def _yaspl_library_module_name_impl(target, ctx):
   ctx.actions.run_shell(
      outputs = [output_file],
      inputs = [target_yaspl_provider.source_file],
-     command = 'echo "#\\"%s\\"" "$(head -n 1 %s | sed -e "s/#:module //")" > %s'
-         % (ctx.label, target_yaspl_provider.source_file.path, output_file.path),
+     command = 'echo "$(head -n 1 %s | sed -e "s/#:module //")" > %s'
+         % (target_yaspl_provider.source_file.path, output_file.path),
   )
   return [yaspl_module_name_provider(file=output_file)]
 

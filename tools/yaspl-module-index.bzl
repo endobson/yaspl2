@@ -4,7 +4,17 @@ load(":yaspl-module-name.bzl", "yaspl_module_name", "yaspl_module_name_provider"
 yaspl_module_index_provider = provider(fields=["files"])
 
 def _yaspl_library_module_index_impl(target, ctx):
-  local_provider = yaspl_module_index_provider(files=depset([target[yaspl_module_name_provider].file]))
+  output_file = ctx.actions.declare_file(ctx.label.name + ".module_index_part")
+  target_yaspl_module_name_provider = target[yaspl_module_name_provider]
+  ctx.actions.run_shell(
+     outputs = [output_file],
+     inputs = [target_yaspl_module_name_provider.file],
+     command = 'echo "#\\"%s\\"" >%s; cat %s >>%s'
+         % (ctx.label, output_file.path,
+            target_yaspl_module_name_provider.file.path, output_file.path),
+  )
+
+  local_provider = yaspl_module_index_provider(files=depset([output_file]))
   return [_merge_providers([local_provider] +_extract_providers(ctx.rule.attr.deps))]
 
 def _yaspl_binary_module_index_impl(target, ctx):
