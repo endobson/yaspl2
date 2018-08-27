@@ -11,11 +11,11 @@ binaries_to_prebuild = {
 }
 
 [
-    filegroup(
+    alias(
         name = binary_name,
-        srcs = select({
-            ":yaspl_bootstrap": [binaries_to_prebuild[binary_name]],
-            "//conditions:default": [":saved/" + binary_name],
+        actual = select({
+            ":yaspl_bootstrap": binaries_to_prebuild[binary_name],
+            "//conditions:default": ":saved/" + binary_name,
         }),
     )
     for binary_name in binaries_to_prebuild

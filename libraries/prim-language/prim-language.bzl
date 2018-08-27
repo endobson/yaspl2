@@ -75,11 +75,13 @@ prim_library = rule(
     "_compiler": attr.label(
       default=Label("//prebuilt:prim_language_library_compiler"),
       executable=True,
+      allow_files=True,
       cfg="host",
     ),
     "_linker": attr.label(
       default=Label("//prebuilt:linker"),
       executable=True,
+      allow_files=True,
       cfg="host",
     ),
   }

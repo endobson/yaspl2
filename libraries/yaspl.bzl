@@ -91,18 +91,21 @@ _yaspl_src_file_type = FileType([".yaspl"])
 _bootstrap_library_compiler = attr.label(
   default=Label("//prebuilt:library_compiler"),
   executable=True,
+  allow_files=True,
   cfg="host",
 )
 
 _bootstrap_main_stub = attr.label(
   default=Label("//prebuilt:main_stub"),
   executable=True,
+  allow_files=True,
   cfg="host",
 )
 
 _bootstrap_linker = attr.label(
   default=Label("//prebuilt:linker"),
   executable=True,
+  allow_files=True,
   cfg="host",
 )
 
