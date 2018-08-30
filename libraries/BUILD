@@ -788,7 +788,6 @@ yaspl_bootstrap_library(
         "//libraries/data:list",
         "//libraries/data:maybe",
         "//libraries/data:numbers",
-        "//libraries/data:tuples",
     ],
 )
 

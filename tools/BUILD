@@ -205,6 +205,7 @@ yaspl_library(
     deps = [
         "//libraries:compiler_lib",
         "//libraries:io",
+        "//libraries:lexer",
         "//libraries:module-name",
         "//libraries:sexp-parser",
         "//libraries:source-language",
@@ -212,7 +213,6 @@ yaspl_library(
         "//libraries/data:either",
         "//libraries/data:list",
         "//libraries/data:maybe",
-        "//libraries/data:tuples",
     ],
 )
 
