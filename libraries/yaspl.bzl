@@ -40,11 +40,11 @@ def _src_impl(ctx):
     transitive = [dep[yaspl_src_provider].files for dep in ctx.attr.deps],
   )
   args = ctx.actions.args()
-  args.add_joined(transitive_srcs, join_with="\n")
+  args.add(transitive_srcs)
 
   ctx.actions.run_shell(
     outputs = [ctx.outputs.file],
-    command = 'echo "$1" > %s' % ctx.outputs.file.path,
+    command = 'printf "%%s\n" "$@" > %s' % ctx.outputs.file.path,
     arguments = [args],
   )
 
