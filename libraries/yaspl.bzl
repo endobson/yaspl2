@@ -1,4 +1,5 @@
-yaspl_provider = provider(fields = ["source_file", "input_signatures", "signature", "transitive_objects"])
+yaspl_provider = provider(fields = ["source_file", "module_name_file", "input_signatures",
+                                    "signature", "transitive_objects"])
 yaspl_src_provider = provider(fields = ["files"])
 
 def _lib_impl(ctx):
@@ -22,11 +23,19 @@ def _lib_impl(ctx):
     arguments = [args],
   )
 
+  ctx.actions.run_shell(
+    inputs = ctx.files.srcs,
+    outputs = [ctx.outputs.module_name],
+    command = 'echo "$(head -n 1 %s | sed -e "s/#:module //")" > %s'
+       % (src_file.path, ctx.outputs.module_name.path),
+  )
+
   return [
     yaspl_provider(
       source_file = src_file,
-      input_signatures = input_signatures,
+      module_name_file = ctx.outputs.module_name,
       signature = ctx.outputs.signature,
+      input_signatures = input_signatures,
       transitive_objects = depset(
         direct = [ctx.outputs.object],
         transitive = [dep[yaspl_provider].transitive_objects for dep in ctx.attr.deps]
@@ -118,7 +127,8 @@ yaspl_library = rule(
   implementation = _lib_impl,
   outputs = {
     "object": "%{name}.o",
-    "signature": "%{name}.sig"
+    "signature": "%{name}.sig",
+    "module_name": "%{name}.module_name",
   },
   attrs = {
     "srcs": attr.label_list(
@@ -129,7 +139,7 @@ yaspl_library = rule(
     "deps": attr.label_list(
       providers = [yaspl_provider],
     ),
-    "_library_compiler": _bootstrap_library_compiler
+    "_library_compiler": _bootstrap_library_compiler,
   }
 )
 
@@ -149,7 +159,7 @@ def _yaspl_binary_rule(test):
       "_main_stub": _bootstrap_main_stub,
       "_linker": _bootstrap_linker,
       "_runtime_objects": _yaspl_runtime_objects,
-    }
+    },
   )
 yaspl_binary = _yaspl_binary_rule(False)
 yaspl_prim_test = _yaspl_binary_rule(True)
@@ -166,7 +176,7 @@ yaspl_srcs = rule(
     "deps": attr.label_list(
       providers = [yaspl_src_provider],
     )
-  }
+  },
 )
 
 
