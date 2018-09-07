@@ -40,7 +40,8 @@ def _lib_impl(ctx):
         direct = [ctx.outputs.object],
         transitive = [dep[yaspl_provider].transitive_objects for dep in ctx.attr.deps]
       ),
-    )
+    ),
+    DefaultInfo(files=depset([ctx.outputs.object])),
   ]
 
 def _src_impl(ctx):
@@ -58,7 +59,7 @@ def _src_impl(ctx):
   )
 
   return [
-    yaspl_src_provider(files = transitive_srcs)
+    yaspl_src_provider(files = transitive_srcs),
   ]
 
 def _bin_impl(ctx):
@@ -93,7 +94,9 @@ def _bin_impl(ctx):
     executable = ctx.executable._linker,
     arguments = [args],
   )
-  return []
+  return [
+    DefaultInfo(files=depset([ctx.outputs.executable])),
+  ]
 
 _yaspl_src_file_type = FileType([".yaspl"])
 
