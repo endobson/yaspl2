@@ -137,7 +137,7 @@ yaspl_library = rule(
     "srcs": attr.label_list(
       allow_files=_yaspl_src_file_type,
       mandatory=True,
-      allow_empty=False
+      allow_empty=False,
     ),
     "deps": attr.label_list(
       providers = [yaspl_provider],
