@@ -1,15 +1,14 @@
-load("//libraries:yaspl.bzl", "yaspl_binary", "yaspl_bootstrap_library", "yaspl_library", "yaspl_test")
+load(
+    "//libraries:yaspl.bzl",
+    "yaspl_binary",
+    "yaspl_bootstrap_binary",
+    "yaspl_bootstrap_library",
+    "yaspl_library",
+    "yaspl_test",
+)
 
 package(
     default_visibility = ["//visibility:public"],
-)
-
-filegroup(
-    name = "prim_language_library_compiler_library_files",
-    data = [
-        ":prim-language-library-compiler-main.src.list",
-        ":prim-language-library-compiler-main.srcs",
-    ],
 )
 
 yaspl_binary(
@@ -22,7 +21,7 @@ yaspl_binary(
     deps = [":prim-language-compiler-main"],
 )
 
-yaspl_binary(
+yaspl_bootstrap_binary(
     name = "prim-language-library-compiler",
     deps = [":prim-language-library-compiler-main"],
 )

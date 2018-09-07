@@ -1,44 +1,34 @@
-load(":yaspl.bzl", "yaspl_binary", "yaspl_bootstrap_library", "yaspl_library", "yaspl_test")
+load(
+    ":yaspl.bzl",
+    "yaspl_binary",
+    "yaspl_bootstrap_binary",
+    "yaspl_bootstrap_library",
+    "yaspl_library",
+    "yaspl_test",
+)
 
 package(
     default_visibility = ["//visibility:public"],
 )
 
-filegroup(
-    name = "compiler_library_files",
-    data = [
-        ":compiler-main.src.list",
-        ":compiler-main.srcs",
-    ],
-)
-
-filegroup(
-    name = "library_compiler_library_files",
-    data = [
-        ":library-compiler-main.src.list",
-        ":library-compiler-main.srcs",
-    ],
-)
-
-filegroup(
-    name = "main_stub_library_files",
-    data = [
-        ":main-stub_lib.src.list",
-        ":main-stub_lib.srcs",
-    ],
-)
-
-filegroup(
-    name = "linker_library_files",
-    data = [
-        ":linker-main.src.list",
-        ":linker-main.srcs",
-    ],
-)
-
-yaspl_binary(
+yaspl_bootstrap_binary(
     name = "compiler",
     deps = [":compiler-main"],
+)
+
+yaspl_bootstrap_binary(
+    name = "library-compiler",
+    deps = [":library-compiler-main"],
+)
+
+yaspl_bootstrap_binary(
+    name = "linker",
+    deps = [":linker-main"],
+)
+
+yaspl_bootstrap_binary(
+    name = "main-stub",
+    deps = [":main-stub_lib"],
 )
 
 yaspl_binary(
@@ -49,21 +39,6 @@ yaspl_binary(
 yaspl_binary(
     name = "http-server",
     deps = [":http-server_lib"],
-)
-
-yaspl_binary(
-    name = "library-compiler",
-    deps = [":library-compiler-main"],
-)
-
-yaspl_binary(
-    name = "linker",
-    deps = [":linker-main"],
-)
-
-yaspl_binary(
-    name = "main-stub",
-    deps = [":main-stub_lib"],
 )
 
 yaspl_bootstrap_library(

@@ -238,3 +238,18 @@ def yaspl_bootstrap_library(name, srcs, deps=[]):
     name=name + source_group_suffix,
     data=[src + source_file_suffix for src in srcs],
   )
+
+def yaspl_bootstrap_binary(name, deps=[]):
+  yaspl_binary(
+    name=name,
+    deps=deps,
+  )
+
+  for dep in deps:
+    native.filegroup(
+      name = name + "_library_files",
+      data = [
+           dep + ".src.list",
+           dep + ".srcs",
+      ],
+    )

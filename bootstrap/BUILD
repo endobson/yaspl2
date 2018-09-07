@@ -7,7 +7,7 @@ package(
 racket_binary(
     name = "library-compiler-compiler_bin",
     data = [
-        "//libraries:library_compiler_library_files",
+        "//libraries:library-compiler_library_files",
     ],
     main_module = ":library-compiler-compiler.rkt",
     deps = [":library-compiler-compiler"],
@@ -16,7 +16,7 @@ racket_binary(
 racket_binary(
     name = "main-stub-compiler_bin",
     data = [
-        "//libraries:main_stub_library_files",
+        "//libraries:main-stub_library_files",
     ],
     main_module = ":main-stub-compiler.rkt",
     deps = [":main-stub-compiler"],
@@ -34,7 +34,7 @@ racket_binary(
 racket_binary(
     name = "prim-language-library-compiler-compiler_bin",
     data = [
-        "//libraries/prim-language:prim_language_library_compiler_library_files",
+        "//libraries/prim-language:prim-language-library-compiler_library_files",
     ],
     main_module = ":prim-language-library-compiler-compiler.rkt",
     deps = [":prim-language-library-compiler-compiler"],
