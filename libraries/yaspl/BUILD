@@ -120,7 +120,9 @@ yaspl_bootstrap_library(
     name = "x86-64-runtime",
     srcs = ["x86-64-runtime.yaspl"],
     deps = [
+        ":intermediate-to-register",
         ":x86-64-assembly",
+        "//libraries:top-level-name",
         "//libraries/data:bytes",
         "//libraries/data:join-list",
         "//libraries/data:list",

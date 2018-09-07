@@ -14,19 +14,16 @@ filegroup(
 
 yaspl_binary(
     name = "demo",
-    main_module = "prim_language_demo",
     deps = [":prim-language-demo"],
 )
 
 yaspl_binary(
     name = "prim-language-compiler",
-    main_module = "prim_language_compiler_main",
     deps = [":prim-language-compiler-main"],
 )
 
 yaspl_binary(
     name = "prim-language-library-compiler",
-    main_module = "prim_language_library_compiler_main",
     deps = [":prim-language-library-compiler-main"],
 )
 
@@ -62,7 +59,6 @@ yaspl_bootstrap_library(
 yaspl_test(
     name = "color-graph-test",
     srcs = ["color-graph-test.yaspl"],
-    main_module = "color_graph_test",
     deps = [
         ":color-graph",
         ":lower-x86-64",
@@ -104,7 +100,6 @@ yaspl_bootstrap_library(
 yaspl_test(
     name = "lower-x86-64-test",
     srcs = ["lower-x86-64-test.yaspl"],
-    main_module = "lower_x86_64_test",
     deps = [
         ":lower-x86-64",
         "//libraries:yunit",

@@ -19,7 +19,6 @@ wasm_demo_page(
 
 yaspl_binary(
     name = "web-assembly-test",
-    main_module = "web_assembly_test",
     deps = [":web-assembly-test_lib"],
 )
 

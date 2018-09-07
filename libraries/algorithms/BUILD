@@ -18,7 +18,6 @@ yaspl_bootstrap_library(
 yaspl_test(
     name = "depth-first-search-test",
     srcs = ["depth-first-search-test.yaspl"],
-    main_module = "depth_first_search_test",
     deps = [
         ":depth-first-search",
         "//libraries:yunit",

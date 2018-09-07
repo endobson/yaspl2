@@ -7,37 +7,31 @@ package(
 
 yaspl_binary(
     name = "rewrite-imports",
-    main_module = "tools_rewrite_imports",
     deps = [":rewrite-imports-main"],
 )
 
 yaspl_binary(
     name = "aspect-linter",
-    main_module = "tools_aspect_linter_main",
     deps = [":aspect-linter-main"],
 )
 
 yaspl_binary(
     name = "aspect-analysis",
-    main_module = "tools_aspect_analysis_main",
     deps = [":aspect-analysis-main"],
 )
 
 yaspl_binary(
     name = "aspect-missing-imports",
-    main_module = "tools_aspect_missing_imports_main",
     deps = [":aspect-missing-imports-main"],
 )
 
 yaspl_binary(
     name = "ir-printer",
-    main_module = "tools_ir_printer_main",
     deps = [":ir-printer-main"],
 )
 
 yaspl_binary(
     name = "intermediate-html-printer",
-    main_module = "tools_intermediate_html_printer_main",
     deps = [":intermediate-html-printer-main"],
 )
 

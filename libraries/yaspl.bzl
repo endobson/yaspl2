@@ -63,21 +63,26 @@ def _src_impl(ctx):
   ]
 
 def _bin_impl(ctx):
-  ctx.action(
-    inputs = [ctx.executable._main_stub],
+  if (len(ctx.attr.deps) != 1):
+    fail("Only one dep is supported", "deps")
+  dep = ctx.attr.deps[0]
+
+  ctx.actions.run_shell(
+    inputs = [dep[yaspl_provider].module_name_file],
+    tools = [ctx.executable._main_stub],
     outputs = [ctx.outputs.main_stub_object],
     mnemonic = "YasplGenerateMain",
-    executable = ctx.executable._main_stub,
-    arguments = [
+    command = '%s %s "$(cat %s)"' % (
+      ctx.executable._main_stub.path,
       ctx.outputs.main_stub_object.path,
-      ctx.attr.main_module,
-    ]
+      dep[yaspl_provider].module_name_file.path,
+    )
   )
 
   input_objects = depset(
     direct = [ctx.outputs.main_stub_object],
-    transitive = [ctx.attr._runtime_objects.files] +
-                 [dep[yaspl_provider].transitive_objects for dep in ctx.attr.deps],
+    transitive = [ctx.attr._runtime_objects.files,
+                  dep[yaspl_provider].transitive_objects],
   )
 
   args = ctx.actions.args()
@@ -85,10 +90,8 @@ def _bin_impl(ctx):
   args.add_all(input_objects)
 
   ctx.actions.run(
-    inputs = depset(
-      direct = [ctx.executable._linker],
-      transitive = [input_objects],
-    ),
+    inputs = input_objects,
+    tools = [ctx.executable._linker],
     outputs = [ctx.outputs.executable],
     mnemonic = "YasplLink",
     executable = ctx.executable._linker,
@@ -155,7 +158,6 @@ def _yaspl_binary_rule(test):
     executable = True,
     test = test,
     attrs = {
-      "main_module": attr.string(mandatory=True),
       "deps": attr.label_list(
         providers = [yaspl_provider],
       ),
@@ -183,7 +185,7 @@ yaspl_srcs = rule(
 )
 
 
-def yaspl_test(name, main_module, srcs=[], deps=[], size="medium"):
+def yaspl_test(name, srcs=[], deps=[], size="medium"):
   yaspl_library(
     # TODO make this testonly once aspects work better
     name = name + "_lib",
@@ -193,7 +195,6 @@ def yaspl_test(name, main_module, srcs=[], deps=[], size="medium"):
 
   yaspl_prim_test(
     name = name,
-    main_module = main_module,
     deps = [name + "_lib"],
     size = size,
     # TODO make this testonly once aspects work better

@@ -17,7 +17,6 @@ yaspl_bootstrap_library(
 yaspl_test(
     name = "aligned-bytes-test",
     srcs = ["aligned-bytes-test.yaspl"],
-    main_module = "aligned_bytes_test",
     deps = [
         ":aligned-bytes",
         ":bytes",
@@ -57,7 +56,6 @@ yaspl_library(
 
 yaspl_binary(
     name = "assoc-test-driver",
-    main_module = "data_assoc_test_driver_main",
     deps = [
         ":assoc-test-driver-main",
     ],
@@ -76,7 +74,6 @@ yaspl_bootstrap_library(
 yaspl_test(
     name = "bytes-test",
     srcs = ["bytes-test.yaspl"],
-    main_module = "bytes_test",
     deps = [
         ":bytes",
         ":list",
@@ -103,7 +100,6 @@ yaspl_bootstrap_library(
 yaspl_test(
     name = "dict-test",
     srcs = ["dict-test.yaspl"],
-    main_module = "dict_test",
     deps = [
         ":bytes",
         ":dict",
@@ -171,7 +167,6 @@ yaspl_bootstrap_library(
 yaspl_test(
     name = "list-test",
     srcs = ["list-test.yaspl"],
-    main_module = "list_test",
     deps = [
         ":bytes",
         ":lifted-primitives",
@@ -190,7 +185,6 @@ yaspl_bootstrap_library(
 yaspl_test(
     name = "maybe-test",
     srcs = ["maybe-test.yaspl"],
-    main_module = "maybe_test",
     deps = [
         ":bytes",
         ":list",
@@ -245,7 +239,6 @@ yaspl_test(
     name = "red-black-tree-test",
     size = "small",
     srcs = ["red-black-tree-test.yaspl"],
-    main_module = "data_red_black_tree_test",
     deps = [
         ":bytes",
         ":list",
@@ -272,7 +265,6 @@ yaspl_test(
     name = "regexp-test",
     size = "small",
     srcs = ["regexp-test.yaspl"],
-    main_module = "regexp_test",
     deps = [
         ":list",
         ":maybe",
@@ -309,7 +301,6 @@ yaspl_test(
     name = "set-test",
     size = "small",
     srcs = ["set-test.yaspl"],
-    main_module = "set_test",
     deps = [
         ":bytes",
         ":list",
@@ -329,7 +320,6 @@ yaspl_bootstrap_library(
 yaspl_test(
     name = "tuples-test",
     srcs = ["tuples-test.yaspl"],
-    main_module = "tuples_test",
     deps = [
         ":bytes",
         ":list",

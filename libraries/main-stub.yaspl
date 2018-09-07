@@ -1,12 +1,16 @@
 #:module (main-stub)
 #:import {
   (assembler)
-  (bytes)
+  (either)
   (io)
   (list)
   (mach-o-writer)
+  (maybe)
+  (module-name)
   (prim)
   (prim-implementation)
+  (sexp-parser)
+  (top-level-name)
   (x86-64-runtime)
   (yaspl top-level-object-optimizer)
   (yaspl top-level-objects-to-x86-64)
@@ -32,12 +36,24 @@
           (begin
             (write-line #"No module name supplied" stderr)
             1)
-          (case (append-fragments
-                  (yaspl-runtime (bytes-append (varargs list (array-ref args 2) #"_main")))
-                  (convert-objects (optimize-tlos (prim-implementation))))
-            [(assembly-fragments text-fragments const-fragments)
-             (match-define text-section (assemble-text-section text-fragments))
-             (match-define const-section (assemble-const-section const-fragments))
+          (case (parse-single-sexp (array-ref args 2))
+            [(left v)
              (begin
-               (write-mach-o-library text-section const-section (array-ref args 1))
-               0)]))))
+               (write-line #"Unparseable module name sexp" stderr)
+               1)]
+            [(right v)
+             (case (sexp->mod-name v)
+               [(nothing)
+                (begin
+                  (write-line #"Unparseable module name" stderr)
+                  1)]
+               [(just mod-name)
+                (case (append-fragments
+                        (yaspl-runtime (top-level-name mod-name #"main"))
+                        (convert-objects (optimize-tlos (prim-implementation))))
+                  [(assembly-fragments text-fragments const-fragments)
+                   (match-define text-section (assemble-text-section text-fragments))
+                   (match-define const-section (assemble-const-section const-fragments))
+                   (begin
+                     (write-mach-o-library text-section const-section (array-ref args 1))
+                     0)])])]))))

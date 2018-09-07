@@ -38,37 +38,31 @@ filegroup(
 
 yaspl_binary(
     name = "compiler",
-    main_module = "compiler_main",
     deps = [":compiler-main"],
 )
 
 yaspl_binary(
     name = "code-http-server",
-    main_module = "code_http_server",
     deps = [":code-http-server_lib"],
 )
 
 yaspl_binary(
     name = "http-server",
-    main_module = "http_server",
     deps = [":http-server_lib"],
 )
 
 yaspl_binary(
     name = "library-compiler",
-    main_module = "library_compiler_main",
     deps = [":library-compiler-main"],
 )
 
 yaspl_binary(
     name = "linker",
-    main_module = "linker_main",
     deps = [":linker-main"],
 )
 
 yaspl_binary(
     name = "main-stub",
-    main_module = "main_stub",
     deps = [":main-stub_lib"],
 )
 
@@ -118,7 +112,6 @@ yaspl_test(
     name = "byte-escapes-test",
     size = "small",
     srcs = ["byte-escapes-test.yaspl"],
-    main_module = "byte_escapes_test",
     deps = [
         ":byte-escapes",
         ":yunit",
@@ -149,7 +142,6 @@ yaspl_test(
     name = "fill-stack-test",
     size = "small",
     srcs = ["fill-stack-test.yaspl"],
-    main_module = "fill_stack_test",
     deps = [
         ":io",
         ":stack-trace",
@@ -163,6 +155,8 @@ yaspl_bootstrap_library(
     deps = [
         ":compiler_lib",
         ":io",
+        ":module-name",
+        ":top-level-name",
         "//libraries/data:bytes",
         "//libraries/data:either",
         "//libraries/data:list",
@@ -357,7 +351,6 @@ yaspl_test(
     name = "large-function-test",
     size = "small",
     srcs = ["large-function-test.yaspl"],
-    main_module = "large_function_test",
     deps = [
         ":yunit",
         "//libraries/data:list",
@@ -380,7 +373,6 @@ yaspl_test(
     name = "lexer-test",
     size = "small",
     srcs = ["lexer-test.yaspl"],
-    main_module = "lexer_test",
     deps = [
         ":lexer",
         ":yunit",
@@ -559,9 +551,13 @@ yaspl_bootstrap_library(
         ":assembler",
         ":io",
         ":mach-o-writer",
+        ":module-name",
         ":prim-implementation",
-        "//libraries/data:bytes",
+        ":sexp-parser",
+        ":top-level-name",
+        "//libraries/data:either",
         "//libraries/data:list",
+        "//libraries/data:maybe",
         "//libraries/yaspl:top-level-object-optimizer",
         "//libraries/yaspl:top-level-objects-to-x86-64",
         "//libraries/yaspl:x86-64-assembly",
@@ -616,7 +612,6 @@ yaspl_bootstrap_library(
 yaspl_test(
     name = "module-signature-serialization-test",
     srcs = ["module-signature-serialization-test.yaspl"],
-    main_module = "module_signature_serialization_test",
     deps = [
         ":module-name",
         ":module-signature",
@@ -687,7 +682,6 @@ yaspl_bootstrap_library(
 yaspl_test(
     name = "pretty-print-test",
     srcs = ["pretty-print-test.yaspl"],
-    main_module = "pretty_print_test",
     deps = [
         ":pretty-print",
         ":yunit",
@@ -722,7 +716,6 @@ yaspl_test(
     name = "resolved-imports-language-test",
     size = "small",
     srcs = ["resolved-imports-language-test.yaspl"],
-    main_module = "resolved_imports_language_test",
     deps = [
         ":module-name",
         ":module-signature",
@@ -795,7 +788,6 @@ yaspl_test(
     name = "sexp-parser-test",
     size = "small",
     srcs = ["sexp-parser-test.yaspl"],
-    main_module = "sexp_parser_test",
     deps = [
         ":sexp-parser",
         ":yunit",
@@ -821,7 +813,6 @@ yaspl_test(
     name = "sexp-printer-test",
     size = "small",
     srcs = ["sexp-printer-test.yaspl"],
-    main_module = "sexp_printer_test",
     deps = [
         ":sexp-parser",
         ":sexp-printer",
@@ -867,7 +858,6 @@ yaspl_test(
     name = "source-grammar-test",
     size = "small",
     srcs = ["source-grammar-test.yaspl"],
-    main_module = "source_grammar_test",
     deps = [
         ":grammar-parser",
         ":source-grammar",
@@ -895,7 +885,6 @@ yaspl_test(
     name = "source-language-test",
     size = "small",
     srcs = ["source-language-test.yaspl"],
-    main_module = "source_language_test",
     deps = [
         ":sexp-parser",
         ":source-language",
@@ -952,7 +941,6 @@ yaspl_test(
     name = "tail-call-test",
     size = "small",
     srcs = ["tail-call-test.yaspl"],
-    main_module = "tail_call_test",
     deps = [
         ":yunit",
         "//libraries/data:list",
@@ -1013,7 +1001,6 @@ yaspl_bootstrap_library(
 yaspl_test(
     name = "types-test",
     srcs = ["types-test.yaspl"],
-    main_module = "types_test",
     deps = [
         ":module-name",
         ":types",
@@ -1087,7 +1074,6 @@ yaspl_bootstrap_library(
 yaspl_test(
     name = "type-checker-test",
     srcs = ["type-checker-test.yaspl"],
-    main_module = "type_checker_test",
     deps = [
         ":resolved-types-language",
         ":type-checker",
@@ -1128,7 +1114,6 @@ yaspl_bootstrap_library(
 yaspl_test(
     name = "type-unification-test",
     srcs = ["type-unification-test.yaspl"],
-    main_module = "type_unification_test",
     deps = [
         ":module-name",
         ":type-unification",

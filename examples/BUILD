@@ -6,7 +6,6 @@ package(
 
 yaspl_binary(
     name = "hello-world",
-    main_module = "hello_world",
     deps = [":hello-world_lib"],
 )
 
@@ -18,7 +17,6 @@ yaspl_library(
 
 yaspl_binary(
     name = "elf-file",
-    main_module = "elf_file",
     deps = [":elf-file_lib"],
 )
 
@@ -36,7 +34,6 @@ yaspl_library(
 
 yaspl_binary(
     name = "env",
-    main_module = "env",
     deps = [":env_lib"],
 )
 
@@ -51,7 +48,6 @@ yaspl_library(
 
 yaspl_binary(
     name = "thread-example",
-    main_module = "thread_example",
     deps = [":thread-example_lib"],
 )
 
@@ -66,7 +62,6 @@ yaspl_library(
 
 yaspl_binary(
     name = "true",
-    main_module = "true",
     deps = [":true_lib"],
 )
 
@@ -78,7 +73,6 @@ yaspl_library(
 
 yaspl_binary(
     name = "wc",
-    main_module = "wc",
     deps = [":wc_lib"],
 )
 
@@ -92,7 +86,6 @@ yaspl_library(
 
 yaspl_binary(
     name = "udp-echo-server",
-    main_module = "udp_echo_server",
     deps = [":udp-echo-server_lib"],
 )
 

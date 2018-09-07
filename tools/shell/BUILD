@@ -6,7 +6,6 @@ package(
 
 yaspl_binary(
     name = "shell",
-    main_module = "tools_shell_shell_main",
     deps = [
         ":shell-main",
     ],
