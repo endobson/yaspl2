@@ -1,4 +1,6 @@
 load("//libraries:yaspl.bzl", "yaspl_provider")
+load(":yaspl-transitive-rules.bzl", "transitivify_impl", "transitive_attrs",
+     "concat_files_impl", "concat_attrs")
 
 yaspl_missing_imports_provider = provider(fields=["files"])
 
@@ -20,42 +22,14 @@ def _yaspl_library_missing_imports_impl(target, ctx):
           output_file.path),
      arguments = [file.path for file in deps_module_name_files],
   )
-  local_provider = yaspl_missing_imports_provider(files=depset([output_file]))
-
-  return [_merge_providers([local_provider] +_extract_providers(ctx.rule.attr.deps))]
-
-
-def _yaspl_binary_missing_imports_impl(target, ctx):
-  return [_merge_providers(_extract_providers(ctx.rule.attr.deps))]
-
-def _test_suite_missing_imports_impl(target, ctx):
-  return [_merge_providers(_extract_providers(ctx.rule.attr.tests))]
-
-def _filegroup_missing_imports_impl(target, ctx):
-  return [_merge_providers(_extract_providers(ctx.rule.attr.srcs))]
-
-def _merge_providers(providers):
-  files = depset(transitive=[p.files for p in providers])
-  return yaspl_missing_imports_provider(files = files)
-def _extract_providers(objs):
-  return [obj[yaspl_missing_imports_provider] for obj in objs]
+  return yaspl_missing_imports_provider(files=depset([output_file]))
 
 def _yaspl_missing_imports_impl(target, ctx):
-  kind = ctx.rule.kind 
-  if (kind == "yaspl_library"):
-    return _yaspl_library_missing_imports_impl(target, ctx)
-  elif (kind == "yaspl_binary"):
-    return _yaspl_binary_missing_imports_impl(target, ctx)
-  elif (kind == "test_suite"):
-    return _test_suite_missing_imports_impl(target, ctx)
-  elif (kind == "filegroup"):
-    return _filegroup_missing_imports_impl(target, ctx)
-  else:
-    fail("Unknown rule kind")
+  return [transitivify_impl(target, ctx, _yaspl_library_missing_imports_impl, yaspl_missing_imports_provider)]
 
 yaspl_missing_imports = aspect(
   implementation = _yaspl_missing_imports_impl,
-  attr_aspects = ["tests", "srcs", "deps"],
+  attr_aspects = transitive_attrs,
   provides = [yaspl_missing_imports_provider],
   attrs = {
     "_missing_imports": attr.label(
@@ -69,27 +43,15 @@ yaspl_missing_imports = aspect(
        allow_single_file=True,
     ),
   }
-
 )
 
 def _yaspl_missing_imports_rule_impl(ctx):
-  args = ctx.actions.args()
-  index_file_parts = depset(transitive=[d[yaspl_missing_imports_provider].files for d in ctx.attr.deps])
-  args.add_all(index_file_parts)
-  ctx.actions.run_shell(
-     outputs = [ctx.outputs.index],
-     inputs = index_file_parts,
-     command = "cat >%s $@" % ctx.outputs.index.path,
-     arguments = [args]
-  )
-  return []
+  return concat_files_impl(ctx, yaspl_missing_imports_provider)
 
 yaspl_missing_imports_rule = rule(
   implementation = _yaspl_missing_imports_rule_impl,
-  attrs = {
-    "deps": attr.label_list(aspects=[yaspl_missing_imports])
-  },
+  attrs = concat_attrs(yaspl_missing_imports),
   outputs = {
-    "index": "%{name}.missing_imports"
+    "combined": "%{name}.missing_imports"
   },
 )
