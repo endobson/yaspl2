@@ -180,7 +180,6 @@ yaspl_library(
         ":mach-o",
         "//libraries/data:bytes",
         "//libraries/data:either",
-        "//libraries/data:lifted-primitives",
         "//libraries/data:list",
         "//libraries/data:maybe",
         "//libraries/data:numbers",
