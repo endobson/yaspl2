@@ -166,7 +166,7 @@ def _yaspl_binary_rule(test):
       "_runtime_objects": _yaspl_runtime_objects,
     },
   )
-yaspl_binary = _yaspl_binary_rule(False)
+yaspl_prim_binary = _yaspl_binary_rule(False)
 yaspl_prim_test = _yaspl_binary_rule(True)
 
 yaspl_srcs = rule(
@@ -201,6 +201,18 @@ def yaspl_test(name, srcs=[], deps=[], size="medium"):
     testonly = 0,
   )
 
+def yaspl_binary(name, srcs=[], deps=[]):
+  # TODO claim lib suffix here
+  yaspl_library(
+    name = name + "_mainlib",
+    srcs = srcs,
+    deps = deps,
+  )
+
+  yaspl_prim_binary(
+    name = name,
+    deps = [name + "_mainlib"],
+  )
 
 def _relative_label(label_string, suffix):
   if label_string.startswith("//"):
@@ -211,13 +223,7 @@ def _relative_label(label_string, suffix):
   else:
     fail("Label is not valid: " + label_string)
 
-def yaspl_bootstrap_library(name, srcs, deps=[]):
-  yaspl_library(
-    name=name,
-    srcs=srcs,
-    deps=deps,
-  )
-
+def _bootstrap_inner(name, srcs, deps):
   yaspl_srcs(
     name=name + ".src",
     srcs=srcs,
@@ -239,17 +245,27 @@ def yaspl_bootstrap_library(name, srcs, deps=[]):
     data=[src + source_file_suffix for src in srcs],
   )
 
-def yaspl_bootstrap_binary(name, deps=[]):
+def yaspl_bootstrap_library(name, srcs, deps=[]):
+  yaspl_library(
+    name=name,
+    srcs=srcs,
+    deps=deps,
+  )
+  _bootstrap_inner(name, srcs, deps)
+
+def yaspl_bootstrap_binary(name, srcs=[], deps=[]):
   yaspl_binary(
     name=name,
+    srcs=srcs,
     deps=deps,
   )
 
-  for dep in deps:
-    native.filegroup(
-      name = name + "_library_files",
-      data = [
-           dep + ".src.list",
-           dep + ".srcs",
-      ],
-    )
+  _bootstrap_inner(name, srcs, deps)
+
+  native.filegroup(
+    name = name + "_library_files",
+    data = [
+         name + ".src.list",
+         name + ".srcs",
+    ],
+  )

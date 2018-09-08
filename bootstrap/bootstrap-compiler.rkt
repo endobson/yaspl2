@@ -10,7 +10,7 @@
 (provide
   run-bootstrap-compiler)
 
-(define-runtime-path compiler-list-file "../libraries/compiler-main.src.list")
+(define-runtime-path compiler-list-file "../libraries/compiler.src.list")
 (define-runtime-path src-root "..")
 
 (define (run-bootstrap-compiler file-list-file main-function)

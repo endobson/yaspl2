@@ -13,27 +13,109 @@ package(
 
 yaspl_bootstrap_binary(
     name = "compiler",
-    deps = [":compiler-main"],
+    srcs = ["compiler-main.yaspl"],
+    deps = [
+        ":compiler_lib",
+        ":io",
+        ":module-name",
+        ":top-level-name",
+        "//libraries/data:bytes",
+        "//libraries/data:either",
+        "//libraries/data:list",
+        "//libraries/data:tuples",
+        "//libraries/prim-language:prim-language-compiler_lib",
+        "//libraries/yaspl:top-level-objects-to-x86-64",
+        "//libraries/yaspl:x86-64-assembly",
+        "//libraries/yaspl:x86-64-assembly-printer",
+        "//libraries/yaspl:x86-64-runtime",
+    ],
 )
 
 yaspl_bootstrap_binary(
     name = "library-compiler",
-    deps = [":library-compiler-main"],
+    srcs = ["library-compiler-main.yaspl"],
+    deps = [
+        ":assembler",
+        ":compiler_lib",
+        ":io",
+        ":mach-o-writer",
+        ":module-signature-serialization",
+        "//libraries/data:either",
+        "//libraries/data:list",
+        "//libraries/data:tuples",
+        "//libraries/yaspl:top-level-objects-to-x86-64",
+        "//libraries/yaspl:x86-64-assembly",
+    ],
 )
 
 yaspl_bootstrap_binary(
     name = "linker",
-    deps = [":linker-main"],
+    srcs = ["linker-main.yaspl"],
+    deps = [
+        ":io",
+        ":linker_lib",
+        ":mach-o",
+        ":mach-o-writer",
+        ":structured-native-code",
+        "//libraries/data:either",
+        "//libraries/data:list",
+        "//libraries/data:maybe",
+    ],
 )
 
 yaspl_bootstrap_binary(
     name = "main-stub",
-    deps = [":main-stub_lib"],
+    srcs = ["main-stub.yaspl"],
+    deps = [
+        ":assembler",
+        ":io",
+        ":mach-o-writer",
+        ":module-name",
+        ":prim-implementation",
+        ":sexp-parser",
+        ":top-level-name",
+        "//libraries/data:either",
+        "//libraries/data:list",
+        "//libraries/data:maybe",
+        "//libraries/yaspl:top-level-object-optimizer",
+        "//libraries/yaspl:top-level-objects-to-x86-64",
+        "//libraries/yaspl:x86-64-assembly",
+        "//libraries/yaspl:x86-64-runtime",
+    ],
 )
 
 yaspl_binary(
     name = "code-http-server",
-    deps = [":code-http-server_lib"],
+    srcs = ["code-http-server.yaspl"],
+    deps = [
+        ":compiler_lib",
+        ":http-server",
+        ":io",
+        ":ip",
+        ":panic",
+        ":tcp",
+        "//libraries/algorithms:depth-first-search",
+        "//libraries/data:bytes",
+        "//libraries/data:dict",
+        "//libraries/data:either",
+        "//libraries/data:indexed-set",
+        "//libraries/data:join-list",
+        "//libraries/data:lifted-primitives",
+        "//libraries/data:list",
+        "//libraries/data:maybe",
+        "//libraries/data:numbers",
+        "//libraries/data:tuples",
+        "//libraries/formats:html",
+        "//libraries/formats:svg",
+        "//libraries/formats:xml",
+        "//libraries/prim-language:block-number",
+        "//libraries/prim-language:print-register-language",
+        "//libraries/prim-language:register-language",
+        "//libraries/yaspl:top-level-objects",
+        "//libraries/yaspl:top-level-objects-to-x86-64",
+        "//libraries/yaspl:x86-64-assembly",
+        "//libraries/yaspl:x86-64-assembly-printer",
+    ],
 )
 
 yaspl_bootstrap_library(
@@ -119,41 +201,6 @@ yaspl_test(
     ],
 )
 
-yaspl_bootstrap_library(
-    name = "compiler-main",
-    srcs = ["compiler-main.yaspl"],
-    deps = [
-        ":compiler_lib",
-        ":io",
-        ":module-name",
-        ":top-level-name",
-        "//libraries/data:bytes",
-        "//libraries/data:either",
-        "//libraries/data:list",
-        "//libraries/data:tuples",
-        "//libraries/prim-language:prim-language-compiler_lib",
-        "//libraries/yaspl:top-level-objects-to-x86-64",
-        "//libraries/yaspl:x86-64-assembly",
-        "//libraries/yaspl:x86-64-assembly-printer",
-        "//libraries/yaspl:x86-64-runtime",
-    ],
-)
-
-yaspl_bootstrap_library(
-    name = "linker-main",
-    srcs = ["linker-main.yaspl"],
-    deps = [
-        ":io",
-        ":linker_lib",
-        ":mach-o",
-        ":mach-o-writer",
-        ":structured-native-code",
-        "//libraries/data:either",
-        "//libraries/data:list",
-        "//libraries/data:maybe",
-    ],
-)
-
 yaspl_library(
     name = "module-header-lint",
     srcs = ["module-header-lint.yaspl"],
@@ -188,40 +235,6 @@ yaspl_bootstrap_library(
         "//libraries/data:maybe",
         "//libraries/data:set",
         "//libraries/data:tuples",
-    ],
-)
-
-yaspl_library(
-    name = "code-http-server_lib",
-    srcs = ["code-http-server.yaspl"],
-    deps = [
-        ":compiler_lib",
-        ":http-server",
-        ":io",
-        ":ip",
-        ":panic",
-        ":tcp",
-        "//libraries/algorithms:depth-first-search",
-        "//libraries/data:bytes",
-        "//libraries/data:dict",
-        "//libraries/data:either",
-        "//libraries/data:indexed-set",
-        "//libraries/data:join-list",
-        "//libraries/data:lifted-primitives",
-        "//libraries/data:list",
-        "//libraries/data:maybe",
-        "//libraries/data:numbers",
-        "//libraries/data:tuples",
-        "//libraries/formats:html",
-        "//libraries/formats:svg",
-        "//libraries/formats:xml",
-        "//libraries/prim-language:block-number",
-        "//libraries/prim-language:print-register-language",
-        "//libraries/prim-language:register-language",
-        "//libraries/yaspl:top-level-objects",
-        "//libraries/yaspl:top-level-objects-to-x86-64",
-        "//libraries/yaspl:x86-64-assembly",
-        "//libraries/yaspl:x86-64-assembly-printer",
     ],
 )
 
@@ -345,23 +358,6 @@ yaspl_test(
         ":yunit",
         "//libraries/data:list",
         "//libraries/data:maybe",
-    ],
-)
-
-yaspl_bootstrap_library(
-    name = "library-compiler-main",
-    srcs = ["library-compiler-main.yaspl"],
-    deps = [
-        ":assembler",
-        ":compiler_lib",
-        ":io",
-        ":mach-o-writer",
-        ":module-signature-serialization",
-        "//libraries/data:either",
-        "//libraries/data:list",
-        "//libraries/data:tuples",
-        "//libraries/yaspl:top-level-objects-to-x86-64",
-        "//libraries/yaspl:x86-64-assembly",
     ],
 )
 
@@ -508,27 +504,6 @@ yaspl_bootstrap_library(
         "//libraries/data:maybe",
         "//libraries/data:numbers",
         "//libraries/data:set",
-    ],
-)
-
-yaspl_bootstrap_library(
-    name = "main-stub_lib",
-    srcs = ["main-stub.yaspl"],
-    deps = [
-        ":assembler",
-        ":io",
-        ":mach-o-writer",
-        ":module-name",
-        ":prim-implementation",
-        ":sexp-parser",
-        ":top-level-name",
-        "//libraries/data:either",
-        "//libraries/data:list",
-        "//libraries/data:maybe",
-        "//libraries/yaspl:top-level-object-optimizer",
-        "//libraries/yaspl:top-level-objects-to-x86-64",
-        "//libraries/yaspl:x86-64-assembly",
-        "//libraries/yaspl:x86-64-runtime",
     ],
 )
 

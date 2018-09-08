@@ -11,7 +11,7 @@ def transitivify_impl(target, ctx, impl, p):
   kind = ctx.rule.kind
   if (kind == "yaspl_library"):
     return _merge_providers([_merge_fields(ctx, ["deps"], p), impl(target, ctx)], p)
-  elif (kind == "yaspl_binary"):
+  elif (kind == "yaspl_prim_binary"):
     return _merge_fields(ctx, ["deps"], p)
   elif (kind == "test_suite"):
     return _merge_fields(ctx, ["tests"], p)

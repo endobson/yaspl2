@@ -1,4 +1,4 @@
-load("//libraries:yaspl.bzl", "yaspl_binary", "yaspl_library")
+load("//libraries:yaspl.bzl", "yaspl_binary")
 
 package(
     default_visibility = ["//visibility:public"],
@@ -6,22 +6,12 @@ package(
 
 yaspl_binary(
     name = "hello-world",
-    deps = [":hello-world_lib"],
-)
-
-yaspl_library(
-    name = "hello-world_lib",
     srcs = ["hello-world.yaspl"],
     deps = [],
 )
 
 yaspl_binary(
     name = "elf-file",
-    deps = [":elf-file_lib"],
-)
-
-yaspl_library(
-    name = "elf-file_lib",
     srcs = ["elf-file.yaspl"],
     deps = [
         "//libraries:io",
@@ -34,11 +24,6 @@ yaspl_library(
 
 yaspl_binary(
     name = "env",
-    deps = [":env_lib"],
-)
-
-yaspl_library(
-    name = "env_lib",
     srcs = ["env.yaspl"],
     deps = [
         "//libraries:io",
@@ -48,11 +33,6 @@ yaspl_library(
 
 yaspl_binary(
     name = "http-echo-server",
-    deps = [":http-echo-server_lib"],
-)
-
-yaspl_library(
-    name = "http-echo-server_lib",
     srcs = ["http-echo-server.yaspl"],
     deps = [
         "//libraries:http-server",
@@ -69,11 +49,6 @@ yaspl_library(
 
 yaspl_binary(
     name = "thread-example",
-    deps = [":thread-example_lib"],
-)
-
-yaspl_library(
-    name = "thread-example_lib",
     srcs = ["thread-example.yaspl"],
     deps = [
         "//libraries:io",
@@ -83,22 +58,12 @@ yaspl_library(
 
 yaspl_binary(
     name = "true",
-    deps = [":true_lib"],
-)
-
-yaspl_library(
-    name = "true_lib",
     srcs = ["true.yaspl"],
     deps = [],
 )
 
 yaspl_binary(
     name = "wc",
-    deps = [":wc_lib"],
-)
-
-yaspl_library(
-    name = "wc_lib",
     srcs = ["wc.yaspl"],
     deps = [
         "//libraries/data:numbers",
@@ -107,11 +72,6 @@ yaspl_library(
 
 yaspl_binary(
     name = "udp-echo-server",
-    deps = [":udp-echo-server_lib"],
-)
-
-yaspl_library(
-    name = "udp-echo-server_lib",
     srcs = ["udp-echo-server.yaspl"],
     deps = [
         "//libraries:io",

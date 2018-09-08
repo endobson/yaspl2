@@ -1,4 +1,4 @@
-load("//libraries:yaspl.bzl", "yaspl_binary", "yaspl_library")
+load("//libraries:yaspl.bzl", "yaspl_binary")
 
 package(
     default_visibility = ["//visibility:public"],
@@ -6,13 +6,6 @@ package(
 
 yaspl_binary(
     name = "shell",
-    deps = [
-        ":shell-main",
-    ],
-)
-
-yaspl_library(
-    name = "shell-main",
     srcs = ["shell-main.yaspl"],
     deps = [
         "//libraries:io",

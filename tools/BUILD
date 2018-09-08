@@ -5,53 +5,6 @@ package(
     default_visibility = ["//visibility:public"],
 )
 
-yaspl_binary(
-    name = "rewrite-imports",
-    deps = [":rewrite-imports-main"],
-)
-
-yaspl_binary(
-    name = "aspect-linter",
-    deps = [":aspect-linter-main"],
-)
-
-yaspl_binary(
-    name = "aspect-analysis",
-    deps = [":aspect-analysis-main"],
-)
-
-yaspl_binary(
-    name = "aspect-missing-imports",
-    deps = [":aspect-missing-imports-main"],
-)
-
-yaspl_binary(
-    name = "ir-printer",
-    deps = [":ir-printer-main"],
-)
-
-yaspl_binary(
-    name = "intermediate-html-printer",
-    deps = [":intermediate-html-printer-main"],
-)
-
-racket_binary(
-    name = "fs-event",
-    main_module = ":fs-event-main.rkt",
-    deps = [":fs-event-main"],
-)
-
-yaspl_library(
-    name = "aspect-linter-main",
-    srcs = ["aspect-linter-main.yaspl"],
-    deps = [
-        ":command-line",
-        ":linter_lib",
-        "//libraries/data:either",
-        "//libraries/data:list",
-    ],
-)
-
 yaspl_library(
     name = "analysis",
     srcs = ["analysis.yaspl"],
@@ -65,8 +18,8 @@ yaspl_library(
     ],
 )
 
-yaspl_library(
-    name = "aspect-analysis-main",
+yaspl_binary(
+    name = "aspect-analysis",
     srcs = ["aspect-analysis-main.yaspl"],
     deps = [
         ":analysis",
@@ -76,18 +29,19 @@ yaspl_library(
     ],
 )
 
-yaspl_library(
-    name = "command-line",
-    srcs = ["command-line.yaspl"],
+yaspl_binary(
+    name = "aspect-linter",
+    srcs = ["aspect-linter-main.yaspl"],
     deps = [
-        "//libraries:io",
+        ":command-line",
+        ":linter_lib",
         "//libraries/data:either",
         "//libraries/data:list",
     ],
 )
 
-yaspl_library(
-    name = "aspect-missing-imports-main",
+yaspl_binary(
+    name = "aspect-missing-imports",
     srcs = ["aspect-missing-imports-main.yaspl"],
     deps = [
         "//libraries:io",
@@ -102,6 +56,16 @@ yaspl_library(
         "//libraries/data:list",
         "//libraries/data:maybe",
         "//libraries/data:set",
+    ],
+)
+
+yaspl_library(
+    name = "command-line",
+    srcs = ["command-line.yaspl"],
+    deps = [
+        "//libraries:io",
+        "//libraries/data:either",
+        "//libraries/data:list",
     ],
 )
 
@@ -123,8 +87,14 @@ racket_library(
     srcs = ["fs-event-main.rkt"],
 )
 
-yaspl_library(
-    name = "intermediate-html-printer-main",
+racket_binary(
+    name = "fs-event",
+    main_module = ":fs-event-main.rkt",
+    deps = [":fs-event-main"],
+)
+
+yaspl_binary(
+    name = "intermediate-html-printer",
     srcs = ["intermediate-html-printer-main.yaspl"],
     deps = [
         ":compile-module-args",
@@ -145,8 +115,8 @@ yaspl_library(
     ],
 )
 
-yaspl_library(
-    name = "ir-printer-main",
+yaspl_binary(
+    name = "ir-printer",
     srcs = ["ir-printer-main.yaspl"],
     deps = [
         ":compile-module-args",
@@ -193,8 +163,8 @@ yaspl_library(
     ],
 )
 
-yaspl_library(
-    name = "rewrite-imports-main",
+yaspl_binary(
+    name = "rewrite-imports",
     srcs = ["rewrite-imports.yaspl"],
     deps = [
         "//libraries:compiler_lib",

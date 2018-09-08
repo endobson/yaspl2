@@ -36,8 +36,8 @@ yaspl_bootstrap_library(
     ],
 )
 
-yaspl_library(
-    name = "assoc-test-driver-main",
+yaspl_binary(
+    name = "assoc-test-driver",
     srcs = ["assoc-test-driver-main.yaspl"],
     deps = [
         ":assoc-list",
@@ -51,13 +51,6 @@ yaspl_library(
         "//libraries:io",
         "//libraries:sexp-parser",
         "//libraries:sexp-printer",
-    ],
-)
-
-yaspl_binary(
-    name = "assoc-test-driver",
-    deps = [
-        ":assoc-test-driver-main",
     ],
 )
 

@@ -13,17 +13,63 @@ package(
 
 yaspl_binary(
     name = "demo",
-    deps = [":prim-language-demo"],
+    srcs = ["prim-language-demo.yaspl"],
+    deps = [
+        ":color-graph",
+        ":lower-x86-64",
+        ":lowered-live-variables",
+        ":lowered-register-language",
+        ":lowered-register-language-to-x86-64",
+        ":prim-language",
+        ":prim-language-parser",
+        ":prim-to-register",
+        ":print-lowered-register-language",
+        ":print-register-language",
+        ":register-language",
+        ":simplify-lowered-register-language",
+        ":simplify-register-language",
+        ":spill-lowered-register-language",
+        "//libraries:io",
+        "//libraries:sexp-parser",
+        "//libraries/data:bytes",
+        "//libraries/data:dict",
+        "//libraries/data:either",
+        "//libraries/data:list",
+        "//libraries/data:maybe",
+        "//libraries/data:set",
+        "//libraries/data:tuples",
+        "//libraries/yaspl:var",
+    ],
 )
 
 yaspl_binary(
     name = "prim-language-compiler",
-    deps = [":prim-language-compiler-main"],
+    srcs = ["prim-language-compiler-main.yaspl"],
+    deps = [
+        ":prim-language-compiler_lib",
+        "//libraries:assembler",
+        "//libraries:io",
+        "//libraries:mach-o-writer",
+        "//libraries/data:either",
+        "//libraries/data:join-list",
+        "//libraries/data:list",
+        "//libraries/data:tuples",
+        "//libraries/yaspl:x86-64-assembly",
+    ],
 )
 
 yaspl_bootstrap_binary(
     name = "prim-language-library-compiler",
-    deps = [":prim-language-library-compiler-main"],
+    srcs = ["prim-language-library-compiler-main.yaspl"],
+    deps = [
+        ":prim-language-compiler_lib",
+        "//libraries:assembler",
+        "//libraries:io",
+        "//libraries:mach-o-writer",
+        "//libraries/data:either",
+        "//libraries/data:list",
+        "//libraries/data:tuples",
+    ],
 )
 
 yaspl_bootstrap_library(
@@ -191,67 +237,6 @@ yaspl_bootstrap_library(
         "//libraries/data:maybe",
         "//libraries/data:tuples",
         "//libraries/yaspl:x86-64-assembly",
-    ],
-)
-
-yaspl_library(
-    name = "prim-language-compiler-main",
-    srcs = ["prim-language-compiler-main.yaspl"],
-    deps = [
-        ":prim-language-compiler_lib",
-        "//libraries:assembler",
-        "//libraries:io",
-        "//libraries:mach-o-writer",
-        "//libraries/data:either",
-        "//libraries/data:join-list",
-        "//libraries/data:list",
-        "//libraries/data:tuples",
-        "//libraries/yaspl:x86-64-assembly",
-    ],
-)
-
-yaspl_library(
-    name = "prim-language-demo",
-    srcs = ["prim-language-demo.yaspl"],
-    deps = [
-        ":color-graph",
-        ":lower-x86-64",
-        ":lowered-live-variables",
-        ":lowered-register-language",
-        ":lowered-register-language-to-x86-64",
-        ":prim-language",
-        ":prim-language-parser",
-        ":prim-to-register",
-        ":print-lowered-register-language",
-        ":print-register-language",
-        ":register-language",
-        ":simplify-lowered-register-language",
-        ":simplify-register-language",
-        ":spill-lowered-register-language",
-        "//libraries:io",
-        "//libraries:sexp-parser",
-        "//libraries/data:bytes",
-        "//libraries/data:dict",
-        "//libraries/data:either",
-        "//libraries/data:list",
-        "//libraries/data:maybe",
-        "//libraries/data:set",
-        "//libraries/data:tuples",
-        "//libraries/yaspl:var",
-    ],
-)
-
-yaspl_bootstrap_library(
-    name = "prim-language-library-compiler-main",
-    srcs = ["prim-language-library-compiler-main.yaspl"],
-    deps = [
-        ":prim-language-compiler_lib",
-        "//libraries:assembler",
-        "//libraries:io",
-        "//libraries:mach-o-writer",
-        "//libraries/data:either",
-        "//libraries/data:list",
-        "//libraries/data:tuples",
     ],
 )
 

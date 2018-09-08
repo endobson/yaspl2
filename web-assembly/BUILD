@@ -1,5 +1,5 @@
 load(":wasm.bzl", "wasm_demo_page")
-load("//libraries:yaspl.bzl", "yaspl_binary", "yaspl_library")
+load("//libraries:yaspl.bzl", "yaspl_binary")
 
 package(
     default_visibility = ["//visibility:public"],
@@ -19,11 +19,6 @@ wasm_demo_page(
 
 yaspl_binary(
     name = "web-assembly-test",
-    deps = [":web-assembly-test_lib"],
-)
-
-yaspl_library(
-    name = "web-assembly-test_lib",
     srcs = ["test.yaspl"],
     deps = [
         "//libraries:io",
