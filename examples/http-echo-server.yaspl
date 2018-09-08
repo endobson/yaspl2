@@ -1,0 +1,62 @@
+#:module (examples http-echo-server)
+#:import {
+  (bytes)
+  (data lifted-primitives)
+  (http-server)
+  (io)
+  (ip)
+  (list)
+  (maybe)
+  (numbers)
+  (prim)
+  (tcp)
+}
+(export)
+(types)
+
+(define (request-handler [request : HttpRequest]) : HttpResponse
+  (case request
+    [(http-request resource headers)
+     (http-response
+       200
+       #"OK"
+       #"text/plain"
+       (let ([header-lines
+              (map
+                (lambda ([header : HttpRequestHeader])
+                  (case header
+                    [(http-request-header name value)
+                     (bytes-append (varargs list name #":" value))]))
+                headers)])
+           (bytes-append (map add-newline (cons resource header-lines)))))]))
+
+(define (add-newline [bytes : Bytes]) : Bytes
+  (let ([length (bytes-length bytes)])
+    (let ([new-bytes (make-bytes (+ 1 length))])
+      (begin
+        (bytes-copy! bytes 0 length new-bytes 0)
+        (bytes-set! new-bytes length (u8 10))
+        new-bytes))))
+
+(define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Int
+  (if (= (array-length args) 3)
+      (case (bytes->ipv4-address (array-ref args 1))
+        [(just ip-addr)
+         (case (decimal-bytes->integer (array-ref args 2))
+           [(just (lifted-int port))
+            (let ([address (tcp-address ip-addr port)])
+              (begin
+                (run-http-server address request-handler)
+                (write-line #"Server unexpectedly exitted" stderr)
+                1))]
+           [(nothing)
+            (begin
+              (write-line #"Unparsable port number" stderr)
+              1)])]
+        [(nothing)
+         (begin
+           (write-line #"Unparsable ip address" stderr)
+           1)])
+      (begin
+        (write-line #"Wrong number of arguments" stderr)
+        1)))

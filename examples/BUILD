@@ -47,6 +47,27 @@ yaspl_library(
 )
 
 yaspl_binary(
+    name = "http-echo-server",
+    deps = [":http-echo-server_lib"],
+)
+
+yaspl_library(
+    name = "http-echo-server_lib",
+    srcs = ["http-echo-server.yaspl"],
+    deps = [
+        "//libraries:http-server",
+        "//libraries:io",
+        "//libraries:ip",
+        "//libraries:tcp",
+        "//libraries/data:bytes",
+        "//libraries/data:lifted-primitives",
+        "//libraries/data:list",
+        "//libraries/data:maybe",
+        "//libraries/data:numbers",
+    ],
+)
+
+yaspl_binary(
     name = "thread-example",
     deps = [":thread-example_lib"],
 )
@@ -114,6 +135,7 @@ filegroup(
         ":elf-file",
         ":env",
         ":hello-world",
+        ":http-echo-server",
         ":thread-example",
         ":true",
         ":udp-echo-server",

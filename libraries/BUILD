@@ -36,11 +36,6 @@ yaspl_binary(
     deps = [":code-http-server_lib"],
 )
 
-yaspl_binary(
-    name = "http-server",
-    deps = [":http-server_lib"],
-)
-
 yaspl_bootstrap_library(
     name = "assembler",
     srcs = ["assembler.yaspl"],
@@ -201,7 +196,7 @@ yaspl_library(
     srcs = ["code-http-server.yaspl"],
     deps = [
         ":compiler_lib",
-        ":http-server_lib",
+        ":http-server",
         ":io",
         ":ip",
         ":panic",
@@ -231,15 +226,12 @@ yaspl_library(
 )
 
 yaspl_library(
-    name = "http-server_lib",
+    name = "http-server",
     srcs = ["http-server.yaspl"],
     deps = [
         ":buffered-port",
         ":io",
-        ":ip",
         ":tcp",
-        "//libraries/data:bytes",
-        "//libraries/data:lifted-primitives",
         "//libraries/data:list",
         "//libraries/data:maybe",
         "//libraries/data:numbers",
@@ -1176,7 +1168,6 @@ filegroup(
     srcs = [
         ":code-http-server",
         ":compiler",
-        ":http-server",
         ":library-compiler",
         ":linker",
         ":main-stub",

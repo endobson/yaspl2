@@ -1,10 +1,7 @@
 #:module (http-server)
 #:import {
   (buffered-port)
-  (bytes)
-  (data lifted-primitives)
   (io)
-  (ip)
   (list)
   (maybe)
   (numbers)
@@ -13,9 +10,9 @@
   (tcp)
 }
 (export
-  (#:types HttpRequest HttpResponse)
+  (#:types HttpRequest HttpResponse HttpRequestHeader)
   (#:values run-http-server http-request http-response http-request-header)
-  (#:patterns http-request))
+  (#:patterns http-request http-request-header))
 (types
   (define-type HttpResponse
     (http-response
@@ -85,31 +82,6 @@
        (write-all-bytes #"\r\n" out)
        (write-all-bytes body out))]))
 
-
-(define (add-newline [bytes : Bytes]) : Bytes
-  (let ([length (bytes-length bytes)])
-    (let ([new-bytes (make-bytes (+ 1 length))])
-      (begin
-        (bytes-copy! bytes 0 length new-bytes 0)
-        (bytes-set! new-bytes length (u8 10))
-        new-bytes))))
-
-(define (request-handler [request : HttpRequest]) : HttpResponse
-  (case request
-    [(http-request resource headers)
-     (http-response
-       200
-       #"OK"
-       #"text/plain"
-       (let ([header-lines
-              (map
-                (lambda ([header : HttpRequestHeader])
-                  (case header
-                    [(http-request-header name value)
-                     (bytes-append (varargs list name #":" value))]))
-                headers)])
-           (bytes-append (map add-newline (cons resource header-lines)))))]))
-
 (define (read-loop [buffered-port : BufferedPort] [lines : (List Bytes)] [sock : Socket]
                    [request-handler : (HttpRequest -> HttpResponse)]) : Void
   (case (read-crlf-line buffered-port)
@@ -151,27 +123,3 @@
        (tcp-socket-bind sock address)
        (listen sock 5)
        (accept-loop sock request-handler))))
-
-
-(define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Int
-  (if (= (array-length args) 3)
-      (case (bytes->ipv4-address (array-ref args 1))
-        [(just ip-addr)
-         (case (decimal-bytes->integer (array-ref args 2))
-           [(just (lifted-int port))
-            (let ([address (tcp-address ip-addr port)])
-              (begin
-                (run-http-server address request-handler)
-                (write-line #"Server unexpectedly exitted" stderr)
-                1))]
-           [(nothing)
-            (begin
-              (write-line #"Unparsable port number" stderr)
-              1)])]
-        [(nothing)
-         (begin
-           (write-line #"Unparsable ip address" stderr)
-           1)])
-      (begin
-        (write-line #"Wrong number of arguments" stderr)
-        1)))
