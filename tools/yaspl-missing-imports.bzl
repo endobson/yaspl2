@@ -72,7 +72,6 @@ yaspl_missing_imports = aspect(
 
 )
 
-
 def _yaspl_missing_imports_rule_impl(ctx):
   args = ctx.actions.args()
   index_file_parts = depset(transitive=[d[yaspl_missing_imports_provider].files for d in ctx.attr.deps])
