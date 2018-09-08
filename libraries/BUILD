@@ -783,7 +783,7 @@ genrule(
     name = "gen-source-grammar",
     srcs = ["source.grammar"],
     outs = ["source-grammar.yaspl"],
-    cmd = "echo '#:module (source-grammar) #:import {(prim)} ' \
+    cmd = "echo '#:module (source-grammar)\n#:import {(prim)} ' \
                '(export (#:types) (#:values source-grammar) (#:patterns)) (types)' > $@;" +
           "echo -n '(define (source-grammar) : Bytes #\"' >> $@;" +
           " awk '{printf \"%s\\\\n\", $$0}' $< >> $@;" +

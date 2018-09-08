@@ -13,14 +13,16 @@ def transitivify_impl(target, ctx, impl, p):
     return _merge_providers([_merge_fields(ctx, ["deps"], p), impl(target, ctx)], p)
   elif (kind == "yaspl_prim_binary"):
     return _merge_fields(ctx, ["deps"], p)
+  elif (kind == "yaspl_prim_test"):
+    return _merge_fields(ctx, ["deps"], p)
   elif (kind == "test_suite"):
-    return _merge_fields(ctx, ["tests"], p)
+    return _merge_fields(ctx, ["tests", "_implicit_tests"], p)
   elif (kind == "filegroup"):
     return _merge_fields(ctx, ["srcs"], p)
   else:
     fail("Unknown rule kind")
 
-transitive_attrs = ["tests", "srcs", "deps"]
+transitive_attrs = ["deps", "srcs", "tests", "_implicit_tests"]
 
 
 def concat_files_impl(ctx, p):
