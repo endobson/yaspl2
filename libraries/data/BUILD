@@ -215,6 +215,31 @@ yaspl_bootstrap_library(
 )
 
 yaspl_bootstrap_library(
+    name = "range-map",
+    srcs = ["range-map.yaspl"],
+    deps = [
+        ":lifted-primitives",
+        ":maybe",
+        ":red-black-tree",
+        ":tuples",
+    ],
+)
+
+yaspl_test(
+    name = "range-map-test",
+    size = "small",
+    srcs = ["range-map-test.yaspl"],
+    deps = [
+        ":bytes",
+        ":list",
+        ":maybe",
+        ":range-map",
+        ":tuples",
+        "//libraries:yunit",
+    ],
+)
+
+yaspl_bootstrap_library(
     name = "red-black-tree",
     srcs = ["red-black-tree.yaspl"],
     deps = [
