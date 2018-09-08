@@ -8,6 +8,8 @@ def _yaspl_library_missing_imports_impl(target, ctx):
   output_file = ctx.actions.declare_file(ctx.label.name + ".missing_imports_part")
   target_yaspl_provider = target[yaspl_provider]
   deps_module_name_files = [dep[yaspl_provider].module_name_file for dep in ctx.rule.attr.deps]
+  source_rule_name = ctx.rule.attr.source_rule_name
+  label = ctx.label.relative(source_rule_name) if source_rule_name else ctx.label
 
   ctx.actions.run_shell(
      outputs = [output_file],
@@ -16,7 +18,7 @@ def _yaspl_library_missing_imports_impl(target, ctx):
               + deps_module_name_files,
      command = '%s %s %s %s $@ >%s' %
          (ctx.executable._missing_imports.path, 
-          ctx.label,
+          label,
           ctx.file._module_index.path,
           target_yaspl_provider.source_file.path,
           output_file.path),

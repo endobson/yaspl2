@@ -145,6 +145,7 @@ yaspl_library = rule(
     "deps": attr.label_list(
       providers = [yaspl_provider],
     ),
+    "source_rule_name": attr.string(),
     "_library_compiler": _bootstrap_library_compiler,
   }
 )
@@ -189,6 +190,7 @@ def yaspl_test(name, srcs=[], deps=[], size="medium"):
   yaspl_library(
     # TODO make this testonly once aspects work better
     name = name + "_lib",
+    source_rule_name = name,
     srcs = srcs,
     deps = deps,
   )
@@ -205,6 +207,7 @@ def yaspl_binary(name, srcs=[], deps=[]):
   # TODO claim lib suffix here
   yaspl_library(
     name = name + "_mainlib",
+    source_rule_name = name,
     srcs = srcs,
     deps = deps,
   )
