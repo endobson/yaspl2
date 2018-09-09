@@ -48,6 +48,7 @@ yaspl_binary(
         ":maybe",
         ":numbers",
         ":red-black-tree",
+        ":source-location",
         "//libraries:io",
         "//libraries:sexp-parser",
         "//libraries:sexp-printer",

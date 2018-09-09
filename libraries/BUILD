@@ -77,6 +77,7 @@ yaspl_bootstrap_binary(
         "//libraries/data:either",
         "//libraries/data:list",
         "//libraries/data:maybe",
+        "//libraries/data:source-location",
         "//libraries/yaspl:top-level-object-optimizer",
         "//libraries/yaspl:top-level-objects-to-x86-64",
         "//libraries/yaspl:x86-64-assembly",
@@ -297,6 +298,7 @@ yaspl_bootstrap_library(
     deps = [
         ":panic",
         "//libraries/data:bytes",
+        "//libraries/data:source-location",
     ],
 )
 
@@ -551,6 +553,7 @@ yaspl_bootstrap_library(
         "//libraries/data:either",
         "//libraries/data:list",
         "//libraries/data:maybe",
+        "//libraries/data:source-location",
     ],
 )
 
@@ -570,6 +573,7 @@ yaspl_test(
         "//libraries/data:either",
         "//libraries/data:list",
         "//libraries/data:maybe",
+        "//libraries/data:source-location",
         "//libraries/data:tuples",
     ],
 )
@@ -740,6 +744,7 @@ yaspl_test(
         "//libraries/data:bytes",
         "//libraries/data:either",
         "//libraries/data:list",
+        "//libraries/data:source-location",
     ],
 )
 
@@ -766,6 +771,7 @@ yaspl_test(
         "//libraries/data:bytes",
         "//libraries/data:either",
         "//libraries/data:list",
+        "//libraries/data:source-location",
     ],
 )
 
@@ -780,6 +786,7 @@ yaspl_bootstrap_library(
         "//libraries/data:lifted-primitives",
         "//libraries/data:list",
         "//libraries/data:maybe",
+        "//libraries/data:source-location",
     ],
 )
 
@@ -839,6 +846,7 @@ yaspl_test(
         "//libraries/data:either",
         "//libraries/data:list",
         "//libraries/data:maybe",
+        "//libraries/data:source-location",
     ],
 )
 
