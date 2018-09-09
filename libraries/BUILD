@@ -345,6 +345,7 @@ yaspl_bootstrap_library(
         "//libraries/data:either",
         "//libraries/data:list",
         "//libraries/data:numbers",
+        "//libraries/data:range-map",
     ],
 )
 

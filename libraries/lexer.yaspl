@@ -2,6 +2,7 @@
 #:import {
   (byte-escapes)
   (bytes)
+  (data range-map)
   (either)
   (list)
   (numbers)
@@ -22,7 +23,10 @@
     (lexer [ctx : LexerContext] [pos : Int]))
   (define-type LexerContext
     (lexer-context
-      [bytes : Bytes]))
+      [bytes : Bytes]
+      [line-start-map : (IntRangeMap LineStart)]))
+  (define-type LineStart
+    (line-start [line-number : Int] [start-pos : Int]))
 
   (define-type Lexeme
     (left-paren-lexeme)
@@ -68,7 +72,7 @@
         (and (<= 65 v) (< v 91)))))
 
 (define (lexer-remaining-input [lexer : Lexer]) : Bytes
-  (match-define (lexer (lexer-context b) pos) lexer)
+  (match-define (lexer (lexer-context b _) pos) lexer)
   (subbytes b pos (bytes-length b)))
 
 ;; Symbol ok values
@@ -222,7 +226,7 @@
 
 
 (define (make-lexer [bytes : Bytes]) : Lexer
-  (lexer (lexer-context bytes) 0))
+  (lexer (lexer-context bytes (make-line-start-map bytes)) 0))
 
 (define (run-lexer [lexer : Lexer]) : Result
   (run (lexer-ctx lexer) (lexer-pos lexer)))
@@ -264,3 +268,19 @@
                                                                 #"of lexeme #x"
                                                                 (integer->hex-bytes
                                                                   byte))))))))))))))))))))
+(define (make-line-start-map [bytes : Bytes]) : (IntRangeMap LineStart)
+  (make-line-start-map* bytes 1 0 0 (make-int-range-map)))
+
+(define (make-line-start-map*
+          [bytes : Bytes] [line : Int] [start-of-line : Int] [pos : Int] [acc : (IntRangeMap LineStart)])
+  : (IntRangeMap LineStart)
+  (if (= pos (bytes-length bytes))
+      (int-range-map-set acc (clopen-int-range start-of-line pos) (line-start line start-of-line))
+      (let ([byte (bytes-ref bytes pos)])
+        (let ([next-pos (+ 1 pos)])
+          (if (newline? byte)
+              (make-line-start-map*
+                bytes (+ 1 line) next-pos next-pos
+                (int-range-map-set acc (clopen-int-range start-of-line next-pos)
+                                   (line-start line start-of-line)))
+              (make-line-start-map* bytes line start-of-line next-pos acc))))))
