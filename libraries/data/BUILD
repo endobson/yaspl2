@@ -327,6 +327,15 @@ yaspl_test(
 )
 
 yaspl_bootstrap_library(
+    name = "source-location",
+    srcs = ["source-location.yaspl"],
+    deps = [
+        ":bytes",
+        ":tuples",
+    ],
+)
+
+yaspl_bootstrap_library(
     name = "tuples",
     srcs = ["tuples.yaspl"],
     deps = [

@@ -344,8 +344,10 @@ yaspl_bootstrap_library(
         "//libraries/data:bytes",
         "//libraries/data:either",
         "//libraries/data:list",
+        "//libraries/data:maybe",
         "//libraries/data:numbers",
         "//libraries/data:range-map",
+        "//libraries/data:source-location",
     ],
 )
 
@@ -358,6 +360,7 @@ yaspl_test(
         ":yunit",
         "//libraries/data:list",
         "//libraries/data:maybe",
+        "//libraries/data:source-location",
     ],
 )
 
@@ -723,6 +726,7 @@ yaspl_bootstrap_library(
         "//libraries/data:list",
         "//libraries/data:maybe",
         "//libraries/data:numbers",
+        "//libraries/data:source-location",
     ],
 )
 

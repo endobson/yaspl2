@@ -3,8 +3,10 @@
   (byte-escapes)
   (bytes)
   (data range-map)
+  (data source-location)
   (either)
   (list)
+  (maybe)
   (numbers)
   (prim)
 }
@@ -24,6 +26,7 @@
   (define-type LexerContext
     (lexer-context
       [bytes : Bytes]
+      [source : Source]
       [line-start-map : (IntRangeMap LineStart)]))
   (define-type LineStart
     (line-start [line-number : Int] [start-pos : Int]))
@@ -44,7 +47,7 @@
     (hexadecimal-number-lexeme [v : Bytes]))
 
   (define-type Result
-    (lex-result [v : Lexeme] [next : Lexer])
+    (lex-result [v : (SourceSpanAnnotated Lexeme)] [next : Lexer])
     (end-of-input)
     (bad-input [v : Bytes])))
 
@@ -72,8 +75,105 @@
         (and (<= 65 v) (< v 91)))))
 
 (define (lexer-remaining-input [lexer : Lexer]) : Bytes
-  (match-define (lexer (lexer-context b _) pos) lexer)
+  (match-define (lexer (lexer-context b _ _) pos) lexer)
   (subbytes b pos (bytes-length b)))
+
+(define (lexer-context-get-span [ctx : LexerContext] [start : Int] [end : Int])
+  : SourceSpan
+  (match-define (lexer-context _ source line-map) ctx)
+  (case (int-range-map-lookup line-map start)
+    [(nothing) (panic #"No line number for start")]
+    [(just (line-start start-line start-line-start))
+     (case (int-range-map-lookup line-map start)
+       [(nothing) (panic #"No line number for end")]
+       [(just (line-start end-line end-line-start))
+        (source-span source start-line (- start start-line-start)
+                     end-line (- end end-line-start))])]))
+
+(define (symbol-lexeme* [ctx : LexerContext] [start : Int] [end : Int])
+  : (SourceSpanAnnotated Lexeme)
+  (source-span-annotated
+    (lexer-context-get-span ctx start end)
+    (symbol-lexeme (subbytes (lexer-context-bytes ctx) start end))))
+
+;; Need to adjust for ; at the begining
+(define (comment-lexeme* [ctx : LexerContext] [start : Int] [end : Int])
+  : (SourceSpanAnnotated Lexeme)
+  (source-span-annotated
+    (lexer-context-get-span ctx start end)
+    (comment-lexeme)))
+
+;; Boolean lexemes are always two characters
+(define (boolean-lexeme* [ctx : LexerContext] [v : Boolean] [end : Int])
+  : (SourceSpanAnnotated Lexeme)
+  (source-span-annotated
+    (lexer-context-get-span ctx (- end 2) end)
+    (boolean-lexeme v)))
+
+;; Need to adjust for #: at begining
+(define (keyword-lexeme* [ctx : LexerContext] [start : Int] [end : Int])
+  : (SourceSpanAnnotated Lexeme)
+  (source-span-annotated
+    (lexer-context-get-span ctx (- start 2) end)
+    (keyword-lexeme (subbytes (lexer-context-bytes ctx) start end))))
+
+;; Need to adjust for #" at begining.
+(define (bytes-lexeme* [ctx : LexerContext] [v : Bytes] [start : Int] [end : Int])
+  : (SourceSpanAnnotated Lexeme)
+  (source-span-annotated
+    (lexer-context-get-span ctx (- start 2) end)
+    (bytes-lexeme v)))
+
+(define (decimal-number-lexeme* [ctx : LexerContext] [start : Int] [end : Int])
+  : (SourceSpanAnnotated Lexeme)
+  (source-span-annotated
+    (lexer-context-get-span ctx start end)
+    (decimal-number-lexeme (subbytes (lexer-context-bytes ctx) start end))))
+
+;; Need to adjust for #x at the begining
+(define (hexadecimal-number-lexeme* [ctx : LexerContext] [start : Int] [end : Int])
+  : (SourceSpanAnnotated Lexeme)
+  (source-span-annotated
+    (lexer-context-get-span ctx (- start 2) end)
+    (hexadecimal-number-lexeme (subbytes (lexer-context-bytes ctx) start end))))
+
+(define (left-paren-lexeme* [ctx : LexerContext] [start : Int] [end : Int])
+  : (SourceSpanAnnotated Lexeme)
+  (source-span-annotated
+    (lexer-context-get-span ctx start end)
+    (left-paren-lexeme)))
+
+(define (right-paren-lexeme* [ctx : LexerContext] [start : Int] [end : Int])
+  : (SourceSpanAnnotated Lexeme)
+  (source-span-annotated
+    (lexer-context-get-span ctx start end)
+    (right-paren-lexeme)))
+
+(define (left-bracket-lexeme* [ctx : LexerContext] [start : Int] [end : Int])
+  : (SourceSpanAnnotated Lexeme)
+  (source-span-annotated
+    (lexer-context-get-span ctx start end)
+    (left-bracket-lexeme)))
+
+(define (right-bracket-lexeme* [ctx : LexerContext] [start : Int] [end : Int])
+  : (SourceSpanAnnotated Lexeme)
+  (source-span-annotated
+    (lexer-context-get-span ctx start end)
+    (right-bracket-lexeme)))
+
+(define (left-brace-lexeme* [ctx : LexerContext] [start : Int] [end : Int])
+  : (SourceSpanAnnotated Lexeme)
+  (source-span-annotated
+    (lexer-context-get-span ctx start end)
+    (left-brace-lexeme)))
+
+(define (right-brace-lexeme* [ctx : LexerContext] [start : Int] [end : Int])
+  : (SourceSpanAnnotated Lexeme)
+  (source-span-annotated
+    (lexer-context-get-span ctx start end)
+    (right-brace-lexeme)))
+
+
 
 ;; Symbol ok values
 ;; (set-ok! 33)
@@ -130,13 +230,12 @@
 (define (lex-symbol [ctx : LexerContext] [start : Int] [cur : Int]) : Result
   (match-define bytes (lexer-context-bytes ctx))
   (if (= (bytes-length bytes) cur)
-      (lex-result (symbol-lexeme (subbytes bytes start cur))
+      (lex-result (symbol-lexeme* ctx start cur)
                   (lexer ctx cur))
       (if (symbol-continue-byte? (bytes-ref bytes cur))
           (lex-symbol ctx start (+ 1 cur))
-          (lex-result (symbol-lexeme (subbytes bytes start cur))
+          (lex-result (symbol-lexeme* ctx start cur)
                       (lexer ctx cur)))))
-
 
 (define (lex-after-hash [ctx : LexerContext] [pos : Int]) : Result
   (match-define bytes (lexer-context-bytes ctx))
@@ -149,22 +248,21 @@
               (if (double-quote? byte)
                   (lex-bytes ctx next-pos next-pos)
                   (if (= (u8->s64 byte) 116)
-                      (lex-result (boolean-lexeme #t) (lexer ctx next-pos))
+                      (lex-result (boolean-lexeme* ctx #t next-pos) (lexer ctx next-pos))
                       (if (= (u8->s64 byte) 102)
-                          (lex-result (boolean-lexeme #f) (lexer ctx next-pos))
+                          (lex-result (boolean-lexeme* ctx #f next-pos) (lexer ctx next-pos))
                           (if (= (u8->s64 byte) 120)
                               (lex-hexadecimal ctx next-pos next-pos)
                               (bad-input #"Unsupported character after hash"))))))))))
 
-
 (define (lex-keyword [ctx : LexerContext] [start : Int] [cur : Int]) : Result
   (match-define bytes (lexer-context-bytes ctx))
   (if (= (bytes-length bytes) cur)
-      (lex-result (keyword-lexeme (subbytes bytes start cur))
+      (lex-result (keyword-lexeme* ctx start cur)
                   (lexer ctx cur))
       (if (keyword-continue-byte? (bytes-ref bytes cur))
           (lex-keyword ctx start (+ 1 cur))
-          (lex-result (keyword-lexeme (subbytes bytes start cur))
+          (lex-result (keyword-lexeme* ctx start cur)
                       (lexer ctx cur)))))
 
 (define (lex-bytes [ctx : LexerContext] [start : Int] [cur : Int]) : Result
@@ -190,43 +288,41 @@
                     (case (unescape-bytes (subbytes bytes start cur))
                       [(left _) (bad-input #"Bytes literal couldn't be unescaped")]
                       [(right v)
-                       (lex-result (bytes-lexeme v) (lexer ctx (+ 1 cur)))])
+                       (lex-result (bytes-lexeme* ctx v start (+ 1 cur)) (lexer ctx (+ 1 cur)))])
                     (bad-input (bytes-append (varargs list #"Unsupported character in bytes literal: #x"
                                                            (integer->hex-bytes (u8->s64 byte)))))))))))
 
 (define (lex-decimal [ctx : LexerContext] [start : Int] [cur : Int]) : Result
   (match-define bytes (lexer-context-bytes ctx))
   (if (= (bytes-length bytes) cur)
-      (lex-result (decimal-number-lexeme (subbytes bytes start cur))
+      (lex-result (decimal-number-lexeme* ctx start cur)
                   (lexer ctx cur))
       (if (decimal-continue-byte? (bytes-ref bytes cur))
           (lex-decimal ctx start (+ 1 cur))
-          (lex-result (decimal-number-lexeme (subbytes bytes start cur))
+          (lex-result (decimal-number-lexeme* ctx start cur)
                       (lexer ctx cur)))))
 
 (define (lex-hexadecimal [ctx : LexerContext] [start : Int] [cur : Int]) : Result
   (match-define bytes (lexer-context-bytes ctx))
   (if (= (bytes-length bytes) cur)
-      (lex-result (hexadecimal-number-lexeme (subbytes bytes start cur))
+      (lex-result (hexadecimal-number-lexeme* ctx start cur)
                   (lexer ctx cur))
       (if (hexadecimal-byte? (bytes-ref bytes cur))
           (lex-hexadecimal ctx start (+ 1 cur))
-          (lex-result (hexadecimal-number-lexeme (subbytes bytes start cur))
+          (lex-result (hexadecimal-number-lexeme* ctx start cur)
                       (lexer ctx cur)))))
 
 
-(define (lex-line-comment [ctx : LexerContext] [pos : Int]) : Result
+(define (lex-line-comment [ctx : LexerContext] [start : Int] [pos : Int]) : Result
   (match-define bytes (lexer-context-bytes ctx))
   (if (= (bytes-length bytes) pos)
-      (lex-result (comment-lexeme) (lexer ctx pos))
+      (lex-result (comment-lexeme* ctx start pos) (lexer ctx pos))
       (if (newline? (bytes-ref bytes pos))
-          (lex-result (comment-lexeme) (lexer ctx pos))
-          (lex-line-comment ctx (+ 1 pos)))))
+          (lex-result (comment-lexeme* ctx start pos) (lexer ctx pos))
+          (lex-line-comment ctx start (+ 1 pos)))))
 
-
-
-(define (make-lexer [bytes : Bytes]) : Lexer
-  (lexer (lexer-context bytes (make-line-start-map bytes)) 0))
+(define (make-lexer [contents : Bytes]) : Lexer
+  (lexer (lexer-context contents (unnamed-source) (make-line-start-map contents)) 0))
 
 (define (run-lexer [lexer : Lexer]) : Result
   (run (lexer-ctx lexer) (lexer-pos lexer)))
@@ -236,38 +332,40 @@
   (if (= pos (bytes-length bytes))
       (end-of-input)
       (let ([byte/u8 (bytes-ref bytes pos)])
-        (let ([byte (u8->s64 byte/u8)])
-          (if (= byte 40)
-              (lex-result (left-paren-lexeme) (lexer ctx (+ pos 1)))
-              (if (= byte 41)
-                  (lex-result (right-paren-lexeme) (lexer ctx (+ pos 1)))
-                  (if (= byte 91)
-                      (lex-result (left-bracket-lexeme) (lexer ctx (+ pos 1)))
-                      (if (= byte 93)
-                          (lex-result (right-bracket-lexeme) (lexer ctx (+ pos 1)))
-                          (if (= byte 123)
-                              (lex-result (left-brace-lexeme) (lexer ctx (+ pos 1)))
-                              (if (= byte 125)
-                                  (lex-result (right-brace-lexeme) (lexer ctx (+ pos 1)))
-                                  (if (or (newline? byte/u8) (space? byte/u8))
-                                      (run ctx (+ 1 pos))
-                                      (if (symbol-start-byte? byte/u8)
-                                          (lex-symbol ctx pos (+ pos 1))
-                                          (if (decimal-start-byte? byte/u8)
-                                              (lex-decimal ctx pos (+ pos 1))
-                                              (if (hash? (u8 byte))
-                                                  (lex-after-hash ctx (+ pos 1))
-                                                  (if (semi-colon? byte/u8)
-                                                      (lex-line-comment ctx (+ pos 1))
-                                                      (if (double-quote? byte/u8)
-                                                          (bad-input #"String literals not supported")
-                                                          (bad-input
-                                                            (bytes-append
-                                                              (varargs list
-                                                                #"Unsupported character at start "
-                                                                #"of lexeme #x"
-                                                                (integer->hex-bytes
-                                                                  byte))))))))))))))))))))
+        (let ([next-pos (+ pos 1)])
+          (let ([byte (u8->s64 byte/u8)])
+            (if (= byte 40)
+                (lex-result (left-paren-lexeme* ctx pos next-pos) (lexer ctx next-pos))
+                (if (= byte 41)
+                    (lex-result (right-paren-lexeme* ctx pos next-pos) (lexer ctx next-pos))
+                    (if (= byte 91)
+                        (lex-result (left-bracket-lexeme* ctx pos next-pos) (lexer ctx next-pos))
+                        (if (= byte 93)
+                            (lex-result (right-bracket-lexeme* ctx pos next-pos) (lexer ctx next-pos))
+                            (if (= byte 123)
+                                (lex-result (left-brace-lexeme* ctx pos next-pos) (lexer ctx next-pos))
+                                (if (= byte 125)
+                                    (lex-result (right-brace-lexeme* ctx pos next-pos) (lexer ctx next-pos))
+                                    (if (or (newline? byte/u8) (space? byte/u8))
+                                        (run ctx next-pos)
+                                        (if (symbol-start-byte? byte/u8)
+                                            (lex-symbol ctx pos next-pos)
+                                            (if (decimal-start-byte? byte/u8)
+                                                (lex-decimal ctx pos next-pos)
+                                                (if (hash? (u8 byte))
+                                                    (lex-after-hash ctx next-pos)
+                                                    (if (semi-colon? byte/u8)
+                                                        (lex-line-comment ctx pos next-pos)
+                                                        (if (double-quote? byte/u8)
+                                                            (bad-input #"String literals not supported")
+                                                            (bad-input
+                                                              (bytes-append
+                                                                (varargs list
+                                                                  #"Unsupported character at start "
+                                                                  #"of lexeme #x"
+                                                                  (integer->hex-bytes
+                                                                    byte)))))))))))))))))))))
+
 (define (make-line-start-map [bytes : Bytes]) : (IntRangeMap LineStart)
   (make-line-start-map* bytes 1 0 0 (make-int-range-map)))
 
@@ -275,7 +373,7 @@
           [bytes : Bytes] [line : Int] [start-of-line : Int] [pos : Int] [acc : (IntRangeMap LineStart)])
   : (IntRangeMap LineStart)
   (if (= pos (bytes-length bytes))
-      (int-range-map-set acc (clopen-int-range start-of-line pos) (line-start line start-of-line))
+      (int-range-map-set acc (clopen-int-range start-of-line (+ pos 1)) (line-start line start-of-line))
       (let ([byte (bytes-ref bytes pos)])
         (let ([next-pos (+ 1 pos)])
           (if (newline? byte)

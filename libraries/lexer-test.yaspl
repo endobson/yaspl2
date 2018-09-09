@@ -1,5 +1,6 @@
 #:module (lexer-test)
 #:import {
+  (data source-location)
   (lexer)
   (list)
   (maybe)
@@ -9,9 +10,10 @@
 (export)
 (types)
 
-(define (lex-all [bytes : Bytes]) : (Maybe (List Lexeme))
+(define (lex-all [bytes : Bytes]) : (Maybe (List (SourceSpanAnnotated Lexeme)))
   (lex-all/run (make-lexer bytes) (empty)))
-(define (lex-all/run [lexer : Lexer] [lexemes : (List Lexeme)]) : (Maybe (List Lexeme))
+(define (lex-all/run [lexer : Lexer] [lexemes : (List (SourceSpanAnnotated Lexeme))])
+  : (Maybe (List (SourceSpanAnnotated Lexeme)))
   (case (run-lexer lexer)
     [(lex-result v lexer) (lex-all/run lexer (cons v lexemes))]
     [(end-of-input) (just (reverse lexemes))]
@@ -29,6 +31,12 @@
       [(nothing) #t]
       [(just _) #f])))
 
+(define (check-source-location [bytes : Bytes] [expected-span : SourceSpan]) : (-> Boolean)
+  (lambda ()
+    (case (lex-all bytes)
+      [(just (cons (source-span-annotated actual-span _) (empty)))
+       (source-span=? actual-span expected-span)]
+      [_ #f])))
 
 (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Int
   (yunit/main stderr
@@ -40,5 +48,25 @@
       (test-case #"keyword" (count-lexemes #"#:foo" 1))
       (test-case #"bytes" (count-lexemes #"#\"foo\"" 1))
       (test-case #"comment" (count-lexemes #"a;.&\na" 3))
+      (test-case #"bytes next char" (count-lexemes #"#\"foo\"a" 2))
       (test-case #"unmatched quotes" (unlexable #"#\"foo"))
-      (test-case #"unclosed hash" (unlexable #"#")))))
+      (test-case #"unclosed hash" (unlexable #"#"))
+      (test-case #"paren source-location"
+        (check-source-location #" (\n" (source-span (unnamed-source) 1 1 1 2)))
+      (test-case #"brace source-location"
+        (check-source-location #"\n]\n" (source-span (unnamed-source) 2 0 2 1)))
+      (test-case #"symbol source-location"
+        (check-source-location #"abc" (source-span (unnamed-source) 1 0 1 3)))
+      (test-case #"keyword source-location"
+        (check-source-location #"\n#:abc " (source-span (unnamed-source) 2 0 2 5)))
+      (test-case #"bytes source-location"
+        (check-source-location #"#\"abc\"" (source-span (unnamed-source) 1 0 1 6)))
+      (test-case #"decimal number source-location"
+        (check-source-location #" 34" (source-span (unnamed-source) 1 1 1 3)))
+      (test-case #"hex number source-location"
+        (check-source-location #"\n \n#x1ab" (source-span (unnamed-source) 3 0 3 5)))
+      (test-case #"comment source-location"
+        (check-source-location #"  ;abc\n" (source-span (unnamed-source) 1 2 1 6)))
+      (test-case #"comment eof source-location"
+        (check-source-location #"\n \n;abcd" (source-span (unnamed-source) 3 0 3 5)))
+      )))
