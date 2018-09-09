@@ -249,7 +249,6 @@ yaspl_bootstrap_library(
         ":maybe",
         ":ordering",
         ":tuples",
-        "//libraries:sexp-parser",
     ],
 )
 
