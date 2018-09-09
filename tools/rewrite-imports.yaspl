@@ -5,6 +5,7 @@
   (data source-location)
   (either)
   (io)
+  (join-list)
   (lexer)
   (list)
   (maybe)
@@ -57,74 +58,84 @@
   (mod-name< (imports-module-name i1) (imports-module-name i2)))
 
 
+(define (rewrite-imports* [mod-name : ModName] [imports : (List Imports)] [module-file-name : Bytes])
+  : (Either Bytes Bytes)
+  (case (remove-import-section (call-with-input-file module-file-name read-all-bytes))
+    [(left v) (left v)]
+    [(right rest-of-module)
+     (right
+       (bytes-append
+         (jl->list
+           (varargs append-jl*
+             (single-jl #"#:module ")
+             (single-jl (mod-name->bytes mod-name))
+             (single-jl #"\n")
+             (single-jl #"#:import {\n")
+             (concat-jl
+               (map (lambda ([i : Imports]) : (JoinList Bytes)
+                      (case i
+                        [(full-imports mod-name)
+                         (varargs join-list #"  " (mod-name->bytes mod-name) #"\n")]
+                        [(partial-imports mod-name types values patterns)
+                         (varargs append-jl*
+                           (varargs join-list #"  {" (mod-name->bytes mod-name) #"\n")
+                           (case types
+                             [(empty)
+                              (empty-jl)]
+                             [_
+                              (cons-jl
+                                #"    {#:types\n"
+                                (snoc-jl
+                                  (concat-jl
+                                    (map
+                                      (lambda ([i : Import])
+                                        (varargs join-list #"      " (import->bytes i) #"\n"))
+                                      (sort types import<)))
+                                  #"    }\n"))])
+                           (case values
+                             [(empty)
+                              (empty-jl)]
+                             [_
+                              (cons-jl
+                                #"    {#:values\n"
+                                (snoc-jl
+                                  (concat-jl
+                                    (map
+                                      (lambda ([i : Import])
+                                        (varargs join-list #"      " (import->bytes i) #"\n"))
+                                      (sort values import<)))
+                                  #"    }\n"))])
+                           (case patterns
+                             [(empty)
+                              (empty-jl)]
+                             [_
+                              (cons-jl
+                                #"    {#:patterns\n"
+                                (snoc-jl
+                                  (concat-jl
+                                    (map
+                                      (lambda ([i : Import])
+                                        (varargs join-list #"      " (import->bytes i) #"\n"))
+                                      (sort patterns import<)))
+                                  #"    }\n"))])
+                           (single-jl #"  }\n"))]))
+                    (sort imports imports<)))
+             (single-jl #"}")
+             (single-jl rest-of-module)))))]))
+
 (define (rewrite-imports [mod-name : ModName] [imports : (List Imports)] [module-file-name : Bytes])
   : (Maybe Bytes)
-  (case (remove-import-section (call-with-input-file module-file-name read-all-bytes))
+  (case (rewrite-imports* mod-name imports module-file-name)
     [(left v) (just v)]
-    [(right rest-of-module)
+    [(right new-contents)
      (begin
        (delete-file module-file-name)
        (call-with-output-file/void module-file-name
          (lambda ([output : OutputPort])
-           (begin
-             (set-file-or-directory-permissions
-               (make-null-terminated module-file-name)
-               432) ;; Octal 660
-             (write-line
-               (bytes-append (varargs list #"#:module " (mod-name->bytes mod-name)))
-               output)
-             (write-line #"#:import {" output)
-             (for-each
-               (lambda ([i : Imports])
-                 (case i
-                   [(full-imports mod-name)
-                    (write-line (bytes-append (varargs list #"  " (mod-name->bytes mod-name))) output)]
-                   [(partial-imports mod-name types values patterns)
-                    (begin
-                      (write-line (bytes-append (varargs list #"  {" (mod-name->bytes mod-name))) output)
-                      (case types
-                        [(empty)
-                         (void)]
-                        [_
-                         (begin
-                           (write-line #"    {#:types" output)
-                           (for-each
-                             (lambda ([i : Import])
-                               (begin
-                                 (write-all-bytes #"      " output)
-                                 (write-line (import->bytes i) output)))
-                             (sort types import<))
-                           (write-line #"    }" output))])
-                      (case values
-                        [(empty)
-                         (void)]
-                        [_
-                         (begin
-                           (write-line #"    {#:values" output)
-                           (for-each
-                             (lambda ([i : Import])
-                               (begin
-                                 (write-all-bytes #"      " output)
-                                 (write-line (import->bytes i) output)))
-                             (sort values import<))
-                           (write-line #"    }" output))])
-                      (case patterns
-                        [(empty)
-                         (void)]
-                        [_
-                         (begin
-                           (write-line #"    {#:patterns" output)
-                           (for-each
-                             (lambda ([i : Import])
-                               (begin
-                                 (write-all-bytes #"      " output)
-                                 (write-line (import->bytes i) output)))
-                             (sort patterns import<))
-                           (write-line #"    }" output))])
-                      (write-line #"  }" output))]))
-               (sort imports imports<))
-             (write-all-bytes #"}" output)
-             (write-all-bytes rest-of-module output))))
+           (write-all-bytes new-contents output)))
+       (set-file-or-directory-permissions
+         (make-null-terminated module-file-name)
+         432) ;; Octal 660
        (nothing))]))
 
 (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Int
