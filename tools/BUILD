@@ -78,6 +78,24 @@ yaspl_binary(
     ],
 )
 
+yaspl_binary(
+    name = "aspect-remove-unused-dependencies",
+    srcs = ["aspect-remove-unused-dependencies-main.yaspl"],
+    deps = [
+        "//libraries:io",
+        "//libraries:module-name",
+        "//libraries:sexp-parser",
+        "//libraries:sexp-printer",
+        "//libraries:source-language",
+        "//libraries/data:bytes",
+        "//libraries/data:dict",
+        "//libraries/data:either",
+        "//libraries/data:list",
+        "//libraries/data:maybe",
+        "//libraries/data:set",
+    ],
+)
+
 yaspl_library(
     name = "command-line",
     srcs = ["command-line.yaspl"],
@@ -212,6 +230,7 @@ filegroup(
         ":aspect-clean-up-imports",
         ":aspect-linter",
         ":aspect-missing-dependencies",
+        ":aspect-remove-unused-dependencies",
         ":intermediate-html-printer",
         ":ir-printer",
         ":rewrite-imports",

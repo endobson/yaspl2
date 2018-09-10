@@ -1,0 +1,148 @@
+#:module (tools aspect-remove-unused-dependencies-main)
+#:import {
+  (bytes)
+  (dict)
+  (either)
+  (io)
+  (list)
+  (maybe)
+  (module-name)
+  (prim)
+  (set)
+  (sexp-parser)
+  (sexp-printer)
+  (source-language)
+}
+(export)
+(types)
+
+(define (imports-module-name [i : Imports]) : ModName
+  (case i
+    [(partial-imports mod-name _ _ _) mod-name]
+    [(full-imports mod-name) mod-name]))
+
+(define (handle-failure-result [msg : Bytes] [stderr : OutputPort]) : Int
+  (begin
+    (write-line msg stderr)
+    1))
+
+(define (handle-result [output : OutputPort] [stderr : OutputPort]
+                       [results : (Either Bytes (List Bytes))]) : Int
+  (case results
+    [(left v)
+     (handle-failure-result v stderr)]
+    [(right buildozer-commands)
+     (begin
+       (for-each
+         (lambda ([buildozer-command : Bytes])
+           (write-line buildozer-command output))
+         buildozer-commands)
+       0)]))
+
+(define (extract-imported-modules [module-file : Bytes]) : (Either Bytes (List ModName))
+  (case (parse-sexps (sourced-bytes-from-file module-file))
+    [(left v) (left v)]
+    [(right module-forms)
+     (case (parse-module module-forms)
+      [(left v) (left v)]
+      [(right module)
+       (right (map imports-module-name (module-imports module)))])]))
+
+(define (extract-available-modules [mod-name-files : (List Bytes)]) : (Either Bytes (List ModName))
+  (extract-rights
+    (map
+      (lambda ([input-path : Bytes]) : (Either Bytes ModName)
+        (case (parse-single-sexp
+                (sourced-bytes-from-file input-path))
+          [(left v) (left v)]
+          [(right mod-name)
+           (case (sexp->mod-name mod-name)
+             [(nothing) (left #"Unparseable mod-name")]
+             [(just v) (right v)])]))
+      mod-name-files)))
+
+(define (compute-unused-dependencies [module-file : Bytes] [mod-name-files : (List Bytes)])
+  : (Either Bytes (List ModName))
+  (case (extract-imported-modules module-file)
+    [(left v) (left v)]
+    [(right imported-modules)
+     (case (extract-available-modules mod-name-files)
+       [(left v) (left v)]
+       [(right available-modules)
+        (right
+          (set->list
+            (set-remove-all
+              (set-add-all
+                (make-set mod-name-cmp)
+                available-modules)
+              imported-modules)))])]))
+
+(define (parse-module-index [module-index-forms : (List Sexp)] [acc : (Dict ModName Bytes)])
+  : (Either Bytes (Dict ModName Bytes))
+  (case module-index-forms
+    [(empty) (right acc)]
+    [(cons _ (empty)) (left #"Module Index file has odd number of sexps")]
+    [(cons target-label (cons mod-name module-index-forms))
+     (case target-label
+       [(bytes-sexp target-label)
+        (case (sexp->mod-name mod-name)
+          [(just mod-name)
+           (parse-module-index module-index-forms (dict-add acc mod-name target-label))]
+          [(nothing)
+           (left (bytes-append (varargs list
+             #"Mod name '"
+             (print-sexp mod-name)
+             #"' in module index file is unparseable")))])]
+       [_ (left #"Target label in module index is unparseable")])]))
+
+
+(define (build-module-index [module-index-file : Bytes]) : (Either Bytes (Dict ModName Bytes))
+  (case (parse-sexps (sourced-bytes-from-file module-index-file))
+    [(left v) (left v)]
+    [(right module-index-forms)
+     (parse-module-index module-index-forms (make-dict mod-name-cmp))]))
+
+
+(define (construct-buildozer-commands
+          [self-target : Bytes]
+          [module-index : (Dict ModName Bytes)]
+          [mod-names : (List ModName)])
+  : (Either Bytes (List Bytes))
+  (extract-rights
+    (map
+      (lambda ([mod-name : ModName]) : (Either Bytes Bytes)
+        (case (dict-ref module-index mod-name)
+          [(nothing)
+           (left (bytes-append (varargs list
+                                 #"Couldn't find module " (mod-name->bytes mod-name) #" in index")))]
+          [(just module-target)
+           (right (bytes-append (varargs list #"remove deps " module-target #"|" self-target)))]))
+      mod-names)))
+
+
+(define (run [target-label : Bytes]
+             [module-index-file : Bytes]
+             [module-file : Bytes]
+             [mod-name-files : (List Bytes)])
+  : (Either Bytes (List Bytes))
+  (case (compute-unused-dependencies module-file mod-name-files)
+    [(left v) (left v)]
+    [(right unused-dependencies)
+     (case (build-module-index module-index-file)
+       [(left v) (left v)]
+       [(right module-index)
+        (construct-buildozer-commands target-label module-index unused-dependencies)])]))
+
+(define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Int
+  (case (array->list args)
+    [(empty)
+     (handle-failure-result #"No binary!?" stderr)]
+    [(cons _ (empty))
+     (handle-failure-result #"No target label provided." stderr)]
+    [(cons _ (cons _ (empty)))
+     (handle-failure-result #"No module index file provided." stderr)]
+    [(cons _ (cons _ (cons _ (empty))))
+     (handle-failure-result #"No module file provided." stderr)]
+    [(cons _ (cons target-label (cons module-index-file (cons module-file mod-name-files))))
+     (handle-result stdout stderr
+       (run target-label module-index-file module-file mod-name-files))]))
