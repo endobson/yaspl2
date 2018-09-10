@@ -1,6 +1,7 @@
 load("//tools:yaspl-module-index.bzl", "yaspl_module_index_rule")
 load("//tools:yaspl-missing-imports.bzl", "yaspl_missing_imports_rule")
 load("//tools:yaspl-lint.bzl", "yaspl_lint_rule")
+load("//tools:yaspl-clean-up-imports.bzl", "yaspl_clean_up_imports_rule")
 
 exports_files(["racket.bzl"])
 
@@ -45,6 +46,14 @@ yaspl_missing_imports_rule(
 
 yaspl_lint_rule(
     name = "lint",
+    deps = [
+        ":all_binaries",
+        ":all_tests",
+    ],
+)
+
+yaspl_clean_up_imports_rule(
+    name = "clean_up_imports",
     deps = [
         ":all_binaries",
         ":all_tests",

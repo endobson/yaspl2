@@ -1,7 +1,6 @@
 #:module (tools rewrite-imports)
 #:import {
   (bytes)
-  (compiler)
   (data source-location)
   (either)
   (io)
@@ -14,7 +13,10 @@
   (sexp-parser)
   (source-language)
 }
-(export)
+(export
+  (#:types)
+  (#:values rewrite-imports)
+  (#:patterns))
 (types)
 
 (define (import->bytes [i : Import]) : Bytes
@@ -57,8 +59,7 @@
 (define (imports< [i1 : Imports] [i2 : Imports]) : Boolean
   (mod-name< (imports-module-name i1) (imports-module-name i2)))
 
-
-(define (rewrite-imports* [mod-name : ModName] [imports : (List Imports)] [module-file-name : Bytes])
+(define (rewrite-imports [mod-name : ModName] [imports : (List Imports)] [module-file-name : Bytes])
   : (Either Bytes Bytes)
   (case (remove-import-section (call-with-input-file module-file-name read-all-bytes))
     [(left v) (left v)]
@@ -122,47 +123,3 @@
                     (sort imports imports<)))
              (single-jl #"}")
              (single-jl rest-of-module)))))]))
-
-(define (rewrite-imports [mod-name : ModName] [imports : (List Imports)] [module-file-name : Bytes])
-  : (Maybe Bytes)
-  (case (rewrite-imports* mod-name imports module-file-name)
-    [(left v) (just v)]
-    [(right new-contents)
-     (begin
-       (delete-file module-file-name)
-       (call-with-output-file/void module-file-name
-         (lambda ([output : OutputPort])
-           (write-all-bytes new-contents output)))
-       (set-file-or-directory-permissions
-         (make-null-terminated module-file-name)
-         432) ;; Octal 660
-       (nothing))]))
-
-(define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Int
-  (case (array->list args)
-    [(empty)
-     (begin
-       (write-line #"No executable specified???" stderr)
-       1)]
-    [(cons _ (empty))
-     (begin
-       (write-line #"No input file name supplied." stderr)
-       1)]
-    [(cons _ (cons _ (cons _ _)))
-     (begin
-       (write-line #"Too many arguments supplied." stderr)
-       1)]
-    [(cons _ (cons input-file-name (empty)))
-     (case (parse-module-file input-file-name)
-       [(left v)
-        (begin
-          (write-line v stderr)
-          1)]
-       [(right mod)
-        (case (rewrite-imports (module-name mod) (module-imports mod) input-file-name)
-          [(just v)
-           (begin
-             (write-line v stderr)
-             1)]
-          [(nothing)
-           0])])]))

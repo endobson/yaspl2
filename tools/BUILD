@@ -19,6 +19,19 @@ yaspl_library(
 )
 
 yaspl_binary(
+    name = "aspect-clean-up-imports",
+    srcs = ["aspect-clean-up-imports-main.yaspl"],
+    deps = [
+        ":rewrite-imports",
+        "//libraries:compiler_lib",
+        "//libraries:io",
+        "//libraries:source-language",
+        "//libraries/data:either",
+        "//libraries/data:list",
+    ],
+)
+
+yaspl_binary(
     name = "aspect-analysis",
     srcs = ["aspect-analysis-main.yaspl"],
     deps = [
@@ -163,11 +176,10 @@ yaspl_library(
     ],
 )
 
-yaspl_binary(
+yaspl_library(
     name = "rewrite-imports",
     srcs = ["rewrite-imports.yaspl"],
     deps = [
-        "//libraries:compiler_lib",
         "//libraries:io",
         "//libraries:lexer",
         "//libraries:module-name",
@@ -191,6 +203,7 @@ filegroup(
     name = "package_binaries",
     srcs = [
         ":aspect-analysis",
+        ":aspect-clean-up-imports",
         ":aspect-linter",
         ":aspect-missing-imports",
         ":intermediate-html-printer",
