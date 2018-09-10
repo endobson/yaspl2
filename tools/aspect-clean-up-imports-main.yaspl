@@ -1,12 +1,18 @@
 #:module (tools aspect-clean-up-imports-main)
 #:import {
+  (bytes)
   (compiler)
   (either)
   (io)
   (list)
+  (maybe)
+  (module-name)
   (prim)
+  (set)
   (source-language)
+  (tools linter)
   (tools rewrite-imports)
+  (unused-bindings)
 }
 
 (export)
@@ -29,10 +35,61 @@
 
 (define (run [module-file : Bytes] [signature-files : (List Bytes)])
   : (Either Bytes Bytes)
-  (case (parse-module-file module-file)
+  (case (lint-module module-file signature-files)
     [(left v) (left v)]
-    [(right mod)
-     (rewrite-imports (module-name mod) (module-imports mod) module-file)]))
+    [(right (lint-results _ (unused-bindings all-unused-bindings _) _ _))
+     (case (parse-module-file module-file)
+       [(left v) (left v)]
+       [(right mod)
+        (match-define new-imports
+          (filter-map
+            (lambda ([imports : Imports]) : (Maybe Imports)
+              (let ([imports-mod-name
+                     (case imports
+                       [(full-imports mod-name) mod-name]
+                       [(partial-imports mod-name _ _ _) mod-name])])
+                (case (findf (lambda ([unused : ImportsUnusedBindings])
+                               (case unused
+                                 [(full-imports-unused unused-mod-name)
+                                  (mod-name=? imports-mod-name unused-mod-name)]
+                                 [(partial-imports-unused unused-mod-name _ _ _)
+                                  (mod-name=? imports-mod-name unused-mod-name)]))
+                             all-unused-bindings)
+                  [(nothing)
+                   (just imports)]
+                  [(just (partial-imports-unused _ unused-types unused-values unused-patterns))
+                   (match-define unused-types (set-add-all (make-set bytes-cmp) unused-types))
+                   (match-define unused-values (set-add-all (make-set bytes-cmp) unused-values))
+                   (match-define unused-patterns (set-add-all (make-set bytes-cmp) unused-patterns))
+                   (case imports
+                     [(full-imports _)
+                      (panic #"Cannot have partially unused full-imports")]
+                     [(partial-imports m types values patterns)
+                      (just
+                        (partial-imports
+                          m
+                          (filter
+                            (lambda ([import : Import])
+                              (case import
+                                [(import _ local-name)
+                                 (not (set-member? unused-types local-name))]))
+                            types)
+                          (filter
+                            (lambda ([import : Import])
+                              (case import
+                                [(import _ local-name)
+                                 (not (set-member? unused-values local-name))]))
+                            values)
+                          (filter
+                            (lambda ([import : Import])
+                              (case import
+                                [(import _ local-name)
+                                 (not (set-member? unused-patterns local-name))]))
+                            patterns)))])]
+                  [(just (full-imports-unused _))
+                   (nothing)])))
+            (module-imports mod)))
+        (rewrite-imports (module-name mod) new-imports module-file)])]))
 
 (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Int
   (case (array->list args)

@@ -22,12 +22,18 @@ yaspl_binary(
     name = "aspect-clean-up-imports",
     srcs = ["aspect-clean-up-imports-main.yaspl"],
     deps = [
+        ":linter_lib",
         ":rewrite-imports",
         "//libraries:compiler_lib",
         "//libraries:io",
+        "//libraries:module-name",
         "//libraries:source-language",
+        "//libraries:unused-bindings",
+        "//libraries/data:bytes",
         "//libraries/data:either",
         "//libraries/data:list",
+        "//libraries/data:maybe",
+        "//libraries/data:set",
     ],
 )
 
