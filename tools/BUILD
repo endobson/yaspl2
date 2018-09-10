@@ -60,8 +60,8 @@ yaspl_binary(
 )
 
 yaspl_binary(
-    name = "aspect-missing-imports",
-    srcs = ["aspect-missing-imports-main.yaspl"],
+    name = "aspect-missing-dependencies",
+    srcs = ["aspect-missing-dependencies-main.yaspl"],
     deps = [
         "//libraries:io",
         "//libraries:module-name",
@@ -211,7 +211,7 @@ filegroup(
         ":aspect-analysis",
         ":aspect-clean-up-imports",
         ":aspect-linter",
-        ":aspect-missing-imports",
+        ":aspect-missing-dependencies",
         ":intermediate-html-printer",
         ":ir-printer",
         ":rewrite-imports",

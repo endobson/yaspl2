@@ -7,7 +7,7 @@ binaries_to_prebuild = {
     "main_stub": "//bootstrap:bootstrap_main_stub",
     "linker": "//bootstrap:bootstrap_linker",
     "prim_language_library_compiler": "//bootstrap:bootstrap_prim_language_library_compiler",
-    "aspect-missing-imports": "//tools:aspect-missing-imports",
+    "aspect-missing-dependencies": "//tools:aspect-missing-dependencies",
 }
 
 [

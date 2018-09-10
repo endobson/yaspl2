@@ -1,5 +1,5 @@
 load("//tools:yaspl-module-index.bzl", "yaspl_module_index_rule")
-load("//tools:yaspl-missing-imports.bzl", "yaspl_missing_imports_rule")
+load("//tools:yaspl-missing-dependencies.bzl", "yaspl_missing_dependencies_rule")
 load("//tools:yaspl-lint.bzl", "yaspl_lint_rule")
 load("//tools:yaspl-clean-up-imports.bzl", "yaspl_clean_up_imports_rule")
 
@@ -36,8 +36,8 @@ yaspl_module_index_rule(
     ],
 )
 
-yaspl_missing_imports_rule(
-    name = "missing_imports",
+yaspl_missing_dependencies_rule(
+    name = "missing_dependencies",
     deps = [
         ":all_binaries",
         ":all_tests",
