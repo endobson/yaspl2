@@ -47,7 +47,7 @@
           [static-info : StaticInfo])
   : FunctionDefinition
   (match-define (function-definition name calling-convention blocks next-var-number next-block-number) f)
-  (match-define abstract-values (compute-abstract-values blocks))
+  (match-define abstract-values (compute-abstract-values static-info blocks))
   (match-define new-blocks
     (remove-dead-blocks calling-convention
       (collapse-trivial-blocks
@@ -267,6 +267,8 @@
           [(bin-op-inst v (numeric-bin-op (add-op)) left right)
            (case (tuple2 (abstract-value-resolve abstract-values left)
                          (abstract-value-resolve abstract-values right))
+             [(tuple2 (av-int lv) (av-int rv))
+              (int-literal v (+ lv rv))]
              [(tuple2 (av-int lv) _)
               (case (maybe-s32 lv)
                 [(nothing) i]
@@ -360,7 +362,9 @@
     [(not-equal-op) (not-equal-op)]))
 
 ;; TODO Use better flow analysis across blocks
-(define (compute-abstract-values [blocks : (IndexedSet BasicBlock BlockNumber)])
+(define (compute-abstract-values
+          [static-info : StaticInfo]
+          [blocks : (IndexedSet BasicBlock BlockNumber)])
   : (Dict Var AbstractValue)
   (indexed-set-fold
     blocks
@@ -386,6 +390,16 @@
                   (dict-set acc var (av-negated v))]
                  [(variant-allocate-inst var tag fields)
                   (dict-set acc var (av-variant tag))]
+                 [(pointer-ref-inst var (eight-byte-mem-op) pointer (fixed-pointer-offset 8))
+                  (match-define av
+                    (case (dict-ref acc pointer)
+                      [(just (av-symbol sym))
+                       (case (dict-ref (static-info-known-byte-constants static-info) sym)
+                         [(just val)
+                          (av-int (bytes-length val))]
+                         [_ (av-unknown)])]
+                      [_ (av-unknown)]))
+                  (dict-set acc var av)]
                  [_
                   (case (output-var i)
                     [(nothing) acc]
