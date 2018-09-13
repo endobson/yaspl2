@@ -104,8 +104,10 @@
       ;; The next var for lifted functions
       [next-var : VarNumber]))
   (define-type State
-    (state [funcs : (List i:FunctionDefinition)] [bytes : (List i:ConstantDefinition)]
-           [counter : Int])))
+    (state
+      [funcs : (List i:FunctionDefinition)]
+      [constants : (List i:ConstantDefinition)]
+      [counter : Int])))
 
 (define (source->intermediate [mod : rt:Module])
   : (Either Bytes i:Module)
@@ -121,11 +123,11 @@
                 definitions
                 name
                 (state (empty) (empty) 0))
-          [(state funcs byte-constants _)
+          [(state funcs inner-expr-constants _)
            (match-define constants
              (append
                (create-closures definitions (empty))
-               byte-constants))
+               inner-expr-constants))
            (right
              (i:module
                name
@@ -372,22 +374,30 @@
              [(tuple2 ibody acc)
               (case (get-next-index acc)
                 [(tuple2 (lifted-int index) acc)
+                 (match-define function-name
+                   (bytes-append (cons #"lambda_code_" (cons (integer->decimal-bytes index) (empty)))))
                  (match-define closure-name
                    (bytes-append (cons #"lambda_" (cons (integer->decimal-bytes index) (empty)))))
-                 (tuple2
-                   (i:create-closure-expr
-                     (top-level-name (environment-module-name env) closure-name)
-                     (map i:local-var-expr fv))
+                 (match-define acc
                    (add-function
                      (i:function-definition
-                       closure-name (var-type #"bogus")
+                       function-name (var-type #"bogus")
                        (map (lambda ([t : (Tuple2 Var Type)])
                               (case t [(tuple2 var type) var]))
                             args+tys)
                        fv
                        (environment-next-var env)
                        ibody)
-                     acc))])]))))]
+                     acc))
+                 (if (= (length fv) 0)
+                     (tuple2
+                       (i:global-var-expr (top-level-name (environment-module-name env) closure-name))
+                       (add-closure-constant closure-name function-name acc))
+                     (tuple2
+                       (i:create-closure-expr
+                         (top-level-name (environment-module-name env) function-name)
+                         (map i:local-var-expr fv))
+                       acc))])]))))]
     [(app-expr tail-position op args)
      (case (convert-expression op env acc)
        [(tuple2 iop acc)
@@ -432,18 +442,24 @@
 
 (define (add-function [func : i:FunctionDefinition] [acc : State]) : State
   (case acc
-    [(state funcs bytes counter)
-     (state (cons func funcs) bytes counter)]))
+    [(state funcs consts counter)
+     (state (cons func funcs) consts counter)]))
 
 (define (add-bytes-constant [name : Bytes] [value : Bytes] [acc : State]) : State
   (case acc
-    [(state funcs bytes counter)
-     (state funcs (cons (bytes-constant name value) bytes) counter)]))
+    [(state funcs consts counter)
+     (state funcs (cons (bytes-constant name value) consts) counter)]))
+
+(define (add-closure-constant [name : Bytes] [fun-name : Bytes] [acc : State]) : State
+  (case acc
+    [(state funcs consts counter)
+     (state funcs (cons (closure-constant name fun-name) consts) counter)]))
+
 
 (define (get-next-index [acc : State]) : (Tuple2 LiftedInt State)
   (case acc
-    [(state funcs bytes counter)
-     (tuple2 (lifted-int counter) (state funcs bytes (+ 1 counter)))]))
+    [(state funcs consts counter)
+     (tuple2 (lifted-int counter) (state funcs consts (+ 1 counter)))]))
 
 (define (create-static-info
           [name : ModName]
