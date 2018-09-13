@@ -827,6 +827,7 @@ yaspl_bootstrap_library(
     deps = [
         ":module-name",
         ":sexp-parser",
+        "//libraries/data:bytes",
         "//libraries/data:either",
         "//libraries/data:list",
         "//libraries/data:maybe",
