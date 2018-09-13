@@ -52,7 +52,11 @@ yaspl_bootstrap_library(
     srcs = ["top-level-object-optimizer.yaspl"],
     deps = [
         ":top-level-objects",
+        "//libraries/data:bytes",
+        "//libraries/data:dict",
         "//libraries/data:list",
+        "//libraries/data:maybe",
+        "//libraries/data:tuples",
         "//libraries/prim-language:simplify-register-language",
     ],
 )

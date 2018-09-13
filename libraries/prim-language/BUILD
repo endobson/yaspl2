@@ -232,6 +232,8 @@ yaspl_bootstrap_library(
         ":register-language-compiler",
         ":simplify-register-language",
         "//libraries:sexp-parser",
+        "//libraries/data:bytes",
+        "//libraries/data:dict",
         "//libraries/data:either",
         "//libraries/data:list",
         "//libraries/data:maybe",

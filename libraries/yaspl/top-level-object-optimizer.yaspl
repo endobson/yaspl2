@@ -1,8 +1,12 @@
 #:module (yaspl top-level-object-optimizer)
 #:import {
+  (bytes)
+  (dict)
   (list)
+  (maybe)
   (prim)
   (simplify-register-language)
+  (tuples)
   (yaspl top-level-objects)
 }
 (export
@@ -13,12 +17,30 @@
 
 
 (define (optimize-tlos [tlos : (List TopLevelObject)]) : (List TopLevelObject)
-  (map optimize-tlo tlos))
+  (match-define static-info (make-register-static-info tlos))
+  (map (lambda ([tlo : TopLevelObject]) (optimize-tlo tlo static-info)) tlos))
 
-(define (optimize-tlo [tlo : TopLevelObject]) : TopLevelObject
+(define (optimize-tlo [tlo : TopLevelObject] [static-info : StaticInfo]) : TopLevelObject
   (case tlo
     [(register-function-tlo func)
-     (register-function-tlo (simplify-function-definition func))]
+     (register-function-tlo (simplify-function-definition func static-info))]
     [(bytes-tlo _ _) tlo]
     [(trivial-variant-tlo _ _) tlo]
     [(trivial-closure-tlo _ _) tlo]))
+
+(define (make-register-static-info [tlos : (List TopLevelObject)]) : StaticInfo
+  (static-info
+    (dict-add-all
+      (make-dict bytes-cmp)
+      (filter-map
+        (lambda ([tlo : TopLevelObject]) : (Maybe (Tuple2 Bytes Bytes))
+          (case tlo
+            [(bytes-tlo symbol val)
+             (just (tuple2 symbol val))]
+            [(register-function-tlo func)
+             (nothing)]
+            [(trivial-variant-tlo _ _)
+             (nothing)]
+            [(trivial-closure-tlo _ _)
+             (nothing)]))
+        tlos))))
