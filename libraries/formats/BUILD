@@ -11,10 +11,13 @@ yaspl_library(
         "//libraries:structured-native-code",
         "//libraries/data:aligned-bytes",
         "//libraries/data:bytes",
+        "//libraries/data:dict",
         "//libraries/data:join-list",
         "//libraries/data:lifted-primitives",
         "//libraries/data:list",
+        "//libraries/data:maybe",
         "//libraries/data:numbers",
+        "//libraries/data:set",
         "//libraries/data:tuples",
     ],
 )

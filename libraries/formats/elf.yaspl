@@ -2,6 +2,9 @@
 #:import {
   (aligned-bytes)
   (bytes)
+  (maybe)
+  (dict)
+  (set)
   (data lifted-primitives)
   (join-list)
   (list)
@@ -22,8 +25,7 @@
     text-section)
   (match-define text-section-length (bytes-length text-section-contents))
   (match-define rounded-text-section-length (round-up text-section-length 8))
-  (match-define symbol-table-size (* (+ (length text-symbols) 4) #x18))
-  (match-define (tuple2 rev-offset-symbols (lifted-int string-table-size))
+  (match-define (tuple2 rev-offset-defined-symbols (lifted-int defined-symbols-end))
     (foldl
       (lambda ([s : DefinedSymbol] [acc : (Tuple2 (List (Tuple2 DefinedSymbol LiftedInt)) LiftedInt)])
         (case acc
@@ -35,7 +37,42 @@
       (tuple2
         (ann (List (Tuple2 DefinedSymbol LiftedInt)) (empty))
         (lifted-int 1))))
-  (match-define offset-symbols (reverse rev-offset-symbols))
+  (match-define offset-defined-symbols (reverse rev-offset-defined-symbols))
+  (match-define undefined-symbols-set
+    (set-remove-all
+      (set-add-all
+        (make-set bytes-cmp)
+        (map relocation-symbol text-relocations))
+      (map defined-symbol-name text-symbols)))
+  (match-define undefined-symbols (set->list undefined-symbols-set))
+  (match-define (tuple2 rev-offset-undefined-symbols (lifted-int string-table-size))
+    (foldl
+      (lambda ([s : Bytes] [acc : (Tuple2 (List (Tuple2 Bytes LiftedInt)) LiftedInt)])
+        (case acc
+          [(tuple2 offset-symbols (lifted-int current-offset))
+           (tuple2
+             (cons (tuple2 s (lifted-int current-offset)) offset-symbols)
+             (lifted-int (+ current-offset (+ 1 (bytes-length s)))))]))
+      undefined-symbols
+      (tuple2
+        (ann (List (Tuple2 Bytes LiftedInt)) (empty))
+        (lifted-int defined-symbols-end))))
+  (match-define offset-undefined-symbols (reverse rev-offset-undefined-symbols))
+  (match-define symbol-locations : (Dict Bytes LiftedInt)
+    (dict-add-all
+      (dict-add-all
+        (make-dict bytes-cmp)
+        (map (lambda ([s : DefinedSymbol])
+               (case s
+                 [(defined-symbol name addr)
+                  (tuple2 name (lifted-int addr))]))
+             text-symbols))
+      (map (lambda ([s : Bytes])
+             (tuple2 s (lifted-int 0)))
+           undefined-symbols)))
+
+  (match-define symbol-table-size (* (+ (length undefined-symbols) (+ (length text-symbols) 4)) #x18))
+
   (match-define section-string-table-size
     (case text-relocations
       [(empty) #x2C]
@@ -65,6 +102,8 @@
     (round-up (+ section-string-table-start section-string-table-size) 8))
   (match-define section-header-padding
     (- section-header-start section-string-table-end))
+
+
   (bytes-append
     (jl->list
       (varargs append-jl*
@@ -119,13 +158,25 @@
               (case entry
                 [(tuple2 (defined-symbol _ addr) (lifted-int name-offset))
                  (symbol-table-entry name-offset 0 1 addr)]))
-            offset-symbols))
+            offset-defined-symbols))
+        (concat-jl
+          (map
+            (lambda ([entry : (Tuple2 Bytes LiftedInt)])
+              (case entry
+                [(tuple2 _ (lifted-int name-offset))
+                 (symbol-table-entry name-offset #x10 0 0)]))
+            offset-undefined-symbols))
         (single-jl (make-null-terminated #""))
         (concat-jl
           (map
             (lambda ([s : DefinedSymbol])
               (single-jl (make-null-terminated (defined-symbol-name s))))
             text-symbols))
+        (concat-jl
+          (map
+            (lambda ([s : Bytes])
+              (single-jl (make-null-terminated s)))
+            undefined-symbols))
         (case text-relocations
           [(empty)
            (empty-jl)]
@@ -138,10 +189,24 @@
                    (case relocation
                      [(relocation kind offset sym)
                       (varargs join-list
-                        (bytes/u64-le offset)
-                        #"\x0b\x00\x00\x00\x01\x00\x00\x00"
-                        ;; 12 is the location of bar in examples so far
-                        (bytes/u64-le (- 12 offset)))]))
+                        (bytes/s64-le offset)
+                        (case kind
+                          [(branch-relocation)
+                           #"\x02\x00\x00\x00\x06\x00\x00\x00"]
+                          [(signed-relocation)
+                           (if (set-member? undefined-symbols-set sym)
+                               #"\x0b\x00\x00\x00\x06\x00\x00\x00"
+                               #"\x0b\x00\x00\x00\x01\x00\x00\x00")]
+                          [(unsigned-relocation)
+                           #"\x0b\x00\x00\x00\x01\x00\x00\x00"])
+                        (case kind
+                          [(branch-relocation) (bytes/s64-le (- 0 4))]
+                          [(signed-relocation)
+                           (case (dict-ref symbol-locations sym)
+                             [(nothing) (panic #"Unknown symbol")]
+                             [(just (lifted-int v))
+                              (bytes/u64-le v)])]
+                          [(unsigned-relocation) (bytes/u64-le offset)]))]))
                  text-relocations)))])
         (single-jl (make-null-terminated #""))
         (single-jl (make-null-terminated #".symtab"))
@@ -194,6 +259,17 @@
   (begin
     (bytes-set!/u64-le b 0 (u64 v))
     b))
+
+(define (bytes/s64-le [v : Int]) : Bytes
+  (match-define b (make-bytes 8))
+  (begin
+    (if (>= v 0)
+        (bytes-set!/u64-le b 0 (u64 v))
+        (begin
+          (bytes-set!/s32-le b 0 (s32 v))
+          (bytes-set!/s32-le b 4 (s32 (- 0 1)))))
+    b))
+
 
 (define (section-header
           [name-offset : Int]
