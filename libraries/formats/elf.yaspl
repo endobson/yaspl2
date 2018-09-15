@@ -52,7 +52,7 @@
   (match-define rela-text-section-size
     (case text-relocations
       [(empty) 0]
-      [_ #x18]))
+      [_ (* #x18 (length text-relocations))]))
 
   (match-define section-string-table-start
     (case text-relocations
@@ -130,11 +130,19 @@
           [(empty)
            (empty-jl)]
           [_
-           (varargs join-list
-             (make-bytes rela-text-section-align-padding)
-             #"\x03\x00\x00\x00\x00\x00\x00\x00"
-             #"\x0b\x00\x00\x00\x01\x00\x00\x00"
-             #"\x09\x00\x00\x00\x00\x00\x00\x00")])
+           (append-jl
+             (single-jl (make-bytes rela-text-section-align-padding))
+             (concat-jl
+               (map
+                 (lambda ([relocation : Relocation]) : (JoinList Bytes)
+                   (case relocation
+                     [(relocation kind offset sym)
+                      (varargs join-list
+                        (bytes/u64-le offset)
+                        #"\x0b\x00\x00\x00\x01\x00\x00\x00"
+                        ;; 12 is the location of bar in examples so far
+                        (bytes/u64-le (- 12 offset)))]))
+                 text-relocations)))])
         (single-jl (make-null-terminated #""))
         (single-jl (make-null-terminated #".symtab"))
         (single-jl (make-null-terminated #".strtab"))
@@ -158,7 +166,8 @@
           [_
            (varargs append-jl*
              (section-header 32 1 6 0 #x40 text-section-length 0 0 1 0)
-             (section-header 27 4 64 0 #xf0 #x18 5 1 8 #x18)
+             (section-header 27 4 64 0 rela-text-section-start
+                             (* #x18 (length text-relocations)) 5 1 8 #x18)
              (section-header 38 1 3 0 (+ #x40 text-section-length) 0 0 0 1 0)
              (section-header 44 8 3 0 (+ #x40 text-section-length) 0 0 0 1 0))])
         (let ([symbol-table-section-number
