@@ -49,7 +49,7 @@ prim_binary = rule(
 
 def _lib_impl(ctx):
   # TODO check that srcs has exactly one value
-  ctx.action(
+  ctx.actions.run(
     inputs = [ctx.executable._compiler] + ctx.files.srcs,
     outputs = [ctx.outputs.object],
     executable = ctx.executable._compiler,
