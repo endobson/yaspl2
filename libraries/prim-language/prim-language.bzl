@@ -125,7 +125,7 @@ binary_test = rule(
     "binary": attr.label(
        allow_files = True,
        executable = True,
-       cfg = "data",
+       cfg = "target",
     ),
     "binary_args": attr.string_list(),
     "exit_code": attr.int(),
