@@ -2,9 +2,9 @@ workspace(name = "yaspl")
 
 http_archive(
   name = "minimal_racket",
-  sha256 = "e3881443780584beaa44df8dde957ab67bf9ee61ebc9f52cc6c0b2fd8cffa0cc",
-  strip_prefix = "minimal-racket-a2ca2a3e2e6bb6662459ca085e6e0f902a9be34e",
-  urls = ["https://github.com/endobson/minimal-racket/archive/a2ca2a3e2e6bb6662459ca085e6e0f902a9be34e.tar.gz"]
+  sha256 = "6eb3553cc6902e557d9f6cf8a70b259fcf68de6a23f2f51896fc7312793120ea",
+  strip_prefix = "minimal-racket-b38b24f78c28d2d582715e052730057631ff86fc",
+  urls = ["https://github.com/endobson/minimal-racket/archive/b38b24f78c28d2d582715e052730057631ff86fc.tar.gz"]
 )
 
 
