@@ -53,7 +53,7 @@ yaspl_binary(
         "//libraries/data:either",
         "//libraries/data:join-list",
         "//libraries/data:list",
-        "//libraries/data:tuples",
+        "//libraries/data:maybe",
         "//libraries/yaspl:x86-64-assembly",
     ],
 )

@@ -6,13 +6,21 @@
   (join-list)
   (list)
   (mach-o-writer)
+  (maybe)
   (prim)
   (prim-language-compiler)
-  (tuples)
   (yaspl x86-64-assembly)
 }
 (export)
-(types)
+(types
+  (define-type Args
+    (args
+      [input-file-name : Bytes]
+      [output-file-name : Bytes]
+      [platform : Platform]))
+  (define-type Platform
+    (mach-osx)
+    (elf-linux)))
 
 (define (start-function-fragments [main-function-name : Bytes]) : (List TextFragment)
   (varargs list
@@ -79,8 +87,8 @@
                 (xaddq (rax) (r15))
                 (ret)))))))))
 
-(define (parse-args [args : (List Bytes)]) : (Either Bytes (Tuple2 Bytes Bytes))
-  (case args
+(define (parse-args [input : (List Bytes)]) : (Either Bytes Args)
+  (case input
     [(empty)
      (left #"No executable???")]
     [(cons _ (empty))
@@ -90,25 +98,32 @@
     [(cons _ (cons _ (cons _ (cons _ _))))
      (left #"Too many arguments.")]
     [(cons _ (cons file-name (cons out-file-name (empty))))
-     (right (tuple2 file-name out-file-name))]))
+     (right (args file-name out-file-name (mach-osx)))]))
 
-(define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]): Int
+(define (run [args : (Array Bytes)]) : (Maybe Bytes)
   (case (parse-args (array->list args))
-    [(left msg)
-     (begin
-       (write-line msg stderr)
-       1)]
-    [(right (tuple2 file-name out-file-name))
+    [(left v) (just v)]
+    [(right (args file-name out-file-name platform))
      (case (compile-prim-program (sourced-bytes-from-file file-name))
-       [(left msg)
-        (begin
-          (write-line msg stderr)
-          1)]
+       [(left v) (just v)]
        [(right text-fragments)
         (match-define text-fragments
           (append (start-function-fragments #"main") text-fragments))
         (match-define text-section (assemble-text-section text-fragments))
         (match-define const-section (assemble-const-section (empty)))
-        (begin
-          (write-mach-o-library text-section const-section out-file-name)
-          0)])]))
+        (case platform
+          [(mach-osx)
+           (begin
+             (write-mach-o-library text-section const-section out-file-name)
+             (nothing))]
+          [(elf-linux)
+           (just #"No ELF support yet")])])]))
+
+(define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]): Int
+  (case (run args)
+    [(just v)
+     (begin
+       (write-line v stderr)
+       1)]
+    [(nothing)
+     0]))
