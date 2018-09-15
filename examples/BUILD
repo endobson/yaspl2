@@ -17,6 +17,7 @@ yaspl_binary(
         "//libraries:io",
         "//libraries:structured-native-code",
         "//libraries/data:aligned-bytes",
+        "//libraries/data:bytes",
         "//libraries/data:list",
         "//libraries/formats:elf",
     ],

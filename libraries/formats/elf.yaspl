@@ -18,7 +18,7 @@
 
 (define (serialize-elf-file [text-section : ProgramSection]) : Bytes
   (match-define (program-section (aligned-bytes text-section-contents text-section-alignment)
-                                 text-relocation text-symbols)
+                                 text-relocations text-symbols)
     text-section)
   (match-define text-section-length (bytes-length text-section-contents))
   (match-define rounded-text-section-length (round-up text-section-length 8))
@@ -36,15 +36,35 @@
         (ann (List (Tuple2 DefinedSymbol LiftedInt)) (empty))
         (lifted-int 1))))
   (match-define offset-symbols (reverse rev-offset-symbols))
-  (match-define section-string-table-size #x2C)
+  (match-define section-string-table-size
+    (case text-relocations
+      [(empty) #x2C]
+      [_ #x31]))
 
   (match-define symbol-table-start (+ #x40 rounded-text-section-length))
-  (match-define string-table-start (+ symbol-table-start symbol-table-size))
-  (match-define section-string-table-start (+ string-table-start string-table-size))
-  (match-define string-tables-size (+ string-table-size section-string-table-size))
-  (match-define rounded-string-tables-size (round-up string-tables-size 8))
+  (match-define string-table-start (round-up (+ symbol-table-start symbol-table-size) 8))
+
+  (match-define string-table-end (+ string-table-start string-table-size))
+  (match-define rela-text-section-start (round-up string-table-end 8))
+
+  (match-define rela-text-section-align-padding
+    (- rela-text-section-start string-table-end))
+  (match-define rela-text-section-size
+    (case text-relocations
+      [(empty) 0]
+      [_ #x18]))
+
+  (match-define section-string-table-start
+    (case text-relocations
+      [(empty) string-table-end]
+      [_ (+ rela-text-section-start rela-text-section-size)]))
+
+  (match-define section-string-table-end
+    (+ section-string-table-start section-string-table-size))
   (match-define section-header-start
-                (round-up (+ section-string-table-start section-string-table-size) 8))
+    (round-up (+ section-string-table-start section-string-table-size) 8))
+  (match-define section-header-padding
+    (- section-header-start section-string-table-end))
   (bytes-append
     (jl->list
       (varargs append-jl*
@@ -68,15 +88,31 @@
         (single-jl (bytes/u16-le #x00)) ;; Size of program header entry
         (single-jl (bytes/u16-le #x00)) ;; Number of program header entries
         (single-jl (bytes/u16-le #x40)) ;; size of section header entry
-        (single-jl (bytes/u16-le #x7)) ;; Number of section header entries
-        (single-jl (bytes/u16-le #x6)) ;; Index of section name section
+        (case text-relocations
+          [(empty)
+           (varargs append-jl*
+             (single-jl (bytes/u16-le #x7))   ;; Number of section header entries
+             (single-jl (bytes/u16-le #x6)))] ;; Index of section name section
+          [_
+           (varargs append-jl*
+             (single-jl (bytes/u16-le #x8))    ;; Number of section header entries
+             (single-jl (bytes/u16-le #x7)))]) ;; Index of section name section
         (single-jl text-section-contents)
         ;; Symbol tables are 8 byte aligned, so add padding as needed
         (single-jl (make-bytes (- rounded-text-section-length text-section-length)))
-        (symbol-table-entry 0 0 0 0)
-        (symbol-table-entry 0 3 1 0)
-        (symbol-table-entry 0 3 2 0)
-        (symbol-table-entry 0 3 3 0)
+        (case text-relocations
+          [(empty)
+           (varargs append-jl*
+             (symbol-table-entry 0 0 0 0)
+             (symbol-table-entry 0 3 1 0)
+             (symbol-table-entry 0 3 2 0)
+             (symbol-table-entry 0 3 3 0))]
+          [_
+           (varargs append-jl*
+             (symbol-table-entry 0 0 0 0)
+             (symbol-table-entry 0 3 1 0)
+             (symbol-table-entry 0 3 3 0)
+             (symbol-table-entry 0 3 4 0))])
         (concat-jl
           (map
             (lambda ([entry : (Tuple2 DefinedSymbol LiftedInt)])
@@ -90,20 +126,47 @@
             (lambda ([s : DefinedSymbol])
               (single-jl (make-null-terminated (defined-symbol-name s))))
             text-symbols))
+        (case text-relocations
+          [(empty)
+           (empty-jl)]
+          [_
+           (varargs join-list
+             (make-bytes rela-text-section-align-padding)
+             #"\x03\x00\x00\x00\x00\x00\x00\x00"
+             #"\x0b\x00\x00\x00\x01\x00\x00\x00"
+             #"\x09\x00\x00\x00\x00\x00\x00\x00")])
         (single-jl (make-null-terminated #""))
         (single-jl (make-null-terminated #".symtab"))
         (single-jl (make-null-terminated #".strtab"))
         (single-jl (make-null-terminated #".shstrtab"))
-        (single-jl (make-null-terminated #".text"))
+        (case text-relocations
+          [(empty)
+           (single-jl (make-null-terminated #".text"))]
+          [_
+           (single-jl (make-null-terminated #".rela.text"))])
         (single-jl (make-null-terminated #".data"))
         (single-jl (make-null-terminated #".bss"))
         ;; Align the section header to 8 Bytes, so add padding as needed.
-        (single-jl (make-bytes (- rounded-string-tables-size string-tables-size)))
+        (single-jl (make-bytes section-header-padding))
         (single-jl (make-bytes (* 16 4))) ;; Empty section header
-        (section-header 27 1 6 0 #x40 text-section-length 0 0 1 0)
-        (section-header 33 1 3 0 (+ #x40 text-section-length) 0 0 0 1 0)
-        (section-header 39 8 3 0 (+ #x40 text-section-length) 0 0 0 1 0)
-        (section-header 1 2 0 0 symbol-table-start symbol-table-size 5 (+ 4 (length text-symbols)) 8 24)
+        (case text-relocations
+          [(empty)
+           (varargs append-jl*
+             (section-header 27 1 6 0 #x40 text-section-length 0 0 1 0)
+             (section-header 33 1 3 0 (+ #x40 text-section-length) 0 0 0 1 0)
+             (section-header 39 8 3 0 (+ #x40 text-section-length) 0 0 0 1 0))]
+          [_
+           (varargs append-jl*
+             (section-header 32 1 6 0 #x40 text-section-length 0 0 1 0)
+             (section-header 27 4 64 0 #xf0 #x18 5 1 8 #x18)
+             (section-header 38 1 3 0 (+ #x40 text-section-length) 0 0 0 1 0)
+             (section-header 44 8 3 0 (+ #x40 text-section-length) 0 0 0 1 0))])
+        (let ([symbol-table-section-number
+               (case text-relocations
+                 [(empty) 5]
+                 [_ 6])])
+          (section-header 1 2 0 0 symbol-table-start symbol-table-size symbol-table-section-number
+                          (+ 4 (length text-symbols)) 8 24))
         (section-header 9 3 0 0 string-table-start string-table-size 0 0 1 0)
         (section-header 17 3 0 0 section-string-table-start section-string-table-size 0 0 1 0)
         ))))
