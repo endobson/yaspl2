@@ -30,7 +30,7 @@ prim_binary = rule(
   executable = True,
   attrs = {
     "srcs": attr.label_list(
-      allow_files=FileType([".prim"]),
+      allow_files=[".prim"],
       mandatory=True,
       non_empty=True
     ),
@@ -68,7 +68,7 @@ prim_library = rule(
   },
   attrs = {
     "srcs": attr.label_list(
-      allow_files=FileType([".prim"]),
+      allow_files=[".prim"],
       mandatory=True,
       non_empty=True
     ),

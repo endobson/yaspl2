@@ -101,7 +101,7 @@ def _bin_impl(ctx):
     DefaultInfo(files=depset([ctx.outputs.executable])),
   ]
 
-_yaspl_src_file_type = FileType([".yaspl"])
+_yaspl_src_file_extensions = [".yaspl"]
 
 _bootstrap_library_compiler = attr.label(
   default=Label("//prebuilt:library_compiler"),
@@ -138,7 +138,7 @@ yaspl_library = rule(
   },
   attrs = {
     "srcs": attr.label_list(
-      allow_files=_yaspl_src_file_type,
+      allow_files=_yaspl_src_file_extensions,
       mandatory=True,
       allow_empty=False,
     ),
@@ -177,7 +177,7 @@ yaspl_srcs = rule(
   },
   attrs = {
     "srcs": attr.label_list(
-      allow_files=_yaspl_src_file_type,
+      allow_files=_yaspl_src_file_extensions,
     ),
     "deps": attr.label_list(
       providers = [yaspl_src_provider],
