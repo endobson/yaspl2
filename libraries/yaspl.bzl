@@ -16,7 +16,7 @@ def _lib_impl(ctx):
   args.add_all(input_signatures)
 
   ctx.actions.run(
-    inputs = input_signatures + ctx.files.srcs + [ctx.executable._library_compiler],
+    inputs = input_signatures + ctx.files.srcs,
     outputs = [ctx.outputs.object, ctx.outputs.signature],
     mnemonic = "YasplCompile",
     executable = ctx.executable._library_compiler,
