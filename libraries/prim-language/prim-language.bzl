@@ -32,7 +32,7 @@ prim_binary = rule(
     "srcs": attr.label_list(
       allow_files=[".prim"],
       mandatory=True,
-      non_empty=True
+      allow_empty=False,
     ),
     "_compiler": attr.label(
       default=Label("//libraries/prim-language:prim-language-compiler"),
@@ -70,7 +70,7 @@ prim_library = rule(
     "srcs": attr.label_list(
       allow_files=[".prim"],
       mandatory=True,
-      non_empty=True
+      allow_empty=True
     ),
     "_compiler": attr.label(
       default=Label("//prebuilt:prim_language_library_compiler"),
