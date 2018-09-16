@@ -118,38 +118,42 @@
 
 (define (parse-load-command [bytes : Bytes] [offset : Int])
   : (Either Bytes (Tuple2 MachOLoadCommand LiftedInt))
-  (if (< (bytes-length bytes) (+ offset 8))
-      (left #"Not enough bytes to parse load command header")
-      (let ([number (bytes-ref/quad-le bytes (+ offset 0))])
-        (let ([command-size (bytes-ref/quad-le bytes (+ offset 4))])
-          (if (< (bytes-length bytes) (+ offset command-size))
-              (left (bytes-append
-                      (varargs
-                        list
-                        #"Not enough bytes to parse load command content: Offset: "
-                        (integer->decimal-bytes offset)
-                        #" Command size: "
-                        (integer->decimal-bytes command-size)
-                        #" Buffer size: "
-                        (integer->decimal-bytes (bytes-length bytes)))))
-              (let ([command-buffer (subbytes bytes (+ offset 8) (+ offset command-size))])
-                (case
-                  (case number
-                    [#x02 (parse-lc-symbol-table command-buffer)]
-                    [#x19 (parse-lc-load-segment64 command-buffer)]
-                    [#x24 (parse-lc-version-min-macosx command-buffer)]
-                    [#x29 (parse-lc-data-in-code command-buffer)]
-                    [#x05 (parse-lc-unix-thread command-buffer)]
-                    [x (ann (Either Bytes MachOLoadCommand)
-                         (left (bytes-append
-                               (varargs list
-                                 #"Unknown load command: #x"
-                                 (integer->hex-bytes x)
-                                 #" Offset: #x"
-                                 (integer->hex-bytes offset)))))])
-                  [(left v) (left v)]
-                  [(right command)
-                   (right (tuple2 command (lifted-int (+ offset command-size))))])))))))
+  (if (< offset 0)
+    (left #"Load command cannot start at a negative index.")
+    (if (< (bytes-length bytes) (+ offset 8))
+        (left #"Not enough bytes to parse load command header")
+        (let ([number (bytes-ref/quad-le bytes (+ offset 0))])
+          (let ([command-size (bytes-ref/quad-le bytes (+ offset 4))])
+            (if (< command-size 8)
+                (left #"Command size not big enough to parse")
+                (if (< (bytes-length bytes) (+ offset command-size))
+                    (left (bytes-append
+                            (varargs
+                            list
+                            #"Not enough bytes to parse load command content: Offset: "
+                            (integer->decimal-bytes offset)
+                            #" Command size: "
+                            (integer->decimal-bytes command-size)
+                            #" Buffer size: "
+                            (integer->decimal-bytes (bytes-length bytes)))))
+                    (let ([command-buffer (subbytes bytes (+ offset 8) (+ offset command-size))])
+                      (case
+                        (case number
+                          [#x02 (parse-lc-symbol-table command-buffer)]
+                          [#x19 (parse-lc-load-segment64 command-buffer)]
+                          [#x24 (parse-lc-version-min-macosx command-buffer)]
+                          [#x29 (parse-lc-data-in-code command-buffer)]
+                          [#x05 (parse-lc-unix-thread command-buffer)]
+                          [x (ann (Either Bytes MachOLoadCommand)
+                               (left (bytes-append
+                                     (varargs list
+                                       #"Unknown load command: #x"
+                                       (integer->hex-bytes x)
+                                       #" Offset: #x"
+                                       (integer->hex-bytes offset)))))])
+                        [(left v) (left v)]
+                        [(right command)
+                         (right (tuple2 command (lifted-int (+ offset command-size))))])))))))))
 
 
 

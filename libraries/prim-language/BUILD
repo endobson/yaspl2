@@ -55,6 +55,7 @@ yaspl_binary(
         "//libraries/data:join-list",
         "//libraries/data:list",
         "//libraries/data:maybe",
+        "//libraries/formats:elf",
         "//libraries/yaspl:x86-64-assembly",
     ],
 )
@@ -452,14 +453,15 @@ prim_language_toolchain(
     name = "osx_prim_language_toolchain_impl",
     platform = "osx",
 )
+
 toolchain(
     name = "osx_prim_language_toolchain",
-    toolchain_type = ":prim_language_toolchain",
     target_compatible_with = [
-      "@bazel_tools//platforms:osx",
-      "@bazel_tools//platforms:x86_64",
+        "@bazel_tools//platforms:osx",
+        "@bazel_tools//platforms:x86_64",
     ],
     toolchain = ":osx_prim_language_toolchain_impl",
+    toolchain_type = ":prim_language_toolchain",
 )
 
 prim_language_toolchain(
@@ -469,14 +471,13 @@ prim_language_toolchain(
 
 toolchain(
     name = "linux_prim_language_toolchain",
-    toolchain_type = ":prim_language_toolchain",
     target_compatible_with = [
-      "@bazel_tools//platforms:linux",
-      "@bazel_tools//platforms:x86_64",
+        "@bazel_tools//platforms:linux",
+        "@bazel_tools//platforms:x86_64",
     ],
     toolchain = ":linux_prim_language_toolchain_impl",
+    toolchain_type = ":prim_language_toolchain",
 )
-
 
 test_suite(
     name = "package_tests",
