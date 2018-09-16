@@ -19,6 +19,8 @@ def transitivify_impl(target, ctx, impl, p):
     return _merge_fields(ctx, ["tests", "_implicit_tests"], p)
   elif (kind == "filegroup"):
     return _merge_fields(ctx, ["srcs"], p)
+  elif (kind == "binary_test"):
+    return _merge_providers([], p)
   else:
     fail("Unknown rule kind")
 

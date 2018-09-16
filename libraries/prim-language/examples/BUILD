@@ -18,6 +18,7 @@ prim_binary(
 
 binary_test(
     name = "call1_test",
+    testonly = 0,
     binary = ":call1",
     binary_args = ["arg1"],
     exit_code = 42,
@@ -30,6 +31,7 @@ prim_binary(
 
 binary_test(
     name = "call2_test",
+    testonly = 0,
     binary = ":call2",
     binary_args = ["arg1"],
     exit_code = 14,
@@ -42,6 +44,7 @@ prim_binary(
 
 binary_test(
     name = "call3_test",
+    testonly = 0,
     binary = ":call3",
     binary_args = ["arg1"],
     exit_code = 3,
@@ -54,6 +57,7 @@ prim_binary(
 
 binary_test(
     name = "cast1_test",
+    testonly = 0,
     binary = ":cast1",
     exit_code = 30,
 )
@@ -65,6 +69,7 @@ prim_binary(
 
 binary_test(
     name = "exit_test",
+    testonly = 0,
     binary = ":exit",
     exit_code = 42,
 )
@@ -76,6 +81,7 @@ prim_binary(
 
 binary_test(
     name = "factorial_test",
+    testonly = 0,
     binary = ":factorial",
     binary_args = [
         "2",
@@ -92,6 +98,7 @@ prim_binary(
 
 binary_test(
     name = "hello-world_test",
+    testonly = 0,
     binary = ":hello-world",
     exit_code = 6,
     output = "Hello",
@@ -104,6 +111,7 @@ prim_binary(
 
 binary_test(
     name = "pointers1_test",
+    testonly = 0,
     binary = ":pointers1",
     exit_code = 4,
 )
@@ -115,6 +123,7 @@ prim_binary(
 
 binary_test(
     name = "pointers2_test",
+    testonly = 0,
     binary = ":pointers2",
     exit_code = 3,
 )
@@ -126,6 +135,7 @@ prim_binary(
 
 binary_test(
     name = "pointers3_test",
+    testonly = 0,
     binary = ":pointers3",
     exit_code = 0,
 )
@@ -137,6 +147,7 @@ prim_binary(
 
 binary_test(
     name = "spill_test",
+    testonly = 0,
     binary = ":spill",
     exit_code = 6,
 )
