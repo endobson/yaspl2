@@ -7,6 +7,7 @@ def _bin_impl(ctx):
     outputs = [ctx.outputs.object],
     executable = ctx.executable._compiler,
     arguments = [
+      "osx",
       ctx.files.srcs[0].path,
       ctx.outputs.object.path,
     ]
