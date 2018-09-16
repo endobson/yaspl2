@@ -9,3 +9,8 @@ http_archive(
 )
 load("@minimal_racket//:releases.bzl", "racket_releases")
 racket_releases()
+
+register_toolchains(
+    '//libraries/prim-language:osx_prim_language_toolchain',
+    '//libraries/prim-language:linux_prim_language_toolchain',
+)

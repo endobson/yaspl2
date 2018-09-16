@@ -6,6 +6,7 @@ load(
     "yaspl_library",
     "yaspl_test",
 )
+load(":prim-language.bzl", "prim_language_toolchain")
 
 package(
     default_visibility = ["//visibility:public"],
@@ -444,6 +445,38 @@ yaspl_bootstrap_library(
     deps = [
     ],
 )
+
+toolchain_type(name = "prim_language_toolchain")
+
+prim_language_toolchain(
+    name = "osx_prim_language_toolchain_impl",
+    platform = "osx",
+)
+toolchain(
+    name = "osx_prim_language_toolchain",
+    toolchain_type = ":prim_language_toolchain",
+    target_compatible_with = [
+      "@bazel_tools//platforms:osx",
+      "@bazel_tools//platforms:x86_64",
+    ],
+    toolchain = ":osx_prim_language_toolchain_impl",
+)
+
+prim_language_toolchain(
+    name = "linux_prim_language_toolchain_impl",
+    platform = "linux",
+)
+
+toolchain(
+    name = "linux_prim_language_toolchain",
+    toolchain_type = ":prim_language_toolchain",
+    target_compatible_with = [
+      "@bazel_tools//platforms:linux",
+      "@bazel_tools//platforms:x86_64",
+    ],
+    toolchain = ":linux_prim_language_toolchain_impl",
+)
+
 
 test_suite(
     name = "package_tests",

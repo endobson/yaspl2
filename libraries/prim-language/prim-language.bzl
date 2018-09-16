@@ -2,12 +2,14 @@ def _bin_impl(ctx):
   if (len(ctx.files.srcs) != 1):
     fail("Must have exactly one source file.", "srcs")
 
+  toolchain = ctx.toolchains["//libraries/prim-language:prim_language_toolchain"]
+
   ctx.action(
     inputs = [ctx.executable._compiler] + ctx.files.srcs,
     outputs = [ctx.outputs.object],
     executable = ctx.executable._compiler,
     arguments = [
-      "osx",
+      toolchain.platform,
       ctx.files.srcs[0].path,
       ctx.outputs.object.path,
     ]
@@ -31,6 +33,7 @@ prim_binary = rule(
     "object": "%{name}.o",
   },
   executable = True,
+  toolchains = ["//libraries/prim-language:prim_language_toolchain"],
   attrs = {
     "srcs": attr.label_list(
       allow_files=[".prim"],
@@ -135,3 +138,16 @@ binary_test = rule(
     "output": attr.string(default = "")
   }
 )
+
+def _prim_language_toolchain_impl(ctx):
+  return [
+    platform_common.ToolchainInfo(
+      platform = ctx.attr.platform,
+    ),
+  ]
+
+prim_language_toolchain = rule(
+  implementation = _prim_language_toolchain_impl,
+  attrs = {
+    'platform': attr.string(),
+  })
