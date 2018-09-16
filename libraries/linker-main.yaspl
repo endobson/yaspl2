@@ -11,7 +11,10 @@
   (structured-native-code)
 }
 (export)
-(types)
+(types
+  (define-type Platform
+    (mach-osx)
+    (elf-linux)))
 
 (define (read-mach-o-files [object-files : (List Bytes)]) : (Either Bytes (List MachOFile))
   (extract-rights
@@ -28,18 +31,28 @@
     [(empty)
      (just #"No executable specified???")]
     [(cons _ (empty))
+     (just #"No platform name supplied.")]
+    [(cons _ (cons _ (empty)))
      (just #"No output executable file name supplied.")]
-    [(cons _ (cons output-file-name object-files))
-     (case (read-mach-o-files object-files)
+    [(cons _ (cons platform-bytes (cons output-file-name object-files)))
+     (case
+       (ann (Either Bytes Platform)
+         (case platform-bytes
+           [#"osx" (right (mach-osx))]
+           [#"linux" (right (elf-linux))]
+           [_ (left #"Unknown platform")]))
        [(left v) (just v)]
-       [(right mach-o-files)
-        (case (extract-rights (map parse-mach-o mach-o-files))
-          [(left v) (just v)]
-          [(right parsed-mach-o-files)
-           (write-mach-o-executable
-             (combine-sections (map parsed-mach-o-text-section parsed-mach-o-files))
-             (combine-sections (map parsed-mach-o-const-section parsed-mach-o-files))
-             output-file-name)])])]))
+       [(right platform)
+        (case (read-mach-o-files object-files)
+        [(left v) (just v)]
+        [(right mach-o-files)
+         (case (extract-rights (map parse-mach-o mach-o-files))
+           [(left v) (just v)]
+           [(right parsed-mach-o-files)
+            (write-mach-o-executable
+              (combine-sections (map parsed-mach-o-text-section parsed-mach-o-files))
+              (combine-sections (map parsed-mach-o-const-section parsed-mach-o-files))
+              output-file-name)])])])]))
 
 (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Int
   (case (run args)

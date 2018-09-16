@@ -86,6 +86,7 @@ def _bin_impl(ctx):
   )
 
   args = ctx.actions.args()
+  args.add("osx")
   args.add(ctx.outputs.executable)
   args.add_all(input_objects)
 

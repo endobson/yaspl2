@@ -20,6 +20,7 @@ def _bin_impl(ctx):
     outputs = [ctx.outputs.executable],
     executable = ctx.executable._linker,
     arguments = [
+      toolchain.platform,
       ctx.outputs.executable.path,
       ctx.outputs.object.path,
     ]
