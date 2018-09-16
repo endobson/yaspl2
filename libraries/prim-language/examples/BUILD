@@ -11,7 +11,9 @@ prim_library(
 
 prim_binary(
     name = "call1",
-    srcs = ["call1.prim"],
+    srcs = [
+        "call1.prim",
+    ],
 )
 
 binary_test(

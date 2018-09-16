@@ -1,5 +1,7 @@
 def _bin_impl(ctx):
-  # TODO check that srcs has exactly one value
+  if (len(ctx.files.srcs) != 1):
+    fail("Must have exactly one source file.", "srcs")
+
   ctx.action(
     inputs = [ctx.executable._compiler] + ctx.files.srcs,
     outputs = [ctx.outputs.object],
