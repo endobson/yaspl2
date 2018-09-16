@@ -12,6 +12,7 @@ ALL_PACKAGES = [
     "//libraries/algorithms",
     "//libraries/data",
     "//libraries/prim-language",
+    "//libraries/prim-language/examples",
     "//tools",
     "//tools/shell",
     "//web-assembly",
@@ -52,7 +53,6 @@ yaspl_remove_unused_dependencies_rule(
         ":all_tests",
     ],
 )
-
 
 yaspl_lint_rule(
     name = "lint",

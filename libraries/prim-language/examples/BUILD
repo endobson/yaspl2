@@ -1,5 +1,9 @@
 load("//libraries/prim-language:prim-language.bzl", "binary_test", "prim_binary", "prim_library")
 
+package(
+    default_visibility = ["//visibility:public"],
+)
+
 prim_library(
     name = "call1_lib",
     srcs = ["call1.prim"],
@@ -133,4 +137,14 @@ binary_test(
     name = "spill_test",
     binary = ":spill",
     exit_code = 6,
+)
+
+test_suite(
+    name = "package_tests",
+    testonly = 0,
+)
+
+filegroup(
+    name = "package_binaries",
+    srcs = [],
 )
