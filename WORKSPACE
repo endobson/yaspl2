@@ -1,12 +1,11 @@
 workspace(name = "yaspl")
+load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
 
 http_archive(
   name = "minimal_racket",
-  sha256 = "6eb3553cc6902e557d9f6cf8a70b259fcf68de6a23f2f51896fc7312793120ea",
-  strip_prefix = "minimal-racket-b38b24f78c28d2d582715e052730057631ff86fc",
-  urls = ["https://github.com/endobson/minimal-racket/archive/b38b24f78c28d2d582715e052730057631ff86fc.tar.gz"]
+  sha256 = "dcbd3de1bc301b6decf87f396ad744c49351b414934a28ebfba9502b050e5e6b",
+  strip_prefix = "minimal-racket-c9b5cc2cd142eaad21cf3077bd90131ed0252e17",
+  urls = ["https://github.com/endobson/minimal-racket/archive/c9b5cc2cd142eaad21cf3077bd90131ed0252e17.tar.gz"]
 )
-
-
 load("@minimal_racket//:releases.bzl", "racket_releases")
 racket_releases()
