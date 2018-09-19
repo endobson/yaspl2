@@ -45,7 +45,9 @@
         (make-set bytes-cmp)
         (map relocation-symbol text-relocations))
       (map defined-symbol-name text-symbols)))
-  (match-define undefined-symbols (set->list undefined-symbols-set))
+  (match-define undefined-symbols
+    (order-undefined-symbols text-relocations undefined-symbols-set))
+
   (match-define (tuple2 rev-offset-undefined-symbols (lifted-int string-table-size))
     (foldl
       (lambda ([s : Bytes] [acc : (Tuple2 (List (Tuple2 Bytes LiftedInt)) LiftedInt)])
@@ -71,6 +73,7 @@
       (map (lambda ([s : Bytes])
              (tuple2 s (lifted-int 0)))
            undefined-symbols)))
+
   (match-define symbol-indices : (Dict Bytes LiftedInt)
     (dict-add-all
       (make-dict bytes-cmp)
@@ -305,3 +308,22 @@
     (bytes/u16-le section-table-index)
     (bytes/u64-le symbol-value)
     (make-bytes 8)))
+
+(define (order-undefined-symbols [relocations : (List Relocation)] [undefined-symbols : (Set Bytes)])
+  : (List Bytes)
+  (order-undefined-symbols* relocations undefined-symbols undefined-symbols))
+
+(define (order-undefined-symbols*
+          [relocations : (List Relocation)]
+          [undefined-symbols : (Set Bytes)]
+          [remaining-undefined-symbols : (Set Bytes)])
+  : (List Bytes)
+  (case relocations
+    [(empty) (empty)]
+    [(cons (relocation _ _ name) relocations)
+     (if (set-member? undefined-symbols name)
+         (if (set-member? remaining-undefined-symbols name)
+             (cons name (order-undefined-symbols* relocations undefined-symbols
+                                                  (set-remove remaining-undefined-symbols name)))
+             (order-undefined-symbols* relocations undefined-symbols remaining-undefined-symbols))
+         (order-undefined-symbols* relocations undefined-symbols remaining-undefined-symbols))]))

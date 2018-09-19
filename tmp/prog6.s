@@ -3,4 +3,7 @@
 # jmp *baz
 .global bar
 bar:
-jmp baz
+jmp e_def
+jmp e_abc
+jmp e_ghi
+jmp e_abc
