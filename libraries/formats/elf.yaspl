@@ -73,10 +73,13 @@
 
   (match-define symbol-table-size (* (+ (length undefined-symbols) (+ (length text-symbols) 4)) #x18))
 
-  (match-define section-string-table-size
+  (match-define using-rela-text-section
     (case text-relocations
-      [(empty) #x2C]
-      [_ #x31]))
+      [(empty) #f]
+      [_ #t]))
+
+  (match-define section-string-table-size
+    (if using-rela-text-section #x31 #x2C))
 
   (match-define symbol-table-start (+ #x40 rounded-text-section-length))
   (match-define string-table-start (round-up (+ symbol-table-start symbol-table-size) 8))
@@ -87,14 +90,14 @@
   (match-define rela-text-section-align-padding
     (- rela-text-section-start string-table-end))
   (match-define rela-text-section-size
-    (case text-relocations
-      [(empty) 0]
-      [_ (* #x18 (length text-relocations))]))
+    (if using-rela-text-section
+        (* #x18 (length text-relocations))
+        0))
 
   (match-define section-string-table-start
-    (case text-relocations
-      [(empty) string-table-end]
-      [_ (+ rela-text-section-start rela-text-section-size)]))
+    (if using-rela-text-section
+        (+ rela-text-section-start rela-text-section-size)
+        string-table-end))
 
   (match-define section-string-table-end
     (+ section-string-table-start section-string-table-size))
@@ -127,31 +130,27 @@
         (single-jl (bytes/u16-le #x00)) ;; Size of program header entry
         (single-jl (bytes/u16-le #x00)) ;; Number of program header entries
         (single-jl (bytes/u16-le #x40)) ;; size of section header entry
-        (case text-relocations
-          [(empty)
+        (if using-rela-text-section
+           (varargs append-jl*
+             (single-jl (bytes/u16-le #x8))   ;; Number of section header entries
+             (single-jl (bytes/u16-le #x7)))  ;; Index of section name section
            (varargs append-jl*
              (single-jl (bytes/u16-le #x7))   ;; Number of section header entries
-             (single-jl (bytes/u16-le #x6)))] ;; Index of section name section
-          [_
-           (varargs append-jl*
-             (single-jl (bytes/u16-le #x8))    ;; Number of section header entries
-             (single-jl (bytes/u16-le #x7)))]) ;; Index of section name section
+             (single-jl (bytes/u16-le #x6)))) ;; Index of section name section
         (single-jl text-section-contents)
         ;; Symbol tables are 8 byte aligned, so add padding as needed
         (single-jl (make-bytes (- rounded-text-section-length text-section-length)))
-        (case text-relocations
-          [(empty)
-           (varargs append-jl*
-             (symbol-table-entry 0 0 0 0)
-             (symbol-table-entry 0 3 1 0)
-             (symbol-table-entry 0 3 2 0)
-             (symbol-table-entry 0 3 3 0))]
-          [_
-           (varargs append-jl*
-             (symbol-table-entry 0 0 0 0)
-             (symbol-table-entry 0 3 1 0)
-             (symbol-table-entry 0 3 3 0)
-             (symbol-table-entry 0 3 4 0))])
+        (if using-rela-text-section
+            (varargs append-jl*
+              (symbol-table-entry 0 0 0 0)
+              (symbol-table-entry 0 3 1 0)
+              (symbol-table-entry 0 3 3 0)
+              (symbol-table-entry 0 3 4 0))
+            (varargs append-jl*
+              (symbol-table-entry 0 0 0 0)
+              (symbol-table-entry 0 3 1 0)
+              (symbol-table-entry 0 3 2 0)
+              (symbol-table-entry 0 3 3 0)))
         (concat-jl
           (map
             (lambda ([entry : (Tuple2 DefinedSymbol LiftedInt)])
@@ -177,68 +176,57 @@
             (lambda ([s : Bytes])
               (single-jl (make-null-terminated s)))
             undefined-symbols))
-        (case text-relocations
-          [(empty)
-           (empty-jl)]
-          [_
-           (append-jl
-             (single-jl (make-bytes rela-text-section-align-padding))
-             (concat-jl
-               (map
-                 (lambda ([relocation : Relocation]) : (JoinList Bytes)
-                   (case relocation
-                     [(relocation kind offset sym)
-                      (varargs join-list
-                        (bytes/s64-le offset)
-                        (bytes/u32-le
-                          (case kind
-                            [(branch-relocation) #x02]
-                            [(signed-relocation) #x0B]
-                            ;; TODO add a program which uses this
-                            [(unsigned-relocation) #xDEADBEEF]))
-                        (bytes/u32-le
-                          (if (set-member? undefined-symbols-set sym) #x06 #x01))
-                        (case (dict-ref symbol-locations sym)
-                          [(nothing) (panic #"Unknown symbol")]
-                          [(just (lifted-int v))
-                           ;; Branch relocations need to account for the 4 bytes of the instruction
-                           (match-define adj
-                             (case kind
-                               [(branch-relocation) (- 0 4)]
-                               [_ 0]))
-                           (bytes/s64-le (+ adj v))]))]))
-                 text-relocations)))])
+        (if using-rela-text-section
+            (append-jl
+              (single-jl (make-bytes rela-text-section-align-padding))
+              (concat-jl
+                (map
+                  (lambda ([relocation : Relocation]) : (JoinList Bytes)
+                    (case relocation
+                      [(relocation kind offset sym)
+                       (varargs join-list
+                         (bytes/s64-le offset)
+                         (bytes/u32-le
+                           (case kind
+                             [(branch-relocation) #x02]
+                             [(signed-relocation) #x0B]
+                             ;; TODO add a program which uses this
+                             [(unsigned-relocation) #xDEADBEEF]))
+                         (bytes/u32-le
+                           (if (set-member? undefined-symbols-set sym) #x06 #x01))
+                         (case (dict-ref symbol-locations sym)
+                           [(nothing) (panic #"Unknown symbol")]
+                           [(just (lifted-int v))
+                            ;; Branch relocations need to account for the 4 bytes of the instruction
+                            (match-define adj
+                              (case kind
+                                [(branch-relocation) (- 0 4)]
+                                [_ 0]))
+                            (bytes/s64-le (+ adj v))]))]))
+                  text-relocations)))
+            (empty-jl))
         (single-jl (make-null-terminated #""))
         (single-jl (make-null-terminated #".symtab"))
         (single-jl (make-null-terminated #".strtab"))
         (single-jl (make-null-terminated #".shstrtab"))
-        (case text-relocations
-          [(empty)
-           (single-jl (make-null-terminated #".text"))]
-          [_
-           (single-jl (make-null-terminated #".rela.text"))])
+        (single-jl (make-null-terminated (if using-rela-text-section #".rela.text" #".text")))
         (single-jl (make-null-terminated #".data"))
         (single-jl (make-null-terminated #".bss"))
         ;; Align the section header to 8 Bytes, so add padding as needed.
         (single-jl (make-bytes section-header-padding))
         (single-jl (make-bytes (* 16 4))) ;; Empty section header
-        (case text-relocations
-          [(empty)
-           (varargs append-jl*
-             (section-header 27 1 6 0 #x40 text-section-length 0 0 1 0)
-             (section-header 33 1 3 0 (+ #x40 text-section-length) 0 0 0 1 0)
-             (section-header 39 8 3 0 (+ #x40 text-section-length) 0 0 0 1 0))]
-          [_
-           (varargs append-jl*
-             (section-header 32 1 6 0 #x40 text-section-length 0 0 1 0)
-             (section-header 27 4 64 0 rela-text-section-start
-                             (* #x18 (length text-relocations)) 5 1 8 #x18)
-             (section-header 38 1 3 0 (+ #x40 text-section-length) 0 0 0 1 0)
-             (section-header 44 8 3 0 (+ #x40 text-section-length) 0 0 0 1 0))])
-        (let ([symbol-table-section-number
-               (case text-relocations
-                 [(empty) 5]
-                 [_ 6])])
+        (if using-rela-text-section
+            (varargs append-jl*
+              (section-header 32 1 6 0 #x40 text-section-length 0 0 1 0)
+              (section-header 27 4 64 0 rela-text-section-start
+                              (* #x18 (length text-relocations)) 5 1 8 #x18)
+              (section-header 38 1 3 0 (+ #x40 text-section-length) 0 0 0 1 0)
+              (section-header 44 8 3 0 (+ #x40 text-section-length) 0 0 0 1 0))
+            (varargs append-jl*
+              (section-header 27 1 6 0 #x40 text-section-length 0 0 1 0)
+              (section-header 33 1 3 0 (+ #x40 text-section-length) 0 0 0 1 0)
+              (section-header 39 8 3 0 (+ #x40 text-section-length) 0 0 0 1 0)))
+        (let ([symbol-table-section-number (if using-rela-text-section 6 5)])
           (section-header 1 2 0 0 symbol-table-start symbol-table-size symbol-table-section-number
                           (+ 4 (length text-symbols)) 8 24))
         (section-header 9 3 0 0 string-table-start string-table-size 0 0 1 0)
