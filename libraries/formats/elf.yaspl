@@ -2,6 +2,7 @@
 #:import {
   (aligned-bytes)
   (bytes)
+  (panic)
   (data lifted-primitives)
   (dict)
   (join-list)
@@ -70,6 +71,15 @@
       (map (lambda ([s : Bytes])
              (tuple2 s (lifted-int 0)))
            undefined-symbols)))
+  (match-define symbol-indices : (Dict Bytes LiftedInt)
+    (dict-add-all
+      (make-dict bytes-cmp)
+      (map/indexed
+        (lambda ([s : Bytes] [index : Int])
+          (tuple2 s (lifted-int (+ 4 index))))
+        (append
+          (map defined-symbol-name text-symbols)
+          undefined-symbols))))
 
   (match-define symbol-table-size (* (+ (length undefined-symbols) (+ (length text-symbols) 4)) #x18))
 
@@ -156,7 +166,7 @@
             (lambda ([entry : (Tuple2 DefinedSymbol LiftedInt)])
               (case entry
                 [(tuple2 (defined-symbol _ addr) (lifted-int name-offset))
-                 (symbol-table-entry name-offset 0 1 addr)]))
+                 (symbol-table-entry name-offset #x10 1 addr)]))
             offset-defined-symbols))
         (concat-jl
           (map
@@ -193,16 +203,18 @@
                              ;; TODO add a program which uses this
                              [(unsigned-relocation) #xDEADBEEF]))
                          (bytes/u32-le
-                           (if (set-member? undefined-symbols-set sym) #x06 #x01))
-                         (case (dict-ref symbol-locations sym)
-                           [(nothing) (panic #"Unknown symbol")]
-                           [(just (lifted-int v))
-                            ;; Branch relocations need to account for the 4 bytes of the instruction
-                            (match-define adj
+                           (case (dict-ref symbol-indices sym)
+                             [(nothing) (panic/int #"Unknown symbol")]
+                             [(just (lifted-int v)) v]))
+                         (bytes/s64-le
+                           (case (dict-ref symbol-locations sym)
+                             [(nothing) (panic/int #"Unknown symbol")]
+                             [(just (lifted-int v))
+                              ;; Branch relocations need to account for the 4 bytes of the instruction
                               (case kind
                                 [(branch-relocation) (- 0 4)]
-                                [_ 0]))
-                            (bytes/s64-le (+ adj v))]))]))
+                                [(signed-relocation) 0]
+                                [(unsigned-relocation) #xCAFEFACE])])))]))
                   text-relocations)))
             (empty-jl))
         (single-jl (make-null-terminated #""))
@@ -228,7 +240,7 @@
               (section-header 39 8 3 0 (+ #x40 text-section-length) 0 0 0 1 0)))
         (let ([symbol-table-section-number (if using-rela-text-section 6 5)])
           (section-header 1 2 0 0 symbol-table-start symbol-table-size symbol-table-section-number
-                          (+ 4 (length text-symbols)) 8 24))
+                          4 8 24))
         (section-header 9 3 0 0 string-table-start string-table-size 0 0 1 0)
         (section-header 17 3 0 0 section-string-table-start section-string-table-size 0 0 1 0)
         ))))
