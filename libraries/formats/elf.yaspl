@@ -2,6 +2,7 @@
 #:import {
   (aligned-bytes)
   (bytes)
+  (data indexed-set)
   (data lifted-primitives)
   (dict)
   (join-list)
@@ -51,18 +52,23 @@
                   (symbol-reference name addr)]))
              text-relocations))))
 
+  (match-define indexed-text-symbols
+    (indexed-set-add-all
+      (make-indexed-set defined-symbol-name bytes-cmp)
+      text-symbols))
+
   (match-define (tuple2 rev-offset-symbols (lifted-int string-table-size))
-    : (Tuple2 (List (Tuple2 SymbolReference LiftedInt)) LiftedInt)
+    : (Tuple2 (List (Tuple2 Bytes LiftedInt)) LiftedInt)
     (foldl
-      (lambda ([s : SymbolReference] [acc : (Tuple2 (List (Tuple2 SymbolReference LiftedInt)) LiftedInt)])
+      (lambda ([s : Bytes] [acc : (Tuple2 (List (Tuple2 Bytes LiftedInt)) LiftedInt)])
         (case acc
           [(tuple2 offset-symbols (lifted-int current-offset))
            (tuple2
              (cons (tuple2 s (lifted-int current-offset)) offset-symbols)
-             (lifted-int (+ current-offset (+ 1 (bytes-length (symbol-reference-symbol s))))))]))
+             (lifted-int (+ current-offset (+ 1 (bytes-length s)))))]))
       ordered-symbols
       (tuple2
-        (ann (List (Tuple2 SymbolReference LiftedInt)) (empty))
+        (ann (List (Tuple2 Bytes LiftedInt)) (empty))
         (lifted-int 1))))
   (match-define offset-symbols (reverse rev-offset-symbols))
   (match-define symbol-locations : (Dict Bytes LiftedInt)
@@ -82,8 +88,8 @@
     (dict-add-all
       (make-dict bytes-cmp)
       (map/indexed
-        (lambda ([s : SymbolReference] [index : Int])
-          (tuple2 (symbol-reference-symbol s) (lifted-int (+ 4 index))))
+        (lambda ([s : Bytes] [index : Int])
+          (tuple2 s (lifted-int (+ 4 index))))
         ordered-symbols)))
 
   (match-define symbol-table-size (* (+ (dict-count symbol-indices) 4) #x18))
@@ -168,18 +174,20 @@
               (symbol-table-entry 0 3 3 0)))
         (concat-jl
           (map
-            (lambda ([entry : (Tuple2 SymbolReference LiftedInt)])
+            (lambda ([entry : (Tuple2 Bytes LiftedInt)])
               (case entry
-                [(tuple2 (symbol-reference sym addr) (lifted-int name-offset))
-                 (if (set-member? undefined-symbols-set sym)
-                     (symbol-table-entry name-offset #x10 0 0)
-                     (symbol-table-entry name-offset #x10 1 addr))]))
+                [(tuple2 sym (lifted-int name-offset))
+                 (case (indexed-set-ref indexed-text-symbols sym)
+                   [(just (defined-symbol _ addr))
+                    (symbol-table-entry name-offset #x10 1 addr)]
+                   [(nothing)
+                    (symbol-table-entry name-offset #x10 0 0)])]))
             offset-symbols))
         (single-jl (make-null-terminated #""))
         (concat-jl
           (map
-            (lambda ([s : SymbolReference])
-              (single-jl (make-null-terminated (symbol-reference-symbol s))))
+            (lambda ([s : Bytes])
+              (single-jl (make-null-terminated s)))
             ordered-symbols))
         (if using-rela-text-section
             (append-jl
@@ -302,17 +310,24 @@
     (make-bytes 8)))
 
 (define (order-symbol-references [references : (List SymbolReference)])
-  : (List SymbolReference)
-  (order-symbol-references* references (make-set bytes-cmp)))
+  : (List Bytes)
+  (order-symbol-references*
+    (stable-sort
+      references
+      (lambda ([s1 : SymbolReference] [s2 : SymbolReference])
+        (case s1
+          [(symbol-reference _ addr1)
+           (match-define (symbol-reference _ addr2) s2)
+           (< addr1 addr2)])))
+    (make-set bytes-cmp)))
 
 (define (order-symbol-references*
           [references : (List SymbolReference)]
           [seen-symbols : (Set Bytes)])
-  : (List SymbolReference)
+  : (List Bytes)
   (case references
     [(empty) (empty)]
-    [(cons ref references)
-     (match-define (symbol-reference name _) ref)
+    [(cons (symbol-reference name _) references)
      (if (set-member? seen-symbols name)
          (order-symbol-references* references seen-symbols)
-         (cons ref (order-symbol-references* references (set-add seen-symbols name))))]))
+         (cons name (order-symbol-references* references (set-add seen-symbols name))))]))

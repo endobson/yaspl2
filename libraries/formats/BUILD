@@ -13,6 +13,7 @@ yaspl_library(
         "//libraries/data:aligned-bytes",
         "//libraries/data:bytes",
         "//libraries/data:dict",
+        "//libraries/data:indexed-set",
         "//libraries/data:join-list",
         "//libraries/data:lifted-primitives",
         "//libraries/data:list",

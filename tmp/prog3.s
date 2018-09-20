@@ -1,6 +1,9 @@
-.global foo
-foo:
-call bar
-.global bar
-bar:
-call foo
+.global aaa
+aaa:
+call ccc
+.global bbb
+bbb:
+call aaa
+.global ccc
+ccc:
+call bbb

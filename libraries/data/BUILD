@@ -129,6 +129,7 @@ yaspl_bootstrap_library(
         ":list",
         ":maybe",
         ":ordering",
+        ":tuples",
     ],
 )
 
