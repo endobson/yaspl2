@@ -2,13 +2,13 @@
 #:import {
   (aligned-bytes)
   (bytes)
-  (panic)
   (data lifted-primitives)
   (dict)
   (join-list)
   (list)
   (maybe)
   (numbers)
+  (panic)
   (prim)
   (set)
   (structured-native-code)
@@ -18,7 +18,11 @@
   (#:types)
   (#:values serialize-elf-file)
   (#:patterns))
-(types)
+(types
+  (define-type SymbolReference
+    (symbol-reference
+      [symbol : Bytes]
+      [address : Int])))
 
 (define (serialize-elf-file [text-section : ProgramSection]) : Bytes
   (match-define (program-section (aligned-bytes text-section-contents text-section-alignment)
@@ -26,41 +30,41 @@
     text-section)
   (match-define text-section-length (bytes-length text-section-contents))
   (match-define rounded-text-section-length (round-up text-section-length 8))
-  (match-define (tuple2 rev-offset-defined-symbols (lifted-int defined-symbols-end))
-    (foldl
-      (lambda ([s : DefinedSymbol] [acc : (Tuple2 (List (Tuple2 DefinedSymbol LiftedInt)) LiftedInt)])
-        (case acc
-          [(tuple2 offset-symbols (lifted-int current-offset))
-           (tuple2
-             (cons (tuple2 s (lifted-int current-offset)) offset-symbols)
-             (lifted-int (+ current-offset (+ 1 (bytes-length (defined-symbol-name s))))))]))
-      text-symbols
-      (tuple2
-        (ann (List (Tuple2 DefinedSymbol LiftedInt)) (empty))
-        (lifted-int 1))))
-  (match-define offset-defined-symbols (reverse rev-offset-defined-symbols))
   (match-define undefined-symbols-set
     (set-remove-all
       (set-add-all
         (make-set bytes-cmp)
         (map relocation-symbol text-relocations))
       (map defined-symbol-name text-symbols)))
-  (match-define undefined-symbols
-    (order-undefined-symbols text-relocations undefined-symbols-set))
 
-  (match-define (tuple2 rev-offset-undefined-symbols (lifted-int string-table-size))
+  (match-define ordered-symbols
+    (order-symbol-references
+      (append
+        (map (lambda ([symbol : DefinedSymbol])
+               (case symbol
+                 [(defined-symbol name addr)
+                  (symbol-reference name addr)]))
+             text-symbols)
+        (map (lambda ([relocation : Relocation])
+               (case relocation
+                 [(relocation _ addr name)
+                  (symbol-reference name addr)]))
+             text-relocations))))
+
+  (match-define (tuple2 rev-offset-symbols (lifted-int string-table-size))
+    : (Tuple2 (List (Tuple2 SymbolReference LiftedInt)) LiftedInt)
     (foldl
-      (lambda ([s : Bytes] [acc : (Tuple2 (List (Tuple2 Bytes LiftedInt)) LiftedInt)])
+      (lambda ([s : SymbolReference] [acc : (Tuple2 (List (Tuple2 SymbolReference LiftedInt)) LiftedInt)])
         (case acc
           [(tuple2 offset-symbols (lifted-int current-offset))
            (tuple2
              (cons (tuple2 s (lifted-int current-offset)) offset-symbols)
-             (lifted-int (+ current-offset (+ 1 (bytes-length s)))))]))
-      undefined-symbols
+             (lifted-int (+ current-offset (+ 1 (bytes-length (symbol-reference-symbol s))))))]))
+      ordered-symbols
       (tuple2
-        (ann (List (Tuple2 Bytes LiftedInt)) (empty))
-        (lifted-int defined-symbols-end))))
-  (match-define offset-undefined-symbols (reverse rev-offset-undefined-symbols))
+        (ann (List (Tuple2 SymbolReference LiftedInt)) (empty))
+        (lifted-int 1))))
+  (match-define offset-symbols (reverse rev-offset-symbols))
   (match-define symbol-locations : (Dict Bytes LiftedInt)
     (dict-add-all
       (dict-add-all
@@ -72,19 +76,17 @@
              text-symbols))
       (map (lambda ([s : Bytes])
              (tuple2 s (lifted-int 0)))
-           undefined-symbols)))
+           (set->list undefined-symbols-set))))
 
   (match-define symbol-indices : (Dict Bytes LiftedInt)
     (dict-add-all
       (make-dict bytes-cmp)
       (map/indexed
-        (lambda ([s : Bytes] [index : Int])
-          (tuple2 s (lifted-int (+ 4 index))))
-        (append
-          (map defined-symbol-name text-symbols)
-          undefined-symbols))))
+        (lambda ([s : SymbolReference] [index : Int])
+          (tuple2 (symbol-reference-symbol s) (lifted-int (+ 4 index))))
+        ordered-symbols)))
 
-  (match-define symbol-table-size (* (+ (length undefined-symbols) (+ (length text-symbols) 4)) #x18))
+  (match-define symbol-table-size (* (+ (dict-count symbol-indices) 4) #x18))
 
   (match-define using-rela-text-section
     (case text-relocations
@@ -166,29 +168,19 @@
               (symbol-table-entry 0 3 3 0)))
         (concat-jl
           (map
-            (lambda ([entry : (Tuple2 DefinedSymbol LiftedInt)])
+            (lambda ([entry : (Tuple2 SymbolReference LiftedInt)])
               (case entry
-                [(tuple2 (defined-symbol _ addr) (lifted-int name-offset))
-                 (symbol-table-entry name-offset #x10 1 addr)]))
-            offset-defined-symbols))
-        (concat-jl
-          (map
-            (lambda ([entry : (Tuple2 Bytes LiftedInt)])
-              (case entry
-                [(tuple2 _ (lifted-int name-offset))
-                 (symbol-table-entry name-offset #x10 0 0)]))
-            offset-undefined-symbols))
+                [(tuple2 (symbol-reference sym addr) (lifted-int name-offset))
+                 (if (set-member? undefined-symbols-set sym)
+                     (symbol-table-entry name-offset #x10 0 0)
+                     (symbol-table-entry name-offset #x10 1 addr))]))
+            offset-symbols))
         (single-jl (make-null-terminated #""))
         (concat-jl
           (map
-            (lambda ([s : DefinedSymbol])
-              (single-jl (make-null-terminated (defined-symbol-name s))))
-            text-symbols))
-        (concat-jl
-          (map
-            (lambda ([s : Bytes])
-              (single-jl (make-null-terminated s)))
-            undefined-symbols))
+            (lambda ([s : SymbolReference])
+              (single-jl (make-null-terminated (symbol-reference-symbol s))))
+            ordered-symbols))
         (if using-rela-text-section
             (append-jl
               (single-jl (make-bytes rela-text-section-align-padding))
@@ -309,21 +301,18 @@
     (bytes/u64-le symbol-value)
     (make-bytes 8)))
 
-(define (order-undefined-symbols [relocations : (List Relocation)] [undefined-symbols : (Set Bytes)])
-  : (List Bytes)
-  (order-undefined-symbols* relocations undefined-symbols undefined-symbols))
+(define (order-symbol-references [references : (List SymbolReference)])
+  : (List SymbolReference)
+  (order-symbol-references* references (make-set bytes-cmp)))
 
-(define (order-undefined-symbols*
-          [relocations : (List Relocation)]
-          [undefined-symbols : (Set Bytes)]
-          [remaining-undefined-symbols : (Set Bytes)])
-  : (List Bytes)
-  (case relocations
+(define (order-symbol-references*
+          [references : (List SymbolReference)]
+          [seen-symbols : (Set Bytes)])
+  : (List SymbolReference)
+  (case references
     [(empty) (empty)]
-    [(cons (relocation _ _ name) relocations)
-     (if (set-member? undefined-symbols name)
-         (if (set-member? remaining-undefined-symbols name)
-             (cons name (order-undefined-symbols* relocations undefined-symbols
-                                                  (set-remove remaining-undefined-symbols name)))
-             (order-undefined-symbols* relocations undefined-symbols remaining-undefined-symbols))
-         (order-undefined-symbols* relocations undefined-symbols remaining-undefined-symbols))]))
+    [(cons ref references)
+     (match-define (symbol-reference name _) ref)
+     (if (set-member? seen-symbols name)
+         (order-symbol-references* references seen-symbols)
+         (cons ref (order-symbol-references* references (set-add seen-symbols name))))]))
