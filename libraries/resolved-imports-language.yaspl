@@ -10,6 +10,7 @@
   (module-name)
   (module-signature)
   (prim)
+  (set)
   {(source-language)
     {#:types
       Block
@@ -113,6 +114,7 @@
       [values : (List Bytes)]
       [patterns : (List Bytes)])
     (duplicate-imports
+      [modules : (List ModName)]
       [types : (List Bytes)]
       [values : (List Bytes)]
       [patterns : (List Bytes)])))
@@ -121,8 +123,9 @@
   : (Either ImportResolutionErrors Module)
   (match-define (s:module name importss exports types definitions) mod)
   (case (resolve-imports/importss
-          importss sigs (make-dict bytes-cmp) (make-dict bytes-cmp) (make-dict bytes-cmp)
-                        (empty) (empty) (empty) (empty))
+          importss sigs (make-set mod-name-cmp)
+          (make-dict bytes-cmp) (make-dict bytes-cmp) (make-dict bytes-cmp)
+          (empty) (empty) (empty) (empty) (empty))
     [(left errors)
      (left (import-resolution-errors name errors))]
     [(right imports)
@@ -131,10 +134,12 @@
 (define (resolve-imports/importss
           [importss : (List s:Imports)]
           [sigs : (IndexedSet ModuleSignature ModName)]
+          [seen-modules : (Set ModName)]
           [types : (Dict Bytes Type)]
           [values : (Dict Bytes ValueSignature)]
           [patterns : (Dict Bytes PatternSignature)]
           [errors : (List ImportResolutionError)]
+          [duplicate-modules : (List ModName)]
           [duplicate-types : (List Bytes)]
           [duplicate-values : (List Bytes)]
           [duplicate-patterns : (List Bytes)])
@@ -142,11 +147,12 @@
   (case importss
     [(empty)
      (match-define final-errors
-       (case (tuple3 duplicate-types duplicate-values duplicate-patterns)
-         [(tuple3 (empty) (empty) (empty))
+       (case (tuple2 (tuple2 duplicate-modules duplicate-types)
+                     (tuple2 duplicate-values duplicate-patterns))
+         [(tuple2 (tuple2 (empty) (empty)) (tuple2 (empty) (empty)))
           errors]
          [_
-          (cons (duplicate-imports duplicate-types duplicate-values duplicate-patterns)
+          (cons (duplicate-imports duplicate-modules duplicate-types duplicate-values duplicate-patterns)
                 errors)]))
      (case final-errors
        [(empty)
@@ -154,46 +160,59 @@
        [e
         (left e)])]
     [(cons (s:full-imports mod-name) importss)
-     (case (indexed-set-ref sigs mod-name)
-       [(nothing)
-        (resolve-imports/importss
-          importss sigs types values patterns
-          (cons (non-existent-imports/module mod-name) errors)
-          duplicate-types duplicate-values duplicate-patterns)]
-       [(just (module-signature _ e-values e-patterns e-types _))
-        (match-define (tuple2 duplicate-types types)
-          (add-all-type-imports e-types types duplicate-types))
-        (match-define (tuple2 duplicate-values values)
-          (add-all-value-imports e-values values duplicate-values))
-        (match-define (tuple2 duplicate-patterns patterns)
-          (add-all-pattern-imports e-patterns patterns duplicate-patterns))
-        (resolve-imports/importss
-          importss sigs types values patterns errors
-          duplicate-types duplicate-values duplicate-patterns)])]
+     (if (set-member? seen-modules mod-name)
+         (resolve-imports/importss
+           importss sigs
+           seen-modules types values patterns errors
+           (cons mod-name duplicate-modules) duplicate-types duplicate-values duplicate-patterns)
+         (case (indexed-set-ref sigs mod-name)
+           [(nothing)
+            (resolve-imports/importss
+              importss sigs
+              (set-add seen-modules mod-name) types values patterns
+              (cons (non-existent-imports/module mod-name) errors)
+              duplicate-modules duplicate-types duplicate-values duplicate-patterns)]
+           [(just (module-signature _ e-values e-patterns e-types _))
+            (match-define (tuple2 duplicate-types types)
+              (add-all-type-imports e-types types duplicate-types))
+            (match-define (tuple2 duplicate-values values)
+              (add-all-value-imports e-values values duplicate-values))
+            (match-define (tuple2 duplicate-patterns patterns)
+              (add-all-pattern-imports e-patterns patterns duplicate-patterns))
+            (resolve-imports/importss
+              importss sigs
+              (set-add seen-modules mod-name) types values patterns errors
+              duplicate-modules duplicate-types duplicate-values duplicate-patterns)]))]
     [(cons (s:partial-imports mod-name i-types i-values i-patterns) importss)
-     (case (indexed-set-ref sigs mod-name)
-       [(nothing)
-        (resolve-imports/importss
-          importss sigs types values patterns
-          (cons (non-existent-imports/module mod-name) errors)
-          duplicate-types duplicate-values duplicate-patterns)]
-       [(just (module-signature _ e-values e-patterns e-types _))
-        (match-define (tuple3 unknown-types duplicate-types types)
-          (add-type-imports i-types e-types types (empty) duplicate-types))
-        (match-define (tuple3 unknown-values duplicate-values values)
-          (add-value-imports i-values e-values values (empty) duplicate-values))
-        (match-define (tuple3 unknown-patterns duplicate-patterns patterns)
-          (add-pattern-imports i-patterns e-patterns patterns (empty) duplicate-patterns))
-        (match-define new-errors
-          (case (tuple3 unknown-types unknown-values unknown-patterns)
-            [(tuple3 (empty) (empty) (empty))
-             errors]
-            [_
-             (cons (non-existent-imports/bindings mod-name unknown-types unknown-values unknown-patterns)
-                   errors)]))
-        (resolve-imports/importss
-          importss sigs types values patterns new-errors
-          duplicate-types duplicate-values duplicate-patterns)])]))
+     (if (set-member? seen-modules mod-name)
+         (resolve-imports/importss
+           importss sigs
+           seen-modules types values patterns errors
+           (cons mod-name duplicate-modules) duplicate-types duplicate-values duplicate-patterns)
+         (case (indexed-set-ref sigs mod-name)
+           [(nothing)
+            (resolve-imports/importss
+              importss sigs
+              (set-add seen-modules mod-name) types values patterns
+              (cons (non-existent-imports/module mod-name) errors)
+              duplicate-modules duplicate-types duplicate-values duplicate-patterns)]
+           [(just (module-signature _ e-values e-patterns e-types _))
+            (match-define (tuple3 unknown-types duplicate-types types)
+              (add-type-imports i-types e-types types (empty) duplicate-types))
+            (match-define (tuple3 unknown-values duplicate-values values)
+              (add-value-imports i-values e-values values (empty) duplicate-values))
+            (match-define (tuple3 unknown-patterns duplicate-patterns patterns)
+              (add-pattern-imports i-patterns e-patterns patterns (empty) duplicate-patterns))
+            (match-define new-errors
+              (case (tuple3 unknown-types unknown-values unknown-patterns)
+                [(tuple3 (empty) (empty) (empty))
+                 errors]
+                [_
+                 (cons (non-existent-imports/bindings mod-name unknown-types unknown-values unknown-patterns)
+                       errors)]))
+            (resolve-imports/importss
+              importss sigs (set-add seen-modules mod-name) types values patterns new-errors
+              duplicate-modules duplicate-types duplicate-values duplicate-patterns)]))]))
 
 (define (add-type-imports
           [imports : (List Import)]
@@ -354,7 +373,7 @@
                 (warn-no-exports #"Type" types)
                 (warn-no-exports #"Value" values)
                 (warn-no-exports #"Pattern" patterns))))))]
-    [(duplicate-imports types values patterns)
+    [(duplicate-imports mod-names types values patterns)
      (let ([warn-duplicate-imports
              (lambda ([kind : Bytes] [names : (List Bytes)]) : (JoinList Bytes)
                (case names
@@ -372,6 +391,7 @@
                 #"Duplicate imports in module " (mod-name->bytes mod-name) #":\n")
               (varargs append-jl*
                 (warn-duplicate-imports #"Type" types)
+                (warn-duplicate-imports #"Module" (map mod-name->bytes mod-names))
                 (warn-duplicate-imports #"Value" values)
                 (warn-duplicate-imports #"Pattern" patterns))))))]))
 
