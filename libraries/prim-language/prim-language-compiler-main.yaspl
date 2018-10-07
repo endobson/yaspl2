@@ -11,6 +11,7 @@
   (prim)
   (prim-language-compiler)
   (yaspl x86-64-assembly)
+  (yaspl x86-64-assembly-printer)
 }
 (export)
 (types
@@ -21,7 +22,9 @@
       [output-format : OutputFormat]))
   (define-type OutputFormat
     (mach-osx)
-    (elf-linux)))
+    (elf-linux)
+    (assembly-osx)
+    (assembly-linux)))
 
 (define (start-function-fragments [main-function-name : Bytes]) : (List TextFragment)
   (varargs list
@@ -106,6 +109,8 @@
          (case output-format-bytes
            [#"osx" (right (mach-osx))]
            [#"linux" (right (elf-linux))]
+           [#"assembly-osx" (right (assembly-osx))]
+           [#"assembly-linux" (right (assembly-linux))]
            [_ (left #"Unknown output format")]))
        [(left v) (left v)]
        [(right output-format)
@@ -120,18 +125,35 @@
        [(right text-fragments)
         (match-define text-fragments
           (append (start-function-fragments #"main") text-fragments))
-        (match-define text-section (assemble-text-section text-fragments))
-        (match-define const-section (assemble-const-section (empty)))
         (case output-format
           [(mach-osx)
+           (match-define text-section (assemble-text-section text-fragments))
+           (match-define const-section (assemble-const-section (empty)))
            (begin
              (write-mach-o-library text-section const-section out-file-name)
              (nothing))]
           [(elf-linux)
+           (match-define text-section (assemble-text-section text-fragments))
            (call-with-output-file out-file-name
               (lambda ([output-port : OutputPort])
                 (begin
                   (write-all-bytes (serialize-elf-library text-section) output-port)
+                  (nothing))))]
+          [(assembly-osx)
+           (call-with-output-file out-file-name
+              (lambda ([output-port : OutputPort])
+                (begin
+                  (write-fragments
+                    (assembly-fragments text-fragments (empty))
+                    output-port)
+                  (nothing))))]
+          [(assembly-linux)
+           (call-with-output-file out-file-name
+              (lambda ([output-port : OutputPort])
+                (begin
+                  (write-fragments
+                    (assembly-fragments text-fragments (empty))
+                    output-port)
                   (nothing))))])])]))
 
 (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]): Int

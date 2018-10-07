@@ -16,6 +16,17 @@ def _bin_impl(ctx):
   )
 
   ctx.action(
+    inputs = [ctx.executable._compiler] + ctx.files.srcs,
+    outputs = [ctx.outputs.assembly],
+    executable = ctx.executable._compiler,
+    arguments = [
+      "assembly-" + toolchain.platform,
+      ctx.files.srcs[0].path,
+      ctx.outputs.assembly.path,
+    ]
+  )
+
+  ctx.action(
     inputs = [ctx.outputs.object],
     outputs = [ctx.outputs.executable],
     executable = ctx.executable._linker,
@@ -32,6 +43,7 @@ prim_binary = rule(
   implementation = _bin_impl,
   outputs = {
     "object": "%{name}.o",
+    "assembly": "%{name}.s",
   },
   executable = True,
   toolchains = ["//libraries/prim-language:prim_language_toolchain"],

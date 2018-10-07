@@ -57,6 +57,7 @@ yaspl_binary(
         "//libraries/data:maybe",
         "//libraries/formats:elf",
         "//libraries/yaspl:x86-64-assembly",
+        "//libraries/yaspl:x86-64-assembly-printer",
     ],
 )
 
