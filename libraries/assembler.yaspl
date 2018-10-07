@@ -53,19 +53,26 @@
 
 (define (partition-text-section-relocations
           [relocations : (List Relocation)]
+          [local-symbol-names : (Set Bytes)])
+  : (Tuple2 (List Relocation) (List Relocation))
+  (partition-text-section-relocations* relocations (empty) (empty) local-symbol-names))
+
+(define (partition-text-section-relocations*
+          [relocations : (List Relocation)]
           [local-acc : (List Relocation)]
           [global-acc : (List Relocation)]
-          [defined-symbols : (Set Bytes)])
+          [local-symbol-names : (Set Bytes)])
   : (Tuple2 (List Relocation) (List Relocation))
   (case relocations
     [(empty) (tuple2 local-acc global-acc)]
     [(cons reloc relocations)
-     (match-define local (set-member? defined-symbols (relocation-symbol reloc)))
-     (partition-text-section-relocations
+     (match-define local (set-member? local-symbol-names (relocation-symbol reloc)))
+     (partition-text-section-relocations*
        relocations
        (if local (cons reloc local-acc) local-acc)
        (if local global-acc (cons reloc global-acc))
-       defined-symbols)]))
+       local-symbol-names)]))
+
 
 (define (apply-local-text-relocations
           [relocs : (List Relocation)]
@@ -93,56 +100,56 @@
 (define (text-section-fold
           [commands : (List EMCCommand)]
           [global-symbols : (List DefinedSymbol)]
+          [local-symbols : (List DefinedSymbol)]
           [reversed-contents : (List Bytes)]
           [offset : Int]
           [max-alignment : Int]
-          [defined-symbols : (List DefinedSymbol)]
           [relocations : (List Relocation)]) : ProgramSection
   (case commands
     [(cons (emc-mc (mc-bytes bytes)) commands)
      (text-section-fold
        commands
        global-symbols
+       local-symbols
        (cons bytes reversed-contents)
        (+ offset (bytes-length bytes))
        max-alignment
-       defined-symbols
        relocations)]
     [(cons (emc-mc (mc-branch-relocation symbol)) commands)
      (text-section-fold
        commands
        global-symbols
+       local-symbols
        (cons #"\x00\x00\x00\x00" reversed-contents)
        (+ offset 4)
        max-alignment
-       defined-symbols
        (cons (relocation (branch-relocation) offset symbol) relocations))]
     [(cons (emc-mc (mc-signed-relocation symbol)) commands)
      (text-section-fold
        commands
        global-symbols
+       local-symbols
        (cons #"\x00\x00\x00\x00" reversed-contents)
        (+ offset 4)
        max-alignment
-       defined-symbols
        (cons (relocation (signed-relocation) offset symbol) relocations))]
     [(cons (emc-global-symbol symbol) commands)
      (text-section-fold
        commands
        (cons (defined-symbol symbol offset) global-symbols)
+       local-symbols
        reversed-contents
        offset
        max-alignment
-       defined-symbols
        relocations)]
     [(cons (emc-local-symbol symbol) commands)
      (text-section-fold
        commands
        global-symbols
+       (cons (defined-symbol symbol offset) local-symbols)
        reversed-contents
        offset
        max-alignment
-       (cons (defined-symbol symbol offset) defined-symbols)
        relocations)]
     [(cons (emc-align alignment) commands)
      (match-define alignment 3)
@@ -154,30 +161,29 @@
      (text-section-fold
        commands
        global-symbols
+       local-symbols
        reversed-contents
        aligned-offset
        (max max-alignment alignment)
-       defined-symbols
        relocations)]
     [(empty)
-     (match-define defined-symbol-names
+     (match-define local-symbol-names
        (set-add-all
          (make-set bytes-cmp)
-         (map defined-symbol-name defined-symbols)))
+         (map defined-symbol-name local-symbols)))
 
      (match-define (tuple2 local-text-section-relocations global-text-section-relocations)
-       (partition-text-section-relocations relocations (empty) (empty)
-                                           defined-symbol-names))
+       (partition-text-section-relocations relocations local-symbol-names))
      (match-define text-bytes (bytes-append (reverse reversed-contents)))
      (begin
-       (apply-local-text-relocations local-text-section-relocations defined-symbols text-bytes)
+       (apply-local-text-relocations local-text-section-relocations local-symbols text-bytes)
        (program-section
          (aligned-bytes text-bytes max-alignment)
          global-text-section-relocations
          global-symbols))]))
 
 (define (assemble-text-section [text-fragments : (List TextFragment)]) : ProgramSection
-  (text-section-fold (fragments->mc-commands text-fragments) (empty) (empty) 0 0 (empty) (empty)))
+  (text-section-fold (fragments->mc-commands text-fragments) (empty) (empty) (empty) 0 0 (empty)))
 
 (define (const-section-fold
           [fragments : (List ConstFragment)]
