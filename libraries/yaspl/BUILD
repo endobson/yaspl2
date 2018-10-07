@@ -100,8 +100,11 @@ yaspl_bootstrap_library(
     name = "x86-64-assembly",
     srcs = ["x86-64-assembly.yaspl"],
     deps = [
+        "//libraries/data:bytes",
         "//libraries/data:join-list",
         "//libraries/data:list",
+        "//libraries/data:maybe",
+        "//libraries/data:set",
     ],
 )
 
@@ -114,7 +117,6 @@ yaspl_bootstrap_library(
         "//libraries/data:bytes",
         "//libraries/data:join-list",
         "//libraries/data:list",
-        "//libraries/data:maybe",
         "//libraries/data:numbers",
         "//libraries/data:set",
     ],
