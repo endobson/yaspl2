@@ -41,12 +41,17 @@
 
   (match-define ordered-symbols
     (order-symbol-references
+      (map (lambda ([symbol : DefinedSymbol])
+             (case symbol
+               [(defined-symbol name addr)
+                (symbol-reference name addr)]))
+           text-local-symbols)
       (append
         (map (lambda ([symbol : DefinedSymbol])
                (case symbol
                  [(defined-symbol name addr)
                   (symbol-reference name addr)]))
-             text-symbols)
+             text-global-symbols)
         (map (lambda ([relocation : Relocation])
                (case relocation
                  [(relocation _ addr name)
@@ -57,6 +62,10 @@
     (indexed-set-add-all
       (make-indexed-set defined-symbol-name bytes-cmp)
       text-symbols))
+  (match-define text-global-symbol-names-set
+    (set-add-all
+      (make-set bytes-cmp)
+      (map defined-symbol-name text-global-symbols)))
 
   (match-define (tuple2 rev-offset-symbols (lifted-int string-table-size))
     : (Tuple2 (List (Tuple2 Bytes LiftedInt)) LiftedInt)
@@ -180,7 +189,10 @@
                 [(tuple2 sym (lifted-int name-offset))
                  (case (indexed-set-ref indexed-text-symbols sym)
                    [(just (defined-symbol _ addr))
-                    (symbol-table-entry name-offset #x10 1 addr)]
+                    (symbol-table-entry name-offset
+                                        (if (set-member? text-global-symbol-names-set sym) #x10 #x00)
+                                        1
+                                        addr)]
                    [(nothing)
                     (symbol-table-entry name-offset #x10 0 0)])]))
             offset-symbols))
@@ -244,7 +256,7 @@
               (section-header 39 8 3 0 (+ #x40 text-section-length) 0 0 0 1 0)))
         (let ([symbol-table-section-number (if using-rela-text-section 6 5)])
           (section-header 1 2 0 0 symbol-table-start symbol-table-size symbol-table-section-number
-                          4 8 24))
+                          (+ 4 (length text-local-symbols)) 8 24))
         (section-header 9 3 0 0 string-table-start string-table-size 0 0 1 0)
         (section-header 17 3 0 0 section-string-table-start section-string-table-size 0 0 1 0)
         ))))
@@ -310,16 +322,20 @@
     (bytes/u64-le symbol-value)
     (make-bytes 8)))
 
-(define (order-symbol-references [references : (List SymbolReference)])
+(define (order-symbol-references
+          [local-references : (List SymbolReference)]
+          [global-references : (List SymbolReference)])
   : (List Bytes)
   (order-symbol-references*
-    (stable-sort
-      references
-      (lambda ([s1 : SymbolReference] [s2 : SymbolReference])
-        (case s1
-          [(symbol-reference _ addr1)
-           (match-define (symbol-reference _ addr2) s2)
-           (< addr1 addr2)])))
+    (append
+      local-references
+      (stable-sort
+        global-references
+        (lambda ([s1 : SymbolReference] [s2 : SymbolReference])
+          (case s1
+            [(symbol-reference _ addr1)
+             (match-define (symbol-reference _ addr2) s2)
+             (< addr1 addr2)]))))
     (make-set bytes-cmp)))
 
 (define (order-symbol-references*
