@@ -51,7 +51,6 @@ yaspl_binary(
         "//libraries:assembler",
         "//libraries:io",
         "//libraries:mach-o-writer",
-        "//libraries:structured-elf",
         "//libraries:structured-mach-o",
         "//libraries:structured-native-code",
         "//libraries/data:either",

@@ -15,7 +15,6 @@ yaspl_binary(
     srcs = ["elf-file.yaspl"],
     deps = [
         "//libraries:io",
-        "//libraries:structured-elf",
         "//libraries:structured-native-code",
         "//libraries/data:aligned-bytes",
         "//libraries/data:bytes",

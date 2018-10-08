@@ -26,7 +26,7 @@
       [symbol : Bytes]
       [address : Int])))
 
-(define (serialize-elf-library [text-section : (ProgramSection ElfRelocationKind)]) : Bytes
+(define (serialize-elf-library [text-section : (ProgramSection AbstractRelocationKind)]) : Bytes
   (match-define (program-section (aligned-bytes text-section-contents text-section-alignment)
                                  text-relocations text-global-symbols text-local-symbols)
     text-section)
@@ -37,7 +37,7 @@
     (set-remove-all
       (set-add-all
         (make-set bytes-cmp)
-        (map (lambda ([r : (Relocation ElfRelocationKind)]) (relocation-symbol r)) text-relocations))
+        (map (lambda ([r : (Relocation AbstractRelocationKind)]) (relocation-symbol r)) text-relocations))
       (map defined-symbol-name text-symbols)))
 
   (match-define ordered-symbols
@@ -53,7 +53,7 @@
                  [(defined-symbol name addr)
                   (symbol-reference name addr)]))
              text-global-symbols)
-        (map (lambda ([relocation : (Relocation ElfRelocationKind)])
+        (map (lambda ([relocation : (Relocation AbstractRelocationKind)])
                (case relocation
                  [(relocation _ addr name)
                   (symbol-reference name addr)]))
@@ -67,6 +67,9 @@
     (set-add-all
       (make-set bytes-cmp)
       (map defined-symbol-name text-global-symbols)))
+
+  (match-define ordered-text-relocations
+    (order-relocations text-relocations))
 
   (match-define (tuple2 rev-offset-symbols (lifted-int string-table-size))
     : (Tuple2 (List (Tuple2 Bytes LiftedInt)) LiftedInt)
@@ -208,9 +211,10 @@
               (single-jl (make-bytes rela-text-section-align-padding))
               (concat-jl
                 (map
-                  (lambda ([relocation : (Relocation ElfRelocationKind)]) : (JoinList Bytes)
+                  (lambda ([relocation : (Relocation AbstractRelocationKind)]) : (JoinList Bytes)
                     (case relocation
                       [(relocation kind offset sym)
+                       (match-define kind (abstract-relocation->elf-relocation kind))
                        (varargs join-list
                          (bytes/s64-le offset)
                          (bytes/u32-le
@@ -227,7 +231,7 @@
                               ;; pc relative relocations need to account for the 4 bytes offset
                               (case kind
                                 [(elf-pc32-relocation) (- 0 4)])])))]))
-                  text-relocations)))
+                  ordered-text-relocations)))
             (empty-jl))
         (single-jl (make-null-terminated #""))
         (single-jl (make-null-terminated #".symtab"))
@@ -344,3 +348,24 @@
      (if (set-member? seen-symbols name)
          (order-symbol-references* references seen-symbols)
          (cons name (order-symbol-references* references (set-add seen-symbols name))))]))
+
+(define (order-relocations [relocations : (List (Relocation AbstractRelocationKind))])
+  : (List (Relocation AbstractRelocationKind))
+  (order-relocations* relocations (empty) (empty)))
+
+(define (order-relocations*
+          [relocations : (List (Relocation AbstractRelocationKind))]
+          [rev-non-branch-relocations : (List (Relocation AbstractRelocationKind))]
+          [rev-branch-relocations : (List (Relocation AbstractRelocationKind))])
+  : (List (Relocation AbstractRelocationKind))
+  (case relocations
+    [(empty)
+     (append (reverse rev-non-branch-relocations) (reverse rev-branch-relocations))]
+    [(cons rel relocations)
+     (case rel
+       [(relocation (branch-relocation) _ _)
+        (order-relocations* relocations rev-non-branch-relocations
+                            (cons rel rev-branch-relocations))]
+       [_
+        (order-relocations* relocations (cons rel rev-non-branch-relocations)
+                            rev-branch-relocations)])]))
