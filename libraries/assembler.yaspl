@@ -55,18 +55,22 @@
                  (list->jl sections))))]))
       (list->jl fragments))))
 
-(define (partition-text-section-relocations
-          [relocations : (List Relocation)]
-          [local-symbol-names : (Set Bytes)])
-  : (Tuple2 (List Relocation) (List Relocation))
+(define (RelocationKind)
+  (partition-text-section-relocations
+    [relocations : (List (Relocation RelocationKind))]
+    [local-symbol-names : (Set Bytes)])
+  : (Tuple2 (List (Relocation RelocationKind))
+            (List (Relocation RelocationKind)))
   (partition-text-section-relocations* relocations (empty) (empty) local-symbol-names))
 
-(define (partition-text-section-relocations*
-          [relocations : (List Relocation)]
-          [local-acc : (List Relocation)]
-          [global-acc : (List Relocation)]
-          [local-symbol-names : (Set Bytes)])
-  : (Tuple2 (List Relocation) (List Relocation))
+(define (RelocationKind)
+  (partition-text-section-relocations*
+    [relocations : (List (Relocation RelocationKind))]
+    [local-acc : (List (Relocation RelocationKind))]
+    [global-acc : (List (Relocation RelocationKind))]
+    [local-symbol-names : (Set Bytes)])
+  : (Tuple2 (List (Relocation RelocationKind))
+            (List (Relocation RelocationKind)))
   (case relocations
     [(empty) (tuple2 local-acc global-acc)]
     [(cons reloc relocations)
@@ -78,12 +82,14 @@
        local-symbol-names)]))
 
 
-(define (apply-local-text-relocations
-          [relocs : (List Relocation)]
-          [symbols : (List DefinedSymbol)]
-          [text : Bytes]) : Void
+(define (RelocationKind)
+  (apply-local-text-relocations
+    [relocs : (List (Relocation RelocationKind))]
+    [symbols : (List DefinedSymbol)]
+    [text : Bytes]) : Void
   (case relocs
     [(empty) (void)]
+    ;; TODO this should look at the relocation kind
     [(cons (relocation _ offset symbol) relocs)
      (begin
         (case (find/maybe (lambda ([x : DefinedSymbol]) : (Maybe LiftedInt)
@@ -108,7 +114,8 @@
           [reversed-contents : (List Bytes)]
           [offset : Int]
           [max-alignment : Int]
-          [relocations : (List Relocation)]) : ProgramSection
+          [relocations : (List (Relocation AbstractRelocationKind))])
+  : (ProgramSection AbstractRelocationKind)
   (case commands
     [(cons (emc-mc (mc-bytes bytes)) commands)
      (text-section-fold
@@ -128,7 +135,7 @@
        (+ offset 4)
        max-alignment
        (cons (relocation (branch-relocation) offset symbol) relocations))]
-    [(cons (emc-mc (mc-signed-relocation symbol)) commands)
+    [(cons (emc-mc (mc-load-relocation symbol)) commands)
      (text-section-fold
        commands
        global-symbols
@@ -136,7 +143,7 @@
        (cons #"\x00\x00\x00\x00" reversed-contents)
        (+ offset 4)
        max-alignment
-       (cons (relocation (signed-relocation) offset symbol) relocations))]
+       (cons (relocation (load-relocation) offset symbol) relocations))]
     [(cons (emc-global-symbol symbol) commands)
      (text-section-fold
        commands
@@ -187,7 +194,8 @@
          global-symbols
          local-symbols))]))
 
-(define (assemble-text-section [text-fragments : (List TextFragment)]) : ProgramSection
+(define (assemble-text-section [text-fragments : (List TextFragment)])
+  : (ProgramSection AbstractRelocationKind)
   (text-section-fold (fragments->mc-commands text-fragments) (empty) (empty) (empty) 0 0 (empty)))
 
 (define (const-section-fold
@@ -196,7 +204,8 @@
           [offset : Int]
           [max-alignment : Int]
           [symbols : (List DefinedSymbol)]
-          [relocations : (List Relocation)]) : ProgramSection
+          [relocations : (List (Relocation AbstractRelocationKind))])
+  : (ProgramSection AbstractRelocationKind)
   (case fragments
     [(empty)
      (program-section
@@ -217,7 +226,7 @@
        (+ aligned-offset 8)
        (max alignment max-alignment)
        (cons (defined-symbol name aligned-offset) symbols)
-       (cons (relocation (unsigned-relocation) aligned-offset value) relocations))]
+       (cons (relocation (address-relocation) aligned-offset value) relocations))]
     [(cons (bytes-fragment name value) fragments)
      (const-section-fold
        fragments
@@ -227,5 +236,6 @@
        (cons (defined-symbol name offset) symbols)
        relocations)]))
 
-(define (assemble-const-section [fragments : (List ConstFragment)]) : ProgramSection
+(define (assemble-const-section [fragments : (List ConstFragment)])
+  : (ProgramSection AbstractRelocationKind)
   (const-section-fold fragments (empty) 0 0 (empty) (empty)))

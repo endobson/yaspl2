@@ -8,26 +8,38 @@
   (structured-native-code)
 }
 (export
-  (#:types)
+  (#:types MachORelocationKind)
   (#:values
+     mach-o-branch-relocation mach-o-signed-relocation mach-o-unsigned-relocation
      relocation-kind->u8 u8->relocation-kind
-     parse-text-section parse-const-section)
-  (#:patterns))
-(types)
+     parse-text-section parse-const-section
+     abstract-relocation->mach-o-relocation)
+  (#:patterns mach-o-branch-relocation mach-o-signed-relocation mach-o-unsigned-relocation))
+(types
+  (define-type MachORelocationKind
+    (mach-o-branch-relocation)
+    (mach-o-signed-relocation)
+    (mach-o-unsigned-relocation)))
 
-(define (relocation-kind->u8 [kind : RelocationKind]) : U8
+(define (relocation-kind->u8 [kind : MachORelocationKind]) : U8
   (case kind
-    [(branch-relocation) (u8 #x2D)]
-    [(signed-relocation) (u8 #x1D)]
-    [(unsigned-relocation) (u8 #x0E)]))
+    [(mach-o-branch-relocation) (u8 #x2D)]
+    [(mach-o-signed-relocation) (u8 #x1D)]
+    [(mach-o-unsigned-relocation) (u8 #x0E)]))
 
-(define (u8->relocation-kind [v : U8]) : RelocationKind
+(define (u8->relocation-kind [v : U8]) : MachORelocationKind
   (case (u8->s64 v)
-    [#x2D (branch-relocation)]
-    [#x1D (signed-relocation)]
-    [#x0E (unsigned-relocation)]
+    [#x2D (mach-o-branch-relocation)]
+    [#x1D (mach-o-signed-relocation)]
+    [#x0E (mach-o-unsigned-relocation)]
     [_ (panic #"Unknown relocation kind")]))
 
+(define (abstract-relocation->mach-o-relocation [r : AbstractRelocationKind])
+  : MachORelocationKind
+  (case r
+    [(branch-relocation) (mach-o-branch-relocation)]
+    [(load-relocation) (mach-o-signed-relocation)]
+    [(address-relocation) (mach-o-unsigned-relocation)]))
 
 (define (find-text-section [load-commands : (List MachOLoadCommand)]) : Section64
   (case load-commands
@@ -92,9 +104,9 @@
 
 (define (resolve-relocations
           [relocations : (List RelocationEntry)]
-          [symbols : (List SymbolTableEntry)]) : (List Relocation)
+          [symbols : (List SymbolTableEntry)]) : (List (Relocation MachORelocationKind))
   (map
-    (lambda ([entry : RelocationEntry]) : Relocation
+    (lambda ([entry : RelocationEntry]) : (Relocation MachORelocationKind)
       (case entry
         [(relocation-entry address symbol-num type)
          (case (lookup-symbol symbols (u32->s64 symbol-num))
@@ -109,7 +121,7 @@
 
 
 (define (parse-text-section [mach-o : MachOFile] [symbols : (List SymbolTableEntry)])
-  : ProgramSection
+  : (ProgramSection MachORelocationKind)
   (case mach-o
     [(mach-o-file header load-commands contents)
      (case (find-text-section load-commands)
@@ -127,7 +139,7 @@
           (empty))])]))
 
 (define (parse-const-section [mach-o : MachOFile] [symbols : (List SymbolTableEntry)])
-  : ProgramSection
+  : (ProgramSection MachORelocationKind)
   (case mach-o
     [(mach-o-file header load-commands contents)
      (case (find-const-section load-commands)

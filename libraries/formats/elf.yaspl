@@ -12,6 +12,7 @@
   (panic)
   (prim)
   (set)
+  (structured-elf)
   (structured-native-code)
   (tuples)
 }
@@ -25,7 +26,7 @@
       [symbol : Bytes]
       [address : Int])))
 
-(define (serialize-elf-library [text-section : ProgramSection]) : Bytes
+(define (serialize-elf-library [text-section : (ProgramSection ElfRelocationKind)]) : Bytes
   (match-define (program-section (aligned-bytes text-section-contents text-section-alignment)
                                  text-relocations text-global-symbols text-local-symbols)
     text-section)
@@ -36,7 +37,7 @@
     (set-remove-all
       (set-add-all
         (make-set bytes-cmp)
-        (map relocation-symbol text-relocations))
+        (map (lambda ([r : (Relocation ElfRelocationKind)]) (relocation-symbol r)) text-relocations))
       (map defined-symbol-name text-symbols)))
 
   (match-define ordered-symbols
@@ -52,7 +53,7 @@
                  [(defined-symbol name addr)
                   (symbol-reference name addr)]))
              text-global-symbols)
-        (map (lambda ([relocation : Relocation])
+        (map (lambda ([relocation : (Relocation ElfRelocationKind)])
                (case relocation
                  [(relocation _ addr name)
                   (symbol-reference name addr)]))
@@ -207,17 +208,15 @@
               (single-jl (make-bytes rela-text-section-align-padding))
               (concat-jl
                 (map
-                  (lambda ([relocation : Relocation]) : (JoinList Bytes)
+                  (lambda ([relocation : (Relocation ElfRelocationKind)]) : (JoinList Bytes)
                     (case relocation
                       [(relocation kind offset sym)
                        (varargs join-list
                          (bytes/s64-le offset)
                          (bytes/u32-le
                            (case kind
-                             [(branch-relocation) #x02]
-                             [(signed-relocation) #x0B]
-                             ;; TODO add a program which uses this
-                             [(unsigned-relocation) #xDEADBEEF]))
+                             [(elf-pc32-relocation) #x02]
+                             [(elf-32s-relocation) #x0B]))
                          (bytes/u32-le
                            (case (dict-ref symbol-indices sym)
                              [(nothing) (panic/int #"Unknown symbol")]
@@ -226,11 +225,10 @@
                            (case (dict-ref symbol-locations sym)
                              [(nothing) (panic/int #"Unknown symbol")]
                              [(just (lifted-int v))
-                              ;; Branch relocations need to account for the 4 bytes of the instruction
+                              ;; pc relative relocations need to account for the 4 bytes offset
                               (case kind
-                                [(branch-relocation) (- 0 4)]
-                                [(signed-relocation) 0]
-                                [(unsigned-relocation) #xCAFEFACE])])))]))
+                                [(elf-pc32-relocation) (- 0 4)]
+                                [(elf-32s-relocation) 0])])))]))
                   text-relocations)))
             (empty-jl))
         (single-jl (make-null-terminated #""))

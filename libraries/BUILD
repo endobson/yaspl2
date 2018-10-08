@@ -40,6 +40,8 @@ yaspl_bootstrap_binary(
         ":io",
         ":mach-o-writer",
         ":module-signature-serialization",
+        ":structured-mach-o",
+        ":structured-native-code",
         "//libraries/data:either",
         "//libraries/data:list",
         "//libraries/data:tuples",
@@ -73,6 +75,8 @@ yaspl_bootstrap_binary(
         ":module-name",
         ":prim-implementation",
         ":sexp-parser",
+        ":structured-mach-o",
+        ":structured-native-code",
         ":top-level-name",
         "//libraries/data:either",
         "//libraries/data:list",
@@ -466,6 +470,12 @@ yaspl_bootstrap_library(
         "//libraries/data:numbers",
         "//libraries/data:tuples",
     ],
+)
+
+yaspl_bootstrap_library(
+    name = "structured-elf",
+    srcs = ["structured-elf.yaspl"],
+    deps = [":structured-native-code"],
 )
 
 yaspl_bootstrap_library(
