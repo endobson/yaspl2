@@ -1,6 +1,6 @@
 .global bar2
 bar2:
-jmp *baz
+jmp baz
 .global bar
 bar:
 jmp e_def

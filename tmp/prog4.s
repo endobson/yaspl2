@@ -1,6 +1,6 @@
 .global foo
 foo:
-call *bar
+call bar
 nop
 ret
 .global bar

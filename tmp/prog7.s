@@ -1,8 +1,8 @@
 .global foo
 foo:
-call *bar
+call bar
 .global bar
 bar:
-call *foo
+call foo
 bar_2:
 ret
