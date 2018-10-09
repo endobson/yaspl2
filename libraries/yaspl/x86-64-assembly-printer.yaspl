@@ -11,9 +11,13 @@
 }
 (export
   (#:types AssemblyCommand AssemblerDirective)
-  (#:values write-fragments const-fragment->commands text-fragment->commands assembly-commands->bytes)
+  (#:values write-fragments const-fragment->commands text-fragment->commands assembly-commands->bytes
+            linux-assembly-style osx-assembly-style)
   (#:patterns))
 (types
+  (define-type AssemblyStyle
+    (linux-assembly-style)
+    (osx-assembly-style))
   (define-type AssemblyCommand
     (directive-cmd [directive : AssemblerDirective])
     (instruction-cmd [instruction : Instruction]))
@@ -159,22 +163,25 @@
 
 
 ;; Generates a text version of the assembly commands.
-(define (assembly-commands->bytes [cmds : (List AssemblyCommand)]) : (JoinList Bytes)
+(define (assembly-commands->bytes
+          [style : AssemblyStyle]
+          [cmds : (List AssemblyCommand)])
+  : (JoinList Bytes)
   (case cmds
     [(empty) (empty-jl)]
     [(cons cmd cmds)
      (append-jl
-       (assembly-command->bytes cmd)
+       (assembly-command->bytes style cmd)
        (cons-jl
          #"\n"
-         (assembly-commands->bytes cmds)))]))
+         (assembly-commands->bytes style cmds)))]))
 
-(define (assembly-command->bytes [cmd : AssemblyCommand]) : (JoinList Bytes)
+(define (assembly-command->bytes [style : AssemblyStyle] [cmd : AssemblyCommand]) : (JoinList Bytes)
   (case cmd
-    [(directive-cmd directive) (assembler-directive->bytes directive)]
-    [(instruction-cmd instruction) (instruction->assembly-bytes instruction)]))
+    [(directive-cmd directive) (assembler-directive->bytes style directive)]
+    [(instruction-cmd instruction) (instruction->assembly-bytes style instruction)]))
 
-(define (assembler-directive->bytes [dir : AssemblerDirective]) : (JoinList Bytes)
+(define (assembler-directive->bytes [style : AssemblyStyle] [dir : AssemblerDirective]) : (JoinList Bytes)
   (case dir
     [(section-directive seg sect)
      (varargs join-list #".section " seg #"," sect)]
@@ -217,7 +224,7 @@
                         (escape-bytes src start (+ 1 cur)))))))))
 
 
-(define (instruction->assembly-bytes [inst : Instruction]) : (JoinList Bytes)
+(define (instruction->assembly-bytes [style : AssemblyStyle] [inst : Instruction]) : (JoinList Bytes)
   (case inst
     [(addq rmi1 rm2)
      (varargs join-list
@@ -408,8 +415,12 @@
         #", "
         (register->bytes reg))]))
 
-(define (write-assembly-commands [cmds : (List AssemblyCommand)] [output : OutputPort]) : Void
-  (write-lines (map assembly-command->bytes cmds) output))
+(define (write-assembly-commands
+          [style : AssemblyStyle]
+          [cmds : (List AssemblyCommand)]
+          [output : OutputPort])
+  : Void
+  (write-lines (map (lambda ([cmd : AssemblyCommand]) (assembly-command->bytes style cmd)) cmds) output))
 
 (define (line->bytes [line : (JoinList Bytes)]) : Bytes
   (case (jl->list line)
@@ -424,8 +435,12 @@
         (write-line (line->bytes line) output)))
     lines))
 
-(define (write-fragments [fragments : AssemblyFragments] [output : OutputPort]) : Void
-  (write-assembly-commands (jl->list (fragments->commands fragments)) output))
+(define (write-fragments
+          [style : AssemblyStyle]
+          [fragments : AssemblyFragments]
+          [output : OutputPort])
+  : Void
+  (write-assembly-commands style (jl->list (fragments->commands fragments)) output))
 
 (define (fragments->commands [fragments : AssemblyFragments]) : (JoinList AssemblyCommand)
   (case fragments
