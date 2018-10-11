@@ -42,7 +42,7 @@
     {#:types
       [BasicBlock a:BasicBlock]
       [Instruction a:Instruction]
-      [Register a:Register]
+      [Register64 a:Register64]
       [Register8 a:Register8]
       [Scale a:Scale]
       TextFragment
@@ -63,7 +63,7 @@
       [dl a:dl]
       function-fragment
       idivq
-      imm
+      imm64/s32
       imm8
       imulq
       imulq/imm
@@ -96,6 +96,11 @@
       [r14b a:r14b]
       [r15 a:r15]
       [r15b a:r15b]
+      r64m-mem
+      r64m-reg
+      r64mi-imm
+      r64mi-mem
+      r64mi-reg
       [r8 a:r8]
       [r8b a:r8b]
       r8m-mem
@@ -114,11 +119,6 @@
       rep-stosq
       repe-cmpsb
       ret
-      rm-mem
-      rm-reg
-      rmi-imm
-      rmi-mem
-      rmi-reg
       [rsi a:rsi]
       [rsp a:rsp]
       [scale-1 a:scale-1]
@@ -220,7 +220,7 @@
 (define (make-block-label [block-prefix : Bytes] [block-num : BlockNumber]) : Bytes
   (bytes-append (varargs list block-prefix (block-number->bytes block-num))))
 
-(define (convert-register [r : X8664Register]) : a:Register
+(define (convert-register [r : X8664Register]) : a:Register64
   (case r
     [(rax) (a:rax)]
     [(rbx) (a:rbx)]
@@ -275,29 +275,29 @@
     [(function-call-inst _ (direct-call f) _ _)
      (single-jl (call f))]
     [(function-call-inst _ (indirect-function-call f) _ _)
-     (single-jl (call/indirect (rm-reg (convert-register f))))]
+     (single-jl (call/indirect (r64m-reg (convert-register f))))]
     [(function-call-inst _ (closure-call c) _ _)
-     (single-jl (call/indirect (rm-mem (mem (convert-register c) 0))))]
+     (single-jl (call/indirect (r64m-mem (mem (convert-register c) 0))))]
     [(move out in)
-     (single-jl (movq (rmi-reg (convert-register in)) (rm-reg (convert-register out))))]
+     (single-jl (movq (r64mi-reg (convert-register in)) (r64m-reg (convert-register out))))]
     [(push in)
-     (single-jl (pushq (rmi-reg (convert-register in))))]
+     (single-jl (pushq (r64mi-reg (convert-register in))))]
     [(pop out)
-     (single-jl (popq (rm-reg (convert-register out))))]
+     (single-jl (popq (r64m-reg (convert-register out))))]
     [(store-8byte loc offset val)
-     (single-jl (movq (rmi-reg (convert-register val))
-                      (rm-mem (mem (convert-register loc) offset))))]
+     (single-jl (movq (r64mi-reg (convert-register val))
+                      (r64m-mem (mem (convert-register loc) offset))))]
     [(store-8byte/scaled loc index scale offset val)
-     (single-jl (movq (rmi-reg (convert-register val))
-                      (rm-mem (scaled (convert-register loc) (convert-scale scale)
+     (single-jl (movq (r64mi-reg (convert-register val))
+                      (r64m-mem (scaled (convert-register loc) (convert-scale scale)
                                       (convert-register index) offset))))]
     [(store-8byte-repeated (rdi) (rax) (rcx))
      (single-jl (rep-stosq))]
     [(store-8byte-repeated loc val amount)
      (panic #"store-8byte-repeated called with wrong registers")]
     [(store-8byte/immediate loc offset val)
-     (single-jl (movq (rmi-imm val)
-                      (rm-mem (mem (convert-register loc) offset))))]
+     (single-jl (movq (r64mi-imm val)
+                      (r64m-mem (mem (convert-register loc) offset))))]
     [(store-least-significant-byte loc offset val)
      (single-jl (movb (r8mi-reg (convert-register/8 val))
                       (mem (convert-register loc) offset)))]
@@ -313,15 +313,15 @@
     [(store-least-significant-byte-repeated loc val amount)
      (panic #"store-least-significant-byte-repeated called with wrong registers")]
     [(store-temporary index val)
-     (single-jl (movq (rmi-reg (convert-register val))
-                      (rm-mem (mem (a:rbp) (* (+ index 1) (- 0 8))))))]
+     (single-jl (movq (r64mi-reg (convert-register val))
+                      (r64m-mem (mem (a:rbp) (* (+ index 1) (- 0 8))))))]
     [(load-8byte out loc offset)
-     (single-jl (movq (rmi-mem (mem (convert-register loc) offset))
-                      (rm-reg (convert-register out))))]
+     (single-jl (movq (r64mi-mem (mem (convert-register loc) offset))
+                      (r64m-reg (convert-register out))))]
     [(load-8byte/scaled out loc index scale offset)
      (single-jl
-       (movq (rmi-mem (scaled (convert-register loc) (convert-scale scale) (convert-register index) offset))
-             (rm-reg (convert-register out))))]
+       (movq (r64mi-mem (scaled (convert-register loc) (convert-scale scale) (convert-register index) offset))
+             (r64m-reg (convert-register out))))]
     [(load-zero-extended-byte out loc offset)
      (single-jl (movzbq (r8m-mem (mem (convert-register loc) offset)) (convert-register out)))]
     [(load-zero-extended-byte/scaled out loc index scale offset)
@@ -330,26 +330,26 @@
          (r8m-mem (scaled (convert-register loc) (convert-scale scale) (convert-register index) offset))
          (convert-register out)))]
     [(load-temporary out index)
-     (single-jl (movq (rmi-mem (mem (a:rbp) (* (+ index 1) (- 0 8))))
-                      (rm-reg (convert-register out))))]
+     (single-jl (movq (r64mi-mem (mem (a:rbp) (* (+ index 1) (- 0 8))))
+                      (r64m-reg (convert-register out))))]
     [(free-unary-op-inst out (truncate-unsigned-int64->unsigned-int8) in)
      (single-jl (movzbq (r8m-reg (convert-register/8 in)) (convert-register out)))]
     [(fixed-unary-op-inst in-out (boolean-not))
-     (single-jl (xorq (imm 1) (convert-register in-out)))]
+     (single-jl (xorq (imm64/s32 1) (convert-register in-out)))]
     [(numeric-op-inst out (add-op) in)
-     (single-jl (addq (rmi-reg (convert-register in)) (rm-reg (convert-register out))))]
+     (single-jl (addq (r64mi-reg (convert-register in)) (r64m-reg (convert-register out))))]
     [(numeric-op-immediate out (add-op) v)
-     (single-jl (addq (rmi-imm v) (rm-reg (convert-register out))))]
+     (single-jl (addq (r64mi-imm v) (r64m-reg (convert-register out))))]
     [(numeric-op-inst out (sub-op) in)
-     (single-jl (subq (rmi-reg (convert-register in)) (convert-register out)))]
+     (single-jl (subq (r64mi-reg (convert-register in)) (convert-register out)))]
     [(numeric-op-immediate out (sub-op) v)
-     (single-jl (subq (rmi-imm v) (convert-register out)))]
+     (single-jl (subq (r64mi-imm v) (convert-register out)))]
     [(numeric-op-inst out (mult-op) in)
      (single-jl (imulq (convert-register in) (convert-register out)))]
     [(numeric-op-immediate out (mult-op) v)
-     (single-jl (imulq/imm v (rmi-reg (convert-register out)) (convert-register out)))]
+     (single-jl (imulq/imm v (r64mi-reg (convert-register out)) (convert-register out)))]
     [(mult-immediate out in v)
-     (single-jl (imulq/imm v (rmi-reg (convert-register in)) (convert-register out)))]
+     (single-jl (imulq/imm v (r64mi-reg (convert-register in)) (convert-register out)))]
     [(quotient-remainder-inst (rax) (rdx) (rdx) (rax) div)
      (single-jl (idivq (convert-register div)))]
     [(quotient-remainder-inst _ _ _ _ _)
@@ -363,7 +363,7 @@
     [(numeric-op-immediate out (remainder-op) v)
      (panic #"Remainder doesnt support immediate operations")]
     [(numeric-op-inst out (bitwise-and-op) in)
-     (single-jl (andq (rmi-reg (convert-register in)) (convert-register out)))]
+     (single-jl (andq (r64mi-reg (convert-register in)) (convert-register out)))]
     [(numeric-op-immediate out (bitwise-and-op) v)
      (panic #"And doesn't support immediate operations")]
     [(numeric-op-inst out (bitwise-ior-op) in)
@@ -385,12 +385,12 @@
      ;; TODO check that 'v' is actually within u8 bounds
      (single-jl (shrq/imm (u8 (s32->s64 v)) (convert-register out)))]
     [(logical-op-inst out (and-op) in)
-     (single-jl (andq (rmi-reg (convert-register in)) (convert-register out)))]
+     (single-jl (andq (r64mi-reg (convert-register in)) (convert-register out)))]
     [(logical-op-inst out (ior-op) in)
      (single-jl (orq (convert-register in) (convert-register out)))]
     [(comparison-op-inst out op left right)
      (varargs join-list
-       (cmpq (rmi-reg (convert-register right)) (rm-reg (convert-register left)))
+       (cmpq (r64mi-reg (convert-register right)) (r64m-reg (convert-register left)))
        (case op
          [(equal-op) (sete (convert-register/8 out))]
          [(not-equal-op) (setne (convert-register/8 out))]
@@ -401,7 +401,7 @@
        (movzbq (r8m-reg (convert-register/8 out)) (convert-register out)))]
     [(comparison-op-immediate out op left right)
      (varargs join-list
-       (cmpq (rmi-imm right) (rm-reg (convert-register left)))
+       (cmpq (r64mi-imm right) (r64m-reg (convert-register left)))
        (case op
          [(equal-op) (sete (convert-register/8 out))]
          [(not-equal-op) (setne (convert-register/8 out))]
@@ -422,16 +422,16 @@
     ;; TODO investigating making this not have a register
     [(return _)
      (varargs join-list
-       (movq (rmi-reg (a:rbp)) (rm-reg (a:rsp)))
-       (popq (rm-reg (a:rbp)))
+       (movq (r64mi-reg (a:rbp)) (r64m-reg (a:rsp)))
+       (popq (r64m-reg (a:rbp)))
        (ret))]
     [(halt)
      (single-jl (ud2))]
     [(tail-call f _)
      (append-jl
        (varargs join-list
-         (movq (rmi-reg (a:rbp)) (rm-reg (a:rsp)))
-         (popq (rm-reg (a:rbp))))
+         (movq (r64mi-reg (a:rbp)) (r64m-reg (a:rsp)))
+         (popq (r64m-reg (a:rbp))))
        (case f
          [(syscall _)
           ;; This really isn't a tail call but since syscalls cannot call more it is ok.
@@ -441,9 +441,9 @@
          [(direct-call f)
           (single-jl (jmp f))]
          [(indirect-function-call f)
-          (single-jl (jmp/indirect (rm-reg (convert-register f))))]
+          (single-jl (jmp/indirect (r64m-reg (convert-register f))))]
          [(closure-call c)
-          (single-jl (jmp/indirect (rm-mem (mem (convert-register c) 0))))]))]
+          (single-jl (jmp/indirect (r64m-mem (mem (convert-register c) 0))))]))]
     [(jump block-num)
      (single-jl (jmp (make-block-label block-prefix block-num)))]
     [(fall-through block-num)
@@ -461,11 +461,11 @@
      (varargs join-list
        (cmpq
          (case reg-imm2
-           [(reg-or-s32-reg r) (rmi-reg (convert-register r))]
-           [(reg-or-s32-s32 imm) (rmi-imm imm)])
+           [(reg-or-s32-reg r) (r64mi-reg (convert-register r))]
+           [(reg-or-s32-s32 imm) (r64mi-imm imm)])
          (case reg-mem1
-           [(compare-mem-arg-val r) (rm-reg (convert-register r))]
-           [(compare-mem-arg-ptr r) (rm-mem (mem (convert-register r) 0))]))
+           [(compare-mem-arg-val r) (r64m-reg (convert-register r))]
+           [(compare-mem-arg-ptr r) (r64m-mem (mem (convert-register r) 0))]))
        ((case c
          [(equal-op) je]
          [(not-equal-op) jne]
