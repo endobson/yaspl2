@@ -24,7 +24,10 @@
     (rex-optional))
   (define-type RexByte
     (no-rex-byte)
-    (rex-byte [v : U8])))
+    (rex-byte [v : U8]))
+  (define-type Immediate
+    (imm-s32 [v : S32])
+    (imm-u8 [v : U8])))
 
 (define (mc-bytes* [bytes : Bytes]) : (JoinList MCCommand)
   (single-jl (mc-bytes bytes)))
@@ -46,7 +49,7 @@
     [(andq (r64mi-reg reg1) reg2)
      (mc-bytes* (single-byte-op/RM/reg #x21 #t reg1 reg2))]
     [(andq (r64mi-imm imm) reg)
-     (mc-bytes* (single-byte-op/IM/reg #x81 4 #t imm reg))]
+     (mc-bytes* (single-byte-op/IM/reg #x81 4 #t (imm-s32 imm) (register64 reg)))]
     [(andq (r64mi-mem _) _)
      (panic #"andq of memory not yet supported")]
     [(call label)
@@ -171,16 +174,16 @@
     [(shlq reg)
      (mc-bytes* (single-byte-op/M #xD3 4 #t reg))]
     [(shlq/imm v reg)
-     (mc-bytes* (single-byte-op/I8M/reg #xC1 4 #t v reg))]
+     (mc-bytes* (single-byte-op/IM/reg #xC1 4 #t (imm-u8 v) (register64 reg)))]
     [(shrq reg)
      (mc-bytes* (single-byte-op/M #xD3 5 #t reg))]
     [(shrq/imm v reg)
-     (mc-bytes* (single-byte-op/I8M/reg #xC1 5 #t v reg))]
+     (mc-bytes* (single-byte-op/IM/reg #xC1 5 #t (imm-u8 v) (register64 reg)))]
     [(std) (mc-bytes* (bytes/1 (u8 #xFD)))]
     [(subq (r64mi-reg reg1) reg2)
      (mc-bytes* (single-byte-op/RM/reg #x29 #t reg1 reg2))]
     [(subq (r64mi-imm imm) reg)
-     (mc-bytes* (single-byte-op/IM/reg #x81 5 #t imm reg))]
+     (mc-bytes* (single-byte-op/IM/reg #x81 5 #t (imm-s32 imm) (register64 reg)))]
     [(subq (r64mi-mem mem) reg)
      (mc-bytes* (single-byte-op/MR/mem #x2B #t mem reg))]
     [(syscall) (mc-bytes* (bytes/2 (u8 #x0F) (u8 #x05)))]
@@ -192,7 +195,7 @@
     [(xorq (r64mi-reg reg1) reg2)
      (mc-bytes* (single-byte-op/RM/reg #x31 #t reg1 reg2))]
     [(xorq (r64mi-imm imm) reg)
-     (mc-bytes* (single-byte-op/IM/reg #x81 6 #t imm reg))]
+     (mc-bytes* (single-byte-op/IM/reg #x81 6 #t (imm-s32 imm) (register64 reg)))]
     [(xorq (r64mi-mem _) _)
      (panic #"xorq of memory not yet supported")]
     [(leaq/rip-rel label reg)
@@ -291,161 +294,98 @@
             (bytes-set!/s32-le v 3 displacement)
             v))))))
 
+(define (imm->bytes [imm : Immediate]) : Bytes
+  (case imm
+    [(imm-s32 v) (bytes/s32-le v)]
+    [(imm-u8 v) (bytes/1 v)]))
 
 (define (single-byte-op/IM [opcode : Int] [op-ext : Int] [rexW : Boolean]
                            [val : S32] [rm : Reg64Mem]) : Bytes
   (case rm
     [(r64m-reg reg)
-     (single-byte-op/IM/reg opcode op-ext rexW val reg)]
-    [(r64m-mem (mem-direct mem-reg))
-     (single-byte-op/IM/direct-mem opcode op-ext rexW val mem-reg)]
-    [(r64m-mem (mem-sib-direct mem-reg))
-     (single-byte-op/IM/sib-direct-mem opcode op-ext rexW val mem-reg)]
-    [(r64m-mem (mem-displaced mem-reg offset))
-     (single-byte-op/IM/displaced-mem opcode op-ext rexW val mem-reg offset)]
-    [(r64m-mem (mem-scaled mem-reg scale index-reg displacement))
-     (single-byte-op/IM/scaled-mem opcode op-ext rexW val mem-reg scale index-reg displacement)]))
+     (single-byte-op/IM/reg opcode op-ext rexW (imm-s32 val) (register64 reg))]
+    [(r64m-mem mem)
+     (single-byte-op/IM/mem opcode op-ext rexW (imm-s32 val) mem)]))
 
 (define (single-byte-op/IM/8 [opcode : Int] [op-ext : Int] [rexW : Boolean]
                              [val : U8] [r8m : Reg8Mem]) : Bytes
   (case r8m
     [(r8m-reg reg)
-     (single-byte-op/IM/reg/8 opcode op-ext rexW val reg)]
-    [(r8m-mem (mem-direct mem-reg))
-     (single-byte-op/IM/direct-mem/8 opcode op-ext rexW val mem-reg)]
-    [(r8m-mem (mem-sib-direct mem-reg))
-     (single-byte-op/IM/sib-direct-mem/8 opcode op-ext rexW val mem-reg)]
-    [(r8m-mem (mem-displaced mem-reg offset))
-     (single-byte-op/IM/displaced-mem/8 opcode op-ext rexW val mem-reg offset)]
-    [(r8m-mem (mem-scaled mem-reg scale index-reg displacement))
-     (single-byte-op/IM/scaled-mem/8 opcode op-ext rexW val mem-reg scale index-reg displacement)]))
+     (single-byte-op/IM/reg opcode op-ext rexW (imm-u8 val) (register8 reg))]
+    [(r8m-mem mem)
+     (single-byte-op/IM/mem opcode op-ext rexW (imm-u8 val) mem)]))
 
+(define (single-byte-op/IM/mem [opcode : Int] [op-ext : Int] [rexW : Boolean]
+                               [val : Immediate] [mem : MemoryArgument]) : Bytes
+  (case mem
+    [(mem-direct mem-reg)
+     (single-byte-op/IM/direct-mem opcode op-ext rexW val mem-reg)]
+    [(mem-sib-direct mem-reg)
+     (single-byte-op/IM/sib-direct-mem opcode op-ext rexW val mem-reg)]
+    [(mem-displaced mem-reg offset)
+     (single-byte-op/IM/displaced-mem opcode op-ext rexW val mem-reg offset)]
+    [(mem-scaled mem-reg scale index-reg displacement)
+     (single-byte-op/IM/scaled-mem opcode op-ext rexW val mem-reg scale index-reg displacement)]))
 
 (define (single-byte-op/IM/reg [opcode : Int] [op-ext : Int] [rexW : Boolean]
-                               [val : S32] [reg : Register64]) : Bytes
-  (let ([rm (register64->byte reg)])
+                               [val : Immediate] [reg : Register]) : Bytes
+  (let ([rm (register->byte reg)])
     (add-maybe-byte
-      (make-rex-byte rexW (nothing) (nothing) (just (register64 reg)))
-      (let ([v (bytes/6 (u8 opcode) (u8 (mod-rm-byte #x03 op-ext rm)) (u8 0) (u8 0) (u8 0) (u8 0))])
-        (begin
-          (bytes-set!/s32-le v 2 val)
-          v)))))
-
-(define (single-byte-op/IM/reg/8 [opcode : Int] [op-ext : Int] [rexW : Boolean]
-                                 [val : U8] [reg : Register8]) : Bytes
-  (let ([rm (register8->byte reg)])
-    (add-maybe-byte
-      (make-rex-byte rexW (nothing) (nothing) (just (register8 reg)))
-      (bytes/3 (u8 opcode) (u8 (mod-rm-byte #x03 op-ext rm)) val))))
-
-;; This takes a 64 bit register but 8 bit immediate value.
-(define (single-byte-op/I8M/reg [opcode : Int] [op-ext : Int] [rexW : Boolean]
-                                [val : U8] [reg : Register64]) : Bytes
-  (let ([rm (register64->byte reg)])
-    (add-maybe-byte
-      (make-rex-byte rexW (nothing) (nothing) (just (register64 reg)))
-      (bytes/3 (u8 opcode) (u8 (mod-rm-byte #x03 op-ext rm)) val))))
+      (make-rex-byte rexW (nothing) (nothing) (just reg))
+      (bytes-append
+        (varargs list
+          (bytes/2 (u8 opcode) (u8 (mod-rm-byte #x03 op-ext rm)))
+          (imm->bytes val))))))
 
 (define (single-byte-op/IM/direct-mem [opcode : Int] [op-ext : Int] [rexW : Boolean]
-                                      [val : S32] [reg : Register64]) : Bytes
+                                          [val : Immediate] [reg : Register64]) : Bytes
   (let ([rm (register64->byte reg)])
     (add-maybe-byte
       (make-rex-byte rexW (nothing) (nothing) (just (register64 reg)))
-      (let ([v (bytes/6 (u8 opcode) (u8 (mod-rm-byte #x00 op-ext rm)) (u8 0) (u8 0) (u8 0) (u8 0))])
-        (begin
-          (bytes-set!/s32-le v 2 val)
-          v)))))
+      (bytes-append
+        (varargs list
+          (bytes/2 (u8 opcode) (u8 (mod-rm-byte #x00 op-ext rm)))
+          (imm->bytes val))))))
 
 (define (single-byte-op/IM/sib-direct-mem [opcode : Int] [op-ext : Int] [rexW : Boolean]
-                                          [val : S32] [reg : Register64]) : Bytes
-  (let ([base (register64->byte reg)])
-    (add-maybe-byte
-      (make-rex-byte rexW (nothing) (nothing) (just (register64 reg)))
-      (let ([v (bytes/7 (u8 opcode) (u8 (mod-rm-byte #x00 op-ext #x04))
-                        (u8 (sib-byte (scale-1) (rsp) reg)) (u8 0) (u8 0) (u8 0) (u8 0))])
-        (begin
-          (bytes-set!/s32-le v 3 val)
-          v)))))
-
-(define (single-byte-op/IM/direct-mem/8 [opcode : Int] [op-ext : Int] [rexW : Boolean]
-                                        [val : U8] [reg : Register64]) : Bytes
-  (let ([rm (register64->byte reg)])
-    (add-maybe-byte
-      (make-rex-byte rexW (nothing) (nothing) (just (register64 reg)))
-      (bytes/3 (u8 opcode) (u8 (mod-rm-byte #x00 op-ext rm)) val))))
-
-(define (single-byte-op/IM/sib-direct-mem/8 [opcode : Int] [op-ext : Int] [rexW : Boolean]
-                                            [val : U8] [reg : Register64]) : Bytes
-  (let ([base (register64->byte reg)])
-    (add-maybe-byte
-      (make-rex-byte rexW (nothing) (nothing) (just (register64 reg)))
-      (bytes/4 (u8 opcode) (u8 (mod-rm-byte #x00 op-ext #x04))
-               (u8 (sib-byte (scale-1) (rsp) reg)) val))))
+                                          [val : Immediate] [reg : Register64]) : Bytes
+  (add-maybe-byte
+    (make-rex-byte rexW (nothing) (nothing) (just (register64 reg)))
+    (bytes-append
+      (varargs list
+        (bytes/3 (u8 opcode) (u8 (mod-rm-byte #x00 op-ext #x04))
+                 (u8 (sib-byte (scale-1) (rsp) reg)))
+        (imm->bytes val)))))
 
 
 ;; Doesn't support rsp or r12. This is because the instruction set doesn't support them.
 (define (single-byte-op/IM/displaced-mem
-          [opcode : Int] [op-ext : Int] [rexW : Boolean] [val : S32]
+          [opcode : Int] [op-ext : Int] [rexW : Boolean] [val : Immediate]
           [reg : Register64] [displacement : S32]) : Bytes
   (let ([rm (register64->byte reg)])
     (add-maybe-byte
       (make-rex-byte rexW (nothing) (nothing) (just (register64 reg)))
-      (let ([v (bytes/10
-                 (u8 opcode)
-                 (u8 (mod-rm-byte #x02 op-ext rm))
-                 (u8 0) (u8 0) (u8 0) (u8 0) (u8 0) (u8 0) (u8 0) (u8 0))])
-        (begin
-          (bytes-set!/s32-le v 2 displacement)
-          (bytes-set!/s32-le v 6 val)
-          v)))))
-
-(define (single-byte-op/IM/displaced-mem/8
-          [opcode : Int] [op-ext : Int] [rexW : Boolean] [val : U8]
-          [reg : Register64] [displacement : S32]) : Bytes
-  (let ([rm (register64->byte reg)])
-    (add-maybe-byte
-      (make-rex-byte rexW (nothing) (nothing) (just (register64 reg)))
-      (let ([v (bytes/7
-                 (u8 opcode)
-                 (u8 (mod-rm-byte #x02 op-ext rm))
-                 (u8 0) (u8 0) (u8 0) (u8 0) val)])
-        (begin
-          (bytes-set!/s32-le v 2 displacement)
-          v)))))
+      (bytes-append
+        (varargs list
+          (bytes/2
+            (u8 opcode)
+            (u8 (mod-rm-byte #x02 op-ext rm)))
+        (bytes/s32-le displacement)
+        (imm->bytes val))))))
 
 (define (single-byte-op/IM/scaled-mem
-          [opcode : Int] [op-ext : Int] [rexW : Boolean] [val : S32]
+          [opcode : Int] [op-ext : Int] [rexW : Boolean] [val : Immediate]
           [reg1 : Register64] [scale : Scale] [reg2 : Register64] [displacement : S32]) : Bytes
-  (let ([base (register64->byte reg1)])
-    (let ([index (register64->byte reg2)])
-      (add-maybe-byte
-        (make-rex-byte rexW (nothing) (just (register64 reg2)) (just (register64 reg1)))
-        (let ([v (bytes/11
-                   (u8 opcode)
-                   (u8 (mod-rm-byte #x02 op-ext #x04))
-                   (u8 (sib-byte scale reg2 reg1))
-                   (u8 0) (u8 0) (u8 0) (u8 0) (u8 0) (u8 0) (u8 0) (u8 0))])
-          (begin
-            (bytes-set!/s32-le v 3 displacement)
-            (bytes-set!/s32-le v 7 val)
-            v))))))
-
-(define (single-byte-op/IM/scaled-mem/8
-          [opcode : Int] [op-ext : Int] [rexW : Boolean] [val : U8]
-          [reg1 : Register64] [scale : Scale] [reg2 : Register64] [displacement : S32]) : Bytes
-  (let ([base (register64->byte reg1)])
-    (let ([index (register64->byte reg2)])
-      (add-maybe-byte
-        (make-rex-byte rexW (nothing) (just (register64 reg2)) (just (register64 reg1)))
-        (let ([v (bytes/8
-                   (u8 opcode)
-                   (u8 (mod-rm-byte #x02 op-ext #x04))
-                   (u8 (sib-byte scale reg2 reg1))
-                   (u8 0) (u8 0) (u8 0) (u8 0) val)])
-          (begin
-            (bytes-set!/s32-le v 3 displacement)
-            v))))))
-
+  (add-maybe-byte
+    (make-rex-byte rexW (nothing) (just (register64 reg2)) (just (register64 reg1)))
+    (bytes-append
+      (varargs list
+        (bytes/3
+          (u8 opcode)
+          (u8 (mod-rm-byte #x02 op-ext #x04))
+          (u8 (sib-byte scale reg2 reg1)))
+        (bytes/s32-le displacement)
+        (imm->bytes val)))))
 
 (define (single-byte-op/RM [opcode : Int] [rexW : Boolean] [reg : Register64] [rm : Reg64Mem])
   : Bytes
