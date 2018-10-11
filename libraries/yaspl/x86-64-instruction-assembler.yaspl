@@ -3,7 +3,9 @@
   (bytes)
   (join-list)
   (list)
+  (maybe)
   (prim)
+  (tuples)
   (yaspl x86-64-assembly)
 }
 (export
@@ -516,7 +518,7 @@
   (let ([reg (register8->byte reg1)])
     (let ([rm (register64->byte reg2)])
       (add-maybe-byte
-        (make-rex-byte* rexW (>= reg 8) #f (>= rm 8) reg1)
+        (make-rex-byte/reg rexW (just (register8 reg1)) (nothing) (just (register64 reg2)))
         (bytes/2 (u8 opcode) (u8 (mod-rm-byte #x00 reg rm)))))))
 
 (define (single-byte-op/RM/sib-direct-mem/8 [opcode : Int] [rexW : Boolean]
@@ -524,7 +526,7 @@
   (let ([reg (register8->byte reg1)])
     (let ([base (register64->byte reg2)])
       (add-maybe-byte
-        (make-rex-byte* rexW (>= reg 8) #f (>= base 8) reg1)
+        (make-rex-byte/reg rexW (just (register8 reg1)) (nothing) (just (register64 reg2)))
         (bytes/3 (u8 opcode) (u8 (mod-rm-byte #x00 reg #x04)) (u8 (sib-byte (scale-1) (rsp) reg2)))))))
 
 
@@ -549,7 +551,7 @@
   (let ([reg (register8->byte reg1)])
     (let ([rm (register64->byte reg2)])
       (add-maybe-byte
-        (make-rex-byte* rexW (>= reg 8) #f (>= rm 8) reg1)
+        (make-rex-byte/reg rexW (just (register8 reg1)) (nothing) (just (register64 reg2)))
         (let ([v (bytes/6 (u8 opcode) (u8 (mod-rm-byte #x02 reg rm)) (u8 0) (u8 0) (u8 0) (u8 0))])
           (begin
             (bytes-set!/s32-le v 2 displacement)
@@ -581,7 +583,8 @@
     (let ([base (register64->byte reg2)])
       (let ([index (register64->byte reg3)])
         (add-maybe-byte
-          (make-rex-byte* rexW (>= reg 8) (>= index 8) (>= base 8) reg1)
+          (make-rex-byte/reg rexW (just (register8 reg1)) (just (register64 reg3))
+                                  (just (register64 reg2)))
           (let ([v (bytes/7
                      (u8 opcode)
                      (u8 (mod-rm-byte #x02 reg #x04))
@@ -619,7 +622,7 @@
   (let ([rm (register8->byte reg1)])
     (let ([reg (register64->byte reg2)])
       (add-maybe-byte
-        (make-rex-byte* rexW (>= reg 8) #f (>= rm 8) reg1)
+        (make-rex-byte/reg rexW (just (register8 reg1)) (nothing) (just (register64 reg2)))
         (bytes/3 (u8 #x0F) (u8 opcode) (u8 (mod-rm-byte #x03 reg rm)))))))
 
 (define (double-byte-op/MR/mem [opcode : Int] [rexW : Boolean]
@@ -698,7 +701,7 @@
 (define (double-byte-op/M/8 [opcode : Int] [op-ext : Int] [rexW : Boolean] [reg : Register8]) : Bytes
   (let ([rm (register8->byte reg)])
     (add-maybe-byte
-      (make-rex-byte* rexW #f #f (>= rm 8) reg)
+      (make-rex-byte/reg rexW (nothing) (nothing) (just (register8 reg)))
       (bytes/3
         (u8 #x0F)
         (u8 opcode)
@@ -723,7 +726,12 @@
           (no-rex-byte)
           (rex-byte (u8 val))))))
 
-(define (rex-requirement [reg : Register8]) : RexRequirement
+(define (rex-requirement [reg : Register]) : RexRequirement
+  (case reg
+    [(register8 r) (rex-requirement/8 r)]
+    [(register64 _) (rex-optional)]))
+
+(define (rex-requirement/8 [reg : Register8]) : RexRequirement
   (case reg
     [(ah) (rex-forbidden)]
     [(bh) (rex-forbidden)]
@@ -746,10 +754,40 @@
     [(r14b) (rex-optional)]
     [(r15b) (rex-optional)]))
 
-(define (make-rex-byte* [w : Boolean] [r : Boolean] [x : Boolean] [b : Boolean] [reg : Register8])
+(define (merge-rex-requirements [req1 : RexRequirement] [req2 : RexRequirement]) : RexRequirement
+  (case (tuple2 req1 req2)
+    [(tuple2 (rex-optional) req) req]
+    [(tuple2 req (rex-optional)) req]
+    [(tuple2 (rex-mandatory) (rex-mandatory)) (rex-mandatory)]
+    [(tuple2 (rex-forbidden) (rex-forbidden)) (rex-forbidden)]
+    [_ (panic #"Contradictory registers for rex prefix requirement")]))
+
+(define (make-rex-byte/reg [w : Boolean] [r : (Maybe Register)]
+                           [x : (Maybe Register)] [b : (Maybe Register)])
   : RexByte
-  (match-define computed-rex (make-rex-byte w r x b))
-  (case (rex-requirement reg)
+  (match-define rex-bit/maybe
+    (lambda ([r : (Maybe Register)])
+      (case r
+        [(nothing) #f]
+        [(just r) (>= (register->byte r) 8)])))
+  (match-define rex-requirement/maybe
+    (lambda ([r : (Maybe Register)])
+      (case r
+        [(nothing) (rex-optional)]
+        [(just r) (rex-requirement r)])))
+
+  (match-define computed-rex
+    (make-rex-byte
+      w
+      (rex-bit/maybe r)
+      (rex-bit/maybe x)
+      (rex-bit/maybe b)))
+
+  (case (merge-rex-requirements
+          (merge-rex-requirements
+            (rex-requirement/maybe r)
+            (rex-requirement/maybe x))
+          (rex-requirement/maybe b))
     [(rex-optional) computed-rex]
     [(rex-mandatory)
      (case computed-rex
@@ -771,6 +809,11 @@
     (bitwise-ior
       (logical-shift-left (bitwise-and (register64->byte index) #x07) 3)
       (bitwise-and (register64->byte base) #x07))))
+
+(define (register->byte [reg : Register]) : Int
+  (case reg
+    [(register8 r) (register8->byte r)]
+    [(register64 r) (register64->byte r)]))
 
 ;; TODO make this return a U8
 (define (register8->byte [reg : Register8]) : Int
