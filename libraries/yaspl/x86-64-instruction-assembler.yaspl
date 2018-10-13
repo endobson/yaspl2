@@ -403,6 +403,12 @@
         (bytes/s32-le displacement)
         (imm->bytes val)))))
 
+(define (op-code->bytes [op-code : OpCode]) : Bytes
+  (case op-code
+    [(single-byte-op v) (bytes/1 v)]
+    [(double-byte-op v) (bytes/2 (u8 #x0F) v)]))
+
+
 (define (encode-op/RM/reg [op-code : OpCode] [rexW : Boolean] [reg1 : Register] [reg2 : Register])
   : Bytes
   (let ([reg (register->byte reg1)])
@@ -411,9 +417,7 @@
         (make-rex-byte rexW (just reg1) (nothing) (just reg2))
         (bytes-append
           (varargs list
-            (case op-code
-              [(single-byte-op v) (bytes/1 v)]
-              [(double-byte-op v) (bytes/2 (u8 #x0F) v)])
+            (op-code->bytes op-code)
             (bytes/1 (u8 (mod-rm-byte #x03 reg rm)))))))))
 
 (define (encode-op/MR/reg [op-code : OpCode] [rexW : Boolean] [reg1 : Register] [reg2 : Register])
@@ -422,27 +426,15 @@
 
 (define (encode-op/RM/mem [op-code : OpCode] [rexW : Boolean] [reg : Register] [mem : MemoryArgument])
   : Bytes
-  (case op-code
-    [(single-byte-op opcode)
-     (case mem
-       [(mem-direct mem-reg)
-        (single-byte-op/RM/direct-mem (u8->s64 opcode) rexW reg mem-reg)]
-       [(mem-sib-direct mem-reg)
-        (single-byte-op/RM/sib-direct-mem (u8->s64 opcode) rexW reg mem-reg)]
-       [(mem-displaced mem-reg offset)
-        (single-byte-op/RM/displaced-mem (u8->s64 opcode) rexW reg mem-reg offset)]
-       [(mem-scaled mem-reg scale index-reg displacement)
-        (single-byte-op/RM/scaled-mem (u8->s64 opcode) rexW reg mem-reg scale index-reg displacement)])]
-    [(double-byte-op opcode)
-     (case mem
-       [(mem-direct mem-reg)
-        (double-byte-op/RM/direct-mem (u8->s64 opcode) rexW reg mem-reg)]
-       [(mem-sib-direct mem-reg)
-        (double-byte-op/RM/sib-direct-mem (u8->s64 opcode) rexW reg mem-reg)]
-       [(mem-displaced mem-reg offset)
-        (double-byte-op/RM/displaced-mem (u8->s64 opcode) rexW reg mem-reg offset)]
-       [(mem-scaled mem-reg scale index-reg displacement)
-        (double-byte-op/RM/scaled-mem (u8->s64 opcode) rexW reg mem-reg scale index-reg displacement)])]))
+  (case mem
+    [(mem-direct mem-reg)
+     (encode-op/RM/direct-mem op-code rexW reg mem-reg)]
+    [(mem-sib-direct mem-reg)
+     (encode-op/RM/sib-direct-mem op-code rexW reg mem-reg)]
+    [(mem-displaced mem-reg offset)
+     (encode-op/RM/displaced-mem op-code rexW reg mem-reg offset)]
+    [(mem-scaled mem-reg scale index-reg displacement)
+     (encode-op/RM/scaled-mem op-code rexW reg mem-reg scale index-reg displacement)]))
 
 (define (encode-op/MR/mem [op-code : OpCode] [rexW : Boolean] [mem : MemoryArgument] [reg : Register])
   : Bytes
@@ -450,25 +442,31 @@
 
 
 ;; Doesn't support rsp, rbp, r12 or r13. This is because the instruction set doesn't support them.
-(define (single-byte-op/RM/direct-mem [opcode : Int] [rexW : Boolean]
-                                      [reg1 : Register] [reg2 : Register64]) : Bytes
+(define (encode-op/RM/direct-mem [op-code : OpCode] [rexW : Boolean]
+                                 [reg1 : Register] [reg2 : Register64]) : Bytes
   (let ([reg (register->byte reg1)])
     (let ([rm (register64->byte reg2)])
       (add-maybe-byte
         (make-rex-byte rexW (just reg1) (nothing) (just (register64 reg2)))
-        (bytes/2 (u8 opcode) (u8 (mod-rm-byte #x00 reg rm)))))))
+        (bytes-append
+          (varargs list
+            (op-code->bytes op-code)
+            (bytes/1 (u8 (mod-rm-byte #x00 reg rm)))))))))
 
-(define (single-byte-op/RM/sib-direct-mem [opcode : Int] [rexW : Boolean]
-                                          [reg1 : Register] [reg2 : Register64]) : Bytes
+(define (encode-op/RM/sib-direct-mem [op-code : OpCode] [rexW : Boolean]
+                                     [reg1 : Register] [reg2 : Register64]) : Bytes
   (let ([reg (register->byte reg1)])
     (add-maybe-byte
       (make-rex-byte rexW (just reg1) (nothing) (just (register64 reg2)))
-      (bytes/3 (u8 opcode) (u8 (mod-rm-byte #x00 reg #x04)) (u8 (sib-byte (scale-1) (rsp) reg2))))))
+      (bytes-append
+        (varargs list
+          (op-code->bytes op-code)
+          (bytes/2 (u8 (mod-rm-byte #x00 reg #x04)) (u8 (sib-byte (scale-1) (rsp) reg2))))))))
 
 
 ;; Doesn't support rsp or r12. This is because the instruction set doesn't support them.
-(define (single-byte-op/RM/displaced-mem
-          [opcode : Int] [rexW : Boolean]
+(define (encode-op/RM/displaced-mem
+          [op-code : OpCode] [rexW : Boolean]
           [reg1 : Register]
           [reg2 : Register64] [displacement : S32]) : Bytes
   (let ([reg (register->byte reg1)])
@@ -477,11 +475,12 @@
         (make-rex-byte rexW (just reg1) (nothing) (just (register64 reg2)))
         (bytes-append
           (varargs list
-            (bytes/2 (u8 opcode) (u8 (mod-rm-byte #x02 reg rm)))
+            (op-code->bytes op-code)
+            (bytes/1 (u8 (mod-rm-byte #x02 reg rm)))
             (bytes/s32-le displacement)))))))
 
-(define (single-byte-op/RM/scaled-mem
-          [opcode : Int] [rexW : Boolean]
+(define (encode-op/RM/scaled-mem
+          [op-code : OpCode] [rexW : Boolean]
           [reg1 : Register]
           [reg2 : Register64] [scale : Scale] [reg3 : Register64] [displacement : S32]) : Bytes
   (let ([reg (register->byte reg1)])
@@ -489,68 +488,11 @@
       (make-rex-byte rexW (just reg1) (just (register64 reg3)) (just (register64 reg2)))
       (bytes-append
         (varargs list
-          (bytes/3
-            (u8 opcode)
+          (op-code->bytes op-code)
+          (bytes/2
             (u8 (mod-rm-byte #x02 reg #x04))
             (u8 (sib-byte scale reg3 reg2)))
           (bytes/s32-le displacement))))))
-
-(define (double-byte-op/RM/direct-mem [opcode : Int] [rexW : Boolean]
-                                      [reg1 : Register] [reg2 : Register64]) : Bytes
-  (let ([reg (register->byte reg1)])
-    (let ([rm (register64->byte reg2)])
-      (add-maybe-byte
-        (make-rex-byte rexW (just reg1) (nothing) (just (register64 reg2)))
-        (bytes/3
-          (u8 #x0F)
-          (u8 opcode)
-          (u8 (mod-rm-byte #x00 reg rm)))))))
-
-(define (double-byte-op/RM/sib-direct-mem [opcode : Int] [rexW : Boolean]
-                                          [reg1 : Register] [reg2 : Register64]) : Bytes
-  (let ([reg (register->byte reg1)])
-    (add-maybe-byte
-      (make-rex-byte rexW (just reg1) (nothing) (just (register64 reg2)))
-      (bytes/4
-        (u8 #x0F)
-        (u8 opcode)
-        (u8 (mod-rm-byte #x00 reg #x04))
-        (u8 (sib-byte (scale-1) (rsp) reg2))))))
-
-
-(define (double-byte-op/RM/displaced-mem
-          [opcode : Int] [rexW : Boolean] [reg1 : Register]
-          [reg2 : Register64] [displacement : S32]) : Bytes
-  (let ([reg (register->byte reg1)])
-    (let ([rm (register64->byte reg2)])
-      (add-maybe-byte
-        (make-rex-byte rexW (just reg1) (nothing) (just (register64 reg2)))
-        (let ([v (bytes/7
-                   (u8 #x0F)
-                   (u8 opcode)
-                   (u8 (mod-rm-byte #x02 reg rm))
-                   (u8 0) (u8 0) (u8 0) (u8 0))])
-          (begin
-            (bytes-set!/s32-le v 3 displacement)
-            v))))))
-
-(define (double-byte-op/RM/scaled-mem
-          [opcode : Int] [rexW : Boolean] [reg1 : Register]
-          [reg2 : Register64] [scale : Scale] [reg3 : Register64] [displacement : S32]) : Bytes
-  (let ([reg (register->byte reg1)])
-    (let ([base (register64->byte reg2)])
-      (let ([index (register64->byte reg3)])
-        (add-maybe-byte
-          (make-rex-byte rexW (just reg1) (just (register64 reg3)) (just (register64 reg2)))
-          (let ([v (bytes/8
-                     (u8 #x0F)
-                     (u8 opcode)
-                     (u8 (mod-rm-byte #x02 reg #x04))
-                     (u8 (sib-byte scale reg3 reg2))
-                     (u8 0) (u8 0) (u8 0) (u8 0))])
-            (begin
-              (bytes-set!/s32-le v 4 displacement)
-              v)))))))
 
 (define (single-byte-op/IMR [opcode : Int] [rexW : Boolean] [imm : S32]
                             [reg1 : Register64] [reg2 : Register64]) : Bytes
