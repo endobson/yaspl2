@@ -26,6 +26,7 @@
     (no-rex-byte)
     (rex-byte [v : U8]))
   (define-type Immediate
+    (imm-s64 [v : S64])
     (imm-s32 [v : S32])
     (imm-u8 [v : U8]))
   (define-type OpCode
@@ -151,7 +152,7 @@
     [(movq (r64mi-mem _) (r64m-mem _))
      (panic #"movq of two memory arguments is not valid")]
     [(movq/imm imm reg)
-     (mc-bytes* (single-byte-op-s64/IO #xB8 #t imm reg))]
+     (mc-bytes* (encode-op/IO (single-byte-op* #xB8) #t (imm-s64 imm) (register64 reg)))]
     [(movzbq (r8m-reg reg1) reg2)
      (mc-bytes* (encode-op/MR/reg (double-byte-op* #xB6) #t (register8 reg1) (register64 reg2)))]
     [(movzbq (r8m-mem mem) reg)
@@ -165,12 +166,12 @@
      (mc-bytes* (encode-op/RM/reg (single-byte-op* #x09) #t (register64 reg1) (register64 reg2)))]
     ;; pop defaults to 64 bits so we don't need REX.W bit to indicate that
     [(popq (r64m-reg reg))
-     (mc-bytes* (single-byte-op/O #x58 reg))]
+     (mc-bytes* (encode-op/O (single-byte-op* #x58) (register64 reg)))]
     [(popq (r64m-mem mem))
      (mc-bytes* (encode-op/M/mem (single-byte-op* #x8F) 0 #f mem))]
     ;; push defaults to 64 bits so we don't need REX.W bit to indicate that
     [(pushq (r64mi-reg reg))
-     (mc-bytes* (single-byte-op/O #x50 reg))]
+     (mc-bytes* (encode-op/O (single-byte-op* #x50) (register64 reg)))]
     [(pushq (r64mi-mem mem))
      (mc-bytes* (encode-op/M/mem (single-byte-op* #xFF) 6 #f mem))]
     [(pushq (r64mi-imm imm))
@@ -236,13 +237,10 @@
      (bitwise-ior (logical-shift-left (bitwise-and reg #x07) 3)
                   (bitwise-and rm #x07))))
 
-;; TODO refine types of opcodes to be the right number of bits.
-(define (single-byte-op/O [opcode : Int] [reg : Register64]) : Bytes
-  (let ([reg-val (register64->byte reg)])
-    (add-maybe-byte
-      (make-rex-byte #f (nothing) (nothing) (just (register64 reg)))
-      (bytes/1
-        (u8 (bitwise-ior opcode (bitwise-and reg-val #x07)))))))
+(define (encode-op/O [op-code : OpCode] [reg : Register]) : Bytes
+  (add-maybe-byte
+    (make-rex-byte #f (nothing) (nothing) (just reg))
+    (op-code->bytes/O op-code reg)))
 
 (define (encode-op/I [op-code : OpCode] [rexW : Boolean] [imm : Immediate]) : Bytes
   (add-maybe-byte
@@ -252,16 +250,13 @@
         (op-code->bytes op-code)
         (imm->bytes imm)))))
 
-(define (single-byte-op-s64/IO [opcode : Int] [rexW : Boolean] [imm : S64] [reg : Register64]) : Bytes
-  (let ([reg-val (register64->byte reg)])
-    (add-maybe-byte
-      (make-rex-byte rexW (nothing) (nothing) (just (register64 reg)))
-      (let ([v (bytes/9
-                 (u8 (bitwise-ior opcode (bitwise-and reg-val #x07)))
-                 (u8 0) (u8 0) (u8 0) (u8 0) (u8 0) (u8 0) (u8 0) (u8 0))])
-        (begin
-          (bytes-set!/u64-le v 1 (u64 imm))
-          v)))))
+(define (encode-op/IO [op-code : OpCode] [rexW : Boolean] [imm : Immediate] [reg : Register]) : Bytes
+  (add-maybe-byte
+    (make-rex-byte rexW (nothing) (nothing) (just reg))
+    (bytes-append
+      (varargs list
+        (op-code->bytes/O op-code reg)
+        (imm->bytes imm)))))
 
 (define (encode-op/M/reg [op-code : OpCode] [op-ext : Int] [rexW : Boolean] [reg : Register]) : Bytes
   (let ([rm (register->byte reg)])
@@ -403,12 +398,6 @@
         (bytes/s32-le displacement)
         (imm->bytes val)))))
 
-(define (op-code->bytes [op-code : OpCode]) : Bytes
-  (case op-code
-    [(single-byte-op v) (bytes/1 v)]
-    [(double-byte-op v) (bytes/2 (u8 #x0F) v)]))
-
-
 (define (encode-op/RM/reg [op-code : OpCode] [rexW : Boolean] [reg1 : Register] [reg2 : Register])
   : Bytes
   (let ([reg (register->byte reg1)])
@@ -506,10 +495,25 @@
             (bytes/1 (u8 (mod-rm-byte #x03 reg rm)))
             (bytes/s32-le imm)))))))
 
+
+(define (op-code->bytes [op-code : OpCode]) : Bytes
+  (case op-code
+    [(single-byte-op v) (bytes/1 v)]
+    [(double-byte-op v) (bytes/2 (u8 #x0F) v)]))
+
+(define (op-code->bytes/O [op-code : OpCode] [reg : Register]) : Bytes
+  (case op-code
+    [(single-byte-op v)
+     (bytes/1 (u8 (bitwise-ior (u8->s64 v) (bitwise-and (register->byte reg) #x07))))]
+    [(double-byte-op v)
+     (bytes/2 (u8 #x0F) (u8 (bitwise-ior (u8->s64 v) (bitwise-and (register->byte reg) #x07))))]))
+
+;; TODO make the imm-s64 work for values outside the u64 range
 (define (imm->bytes [imm : Immediate]) : Bytes
   (case imm
+    [(imm-u8 v) (bytes/1 v)]
     [(imm-s32 v) (bytes/s32-le v)]
-    [(imm-u8 v) (bytes/1 v)]))
+    [(imm-s64 v) (bytes/u64-le (u64 v))]))
 
 (define (add-maybe-byte [rb : RexByte] [bs : Bytes]) : Bytes
   (case rb
