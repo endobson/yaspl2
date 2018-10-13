@@ -396,6 +396,7 @@
         [(array-ty e)
          (array-ty (replace e))]
         [(void-ty) t]
+        [(s8-ty) t]
         [(u8-ty) t]
         [(s32-ty) t]
         [(u32-ty) t]
@@ -426,6 +427,7 @@
         [(array-ty e)
          (check  e)]
         [(void-ty) (void)]
+        [(s8-ty) (void)]
         [(u8-ty) (void)]
         [(s32-ty) (void)]
         [(u32-ty) (void)]
@@ -464,6 +466,8 @@
                 (map (replace-pair v l) pairs))]
          [((void-ty) (void-ty))
           (loop type-map pairs)]
+         [((s8-ty) (s8-ty))
+          (loop type-map pairs)]
          [((u8-ty) (u8-ty))
           (loop type-map pairs)]
          [((s32-ty) (s32-ty))
@@ -501,6 +505,7 @@
        (error 'substitute "Attempting to use a type variable that wasn't constrained: ~s" v))
      res]
     [(void-ty) t]
+    [(s8-ty) t]
     [(u8-ty) t]
     [(s32-ty) t]
     [(u32-ty) t]

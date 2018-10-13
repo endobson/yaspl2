@@ -26,6 +26,8 @@
       #:with ty #'(int-ty))
     (pattern (~datum Int)
       #:with ty #'(int-ty))
+    (pattern (~datum S8)
+      #:with ty #'(s8-ty))
     (pattern (~datum U8)
       #:with ty #'(u8-ty))
     (pattern (~datum S32)
@@ -79,6 +81,7 @@
 
 (define prim-types
   (hash
+    'S8 (prim-signature (s8-ty))
     'U8 (prim-signature (u8-ty))
     'S32 (prim-signature (s32-ty))
     'U32 (prim-signature (u32-ty))
@@ -118,6 +121,10 @@
   [(and [x : Boolean] [y : Boolean]) : Boolean (and x y)]
   [(not [x : Boolean]) : Boolean (not x)]
 
+
+  [(s8 [v : S64]) : S8
+   (if (<= #x-80 v #x7F) v (error 's8))]
+  [(s8->s64 [v : S8]) : S64 v]
 
   [(u8 [v : S64]) : U8
    (if (<= 0 v #xFF) v (error 'u8))]

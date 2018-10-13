@@ -7,6 +7,7 @@
 
 (struct type () #:transparent)
 (struct void-ty type () #:transparent)
+(struct s8-ty type () #:transparent)
 (struct u8-ty type () #:transparent)
 (struct s32-ty type () #:transparent)
 (struct u32-ty type () #:transparent)
