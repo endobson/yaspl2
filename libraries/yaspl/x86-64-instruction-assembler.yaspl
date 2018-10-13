@@ -69,7 +69,7 @@
     [(call/indirect (r64m-reg reg))
      (mc-bytes* (single-byte-op/M #xFF 2 #f (register64 reg)))]
     [(call/indirect (r64m-mem mem))
-     (mc-bytes* (single-byte-op/M/mem #xFF 2 #f mem))]
+     (mc-bytes* (encode-op/M/mem (single-byte-op* #xFF) 2 #f mem))]
     [(cld) (mc-bytes* (bytes/1 (u8 #xFC)))]
     [(cmpb (r8mi-imm imm) r8m)
      (mc-bytes* (single-byte-op/IM/8 #x80 7 #t imm r8m))]
@@ -118,7 +118,7 @@
     [(jmp/indirect (r64m-reg reg))
      (mc-bytes* (single-byte-op/M #xFF 4 #f (register64 reg)))]
     [(jmp/indirect (r64m-mem mem))
-     (mc-bytes* (single-byte-op/M/mem #xFF 4 #f mem))]
+     (mc-bytes* (encode-op/M/mem (single-byte-op* #xFF) 4 #f mem))]
     [(jne label)
      (mc-branch* (bytes/2 (u8 #x0F) (u8 #x85)) label)]
     [(jnz label)
@@ -159,12 +159,12 @@
     [(popq (r64m-reg reg))
      (mc-bytes* (single-byte-op/O #x58 reg))]
     [(popq (r64m-mem mem))
-     (mc-bytes* (single-byte-op/M/mem #x8F 0 #f mem))]
+     (mc-bytes* (encode-op/M/mem (single-byte-op* #x8F) 0 #f mem))]
     ;; push defaults to 64 bits so we don't need REX.W bit to indicate that
     [(pushq (r64mi-reg reg))
      (mc-bytes* (single-byte-op/O #x50 reg))]
     [(pushq (r64mi-mem mem))
-     (mc-bytes* (single-byte-op/M/mem #xFF 6 #f mem))]
+     (mc-bytes* (encode-op/M/mem (single-byte-op* #xFF) 6 #f mem))]
     [(pushq (r64mi-imm imm))
      (mc-bytes* (single-byte-op/I #x68 #f imm))]
     [(rep-movsb) (mc-bytes* (bytes/3 (u8 #xF3) (u8 #x48) (u8 #xA4)))]
@@ -261,54 +261,61 @@
           (bytes-set!/u64-le v 1 (u64 imm))
           v)))))
 
-(define (single-byte-op/M/mem [opcode : Int] [op-ext : Int] [rexW : Boolean] [mem : MemoryArgument]) : Bytes
+(define (encode-op/M/mem [op-code : OpCode] [op-ext : Int] [rexW : Boolean] [mem : MemoryArgument]) : Bytes
   (case mem
     [(mem-direct mem-reg)
-     (single-byte-op/M/direct-mem opcode op-ext rexW mem-reg)]
+     (encode-op/M/direct-mem op-code op-ext rexW mem-reg)]
     [(mem-sib-direct mem-reg)
-     (single-byte-op/M/sib-direct-mem opcode op-ext rexW mem-reg)]
+     (encode-op/M/sib-direct-mem op-code op-ext rexW mem-reg)]
     [(mem-displaced mem-reg offset)
-     (single-byte-op/M/displaced-mem opcode op-ext rexW mem-reg offset)]
+     (encode-op/M/displaced-mem op-code op-ext rexW mem-reg offset)]
     [(mem-scaled mem-reg scale index-reg displacement)
-     (single-byte-op/M/scaled-mem opcode op-ext rexW mem-reg scale index-reg displacement)]))
+     (encode-op/M/scaled-mem op-code op-ext rexW mem-reg scale index-reg displacement)]))
 
-(define (single-byte-op/M/direct-mem [opcode : Int] [op-ext : Int] [rexW : Boolean] [reg : Register64]) : Bytes
+(define (encode-op/M/direct-mem [op-code : OpCode] [op-ext : Int] [rexW : Boolean] [reg : Register64]) : Bytes
   (let ([rm (register64->byte reg)])
     (add-maybe-byte
       (make-rex-byte rexW (nothing) (nothing) (just (register64 reg)))
-      (bytes/2 (u8 opcode) (u8 (mod-rm-byte #x00 op-ext rm))))))
+      (bytes-append
+        (varargs list
+          (op-code->bytes op-code)
+          (bytes/1 (u8 (mod-rm-byte #x00 op-ext rm))))))))
 
-(define (single-byte-op/M/sib-direct-mem [opcode : Int] [op-ext : Int] [rexW : Boolean]
-                                         [reg : Register64]) : Bytes
+(define (encode-op/M/sib-direct-mem [op-code : OpCode] [op-ext : Int] [rexW : Boolean]
+                                    [reg : Register64]) : Bytes
   (let ([base (register64->byte reg)])
     (add-maybe-byte
       (make-rex-byte rexW (nothing) (nothing) (just (register64 reg)))
-      (bytes/3 (u8 opcode) (u8 (mod-rm-byte #x00 op-ext #x04)) (u8 (sib-byte (scale-1) (rsp) reg))))))
+      (bytes-append
+        (varargs list
+          (op-code->bytes op-code)
+          (bytes/2 (u8 (mod-rm-byte #x00 op-ext #x04)) (u8 (sib-byte (scale-1) (rsp) reg))))))))
 
 
 ;; Doesn't support rsp or r12. This is because the instruction set doesn't support them.
-(define (single-byte-op/M/displaced-mem
-          [opcode : Int] [op-ext : Int] [rexW : Boolean] [reg : Register64] [displacement : S32]) : Bytes
+(define (encode-op/M/displaced-mem
+          [op-code : OpCode] [op-ext : Int] [rexW : Boolean] [reg : Register64] [displacement : S32]) : Bytes
   (let ([rm (register64->byte reg)])
     (add-maybe-byte
       (make-rex-byte rexW (nothing) (nothing) (just (register64 reg)))
-      (let ([v (bytes/6 (u8 opcode) (u8 (mod-rm-byte #x02 op-ext rm)) (u8 0) (u8 0) (u8 0) (u8 0))])
-        (begin
-          (bytes-set!/s32-le v 2 displacement)
-          v)))))
+      (bytes-append
+        (varargs list
+          (op-code->bytes op-code)
+          (bytes/1 (u8 (mod-rm-byte #x02 op-ext rm)))
+          (bytes/s32-le displacement))))))
 
-(define (single-byte-op/M/scaled-mem
-          [opcode : Int] [op-ext : Int] [rexW : Boolean]
+(define (encode-op/M/scaled-mem
+          [op-code : OpCode] [op-ext : Int] [rexW : Boolean]
           [reg1 : Register64] [scale : Scale] [reg2 : Register64] [displacement : S32]) : Bytes
   (let ([base (register64->byte reg1)])
     (let ([index (register64->byte reg2)])
       (add-maybe-byte
         (make-rex-byte rexW (nothing) (just (register64 reg2)) (just (register64 reg1)))
-        (let ([v (bytes/7 (u8 opcode) (u8 (mod-rm-byte #x02 op-ext #x04))
-                          (u8 (sib-byte scale reg2 reg1)) (u8 0) (u8 0) (u8 0) (u8 0))])
-          (begin
-            (bytes-set!/s32-le v 3 displacement)
-            v))))))
+        (bytes-append
+          (varargs list
+            (op-code->bytes op-code)
+            (bytes/2 (u8 (mod-rm-byte #x02 op-ext #x04)) (u8 (sib-byte scale reg2 reg1)))
+            (bytes/s32-le displacement)))))))
 
 (define (imm->bytes [imm : Immediate]) : Bytes
   (case imm
