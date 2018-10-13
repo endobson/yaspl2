@@ -27,7 +27,10 @@
     (rex-byte [v : U8]))
   (define-type Immediate
     (imm-s32 [v : S32])
-    (imm-u8 [v : U8])))
+    (imm-u8 [v : U8]))
+  (define-type OpCode
+    (single-byte-op [v : U8])
+    (double-byte-op [v : U8])))
 
 (define (mc-bytes* [bytes : Bytes]) : (JoinList MCCommand)
   (single-jl (mc-bytes bytes)))
@@ -36,10 +39,15 @@
     (mc-bytes op-code)
     (mc-branch-relocation symbol)))
 
+(define (single-byte-op* [v : Int]) : OpCode
+  (single-byte-op (u8 v)))
+(define (double-byte-op* [v : Int]) : OpCode
+  (double-byte-op (u8 v)))
+
 (define (instruction->mc-commands [inst : Instruction]) : (JoinList MCCommand)
   (case inst
     [(addq (r64mi-reg reg) (r64m-reg rm))
-     (mc-bytes* (single-byte-op/RM/reg #x01 #t (register64 reg) (register64 rm)))]
+     (mc-bytes* (encode-op/RM/reg (single-byte-op* #x01) #t (register64 reg) (register64 rm)))]
     [(addq (r64mi-imm imm) rm)
      (mc-bytes* (single-byte-op/IM #x81 0 #t imm rm))]
     [(addq (r64mi-reg reg) (r64m-mem mem))
@@ -49,7 +57,7 @@
     [(addq (r64mi-mem _) (r64m-mem _))
      (panic #"addq of two memory arguments is not valid")]
     [(andq (r64mi-reg reg1) reg2)
-     (mc-bytes* (single-byte-op/RM/reg #x21 #t (register64 reg1) (register64 reg2)))]
+     (mc-bytes* (encode-op/RM/reg (single-byte-op* #x21) #t (register64 reg1) (register64 reg2)))]
     [(andq (r64mi-imm imm) reg)
      (mc-bytes* (single-byte-op/IM/reg #x81 4 #t (imm-s32 imm) (register64 reg)))]
     [(andq (r64mi-mem _) _)
@@ -66,7 +74,7 @@
     [(cmpb (r8mi-imm imm) r8m)
      (mc-bytes* (single-byte-op/IM/8 #x80 7 #t imm r8m))]
     [(cmpb (r8mi-reg reg1) (r8m-reg reg2))
-     (mc-bytes* (single-byte-op/RM/reg #x38 #t (register8 reg1) (register8 reg2)))]
+     (mc-bytes* (encode-op/RM/reg (single-byte-op* #x38) #t (register8 reg1) (register8 reg2)))]
     [(cmpb (r8mi-reg reg) (r8m-mem mem))
      (mc-bytes* (single-byte-op/RM/mem #x38 #t (register8 reg) mem))]
     [(cmpb (r8mi-mem _) _)
@@ -74,7 +82,7 @@
     [(cmpq (r64mi-imm imm) rm)
      (mc-bytes* (single-byte-op/IM #x81 7 #t imm rm))]
     [(cmpq (r64mi-reg reg1) (r64m-reg reg2))
-     (mc-bytes* (single-byte-op/RM/reg #x39 #t (register64 reg1) (register64 reg2)))]
+     (mc-bytes* (encode-op/RM/reg (single-byte-op* #x39) #t (register64 reg1) (register64 reg2)))]
     [(cmpq (r64mi-reg reg) (r64m-mem mem))
      (mc-bytes* (single-byte-op/RM/mem #x39 #t (register64 reg) mem))]
     [(cmpq (r64mi-mem _) _)
@@ -84,7 +92,7 @@
     [(idivq reg)
      (mc-bytes* (single-byte-op/M #xF7 7 #t (register64 reg)))]
     [(imulq reg1 reg2)
-     (mc-bytes* (double-byte-op/MR/reg #xAF #t (register64 reg1) (register64 reg2)))]
+     (mc-bytes* (encode-op/MR/reg (double-byte-op* #xAF) #t (register64 reg1) (register64 reg2)))]
     [(imulq/imm imm (r64mi-reg reg1) reg2)
      (mc-bytes* (single-byte-op/IMR #x69 #t imm reg1 reg2))]
     [(imulq/imm imm _ reg2)
@@ -127,7 +135,7 @@
     [(movq (r64mi-imm imm) rm)
      (mc-bytes* (single-byte-op/IM #xC7 0 #t imm rm))]
     [(movq (r64mi-reg reg1) (r64m-reg reg2))
-     (mc-bytes* (single-byte-op/RM/reg #x89 #t (register64 reg1) (register64 reg2)))]
+     (mc-bytes* (encode-op/RM/reg (single-byte-op* #x89) #t (register64 reg1) (register64 reg2)))]
     [(movq (r64mi-reg reg) (r64m-mem mem))
      (mc-bytes* (single-byte-op/RM/mem #x89 #t (register64 reg) mem))]
     [(movq (r64mi-mem mem) (r64m-reg reg))
@@ -137,7 +145,7 @@
     [(movq/imm imm reg)
      (mc-bytes* (single-byte-op-s64/IO #xB8 #t imm reg))]
     [(movzbq (r8m-reg reg1) reg2)
-     (mc-bytes* (double-byte-op/MR/reg #xB6 #t (register8 reg1) (register64 reg2)))]
+     (mc-bytes* (encode-op/MR/reg (double-byte-op* #xB6) #t (register8 reg1) (register64 reg2)))]
     [(movzbq (r8m-mem mem) reg)
      (mc-bytes* (double-byte-op/MR/mem #xB6 #t mem reg))]
     [(negq reg)
@@ -146,7 +154,7 @@
     [(notq reg)
      (mc-bytes* (single-byte-op/M #xF7 2 #t (register64 reg)))]
     [(orq reg1 reg2)
-     (mc-bytes* (single-byte-op/RM/reg #x09 #t (register64 reg1) (register64 reg2)))]
+     (mc-bytes* (encode-op/RM/reg (single-byte-op* #x09) #t (register64 reg1) (register64 reg2)))]
     ;; pop defaults to 64 bits so we don't need REX.W bit to indicate that
     [(popq (r64m-reg reg))
      (mc-bytes* (single-byte-op/O #x58 reg))]
@@ -189,19 +197,19 @@
      (mc-bytes* (single-byte-op/IM/reg #xC1 5 #t (imm-u8 v) (register64 reg)))]
     [(std) (mc-bytes* (bytes/1 (u8 #xFD)))]
     [(subq (r64mi-reg reg1) reg2)
-     (mc-bytes* (single-byte-op/RM/reg #x29 #t (register64 reg1) (register64 reg2)))]
+     (mc-bytes* (encode-op/RM/reg (single-byte-op* #x29) #t (register64 reg1) (register64 reg2)))]
     [(subq (r64mi-imm imm) reg)
      (mc-bytes* (single-byte-op/IM/reg #x81 5 #t (imm-s32 imm) (register64 reg)))]
     [(subq (r64mi-mem mem) reg)
      (mc-bytes* (single-byte-op/MR/mem #x2B #t mem (register64 reg)))]
     [(syscall) (mc-bytes* (bytes/2 (u8 #x0F) (u8 #x05)))]
     [(test reg1 reg2)
-     (mc-bytes* (single-byte-op/RM/reg #x85 #t (register64 reg1) (register64 reg2)))]
+     (mc-bytes* (encode-op/RM/reg (single-byte-op* #x85) #t (register64 reg1) (register64 reg2)))]
     [(ud2) (mc-bytes* (bytes/2 (u8 #x0F) (u8 #x0B)))]
     [(xaddq reg1 reg2)
-     (mc-bytes* (double-byte-op/RM/reg #xC1 #t (register64 reg1) (register64 reg2)))]
+     (mc-bytes* (encode-op/RM/reg (double-byte-op* #xC1) #t (register64 reg1) (register64 reg2)))]
     [(xorq (r64mi-reg reg1) reg2)
-     (mc-bytes* (single-byte-op/RM/reg #x31 #t (register64 reg1) (register64 reg2)))]
+     (mc-bytes* (encode-op/RM/reg (single-byte-op* #x31) #t (register64 reg1) (register64 reg2)))]
     [(xorq (r64mi-imm imm) reg)
      (mc-bytes* (single-byte-op/IM/reg #x81 6 #t (imm-s32 imm) (register64 reg)))]
     [(xorq (r64mi-mem _) _)
@@ -411,12 +419,22 @@
   (single-byte-op/RM/mem opcode rexW reg mem))
 
 
-(define (single-byte-op/RM/reg [opcode : Int] [rexW : Boolean] [reg1 : Register] [reg2 : Register]) : Bytes
+(define (encode-op/RM/reg [op-code : OpCode] [rexW : Boolean] [reg1 : Register] [reg2 : Register])
+  : Bytes
   (let ([reg (register->byte reg1)])
     (let ([rm (register->byte reg2)])
       (add-maybe-byte
         (make-rex-byte rexW (just reg1) (nothing) (just reg2))
-        (bytes/2 (u8 opcode) (u8 (mod-rm-byte #x03 reg rm)))))))
+        (bytes-append
+          (varargs list
+            (case op-code
+              [(single-byte-op v) (bytes/1 v)]
+              [(double-byte-op v) (bytes/2 (u8 #x0F) v)])
+            (bytes/1 (u8 (mod-rm-byte #x03 reg rm)))))))))
+
+(define (encode-op/MR/reg [op-code : OpCode] [rexW : Boolean] [reg1 : Register] [reg2 : Register])
+  : Bytes
+  (encode-op/RM/reg op-code rexW reg2 reg1))
 
 
 ;; Doesn't support rsp, rbp, r12 or r13. This is because the instruction set doesn't support them.
@@ -478,15 +496,6 @@
           (begin
             (bytes-set!/s32-le v 2 imm)
             v))))))
-
-(define (double-byte-op/MR/reg [opcode : Int] [rexW : Boolean] [reg1 : Register] [reg2 : Register]) : Bytes
-  (let ([rm (register->byte reg1)])
-    (let ([reg (register->byte reg2)])
-      (add-maybe-byte
-        (make-rex-byte rexW (just reg2) (nothing) (just reg1))
-        (bytes/3 (u8 #x0F) (u8 opcode) (u8 (mod-rm-byte #x03 reg rm)))))))
-(define (double-byte-op/RM/reg [opcode : Int] [rexW : Boolean] [reg1 : Register] [reg2 : Register]) : Bytes
-  (double-byte-op/MR/reg opcode rexW reg2 reg1))
 
 (define (double-byte-op/MR/mem [opcode : Int] [rexW : Boolean]
                                [mem : MemoryArgument] [reg : Register64]) : Bytes
