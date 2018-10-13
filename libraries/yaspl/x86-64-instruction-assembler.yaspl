@@ -229,14 +229,8 @@
        (varargs join-list
          (mc-bytes (add-maybe-byte
                      (make-rex-byte #t (just (register64 reg)) (nothing) (nothing))
-                     (bytes/2 (u8 #x8D) (u8 (mod-rm-byte #x00 reg-val #x05)))))
+                     (bytes/2 (u8 #x8D) (mod-rm-byte #x00 reg-val #x05))))
          (mc-load-relocation label)))]))
-
-;; mod is truncated to two bits, and reg and rm are truncated to three.
-(define (mod-rm-byte [mod : Int] [reg : Int] [rm : Int]) : Int
-  (bitwise-ior (logical-shift-left (bitwise-and mod #x03) 6)
-     (bitwise-ior (logical-shift-left (bitwise-and reg #x07) 3)
-                  (bitwise-and rm #x07))))
 
 (define (encode-op/O [op-code : OpCode] [rexW : Boolean] [reg : Register]) : Bytes
   (add-maybe-byte
@@ -264,7 +258,7 @@
       (bytes-append
         (varargs list
           (op-code->bytes op-code)
-          (bytes/1 (u8 (mod-rm-byte #x03 op-ext rm))))))))
+          (bytes/1 (mod-rm-byte #x03 op-ext rm)))))))
 
 (define (encode-op/M/mem [op-code : OpCode] [op-ext : Int] [rexW : Boolean] [mem : MemoryArgument]) : Bytes
   (case mem
@@ -284,7 +278,7 @@
       (bytes-append
         (varargs list
           (op-code->bytes op-code)
-          (bytes/1 (u8 (mod-rm-byte #x00 op-ext rm))))))))
+          (bytes/1 (mod-rm-byte #x00 op-ext rm)))))))
 
 (define (encode-op/M/sib-direct-mem [op-code : OpCode] [op-ext : Int] [rexW : Boolean]
                                     [reg : Register64]) : Bytes
@@ -294,7 +288,7 @@
       (bytes-append
         (varargs list
           (op-code->bytes op-code)
-          (bytes/2 (u8 (mod-rm-byte #x00 op-ext #x04)) (u8 (sib-byte (scale-1) (rsp) reg))))))))
+          (bytes/2 (mod-rm-byte #x00 op-ext #x04) (sib-byte (scale-1) (rsp) reg)))))))
 
 
 ;; Doesn't support rsp or r12. This is because the instruction set doesn't support them.
@@ -306,7 +300,7 @@
       (bytes-append
         (varargs list
           (op-code->bytes op-code)
-          (bytes/1 (u8 (mod-rm-byte #x02 op-ext rm)))
+          (bytes/1 (mod-rm-byte #x02 op-ext rm))
           (bytes/s32-le displacement))))))
 
 (define (encode-op/M/scaled-mem
@@ -319,7 +313,7 @@
         (bytes-append
           (varargs list
             (op-code->bytes op-code)
-            (bytes/2 (u8 (mod-rm-byte #x02 op-ext #x04)) (u8 (sib-byte scale reg2 reg1)))
+            (bytes/2 (mod-rm-byte #x02 op-ext #x04) (sib-byte scale reg2 reg1))
             (bytes/s32-le displacement)))))))
 
 (define (encode-op/IM/mem [op-code : OpCode] [op-ext : Int] [rexW : Boolean]
@@ -346,7 +340,7 @@
         (bytes-append
           (varargs list
             (op-code->bytes op-code)
-            (bytes/1 (u8 (mod-rm-byte #x03 reg rm)))))))))
+            (bytes/1 (mod-rm-byte #x03 reg rm))))))))
 
 (define (encode-op/MR/reg [op-code : OpCode] [rexW : Boolean] [reg1 : Register] [reg2 : Register])
   : Bytes
@@ -379,7 +373,7 @@
         (bytes-append
           (varargs list
             (op-code->bytes op-code)
-            (bytes/1 (u8 (mod-rm-byte #x00 reg rm)))))))))
+            (bytes/1 (mod-rm-byte #x00 reg rm))))))))
 
 (define (encode-op/RM/sib-direct-mem [op-code : OpCode] [rexW : Boolean]
                                      [reg1 : Register] [reg2 : Register64]) : Bytes
@@ -389,7 +383,7 @@
       (bytes-append
         (varargs list
           (op-code->bytes op-code)
-          (bytes/2 (u8 (mod-rm-byte #x00 reg #x04)) (u8 (sib-byte (scale-1) (rsp) reg2))))))))
+          (bytes/2 (mod-rm-byte #x00 reg #x04) (sib-byte (scale-1) (rsp) reg2)))))))
 
 
 ;; Doesn't support rsp or r12. This is because the instruction set doesn't support them.
@@ -404,7 +398,7 @@
         (bytes-append
           (varargs list
             (op-code->bytes op-code)
-            (bytes/1 (u8 (mod-rm-byte #x02 reg rm)))
+            (bytes/1 (mod-rm-byte #x02 reg rm))
             (bytes/s32-le displacement)))))))
 
 (define (encode-op/RM/scaled-mem
@@ -418,8 +412,8 @@
         (varargs list
           (op-code->bytes op-code)
           (bytes/2
-            (u8 (mod-rm-byte #x02 reg #x04))
-            (u8 (sib-byte scale reg3 reg2)))
+            (mod-rm-byte #x02 reg #x04)
+            (sib-byte scale reg3 reg2))
           (bytes/s32-le displacement))))))
 
 (define (encode-op/IMR/reg [op-code : OpCode] [rexW : Boolean] [imm : Immediate]
@@ -428,7 +422,6 @@
     (varargs list
       (encode-op/MR/reg op-code rexW reg1 reg2)
       (imm->bytes imm))))
-
 
 (define (op-code->bytes [op-code : OpCode]) : Bytes
   (case op-code
@@ -530,17 +523,22 @@
        [(no-rex-byte) (no-rex-byte)]
        [(rex-byte _) (panic #"Cannot encode rex prefix and use this register")])]))
 
-;; TODO make this return a U8
-(define (sib-byte [scale : Scale] [index : Register64] [base : Register64]) : Int
-  (bitwise-ior
-    (case scale
-      [(scale-1) #x00]
-      [(scale-2) #x40]
-      [(scale-4) #x80]
-      [(scale-8) #xc0])
-    (bitwise-ior
-      (logical-shift-left (bitwise-and (register64->byte index) #x07) 3)
-      (bitwise-and (register64->byte base) #x07))))
+;; mod is truncated to two bits, and reg and rm are truncated to three.
+(define (mod-rm-byte [mod : Int] [reg : Int] [rm : Int]) : U8
+  (u8 (bitwise-ior (logical-shift-left (bitwise-and mod #x03) 6)
+        (bitwise-ior (logical-shift-left (bitwise-and reg #x07) 3)
+                     (bitwise-and rm #x07)))))
+
+(define (sib-byte [scale : Scale] [index : Register64] [base : Register64]) : U8
+  (u8 (bitwise-ior
+        (case scale
+          [(scale-1) #x00]
+          [(scale-2) #x40]
+          [(scale-4) #x80]
+          [(scale-8) #xc0])
+        (bitwise-ior
+          (logical-shift-left (bitwise-and (register64->byte index) #x07) 3)
+          (bitwise-and (register64->byte base) #x07)))))
 
 (define (register->byte [reg : Register]) : Int
   (case reg
