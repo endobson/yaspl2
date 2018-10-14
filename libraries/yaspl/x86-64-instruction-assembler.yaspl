@@ -316,26 +316,30 @@
 
 ;; Doesn't support rsp or r12. This is because the instruction set doesn't support them.
 (define (encode-op/M/displaced-mem
-          [op-code : OpCode] [op-ext : Int] [rexW : Boolean] [reg : Register64] [displacement : S32]) : Bytes
+          [op-code : OpCode] [op-ext : Int] [rexW : Boolean] [reg : Register64]
+          [displacement : Displacement]) : Bytes
   (let ([rm (register64->byte reg)])
     (add-maybe-byte
       (make-rex-byte rexW (nothing) (nothing) (just (register64 reg)))
       (bytes-append
         (varargs list
           (op-code->bytes op-code)
-          (bytes/1 (mod-rm-byte #x02 op-ext rm))
-          (bytes/s32-le displacement))))))
+          (bytes/1 (mod-rm-byte (displacement->mod displacement) op-ext rm))
+          (displacement->bytes displacement))))))
 
 (define (encode-op/M/scaled-mem
           [op-code : OpCode] [op-ext : Int] [rexW : Boolean]
-          [reg1 : Register64] [scale : Scale] [reg2 : Register64] [displacement : S32]) : Bytes
+          [reg1 : Register64] [scale : Scale] [reg2 : Register64]
+          [displacement : Displacement]) : Bytes
   (add-maybe-byte
     (make-rex-byte rexW (nothing) (just (register64 reg2)) (just (register64 reg1)))
     (bytes-append
       (varargs list
         (op-code->bytes op-code)
-        (bytes/2 (mod-rm-byte #x02 op-ext #x04) (sib-byte scale reg2 reg1))
-        (bytes/s32-le displacement)))))
+        (bytes/2
+          (mod-rm-byte (displacement->mod displacement) op-ext #x04)
+          (sib-byte scale reg2 reg1))
+        (displacement->bytes displacement)))))
 
 (define (encode-op/IM/mem [op-code : OpCode] [op-ext : Int] [rexW : Boolean]
                           [val : Immediate] [mem : MemoryArgument]) : Bytes
@@ -374,8 +378,8 @@
      (encode-op/RM/direct-mem op-code rexW reg mem-reg)]
     [(mem-sib-direct mem-reg)
      (encode-op/RM/sib-direct-mem op-code rexW reg mem-reg)]
-    [(mem-displaced mem-reg offset)
-     (encode-op/RM/displaced-mem op-code rexW reg mem-reg offset)]
+    [(mem-displaced mem-reg displacement)
+     (encode-op/RM/displaced-mem op-code rexW reg mem-reg displacement)]
     [(mem-scaled mem-reg scale index-reg displacement)
      (encode-op/RM/scaled-mem op-code rexW reg mem-reg scale index-reg displacement)]))
 
@@ -411,7 +415,7 @@
 (define (encode-op/RM/displaced-mem
           [op-code : OpCode] [rexW : Boolean]
           [reg1 : Register]
-          [reg2 : Register64] [displacement : S32]) : Bytes
+          [reg2 : Register64] [displacement : Displacement]) : Bytes
   (let ([reg (register->byte reg1)])
     (let ([rm (register64->byte reg2)])
       (add-maybe-byte
@@ -419,13 +423,13 @@
         (bytes-append
           (varargs list
             (op-code->bytes op-code)
-            (bytes/1 (mod-rm-byte #x02 reg rm))
-            (bytes/s32-le displacement)))))))
+            (bytes/1 (mod-rm-byte (displacement->mod displacement) reg rm))
+            (displacement->bytes displacement)))))))
 
 (define (encode-op/RM/scaled-mem
           [op-code : OpCode] [rexW : Boolean]
           [reg1 : Register]
-          [reg2 : Register64] [scale : Scale] [reg3 : Register64] [displacement : S32]) : Bytes
+          [reg2 : Register64] [scale : Scale] [reg3 : Register64] [displacement : Displacement]) : Bytes
   (let ([reg (register->byte reg1)])
     (add-maybe-byte
       (make-rex-byte rexW (just reg1) (just (register64 reg3)) (just (register64 reg2)))
@@ -433,9 +437,9 @@
         (varargs list
           (op-code->bytes op-code)
           (bytes/2
-            (mod-rm-byte #x02 reg #x04)
+            (mod-rm-byte (displacement->mod displacement) reg #x04)
             (sib-byte scale reg3 reg2))
-          (bytes/s32-le displacement))))))
+          (displacement->bytes displacement))))))
 
 (define (encode-op/IMR/reg [op-code : OpCode] [rexW : Boolean] [imm : Immediate]
                            [reg1 : Register] [reg2 : Register]) : Bytes
@@ -462,6 +466,16 @@
     [(imm-s8 v) (bytes/s8 v)]
     [(imm-s32 v) (bytes/s32-le v)]
     [(imm-s64 v) (bytes/u64-le (u64 v))]))
+
+(define (displacement->mod [d : Displacement]) : Int
+  (case d
+    [(displacement-s8 _) #x01]
+    [(displacement-s32 _) #x02]))
+
+(define (displacement->bytes [d : Displacement]) : Bytes
+  (case d
+    [(displacement-s8 v) (bytes/s8 v)]
+    [(displacement-s32 v) (bytes/s32-le v)]))
 
 (define (add-maybe-byte [rb : RexByte] [bs : Bytes]) : Bytes
   (case rb

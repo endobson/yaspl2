@@ -9,7 +9,8 @@
 }
 (export
   (#:types Section BasicBlock Instruction Register Register64 Register8 AssemblyFragments
-           TextFragment ConstFragment Scale Reg64Mem Reg64MemImm Reg8Mem Reg8MemImm MemoryArgument)
+           TextFragment ConstFragment Scale Reg64Mem Reg64MemImm Reg8Mem Reg8MemImm MemoryArgument
+           Displacement)
   (#:values function-fragment address-fragment bytes-fragment basic-block section assembly-fragments
             section-blocks
             rax rdi rsi rdx rcx rbx r8 r9 r64mi-imm-s32* r64mi-imm-s8 movq movq/imm*
@@ -29,6 +30,7 @@
               r64mi-reg r64mi-mem r64mi-imm-s32 r64mi-imm-s8 r64m-reg r64m-mem
               r8mi-reg r8mi-mem r8mi-imm-s8 r8m-reg r8m-mem
               mem-direct mem-sib-direct mem-displaced mem-scaled
+              displacement-s8 displacement-s32
               register8 register64
               scale-1 scale-2 scale-4 scale-8
               al ah bl bh cl ch dl dh dil sil bpl spl r8b r9b r10b r11b r12b r13b r14b r15b
@@ -182,8 +184,12 @@
     (mem-direct [reg : Register64])
     ;; Doesn't support rbp,r13
     (mem-sib-direct [reg : Register64])
-    (mem-displaced [reg : Register64] [offset : S32])
-    (mem-scaled [reg : Register64] [scale : Scale] [index-reg : Register64] [offset : S32]))
+    (mem-displaced [reg : Register64] [displacement : Displacement])
+    (mem-scaled [reg : Register64] [scale : Scale] [index-reg : Register64]
+                [displacement : Displacement]))
+  (define-type Displacement
+    (displacement-s8 [v : S8])
+    (displacement-s32 [v : S32]))
   (define-type Scale
     (scale-1)
     (scale-2)
@@ -197,21 +203,27 @@
     [(rsp)
      (if (= offset 0)
          (mem-sib-direct r)
-         (mem-scaled r (scale-1) (rsp) (s32 offset)))]
+         (mem-scaled r (scale-1) (rsp) (displacement offset)))]
     [(r12)
      (if (= offset 0)
          (mem-sib-direct r)
-         (mem-scaled r (scale-1) (rsp) (s32 offset)))]
-    [(rbp) (mem-displaced r (s32 offset))]
-    [(r13) (mem-displaced r (s32 offset))]
+         (mem-scaled r (scale-1) (rsp) (displacement offset)))]
+    [(rbp) (mem-displaced r (displacement offset))]
+    [(r13) (mem-displaced r (displacement offset))]
     [_ (if (= offset 0)
            (mem-direct r)
-           (mem-displaced r (s32 offset)))]))
+           (mem-displaced r (displacement offset)))]))
 ;; Smart constructor for immediates in the s32 range
 (define (imm64/s32 [v : Int]) : Reg64MemImm
   (if (and (<= (- 0 128) v) (<= v 127))
       (r64mi-imm-s8 (s8 v))
       (r64mi-imm-s32 (s32 v))))
+;; Smart constructor for displacements
+(define (displacement [v : Int]) : Displacement
+  (if (and (<= (- 0 128) v) (<= v 127))
+      (displacement-s8 (s8 v))
+      (displacement-s32 (s32 v))))
+
 
 (define (r64mi-imm-s32* [v : S32]) : Reg64MemImm
   (imm64/s32 (s32->s64 v)))
@@ -219,7 +231,7 @@
 (define (imm8 [v : Int]) : Reg8MemImm
   (r8mi-imm-s8 (s8 v)))
 (define (scaled [r : Register64] [scale : Scale] [index : Register64] [offset : Int]) : MemoryArgument
-  (mem-scaled r scale index (s32 offset)))
+  (mem-scaled r scale index (displacement offset)))
 
 (define (sections->referenced-labels [sections : (List Section)]) : (Set Bytes)
   (foldl
