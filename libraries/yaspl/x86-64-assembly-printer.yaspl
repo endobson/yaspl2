@@ -24,6 +24,7 @@
   (define-type AssemblerDirective
     (section-directive [segment-name : Bytes] [section-name : Bytes])
     (alignment-directive)
+    (local-directive [label : Bytes])
     (global-directive [label : Bytes])
     (label-directive [name : Bytes])
     (quad-directive/label [label : Bytes])
@@ -164,6 +165,12 @@
         (empty-jl)])]
     [(alignment-directive)
      (single-jl #".p2align 4,0")]
+    [(local-directive label)
+     (case style
+       [(osx-assembly-style)
+        (empty-jl)]
+       [(linux-assembly-style)
+        (varargs join-list #".local \"" label #"\"")])]
     [(global-directive label)
      (varargs join-list #".global \"" label #"\"")]
     [(label-directive name)
@@ -435,10 +442,19 @@
 (define (fragments->commands [fragments : AssemblyFragments]) : (JoinList AssemblyCommand)
   (case fragments
     [(assembly-fragments text-fragments const-fragments)
+     (match-define text-commands
+       (concat-map-jl text-fragment->commands (list->jl text-fragments)))
+     (match-define local-labels
+        (text-commands->local-labels (jl->list text-commands)))
      ;; TODO move the section directives here instead of per fragment
      (append-jl
-       (concat-map-jl text-fragment->commands (list->jl text-fragments))
-       (concat-map-jl const-fragment->commands (list->jl const-fragments)))]))
+       (list->jl
+         (map
+           (lambda ([sym : Bytes]) (directive-cmd (local-directive sym)))
+           local-labels))
+       (append-jl
+         text-commands
+         (concat-map-jl const-fragment->commands (list->jl const-fragments))))]))
 
 (define (text-fragment->commands [frag : TextFragment]) : (JoinList AssemblyCommand)
   (case frag
@@ -495,3 +511,21 @@
                commands)
              commands))
        (basic-blocks->commands blocks referenced-labels))]))
+
+(define (text-commands->local-labels [cmds : (List AssemblyCommand)]) : (List Bytes)
+  (text-commands->local-labels* cmds (empty) (make-set bytes-cmp)))
+
+(define (text-commands->local-labels* [cmds : (List AssemblyCommand)]
+                                      [rev-labels : (List Bytes)] [globals : (Set Bytes)])
+  : (List Bytes)
+  (case cmds
+    [(empty)
+     (reverse rev-labels)]
+    [(cons (directive-cmd (global-directive sym)) cmds)
+     (text-commands->local-labels* cmds rev-labels (set-add globals sym))]
+    [(cons (directive-cmd (label-directive sym)) cmds)
+     (if (set-member? globals sym)
+         (text-commands->local-labels* cmds rev-labels globals)
+         (text-commands->local-labels* cmds (cons sym rev-labels) globals))]
+    [(cons _ cmds)
+     (text-commands->local-labels* cmds rev-labels globals)]))
