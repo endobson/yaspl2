@@ -48,11 +48,11 @@ yaspl_binary(
     srcs = ["prim-language-compiler-main.yaspl"],
     deps = [
         ":prim-language-compiler_lib",
+        ":prim-language-runtime",
         "//libraries:assembler",
         "//libraries:io",
         "//libraries:mach-o-writer",
         "//libraries/data:either",
-        "//libraries/data:join-list",
         "//libraries/data:list",
         "//libraries/data:maybe",
         "//libraries/formats:elf",
@@ -261,6 +261,16 @@ yaspl_bootstrap_library(
         "//libraries/data:maybe",
         "//libraries/data:tuples",
         "//libraries/yaspl:math-operations",
+    ],
+)
+
+yaspl_bootstrap_library(
+    name = "prim-language-runtime",
+    srcs = ["prim-language-runtime.yaspl"],
+    deps = [
+        "//libraries/data:join-list",
+        "//libraries/data:list",
+        "//libraries/yaspl:x86-64-assembly",
     ],
 )
 

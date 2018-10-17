@@ -4,12 +4,12 @@
   (either)
   (formats elf)
   (io)
-  (join-list)
   (list)
   (mach-o-writer)
   (maybe)
   (prim)
   (prim-language-compiler)
+  (prim-language-runtime)
   (yaspl x86-64-assembly)
   (yaspl x86-64-assembly-printer)
 }
@@ -25,68 +25,6 @@
     (elf-linux)
     (assembly-osx)
     (assembly-linux)))
-
-(define (start-function-fragments [main-function-name : Bytes]) : (List TextFragment)
-  (varargs list
-    (function-fragment
-      #"start"
-      (varargs list
-        (section
-          (varargs list
-            (basic-block #"start"
-              (varargs join-list
-                (jmp #"start_break")))))))
-    (function-fragment
-      #"start_break"
-      (varargs list
-        (section
-          (varargs list
-            (basic-block #"start_break"
-              (varargs join-list
-
-                ;; Allocate Heap (Call mmap)
-                ;; No fixed address desired
-                (movq (imm64/s32 0) (r64m-reg (rdi)))
-                ;; We want a largish initial heap
-                ;; Currently this is 512Mib
-                (movq/imm* #x20000000 (rsi))
-                ;; 0x1 = PROT_READ
-                ;; 0x2 = PROT_WRITE
-                ;; 0x4 = PROT_EXEC
-                (movq (imm64/s32 #x7) (r64m-reg (rdx)))
-                ;; 0x0002 = MAP_SHARED
-                ;; 0x1000 = MAP_ANON
-                (movq (imm64/s32 #x1002) (r64m-reg (r10)))
-                ;; FD = -1 for no FD
-                (movq (imm64/s32 (- 0 1)) (r64m-reg (r8)))
-                ;; offset which is ignored because of MAP_ANON
-                (movq (imm64/s32 0) (r64m-reg (r9)))
-                ;; 0xC5 is mmap, plus 0x2000000 because xnu
-                (movq (imm64/s32 #x20000C5) (r64m-reg (rax)))
-                (syscall)
-                (jb #"prim_start_panic")
-                ;; Save heap to %r15 which is our bump pointer
-                (movq (r64mi-reg (rax)) (r64m-reg (r15)))
-
-
-                (movq (r64mi-mem (mem (rsp) 0)) (r64m-reg (rdi)))
-                (call main-function-name)
-                (movq (r64mi-reg (rax)) (r64m-reg (rdi)))
-                (movq (imm64/s32 #x2000001) (r64m-reg (rax)))
-                (syscall)))
-            (basic-block #"prim_start_panic"
-              (varargs join-list
-                (ud2)))))))
-
-    (function-fragment
-      #"yprim_heap_allocate"
-      (varargs list
-        (section
-          (varargs list
-            (basic-block #"yprim_heap_allocate"
-              (varargs join-list
-                (xaddq (rax) (r15))
-                (ret)))))))))
 
 (define (parse-args [input : (List Bytes)]) : (Either Bytes Args)
   (case input
