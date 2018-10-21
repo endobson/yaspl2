@@ -241,7 +241,6 @@ yaspl_bootstrap_library(
         "//libraries/data:list",
         "//libraries/data:maybe",
         "//libraries/data:source-location",
-        "//libraries/data:tuples",
         "//libraries/yaspl:x86-64-assembly",
     ],
 )
