@@ -180,7 +180,19 @@
     (r15))
   (define-type Reg
     (fixed-reg [r : X8664Register])
-    (temporary-reg [r : Var])))
+    (temporary-reg [r : Var]))
+
+  ;; Extra instructions to make constant propagation work
+  (define-type ExtendedBasicBlock
+    (extended-basic-block
+      [number : BlockNumber]
+      [args : (List Var)]
+      [instructions : (List ExtendedInstruction)]
+      [terminal : ExtendedTerminal]))
+  (define-type ExtendedInstruction
+    (extended-instruction [i : r:Instruction]))
+  (define-type ExtendedTerminal
+    (extended-terminal [t : r:Terminal])))
 
 (define (empty-blocks [entry-block-num : BlockNumber]) : (l:UnvalidatedBlockMap Reg)
   (l:empty-unvalidated-block-map entry-block-num))
@@ -493,9 +505,10 @@
                      [saved-register-pairs : (List (Tuple2 X8664Register Var))]
                      [acc : (Tuple2 BlockNumber (l:UnvalidatedBlockMap Reg))])
   : (Tuple2 BlockNumber (l:UnvalidatedBlockMap Reg))
-  (match-define (r:basic-block block-num _ instructions terminal) b)
+  (match-define (extended-basic-block block-num _ instructions terminal)
+    (extend-block b))
   (match-define (tuple3 end-insts terminal (tuple2 next-block acc-blocks))
-    (lower-terminal terminal blocks saved-register-pairs acc))
+    (lower-extended-terminal terminal blocks saved-register-pairs acc))
   (tuple2
     next-block
     (l:unvalidated-block-map-add-block
@@ -503,7 +516,7 @@
       block-num
       (l:basic-block
         (append
-          (append* (map lower-instruction instructions))
+          (append* (map lower-extended-instruction instructions))
           end-insts)
         terminal))))
 
@@ -564,13 +577,14 @@
 (define (ann-term [t : (l:Terminal Reg)]) : (l:Terminal Reg)
   t)
 
-(define (lower-terminal [t : r:Terminal]
-                        [blocks : (IndexedSet r:BasicBlock BlockNumber)]
-                        [saved-register-pairs : (List (Tuple2 X8664Register Var))]
-                        [acc : (Tuple2 BlockNumber (l:UnvalidatedBlockMap Reg))])
+(define (lower-extended-terminal
+          [t : ExtendedTerminal]
+          [blocks : (IndexedSet r:BasicBlock BlockNumber)]
+          [saved-register-pairs : (List (Tuple2 X8664Register Var))]
+          [acc : (Tuple2 BlockNumber (l:UnvalidatedBlockMap Reg))])
   : (Tuple3 (List (l:Instruction Reg)) (l:Terminal Reg) (Tuple2 BlockNumber (l:UnvalidatedBlockMap Reg)))
   (case t
-    [(r:return name)
+    [(extended-terminal (r:return name))
      (tuple3
        (append
          (map
@@ -583,9 +597,9 @@
            (l:move (fixed-reg (rax)) (temporary-reg name))))
        (ann-term (l:return (fixed-reg (rax))))
        acc)]
-    [(r:halt)
+    [(extended-terminal (r:halt))
      (tuple3 (empty) (ann-term (l:halt)) acc)]
-    [(r:tail-call f args)
+    [(extended-terminal (r:tail-call f args))
      (match-define (tuple2 arg-insts arg-regs)
        (put-arguments-in-registers args (varargs list (rdi) (rsi) (rdx) (rcx) (r8) (r9))))
      (tuple3
@@ -612,12 +626,13 @@
            [(r:syscall _) (l:syscall (fixed-reg (rax)))])
          arg-regs)
        acc)]
-    [(r:jump (r:jump-target index args))
+    [(extended-terminal (r:jump (r:jump-target index args)))
      (tuple3
        (move-args (match-args index args blocks))
        (ann-term (l:jump index))
        acc)]
-    [(r:cond-jump condition (r:jump-target t-index t-args) (r:jump-target f-index f-args))
+    [(extended-terminal (r:cond-jump condition (r:jump-target t-index t-args)
+                                               (r:jump-target f-index f-args)))
      (match-define (tuple2 next-block acc-blocks) acc)
      (match-define new-acc-blocks
        (l:unvalidated-block-map-add-block
@@ -720,8 +735,11 @@
        (put-arguments-in-memory args (+ offset 8) overflow-register))]))
 
 
+(define (lower-extended-instruction [i : ExtendedInstruction]) : (List (l:Instruction Reg))
+  (case i
+    [(extended-instruction i) (lower-register-instruction i)]))
 
-(define (lower-instruction [i : r:Instruction]) : (List (l:Instruction Reg))
+(define (lower-register-instruction [i : r:Instruction]) : (List (l:Instruction Reg))
   (case i
     [(r:int-literal output v)
      (varargs list (l:int-literal (temporary-reg output) v))]
@@ -855,3 +873,47 @@
              arg-regs
              (call-conflicts))
            (l:move (temporary-reg output) (fixed-reg (rax))))))]))
+
+
+(define (extend-block [b : r:BasicBlock]) : ExtendedBasicBlock
+  (specialize-instructions-to-immediate/block b))
+
+(define (specialize-instructions-to-immediate/block [b : r:BasicBlock])
+  : ExtendedBasicBlock
+  (match-define (r:basic-block block-num vars instructions terminal) b)
+  (match-define (tuple2 instructions terminal)
+    (specialize-instructions-to-immediate/block*
+      instructions
+      terminal
+      (make-dict var-cmp)
+      (empty)))
+  (extended-basic-block block-num vars instructions terminal))
+
+(define (specialize-instructions-to-immediate/block*
+          [instructions : (List r:Instruction)]
+          [terminal : r:Terminal]
+          [constants : (Dict Var LiftedInt)]
+          [rev-instructions : (List ExtendedInstruction)])
+  : (Tuple2 (List ExtendedInstruction) ExtendedTerminal)
+  (case instructions
+    [(cons instruction instructions)
+     (match-define new-instruction
+       (case instruction
+         [i (extended-instruction i)]))
+     (match-define new-constants
+       (case instruction
+         [(r:int-literal output v)
+          (dict-set constants output (lifted-int v))]
+         [_ constants]))
+     (specialize-instructions-to-immediate/block*
+       instructions
+       terminal
+       new-constants
+       (cons new-instruction rev-instructions))]
+    [(empty)
+     (match-define new-terminal
+       (case terminal
+         [term (extended-terminal term)]))
+     (tuple2
+       (reverse rev-instructions)
+       new-terminal)]))
