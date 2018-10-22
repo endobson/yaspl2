@@ -1,0 +1,110 @@
+#:module (register-language-used-vars)
+#:import {
+  (block-number)
+  (data indexed-set)
+  (list)
+  (prim)
+  (register-language)
+  (set)
+  (yaspl var)
+}
+(export
+  (#:types)
+  (#:values compute-used-vars)
+  (#:patterns))
+(types)
+
+(define (compute-used-vars [blocks : (IndexedSet BasicBlock BlockNumber)]) : (Set Var)
+  (indexed-set-fold
+    blocks
+    (lambda ([v : BasicBlock] [s : (Set Var)])
+      (set-union s (used-vars/block v)))
+    (make-set var-cmp)))
+
+(define (used-vars/block [b : BasicBlock]) : (Set Var)
+  (match-define (basic-block _ args instructions terminal) b)
+  (foldl
+    (lambda ([instruction : Instruction] [acc : (Set Var)])
+      (case instruction
+        [(int-literal _ _) acc]
+        [(symbol-address-inst _ _) acc]
+        [(function-allocate-inst _ var) (set-add acc var)]
+        [(heap-allocate-inst/static _ _) acc]
+        [(variant-allocate-inst _ _ vars) (set-add-all acc vars)]
+        [(memory-compare-inst _ size v1 v2) (set-add (set-add (set-add acc size) v1) v2)]
+        [(pointer-set!-inst _ ptr (fixed-pointer-offset _) val) (set-add (set-add acc ptr) val)]
+        [(pointer-set!-inst _ ptr (scaled-pointer-offset index _ _) val)
+         (set-add (set-add (set-add acc ptr) val) index)]
+        [(pointer-ref-inst _ _ ptr (fixed-pointer-offset _)) (set-add acc ptr)]
+        [(pointer-ref-inst _ _ ptr (scaled-pointer-offset index _ _)) (set-add (set-add acc ptr) index)]
+        [(variant-ref-inst _ variant _) (set-add acc variant)]
+        [(function-call-inst _ f vars)
+         (set-add-all (set-add-all acc vars) (used-vars/function-kind f))]
+        [(bin-op-inst _ _ left right)
+         (set-add (set-add acc left) right)]
+        [(numeric-op-immediate-inst _ _ v _)
+         (set-add acc v)]
+        [(comparison-op-immediate-inst _ _ v _)
+         (set-add acc v)]
+        [(unary-op-inst _ _ var) (set-add acc var)]))
+    instructions
+    (used-vars/terminal terminal)))
+
+(define (used-vars/function-kind [f : FunctionKind]) : (List Var)
+  (case f
+   [(direct-call _)
+    (empty)]
+   [(indirect-function-call f)
+    (cons f (empty))]
+   [(closure-call c)
+    (cons c (empty))]
+   [(syscall _)
+    (empty)]))
+
+(define (used-vars/terminal [t : Terminal]) : (Set Var)
+  (set-add-all
+    (make-set var-cmp)
+    (case t
+      [(return var) (varargs list var)]
+      [(halt) (empty)]
+      [(tail-call f args)
+       (append
+         (used-vars/function-kind f)
+         args)]
+      [(cond-jump con t f)
+       (append
+         (case con
+           [(var-condition var) (varargs list var)]
+           [(negated-var-condition var) (varargs list var)]
+           [(negated-variant-tag-condition var tag) (varargs list var)]
+           [(comparison-condition op args)
+            (used-vars/compare-args args)]
+           [(memory-compare-condition _ size v1 v2) (varargs list size v1 v2)])
+         (append (used-vars/jump-target t) (used-vars/jump-target f)))]
+      [(jump jt) (used-vars/jump-target jt)])))
+
+(define (used-vars/jump-target [jt : JumpTarget]) : (List Var)
+  (case jt
+    [(jump-target _ args) args]))
+
+
+(define (used-vars/compare-args [args : CompareArgs]) : (List Var)
+  (case args
+    [(compare-s64 mem-arg imm-arg)
+     (cons
+       (used-vars/compare-mem-arg mem-arg)
+       (case imm-arg
+         [(var-or-s32-var v) (varargs list v)]
+         [(var-or-s32-s32 _) (empty)]))]
+    [(compare-s8 mem-arg imm-arg)
+     (cons
+       (used-vars/compare-mem-arg mem-arg)
+       (case imm-arg
+         [(var-or-s8-var v) (varargs list v)]
+         [(var-or-s8-s8 _) (empty)]))]))
+
+
+(define (used-vars/compare-mem-arg [mem-arg : CompareMemArg]) : Var
+  (case mem-arg
+    [(compare-mem-arg-val v) v]
+    [(compare-mem-arg-ptr v) v]))

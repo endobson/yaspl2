@@ -392,6 +392,19 @@ yaspl_bootstrap_library(
 )
 
 yaspl_bootstrap_library(
+    name = "register-language-used-vars",
+    srcs = ["register-language-used-vars.yaspl"],
+    deps = [
+        ":block-number",
+        ":register-language",
+        "//libraries/data:indexed-set",
+        "//libraries/data:list",
+        "//libraries/data:set",
+        "//libraries/yaspl:var",
+    ],
+)
+
+yaspl_bootstrap_library(
     name = "simplify-lowered-register-language",
     srcs = ["simplify-lowered-register-language.yaspl"],
     deps = [
@@ -415,6 +428,7 @@ yaspl_bootstrap_library(
         ":block-number",
         ":prim-language",
         ":register-language",
+        ":register-language-used-vars",
         "//libraries:panic",
         "//libraries/data:bytes",
         "//libraries/data:dict",
