@@ -4,8 +4,9 @@ def _bin_impl(ctx):
 
   toolchain = ctx.toolchains["//libraries/prim-language:prim_language_toolchain"]
 
-  ctx.action(
-    inputs = [ctx.executable._compiler] + ctx.files.srcs,
+  ctx.actions.run(
+    inputs = ctx.files.srcs,
+    tools = [ctx.executable._compiler],
     outputs = [ctx.outputs.object],
     executable = ctx.executable._compiler,
     arguments = [
@@ -15,8 +16,9 @@ def _bin_impl(ctx):
     ]
   )
 
-  ctx.action(
-    inputs = [ctx.executable._compiler] + ctx.files.srcs,
+  ctx.actions.run(
+    inputs = ctx.files.srcs,
+    tools = [ctx.executable._compiler],
     outputs = [ctx.outputs.assembly],
     executable = ctx.executable._compiler,
     arguments = [
@@ -26,7 +28,7 @@ def _bin_impl(ctx):
     ]
   )
 
-  ctx.action(
+  ctx.actions.run(
     inputs = [ctx.outputs.object],
     outputs = [ctx.outputs.executable],
     executable = ctx.executable._linker,
@@ -108,7 +110,7 @@ prim_library = rule(
 
 
 def _binary_test_impl(ctx):
-  ctx.file_action(
+  ctx.actions.write(
     output = ctx.outputs.executable,
     content =
       "#!/bin/sh\n" +
@@ -129,7 +131,7 @@ def _binary_test_impl(ctx):
       "fi\n" +
 
       "exit $PASSED\n",
-    executable = True)
+    is_executable = True)
 
   return struct(
     runfiles=ctx.runfiles(files=[ctx.executable.binary]),
