@@ -13,6 +13,7 @@
   {(prim-language)
     {#:patterns
       comparison-bin-op
+      numeric-bin-op
     }
   }
   (register-language)
@@ -165,7 +166,6 @@
     (map
       (lambda ([i : Instruction])
         (case i
-          ;; TODO do constant folding
           [(pointer-ref-inst v size pointer (scaled-pointer-offset amount scale fixed-offset))
            (case (abstract-value-resolve abstract-values amount)
              [(av-int amount)
@@ -186,7 +186,14 @@
               (match-define offset (+ (* amount scale-amount) fixed-offset))
               (pointer-set!-inst size pointer (fixed-pointer-offset offset) val)]
              [_ i])]
-          [_ i]))
+          [_
+            (case (output-var i)
+              [(nothing) i]
+              [(just v)
+               (case (abstract-value-resolve abstract-values v)
+                 [(av-int val)
+                  (int-literal v val)]
+                 [_ i])])]))
       instructions)
     (case terminal
       [(cond-jump cond t f)
@@ -223,6 +230,21 @@
                   (dict-set acc var (av-int v))]
                  [(bin-op-inst var (comparison-bin-op c) left right)
                   (dict-set acc var (av-comparison c left right))]
+                 [(bin-op-inst var (numeric-bin-op c) left right)
+                  (dict-set acc var
+                    (case (tuple2 (dict-ref acc left) (dict-ref acc right))
+                      [(tuple2 (just (av-int lv)) (just (av-int rv)))
+                       (case c
+                         [(add-op)
+                          (av-int (+ lv rv))]
+                         [(sub-op)
+                          (av-int (- lv rv))]
+                         [(mult-op)
+                          (av-int (* lv rv))]
+                         [_
+                          (av-unknown)])]
+                      [_
+                       (av-unknown)]))]
                  [(memory-compare-inst var size v1 v2)
                   (dict-set acc var (av-memory-comparison size v1 v2))]
                  [(symbol-address-inst var v)
