@@ -75,6 +75,7 @@
   }
   (maybe)
   (numbers)
+  (panic)
   (prim)
   {(prim-language)
     {#:patterns
@@ -91,6 +92,9 @@
       [Instruction r:Instruction]
       [PointerOffsetScale r:PointerOffsetScale]
       [Terminal r:Terminal]
+    }
+    {#:values
+      [output-var r:output-var]
     }
     {#:patterns
       [basic-block r:basic-block]
@@ -144,7 +148,18 @@
       [variant-ref-inst r:variant-ref-inst]
     }
   }
+  {(register-language-used-vars)
+    {#:values
+      [used-vars/instruction r:used-vars/instruction]
+      [used-vars/terminal r:used-vars/terminal]
+    }
+  }
   (set)
+  {(simplify-register-language)
+    {#:values
+      [side-effect-free-instruction? r:side-effect-free-instruction?]
+    }
+  }
   (syscalls)
   (tuples)
   (yaspl math-operations)
@@ -190,7 +205,9 @@
       [instructions : (List ExtendedInstruction)]
       [terminal : ExtendedTerminal]))
   (define-type ExtendedInstruction
-    (extended-instruction [i : r:Instruction]))
+    (extended-instruction [i : r:Instruction])
+    (ex:numeric-op-immediate-inst [output : Var] [op : NumericBinOp] [input : Var] [amount : S32]))
+
   (define-type ExtendedTerminal
     (extended-terminal [t : r:Terminal])))
 
@@ -399,13 +416,15 @@
   (match-define (tuple2 saved-register-pairs next-var)
     (compute-saved-register-pairs next-var))
 
+  (match-define extended-blocks (extend-blocks blocks))
+
   (match-define (tuple2 next-block new-blocks)
     (indexed-set-fold
-      blocks
-      (lambda ([b : r:BasicBlock] [acc : (Tuple2 BlockNumber (l:UnvalidatedBlockMap Reg))])
-        (lower-block b blocks saved-register-pairs acc))
+      extended-blocks
+      (lambda ([b : ExtendedBasicBlock] [acc : (Tuple2 BlockNumber (l:UnvalidatedBlockMap Reg))])
+        (lower-block b extended-blocks saved-register-pairs acc))
       (tuple2 next-block (empty-blocks lowered-entry-block))))
-  (match-define entry-block (make-entry-block convention blocks saved-register-pairs))
+  (match-define entry-block (make-entry-block convention extended-blocks saved-register-pairs))
   (match-define new-blocks
     (l:unvalidated-block-map-add-block
       new-blocks lowered-entry-block entry-block))
@@ -440,7 +459,7 @@
 
 
 (define (make-entry-block [convention : r:CallingConvention]
-                          [blocks : (IndexedSet r:BasicBlock BlockNumber)]
+                          [blocks : (IndexedSet ExtendedBasicBlock BlockNumber)]
                           [saved-register-pairs : (List (Tuple2 X8664Register Var))])
   : (l:BasicBlock Reg)
   (match-define arg-registers (varargs list (rdi) (rsi) (rdx) (rcx) (r8) (r9)))
@@ -456,7 +475,7 @@
     [(r:plain-function-convention num-args entry-block-num)
      (case (indexed-set-ref blocks entry-block-num)
        [(nothing) (panic #"No entry block")]
-       [(just (r:basic-block _ args _ _))
+       [(just (extended-basic-block _ args _ _))
         (l:basic-block
           (append
             save-register-instructions
@@ -465,7 +484,7 @@
     [(r:closure-convention num-args entry-block-num num-free-vars)
      (case (indexed-set-ref blocks entry-block-num)
        [(nothing) (panic #"No entry block")]
-       [(just (r:basic-block _ args _ _))
+       [(just (extended-basic-block _ args _ _))
         (l:basic-block
           (append
             save-register-instructions
@@ -500,13 +519,12 @@
       next-var)))
 
 
-(define (lower-block [b : r:BasicBlock]
-                     [blocks : (IndexedSet r:BasicBlock BlockNumber)]
+(define (lower-block [b : ExtendedBasicBlock]
+                     [blocks : (IndexedSet ExtendedBasicBlock BlockNumber)]
                      [saved-register-pairs : (List (Tuple2 X8664Register Var))]
                      [acc : (Tuple2 BlockNumber (l:UnvalidatedBlockMap Reg))])
   : (Tuple2 BlockNumber (l:UnvalidatedBlockMap Reg))
-  (match-define (extended-basic-block block-num _ instructions terminal)
-    (extend-block b))
+  (match-define (extended-basic-block block-num _ instructions terminal) b)
   (match-define (tuple3 end-insts terminal (tuple2 next-block acc-blocks))
     (lower-extended-terminal terminal blocks saved-register-pairs acc))
   (tuple2
@@ -520,11 +538,12 @@
           end-insts)
         terminal))))
 
-(define (match-args [index : BlockNumber] [args : (List Var)] [blocks : (IndexedSet r:BasicBlock BlockNumber)])
+(define (match-args [index : BlockNumber] [args : (List Var)]
+                    [blocks : (IndexedSet ExtendedBasicBlock BlockNumber)])
   : (List (Tuple2 Var Var))
   (case (indexed-set-ref blocks index)
     [(nothing) (panic #"No block")]
-    [(just (r:basic-block _ block-args _ _))
+    [(just (extended-basic-block _ block-args _ _))
      (case (zip block-args args)
        [(nothing)
         (panic
@@ -579,7 +598,7 @@
 
 (define (lower-extended-terminal
           [t : ExtendedTerminal]
-          [blocks : (IndexedSet r:BasicBlock BlockNumber)]
+          [blocks : (IndexedSet ExtendedBasicBlock BlockNumber)]
           [saved-register-pairs : (List (Tuple2 X8664Register Var))]
           [acc : (Tuple2 BlockNumber (l:UnvalidatedBlockMap Reg))])
   : (Tuple3 (List (l:Instruction Reg)) (l:Terminal Reg) (Tuple2 BlockNumber (l:UnvalidatedBlockMap Reg)))
@@ -737,7 +756,14 @@
 
 (define (lower-extended-instruction [i : ExtendedInstruction]) : (List (l:Instruction Reg))
   (case i
-    [(extended-instruction i) (lower-register-instruction i)]))
+    [(extended-instruction i) (lower-register-instruction i)]
+    [(ex:numeric-op-immediate-inst output (mult-op) l v)
+     (varargs list
+       (l:mult-immediate (temporary-reg output) (temporary-reg l) v))]
+    [(ex:numeric-op-immediate-inst output op l v)
+     (varargs list
+       (l:move (temporary-reg output) (temporary-reg l))
+       (l:numeric-op-immediate (temporary-reg output) op v))]))
 
 (define (lower-register-instruction [i : r:Instruction]) : (List (l:Instruction Reg))
   (case i
@@ -875,8 +901,20 @@
            (l:move (temporary-reg output) (fixed-reg (rax))))))]))
 
 
-(define (extend-block [b : r:BasicBlock]) : ExtendedBasicBlock
-  (specialize-instructions-to-immediate/block b))
+(define (extend-blocks [b : (IndexedSet r:BasicBlock BlockNumber)])
+  : (IndexedSet ExtendedBasicBlock BlockNumber)
+  (remove-dead-instructions
+    (specialize-instructions-to-immediate b)))
+
+
+(define (specialize-instructions-to-immediate [blocks : (IndexedSet r:BasicBlock BlockNumber)])
+  : (IndexedSet ExtendedBasicBlock BlockNumber)
+  (indexed-set-fold
+    blocks
+    (lambda ([block : r:BasicBlock] [acc : (IndexedSet ExtendedBasicBlock BlockNumber)])
+      (indexed-set-add acc (specialize-instructions-to-immediate/block block)))
+    (make-indexed-set extended-basic-block-number block-number-cmp)))
+
 
 (define (specialize-instructions-to-immediate/block [b : r:BasicBlock])
   : ExtendedBasicBlock
@@ -896,12 +934,12 @@
           [rev-instructions : (List ExtendedInstruction)])
   : (Tuple2 (List ExtendedInstruction) ExtendedTerminal)
   (case instructions
-    [(cons instruction instructions)
+    [(cons i instructions)
      (match-define new-instruction
-       (case instruction
+       (case i
          [i (extended-instruction i)]))
      (match-define new-constants
-       (case instruction
+       (case i
          [(r:int-literal output v)
           (dict-set constants output (lifted-int v))]
          [_ constants]))
@@ -917,3 +955,57 @@
      (tuple2
        (reverse rev-instructions)
        new-terminal)]))
+
+(define (remove-dead-instructions [blocks : (IndexedSet ExtendedBasicBlock BlockNumber)])
+  : (IndexedSet ExtendedBasicBlock BlockNumber)
+  (match-define used-vars (compute-used-vars blocks))
+  (indexed-set-value-map
+    blocks
+    (lambda ([b : ExtendedBasicBlock]) (remove-dead-instructions/block b used-vars))))
+
+(define (remove-dead-instructions/block [b : ExtendedBasicBlock]
+                                        [used-vars : (Set Var)]) : ExtendedBasicBlock
+  (match-define (extended-basic-block block-num args instructions terminal) b)
+  (extended-basic-block
+    block-num
+    args
+    (filter
+      (lambda ([i : ExtendedInstruction])
+        (if (side-effect-free-instruction? i)
+            (case (output-var i)
+              [(just v) (set-member? used-vars v)]
+              [(nothing) (panic/boolean #"Pure instruction didn't have output var")])
+            #t))
+      instructions)
+    terminal))
+
+(define (compute-used-vars [blocks : (IndexedSet ExtendedBasicBlock BlockNumber)]) : (Set Var)
+  (indexed-set-fold
+    blocks
+    (lambda ([block : ExtendedBasicBlock] [acc : (Set Var)])
+      (set-union acc (compute-used-vars/block block)))
+    (make-set var-cmp)))
+
+(define (compute-used-vars/block [b : ExtendedBasicBlock]) : (Set Var)
+  (match-define (extended-basic-block _ _ instructions terminal) b)
+  (foldl
+    (lambda ([i : ExtendedInstruction] [acc : (Set Var)])
+      (case i
+        [(extended-instruction i) (r:used-vars/instruction i acc)]
+        [(ex:numeric-op-immediate-inst _ _ v _) (set-add acc v)]))
+    instructions
+    (used-vars/terminal terminal)))
+
+(define (used-vars/terminal [t : ExtendedTerminal]) : (Set Var)
+  (case t
+    [(extended-terminal t) (r:used-vars/terminal t)]))
+
+(define (side-effect-free-instruction? [i : ExtendedInstruction]) : Boolean
+  (case i
+    [(extended-instruction i) (r:side-effect-free-instruction? i)]
+    [(ex:numeric-op-immediate-inst _ _ _ _) #t]))
+
+(define (output-var [i : ExtendedInstruction]) : (Maybe Var)
+  (case i
+    [(extended-instruction i) (r:output-var i)]
+    [(ex:numeric-op-immediate-inst v _ _ _) (just v)]))
