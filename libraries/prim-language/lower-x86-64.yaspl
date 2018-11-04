@@ -107,7 +107,6 @@
       [compare-s64 r:compare-s64]
       [compare-s8 r:compare-s8]
       [comparison-condition r:comparison-condition]
-      [comparison-op-immediate-inst r:comparison-op-immediate-inst]
       [cond-jump r:cond-jump]
       [direct-call r:direct-call]
       [eight-byte-mem-op r:eight-byte-mem-op]
@@ -205,7 +204,8 @@
       [terminal : ExtendedTerminal]))
   (define-type ExtendedInstruction
     (extended-instruction [i : r:Instruction])
-    (ex:numeric-op-immediate-inst [output : Var] [op : NumericBinOp] [input : Var] [amount : S32]))
+    (ex:numeric-op-immediate-inst [output : Var] [op : NumericBinOp] [input : Var] [amount : S32])
+    (ex:comparison-op-immediate-inst [output : Var] [op : ComparisonBinOp] [input : Var] [amount : S32]))
 
   (define-type ExtendedTerminal
     (extended-terminal [t : r:Terminal])))
@@ -762,7 +762,10 @@
     [(ex:numeric-op-immediate-inst output op l v)
      (varargs list
        (l:move (temporary-reg output) (temporary-reg l))
-       (l:numeric-op-immediate (temporary-reg output) op v))]))
+       (l:numeric-op-immediate (temporary-reg output) op v))]
+    [(ex:comparison-op-immediate-inst output op l v)
+     (varargs list
+       (l:comparison-op-immediate (temporary-reg output) op (temporary-reg l) v))]))
 
 (define (lower-register-instruction [i : r:Instruction]) : (List (l:Instruction Reg))
   (case i
@@ -805,9 +808,6 @@
      (varargs list
        (l:move (temporary-reg output) (temporary-reg l))
        (l:logical-op-inst (temporary-reg output) op (temporary-reg r)))]
-    [(r:comparison-op-immediate-inst output op l r)
-     (varargs list
-       (l:comparison-op-immediate (temporary-reg output) op (temporary-reg l) r))]
     [(r:unary-op-inst output (r:truncate-unsigned-int64->unsigned-int8) input)
      (varargs list
        (l:free-unary-op-inst (temporary-reg output) (l:truncate-unsigned-int64->unsigned-int8)
@@ -975,6 +975,23 @@
                    (extended-instruction i)])]
                [(nothing)
                 (extended-instruction i)])])]
+         [(r:bin-op-inst v (comparison-bin-op op) left right)
+          (case (dict-ref constants right)
+            [(just (lifted-int val))
+             (case (maybe-s32 val)
+               [(nothing)
+                (extended-instruction i)]
+               [(just (lifted-s32 val))
+                (ex:comparison-op-immediate-inst v op left val)])]
+            [(nothing)
+             (case (dict-ref constants left)
+               [(just (lifted-int val))
+                (case (maybe-s32 val)
+                  [(nothing)
+                   (extended-instruction i)]
+                  [(just (lifted-s32 val))
+                   (ex:comparison-op-immediate-inst v (flip-comparison op) right val)])]
+               [(nothing) (extended-instruction i)])])]
          [i (extended-instruction i)]))
      (match-define new-constants
        (case i
@@ -993,6 +1010,16 @@
      (tuple2
        (reverse rev-instructions)
        new-terminal)]))
+
+(define (flip-comparison [c : ComparisonBinOp]) : ComparisonBinOp
+  (case c
+    [(less-than-op) (greater-than-op)]
+    [(greater-than-op) (less-than-op)]
+    [(less-than-or-equal-op) (greater-than-or-equal-op)]
+    [(greater-than-or-equal-op) (less-than-or-equal-op)]
+    [(equal-op) (equal-op)]
+    [(not-equal-op) (not-equal-op)]))
+
 
 (define (remove-dead-instructions [blocks : (IndexedSet ExtendedBasicBlock BlockNumber)])
   : (IndexedSet ExtendedBasicBlock BlockNumber)
@@ -1030,7 +1057,8 @@
     (lambda ([i : ExtendedInstruction] [acc : (Set Var)])
       (case i
         [(extended-instruction i) (r:used-vars/instruction i acc)]
-        [(ex:numeric-op-immediate-inst _ _ v _) (set-add acc v)]))
+        [(ex:numeric-op-immediate-inst _ _ v _) (set-add acc v)]
+        [(ex:comparison-op-immediate-inst _ _ v _) (set-add acc v)]))
     instructions
     (used-vars/terminal terminal)))
 
@@ -1041,9 +1069,11 @@
 (define (side-effect-free-instruction? [i : ExtendedInstruction]) : Boolean
   (case i
     [(extended-instruction i) (r:side-effect-free-instruction? i)]
-    [(ex:numeric-op-immediate-inst _ _ _ _) #t]))
+    [(ex:numeric-op-immediate-inst _ _ _ _) #t]
+    [(ex:comparison-op-immediate-inst _ _ _ _) #t]))
 
 (define (output-var [i : ExtendedInstruction]) : (Maybe Var)
   (case i
     [(extended-instruction i) (r:output-var i)]
-    [(ex:numeric-op-immediate-inst v _ _ _) (just v)]))
+    [(ex:numeric-op-immediate-inst v _ _ _) (just v)]
+    [(ex:comparison-op-immediate-inst v _ _ _) (just v)]))
