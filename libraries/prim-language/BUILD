@@ -384,6 +384,7 @@ yaspl_bootstrap_library(
         ":lowered-register-language-to-x86-64",
         ":register-language",
         ":simplify-lowered-register-language",
+        ":simplify-lowered-register-language-x86-64",
         ":spill-lowered-register-language",
         "//libraries/data:dict",
         "//libraries/data:either",
@@ -421,6 +422,21 @@ yaspl_bootstrap_library(
         "//libraries/data:set-multi-dict",
         "//libraries/data:unique-dict",
         "//libraries/yaspl:math-operations",
+    ],
+)
+
+yaspl_bootstrap_library(
+    name = "simplify-lowered-register-language-x86-64",
+    srcs = ["simplify-lowered-register-language-x86-64.yaspl"],
+    deps = [
+        ":block-number",
+        ":lower-x86-64",
+        ":lowered-live-variables",
+        ":lowered-register-language",
+        "//libraries/data:dict",
+        "//libraries/data:either",
+        "//libraries/data:list",
+        "//libraries/data:set",
     ],
 )
 

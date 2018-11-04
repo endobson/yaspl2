@@ -1,0 +1,60 @@
+#:module (simplify-lowered-register-language-x86-64)
+#:import {
+  (block-number)
+  (dict)
+  (either)
+  (list)
+  (lower-x86-64)
+  (lowered-live-variables)
+  (lowered-register-language)
+  (prim)
+  (set)
+}
+(export
+  (#:types)
+  (#:values simplify-assigned-registers-function-definition)
+  (#:patterns))
+(types)
+
+
+(define (simplify-assigned-registers-function-definition
+          [f : (AssignedRegistersFunctionDefinition X8664Register)])
+  : (AssignedRegistersFunctionDefinition X8664Register)
+  (match-define (assigned-registers-function-definition name blocks) f)
+  (assigned-registers-function-definition name
+    (remove-extraneous-rsp-resets blocks)))
+
+(define (remove-extraneous-rsp-resets [blocks : (BlockMap X8664Register)])
+  : (BlockMap X8664Register)
+  (match-define modifies-rsp
+    (ormap
+      (lambda ([b : (BasicBlock X8664Register)])
+        (case b
+          [(basic-block instructions terminal)
+           (ormap
+             (lambda ([inst : (Instruction X8664Register)])
+               (case inst
+                 ;; There is a slight assumption that the value of rbp
+                 ;; will always be the stack pointer
+                 [(move (rsp) (rbp)) #f]
+                 [_ (set-member? (dirtied-registers inst x86-64-register-cmp) (rsp))]))
+             instructions)]))
+      (dict-values (block-map-blocks blocks))))
+  (if modifies-rsp
+      blocks
+      (case (validate-block-map
+              (unvalidated-block-map-map
+                (block-map->unvalidated-block-map blocks)
+                (lambda ([index : BlockNumber] [b : (BasicBlock X8664Register)])
+                  (case b
+                    [(basic-block instructions terminal)
+                     (basic-block
+                       (filter
+                         (lambda ([i : (Instruction X8664Register)])
+                           (case i
+                             [(move (rsp) (rbp)) #f]
+                             [_ #t]))
+                         instructions)
+                       terminal)]))))
+        [(left msg) (panic msg)]
+        [(right v) v])))
