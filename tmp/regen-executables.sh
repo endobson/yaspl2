@@ -1,10 +1,12 @@
 #!/bin/bash
-rm -rf tmp/bazel && \
-mkdir tmp/bazel && \
-bazel build //libraries/prim-language/examples/... --cpu=k8 && \
-cp -f -R bazel-bin/libraries/prim-language/examples/* tmp/bazel/ && \
-rm -f tmp/bazel/call1_lib.o
-for prog in `find tmp/bazel -type file -name '*.o' | sed -e 's/.o$//'`;
+set -e
+WORKSPACE=`bazel info workspace`
+rm -rf $WORKSPACE/tmp/bazel
+mkdir $WORKSPACE/tmp/bazel
+bazel build //libraries/prim-language/examples/... --cpu=k8
+cp -f -R $WORKSPACE/bazel-bin/libraries/prim-language/examples/* $WORKSPACE/tmp/bazel/
+rm -f $WORKSPACE/tmp/bazel/call1_lib.o
+for prog in `find $WORKSPACE/tmp/bazel -type file -name '*.o' | sed -e 's/.o$//'`;
 do
   xxd "${prog}" "${prog}.xxd";
 done;

@@ -372,5 +372,47 @@
   (call-with-output-file output-file-name
     (lambda ([p : OutputPort])
       (begin
-        (write-all-bytes #"\x7FELF" p)
+        (write-all-bytes (serialize-elf-executable) p)
         (nothing)))))
+
+(define (serialize-elf-executable) : Bytes
+  (match-define text-section-contents (make-bytes 248))
+  (match-define text-section-length (bytes-length text-section-contents))
+  (match-define rounded-text-section-length (round-up text-section-length 8))
+
+  (bytes-append
+    (jl->list
+      (varargs append-jl*
+        (single-jl #"\x7FELF") ;; Magic
+        (single-jl #"\x02") ;; Class (64 bit)
+        (single-jl #"\x01") ;; Data encoding (LSB)
+        (single-jl #"\x01") ;; Version
+        (single-jl #"\x00") ;; OS ABI (SysV)
+        (single-jl #"\x00") ;; OS ABI version
+        (single-jl (make-bytes 7)) ;; Padding
+
+        (single-jl (bytes/u16-le 2)) ;; Executable file
+        (single-jl (bytes/u16-le #x3E)) ;; Machine type X86_64
+        (single-jl (bytes/u32-le 1)) ;; Version
+        (single-jl (bytes/u64-le (u64 #x400080))) ;; Start address
+        (single-jl (bytes/u64-le (u64 #x40))) ;; Program header offset
+        (single-jl (bytes/u64-le (u64 #x2B8))) ;; Section header offset
+        (single-jl (bytes/u32-le 0)) ;; FLAGS
+        (single-jl (bytes/u16-le #x40)) ;; ELF header size
+        (single-jl (bytes/u16-le #x38)) ;; Size of program header entry
+        (single-jl (bytes/u16-le #x01)) ;; Number of program header entries
+        (single-jl (bytes/u16-le #x40)) ;; size of section header entry
+
+        (single-jl (bytes/u16-le #x5))   ;; Number of section header entries
+        (single-jl (bytes/u16-le #x4))  ;; Index of section name section
+
+        (single-jl text-section-contents)
+        ;; Symbol tables are 8 byte aligned, so add padding as needed
+        (single-jl (make-bytes (- rounded-text-section-length text-section-length)))
+        (varargs append-jl*
+          (symbol-table-entry 0 0 0 0)
+          (symbol-table-entry 0 3 1 0)
+          (symbol-table-entry 0 3 3 0)
+          (symbol-table-entry 0 3 4 0))
+
+      ))))
