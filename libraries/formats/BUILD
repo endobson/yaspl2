@@ -1,13 +1,14 @@
-load("//libraries:yaspl.bzl", "yaspl_library")
+load("//libraries:yaspl.bzl", "yaspl_bootstrap_library", "yaspl_library")
 
 package(
     default_visibility = ["//visibility:public"],
 )
 
-yaspl_library(
+yaspl_bootstrap_library(
     name = "elf",
     srcs = ["elf.yaspl"],
     deps = [
+        "//libraries:io",
         "//libraries:panic",
         "//libraries:structured-elf",
         "//libraries:structured-native-code",

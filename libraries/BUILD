@@ -60,6 +60,7 @@ yaspl_bootstrap_binary(
         "//libraries/data:either",
         "//libraries/data:list",
         "//libraries/data:maybe",
+        "//libraries/formats:elf",
     ],
 )
 
