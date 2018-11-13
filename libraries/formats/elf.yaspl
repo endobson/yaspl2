@@ -376,12 +376,21 @@
                 [#"bazel-out/k8-fastbuild/bin/libraries/prim-language/examples/call1" (make-bytes 179)]
                 [#"bazel-out/k8-fastbuild/bin/libraries/prim-language/examples/call2" (make-bytes 207)]
                 [_ (make-bytes 5)])])
-        (begin
-          (write-all-bytes (serialize-elf-executable text-section-contents) p)
-          (nothing))))))
+        (let ([symbols
+                (ann (List Bytes)
+                  (case output-file-name
+                    [#"bazel-out/k8-fastbuild/bin/libraries/prim-language/examples/call1"
+                     (varargs list #"f")]
+                    [#"bazel-out/k8-fastbuild/bin/libraries/prim-language/examples/call2"
+                     (varargs list #"fun")]
+                    [_ (empty)]))])
+          (begin
+            (write-all-bytes (serialize-elf-executable text-section-contents symbols) p)
+            (nothing)))))))
 
 (define (serialize-elf-executable
-          [text-section-contents : Bytes]) : Bytes
+          [text-section-contents : Bytes]
+          [symbols : (List Bytes)]) : Bytes
   (match-define text-section-length (bytes-length text-section-contents))
 
   (bytes-append
@@ -478,8 +487,12 @@
               #"_start"
               #"start_break"
               #"main"
-              #"yprim_heap_allocate"
-              #"f")))
+              #"yprim_heap_allocate")))
+        (concat-jl
+          (map
+            (lambda ([s : Bytes])
+              (single-jl (make-null-terminated s)))
+            symbols))
         (concat-jl
           (map
             (lambda ([s : Bytes])
@@ -492,11 +505,16 @@
               #".text"
               #".comment")))
 
-        (single-jl (make-bytes 6)) ;; padding
+        (let ([extra-bytes (+ (sum bytes-length symbols) (length symbols))])
+          (single-jl (make-bytes (- (round-up extra-bytes 8) extra-bytes))))
+
         (single-jl (make-bytes (* 16 4))) ;; Empty section header
-        (section-header 27 1 6 #x201000 #x1000 #xB3 0 0 #x10 0)
-        (section-header 33 1 #x30 0 #x10B3 #x12 0 0 1 1)
+        (section-header 27 1 6 #x201000 #x1000 text-section-length 0 0 #x10 0)
+        (section-header 33 1 #x30 0 (+ #x1000 text-section-length) #x12 0 0 1 1)
         (section-header 1 2 0 0 #x10C8 #xD8 4 4 #x08 #x18)
-        (section-header 9 3 0 0 #x11A0 #x40 0 0 1 0)
+        (section-header 9 3 0 0 #x11A0
+                        (+ 62 (+ (sum bytes-length symbols) (length symbols)))
+                        0 0 1 0)
         (section-header 17 3 0 0 #x11E0 #x2a 0 0 1 0)
+
       ))))
