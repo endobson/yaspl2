@@ -392,6 +392,15 @@
           [text-section-contents : Bytes]
           [symbols : (List Bytes)]) : Bytes
   (match-define text-section-length (bytes-length text-section-contents))
+  (match-define symbols-length (+ (sum bytes-length symbols) (length symbols)))
+  (match-define rounded-symbols-length (round-up symbols-length 8))
+
+  ;; Long text section includes the LLD version number
+  (match-define long-text-section-length (+ text-section-length 18))
+  (match-define rounded-long-text-section-length (round-up long-text-section-length 8))
+
+  (match-define section-header-offset
+                (+ #x1140 (+ rounded-long-text-section-length rounded-symbols-length)))
 
   (bytes-append
     (jl->list
@@ -409,7 +418,7 @@
         (single-jl (bytes/u32-le 1)) ;; Version
         (single-jl (bytes/u64-le (u64 #x201000))) ;; Start address
         (single-jl (bytes/u64-le (u64 #x40))) ;; Program header offset
-        (single-jl (bytes/u64-le (u64 #x1210))) ;; Section header offset
+        (single-jl (bytes/u64-le (u64 section-header-offset))) ;; Section header offset
         (single-jl (bytes/u32-le 0)) ;; FLAGS
         (single-jl (bytes/u16-le #x40)) ;; ELF header size
         (single-jl (bytes/u16-le #x38)) ;; Size of program header entry
@@ -462,8 +471,8 @@
         (single-jl #"Linker: LLD 6.0.0\x00")
 
         ;; Symbol tables are 8 byte aligned, so add padding as needed
-        (single-jl (make-bytes (- (round-up (+ text-section-length 18) 8)
-                                  (+ text-section-length 18))))
+        (single-jl (make-bytes (- rounded-long-text-section-length
+                                  long-text-section-length)))
 
         (varargs append-jl*
           (symbol-table-entry 0 0 0 0)
@@ -505,16 +514,16 @@
               #".text"
               #".comment")))
 
-        (let ([extra-bytes (+ (sum bytes-length symbols) (length symbols))])
-          (single-jl (make-bytes (- (round-up extra-bytes 8) extra-bytes))))
+        (single-jl (make-bytes (- rounded-symbols-length symbols-length)))
 
         (single-jl (make-bytes (* 16 4))) ;; Empty section header
         (section-header 27 1 6 #x201000 #x1000 text-section-length 0 0 #x10 0)
         (section-header 33 1 #x30 0 (+ #x1000 text-section-length) #x12 0 0 1 1)
-        (section-header 1 2 0 0 #x10C8 #xD8 4 4 #x08 #x18)
-        (section-header 9 3 0 0 #x11A0
-                        (+ 62 (+ (sum bytes-length symbols) (length symbols)))
+        (section-header 1 2 0 0 (+ #x1000 rounded-long-text-section-length) #xD8 4 4 #x08 #x18)
+        (section-header 9 3 0 0 (+ #x10D8 rounded-long-text-section-length)
+                        (+ 62 symbols-length)
                         0 0 1 0)
-        (section-header 17 3 0 0 #x11E0 #x2a 0 0 1 0)
+        (section-header 17 3 0 0 (+ #x1116 (+ rounded-long-text-section-length
+                                              symbols-length)) #x2a 0 0 1 0)
 
       ))))
