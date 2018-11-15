@@ -375,6 +375,7 @@
               (case output-file-name
                 [#"bazel-out/k8-fastbuild/bin/libraries/prim-language/examples/call1" (make-bytes 179)]
                 [#"bazel-out/k8-fastbuild/bin/libraries/prim-language/examples/call2" (make-bytes 207)]
+                [#"bazel-out/k8-fastbuild/bin/libraries/prim-language/examples/call3" (make-bytes 239)]
                 [_ (make-bytes 5)])])
         (let ([symbols
                 (ann (List Bytes)
@@ -383,24 +384,43 @@
                      (varargs list #"f")]
                     [#"bazel-out/k8-fastbuild/bin/libraries/prim-language/examples/call2"
                      (varargs list #"fun")]
+                    [#"bazel-out/k8-fastbuild/bin/libraries/prim-language/examples/call3"
+                     (varargs list #"fun")]
                     [_ (empty)]))])
-          (begin
-            (write-all-bytes (serialize-elf-executable text-section-contents symbols) p)
-            (nothing)))))))
+          (let ([local-symbols
+                  (ann (List Bytes)
+                    (case output-file-name
+                      [#"bazel-out/k8-fastbuild/bin/libraries/prim-language/examples/call1"
+                       (empty)]
+                      [#"bazel-out/k8-fastbuild/bin/libraries/prim-language/examples/call2"
+                       (empty)]
+                      [#"bazel-out/k8-fastbuild/bin/libraries/prim-language/examples/call3"
+                       (varargs list #"main_2")]
+                      [_ (empty)]))])
+            (begin
+              (write-all-bytes (serialize-elf-executable text-section-contents symbols local-symbols) p)
+              (nothing))))))))
 
 (define (serialize-elf-executable
           [text-section-contents : Bytes]
-          [symbols : (List Bytes)]) : Bytes
+          [symbols : (List Bytes)]
+          [local-symbols : (List Bytes)]) : Bytes
   (match-define text-section-length (bytes-length text-section-contents))
-  (match-define symbols-length (+ (sum bytes-length symbols) (length symbols)))
+  (match-define symbols-length
+                (+ (+ (sum bytes-length symbols) (length symbols))
+                   (+ (sum bytes-length local-symbols) (length local-symbols))))
   (match-define rounded-symbols-length (round-up symbols-length 8))
 
   ;; Long text section includes the LLD version number
   (match-define long-text-section-length (+ text-section-length 18))
   (match-define rounded-long-text-section-length (round-up long-text-section-length 8))
 
+  (match-define num-symbol-table-entries (+ 8 (+ (length local-symbols) (length symbols))))
+  (match-define symbol-table-size (* #x18 num-symbol-table-entries))
+
   (match-define section-header-offset
-                (+ #x1140 (+ rounded-long-text-section-length rounded-symbols-length)))
+                (+ #x1068 (+ symbol-table-size
+                             (+ rounded-long-text-section-length rounded-symbols-length))))
 
   (bytes-append
     (jl->list
@@ -476,7 +496,13 @@
 
         (varargs append-jl*
           (symbol-table-entry 0 0 0 0)
-          (symbol-table-entry 1 0 1 #x201065)
+          (symbol-table-entry 1 0 1 #x201065))
+        (concat-jl
+          (map
+            (lambda ([x : Bytes])
+              (symbol-table-entry 62 #x10 1 #x201080))
+            local-symbols))
+        (varargs append-jl*
           (symbol-table-entry 0 3 1 #x201000)
           (symbol-table-entry 0 3 2 0)
           (symbol-table-entry 18 #x10 1 #x201000)
@@ -492,7 +518,17 @@
               (single-jl (make-null-terminated s)))
             (varargs list
               #""
-              #"prim_start_panic"
+              #"prim_start_panic")))
+        (concat-jl
+          (map
+            (lambda ([s : Bytes])
+              (single-jl (make-null-terminated s)))
+            local-symbols))
+        (concat-jl
+          (map
+            (lambda ([s : Bytes])
+              (single-jl (make-null-terminated s)))
+            (varargs list
               #"_start"
               #"start_break"
               #"main"
@@ -519,11 +555,12 @@
         (single-jl (make-bytes (* 16 4))) ;; Empty section header
         (section-header 27 1 6 #x201000 #x1000 text-section-length 0 0 #x10 0)
         (section-header 33 1 #x30 0 (+ #x1000 text-section-length) #x12 0 0 1 1)
-        (section-header 1 2 0 0 (+ #x1000 rounded-long-text-section-length) #xD8 4 4 #x08 #x18)
-        (section-header 9 3 0 0 (+ #x10D8 rounded-long-text-section-length)
-                        (+ 62 symbols-length)
+        (section-header 1 2 0 0 (+ #x1000 rounded-long-text-section-length) symbol-table-size 4
+                        (+ (length local-symbols) 4) #x08 #x18)
+        (section-header 9 3 0 0 (+ #x1000 (+ rounded-long-text-section-length symbol-table-size))
+                                (+ 62 symbols-length)
                         0 0 1 0)
-        (section-header 17 3 0 0 (+ #x1116 (+ rounded-long-text-section-length
+        (section-header 17 3 0 0 (+ #x103e (+ (+ rounded-long-text-section-length symbol-table-size)
                                               symbols-length)) #x2a 0 0 1 0)
 
       ))))
