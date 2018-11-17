@@ -74,20 +74,8 @@
   (match-define ordered-text-relocations
     (order-relocations text-relocations))
 
-  (match-define (tuple2 rev-offset-symbols (lifted-int string-table-size))
-    : (Tuple2 (List (Tuple2 Bytes LiftedInt)) LiftedInt)
-    (foldl
-      (lambda ([s : Bytes] [acc : (Tuple2 (List (Tuple2 Bytes LiftedInt)) LiftedInt)])
-        (case acc
-          [(tuple2 offset-symbols (lifted-int current-offset))
-           (tuple2
-             (cons (tuple2 s (lifted-int current-offset)) offset-symbols)
-             (lifted-int (+ current-offset (+ 1 (bytes-length s)))))]))
-      ordered-symbols
-      (tuple2
-        (ann (List (Tuple2 Bytes LiftedInt)) (empty))
-        (lifted-int 1))))
-  (match-define offset-symbols (reverse rev-offset-symbols))
+  (match-define (tuple2 offset-symbols (lifted-int string-table-size))
+    (compute-string-table-offsets ordered-symbols))
   (match-define symbol-locations : (Dict Bytes LiftedInt)
     (dict-add-all
       (dict-add-all
@@ -368,6 +356,23 @@
         (order-relocations* relocations (cons rel rev-non-branch-relocations)
                             rev-branch-relocations)])]))
 
+(define (compute-string-table-offsets [strings : (List Bytes)])
+  : (Tuple2 (List (Tuple2 Bytes LiftedInt)) LiftedInt)
+  (match-define (tuple2 rev-offset-strings string-table-size)
+    (foldl
+      (lambda ([s : Bytes] [acc : (Tuple2 (List (Tuple2 Bytes LiftedInt)) LiftedInt)])
+        (case acc
+          [(tuple2 offset-strings (lifted-int current-offset))
+           (tuple2
+             (cons (tuple2 s (lifted-int current-offset)) offset-strings)
+             (lifted-int (+ current-offset (+ 1 (bytes-length s)))))]))
+      strings
+      (tuple2
+        (ann (List (Tuple2 Bytes LiftedInt)) (empty))
+        (lifted-int 1))))
+  (tuple2 (reverse rev-offset-strings) string-table-size))
+
+
 (define (write-elf-executable [output-file-name : Bytes]) : (Maybe Bytes)
   (call-with-output-file output-file-name
     (lambda ([p : OutputPort])
@@ -410,20 +415,47 @@
                 (+ (sum bytes-length local-symbols) (length local-symbols)))
   (match-define global-symbols-length
                 (+ (sum bytes-length symbols) (length symbols)))
-  (match-define symbols-length
-                (+ local-symbols-length global-symbols-length))
-  (match-define rounded-symbols-length (round-up symbols-length 8))
+  (match-define (tuple2 offset-symbols (lifted-int string-table-size))
+    (compute-string-table-offsets
+      (append
+        (append
+          (varargs list
+            #"prim_start_panic")
+          local-symbols)
+        (append
+          (varargs list
+            #"_start"
+            #"start_break"
+            #"main"
+            #"yprim_heap_allocate")
+            symbols))))
+  (match-define rounded-string-table-size (round-up string-table-size 8))
+
+
 
   ;; Long text section includes the LLD version number
   (match-define long-text-section-length (+ text-section-length 18))
   (match-define rounded-long-text-section-length (round-up long-text-section-length 8))
 
+  (match-define symbol-table-start rounded-long-text-section-length)
   (match-define num-symbol-table-entries (+ 8 (+ (length local-symbols) (length symbols))))
   (match-define symbol-table-size (* #x18 num-symbol-table-entries))
 
-  (match-define section-header-offset
-                (+ #x1068 (+ symbol-table-size
-                             (+ rounded-long-text-section-length rounded-symbols-length))))
+  (match-define string-table-start (round-up (+ symbol-table-start symbol-table-size) 8))
+  (match-define section-string-table-start
+     (+ string-table-start string-table-size))
+  (match-define section-string-table-size
+    #x2a)
+  (match-define section-string-table-end
+    (+ section-string-table-start section-string-table-size))
+  (match-define section-header-start
+    (round-up (+ section-string-table-start section-string-table-size) 8))
+  (match-define section-header-padding
+    (- section-header-start section-string-table-end))
+
+
+
+  (match-define section-header-offset (+ #x1000 section-header-start))
 
   (bytes-append
     (jl->list
@@ -553,17 +585,15 @@
               #".text"
               #".comment")))
 
-        (single-jl (make-bytes (- rounded-symbols-length symbols-length)))
 
+        (single-jl (make-bytes section-header-padding))
         (single-jl (make-bytes (* 16 4))) ;; Empty section header
         (section-header 27 1 6 #x201000 #x1000 text-section-length 0 0 #x10 0)
         (section-header 33 1 #x30 0 (+ #x1000 text-section-length) #x12 0 0 1 1)
         (section-header 1 2 0 0 (+ #x1000 rounded-long-text-section-length) symbol-table-size 4
                         (+ (length local-symbols) 4) #x08 #x18)
-        (section-header 9 3 0 0 (+ #x1000 (+ rounded-long-text-section-length symbol-table-size))
-                                (+ 62 symbols-length)
+        (section-header 9 3 0 0 (+ #x1000 string-table-start) string-table-size
                         0 0 1 0)
-        (section-header 17 3 0 0 (+ #x103e (+ (+ rounded-long-text-section-length symbol-table-size)
-                                              symbols-length)) #x2a 0 0 1 0)
+        (section-header 17 3 0 0 (+ #x1000 section-string-table-start) section-string-table-size 0 0 1 0)
 
       ))))
