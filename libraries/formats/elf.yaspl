@@ -429,6 +429,8 @@
             #"main"
             #"yprim_heap_allocate")
             symbols))))
+  (match-define offset-symbols-dict : (Dict Bytes LiftedInt)
+    (dict-add-all (make-dict bytes-cmp) offset-symbols))
 
   ;; Long text section includes the LLD version number
   (match-define long-text-section-length (+ text-section-length 18))
@@ -526,22 +528,33 @@
         (single-jl (make-bytes (- rounded-long-text-section-length
                                   long-text-section-length)))
 
-        (varargs append-jl*
-          (symbol-table-entry 0 0 0 0)
-          (symbol-table-entry 1 0 1 #x201065))
+
+        (symbol-table-entry 0 0 0 0)
+        (symbol-table-entry 1 0 1 #x201065)
         (concat-jl
           (map
             (lambda ([x : Bytes])
               (symbol-table-entry 18 #x00 1 #x2010db))
             local-symbols))
-        (varargs append-jl*
-          (symbol-table-entry 0 3 1 #x201000)
-          (symbol-table-entry 0 3 2 0)
-          (symbol-table-entry (+ 18 local-symbols-length) #x10 1 #x201000)
-          (symbol-table-entry (+ 25 local-symbols-length) #x10 1 #x201010)
-          (symbol-table-entry (+ 37 local-symbols-length) #x10 1 #x2010a0)
-          (symbol-table-entry (+ 42 local-symbols-length) #x10 1 #x201070)
-          (symbol-table-entry (+ 62 local-symbols-length) #x10 1 #x201080))
+        (symbol-table-entry 0 3 1 #x201000)
+        (symbol-table-entry 0 3 2 0)
+        (concat-jl
+          (map
+            (lambda ([t : (Tuple2 Bytes LiftedInt)])
+              (case t
+                [(tuple2 sym (lifted-int addr))
+                 (symbol-table-entry
+                   (case (dict-ref offset-symbols-dict sym)
+                     [(nothing) (panic/int #"No symbol")]
+                     [(just (lifted-int v)) v])
+                   #x10 1 addr)]))
+            (ann (List (Tuple2 Bytes LiftedInt))
+              (varargs list
+                (tuple2 #"_start" (lifted-int #x201000))
+                (tuple2 #"start_break" (lifted-int #x201010))
+                (tuple2 #"main" (lifted-int #x2010a0))
+                (tuple2 #"yprim_heap_allocate" (lifted-int #x201070))))))
+        (symbol-table-entry (+ 62 local-symbols-length) #x10 1 #x201080)
 
 
         (single-jl (make-null-terminated #""))
