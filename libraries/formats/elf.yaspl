@@ -383,14 +383,17 @@
                 [#"bazel-out/k8-fastbuild/bin/libraries/prim-language/examples/call3" (make-bytes 239)]
                 [_ (make-bytes 5)])])
         (let ([symbols
-                (ann (List Bytes)
+                (ann (List (Tuple2 Bytes LiftedInt))
                   (case output-file-name
                     [#"bazel-out/k8-fastbuild/bin/libraries/prim-language/examples/call1"
-                     (varargs list #"f")]
+                     (varargs list
+                       (tuple2 #"f" (lifted-int #x201080)))]
                     [#"bazel-out/k8-fastbuild/bin/libraries/prim-language/examples/call2"
-                     (varargs list #"fun")]
+                     (varargs list
+                       (tuple2 #"fun" (lifted-int #x201080)))]
                     [#"bazel-out/k8-fastbuild/bin/libraries/prim-language/examples/call3"
-                     (varargs list #"fun")]
+                     (varargs list
+                       (tuple2 #"fun" (lifted-int #x201080)))]
                     [_ (empty)]))])
           (let ([local-symbols
                   (ann (List Bytes)
@@ -408,13 +411,9 @@
 
 (define (serialize-elf-executable
           [text-section-contents : Bytes]
-          [symbols : (List Bytes)]
+          [global-symbols : (List (Tuple2 Bytes LiftedInt))]
           [local-symbols : (List Bytes)]) : Bytes
   (match-define text-section-length (bytes-length text-section-contents))
-  (match-define local-symbols-length
-                (+ (sum bytes-length local-symbols) (length local-symbols)))
-  (match-define global-symbols-length
-                (+ (sum bytes-length symbols) (length symbols)))
   (match-define (tuple2 offset-symbols (lifted-int string-table-size))
     (compute-string-table-offsets
       (append
@@ -428,7 +427,10 @@
             #"start_break"
             #"main"
             #"yprim_heap_allocate")
-            symbols))))
+            (map
+              (lambda ([v : (Tuple2 Bytes LiftedInt)])
+                (case v [(tuple2 sym _) sym]))
+              global-symbols)))))
   (match-define offset-symbols-dict : (Dict Bytes LiftedInt)
     (dict-add-all (make-dict bytes-cmp) offset-symbols))
 
@@ -437,7 +439,7 @@
   (match-define rounded-long-text-section-length (round-up long-text-section-length 8))
 
   (match-define symbol-table-start rounded-long-text-section-length)
-  (match-define num-symbol-table-entries (+ 8 (+ (length local-symbols) (length symbols))))
+  (match-define num-symbol-table-entries (+ 8 (+ (length local-symbols) (length global-symbols))))
   (match-define symbol-table-size (* #x18 num-symbol-table-entries))
 
   (match-define string-table-start (round-up (+ symbol-table-start symbol-table-size) 8))
@@ -554,7 +556,17 @@
                 (tuple2 #"start_break" (lifted-int #x201010))
                 (tuple2 #"main" (lifted-int #x2010a0))
                 (tuple2 #"yprim_heap_allocate" (lifted-int #x201070))))))
-        (symbol-table-entry (+ 62 local-symbols-length) #x10 1 #x201080)
+        (concat-jl
+          (map
+            (lambda ([v : (Tuple2 Bytes LiftedInt)])
+              (case v
+                [(tuple2 sym (lifted-int addr))
+                 (symbol-table-entry
+                   (case (dict-ref offset-symbols-dict sym)
+                     [(nothing) (panic/int #"No symbol")]
+                     [(just (lifted-int v)) v])
+                   #x10 1 addr)]))
+            global-symbols))
 
 
         (single-jl (make-null-terminated #""))
