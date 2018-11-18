@@ -28,9 +28,24 @@
 (types
   (define-type ElfFile
     (elf-file
-      [header : ElfHeader]))
+      [header : ElfHeader]
+      [raw-content : Bytes]))
   (define-type ElfHeader
-    (elf-header))
+    (elf-header
+      [section-header-offset : Int]))
+  (define-type SectionHeader
+    (section-header
+      [name-offset : Int]
+      [section-type : Int]
+      [section-attributes : Int]
+      [section-addr : Int]
+      [section-offset : Int]
+      [section-size : Int]
+      [section-info : Int]
+      [section-link : Int]
+      [section-addr-align : Int]
+      [section-entry-size : Int]))
+
 
   (define-type SymbolReference
     (symbol-reference
@@ -244,21 +259,21 @@
         (single-jl (make-bytes (* 16 4))) ;; Empty section header
         (if using-rela-text-section
             (varargs append-jl*
-              (section-header 32 1 6 0 #x40 text-section-length 0 0
+              (section-header/bytes 32 1 6 0 #x40 text-section-length 0 0
                               (logical-shift-left 1 text-section-alignment) 0)
-              (section-header 27 4 64 0 rela-text-section-start
+              (section-header/bytes 27 4 64 0 rela-text-section-start
                               (* #x18 (length text-relocations)) 5 1 8 #x18)
-              (section-header 38 1 3 0 (+ #x40 text-section-length) 0 0 0 1 0)
-              (section-header 44 8 3 0 (+ #x40 text-section-length) 0 0 0 1 0))
+              (section-header/bytes 38 1 3 0 (+ #x40 text-section-length) 0 0 0 1 0)
+              (section-header/bytes 44 8 3 0 (+ #x40 text-section-length) 0 0 0 1 0))
             (varargs append-jl*
-              (section-header 27 1 6 0 #x40 text-section-length 0 0 1 0)
-              (section-header 33 1 3 0 (+ #x40 text-section-length) 0 0 0 1 0)
-              (section-header 39 8 3 0 (+ #x40 text-section-length) 0 0 0 1 0)))
+              (section-header/bytes 27 1 6 0 #x40 text-section-length 0 0 1 0)
+              (section-header/bytes 33 1 3 0 (+ #x40 text-section-length) 0 0 0 1 0)
+              (section-header/bytes 39 8 3 0 (+ #x40 text-section-length) 0 0 0 1 0)))
         (let ([symbol-table-section-number (if using-rela-text-section 6 5)])
-          (section-header 1 2 0 0 symbol-table-start symbol-table-size symbol-table-section-number
-                          (+ 4 (length text-local-symbols)) 8 24))
-        (section-header 9 3 0 0 string-table-start string-table-size 0 0 1 0)
-        (section-header 17 3 0 0 section-string-table-start section-string-table-size 0 0 1 0)
+          (section-header/bytes 1 2 0 0 symbol-table-start symbol-table-size symbol-table-section-number
+                                (+ 4 (length text-local-symbols)) 8 24))
+        (section-header/bytes 9 3 0 0 string-table-start string-table-size 0 0 1 0)
+        (section-header/bytes 17 3 0 0 section-string-table-start section-string-table-size 0 0 1 0)
         ))))
 
 (define (bytes/u16-le [v : Int]) : Bytes
@@ -281,7 +296,7 @@
     b))
 
 
-(define (section-header
+(define (section-header/bytes
           [name-offset : Int]
           [section-type : Int]
           [section-flags : Int]
@@ -596,13 +611,13 @@
 
         (single-jl (make-bytes section-header-padding))
         (single-jl (make-bytes (* 16 4))) ;; Empty section header
-        (section-header 27 1 6 #x201000 #x1000 text-section-length 0 0 #x10 0)
-        (section-header 33 1 #x30 0 (+ #x1000 text-section-length) #x12 0 0 1 1)
-        (section-header 1 2 0 0 (+ #x1000 rounded-long-text-section-length) symbol-table-size 4
-                        (+ (length local-symbols) 3) #x08 #x18)
-        (section-header 9 3 0 0 (+ #x1000 string-table-start) string-table-size
-                        0 0 1 0)
-        (section-header 17 3 0 0 (+ #x1000 section-string-table-start) section-string-table-size 0 0 1 0)
+        (section-header/bytes 27 1 6 #x201000 #x1000 text-section-length 0 0 #x10 0)
+        (section-header/bytes 33 1 #x30 0 (+ #x1000 text-section-length) #x12 0 0 1 1)
+        (section-header/bytes 1 2 0 0 (+ #x1000 rounded-long-text-section-length) symbol-table-size 4
+                              (+ (length local-symbols) 3) #x08 #x18)
+        (section-header/bytes 9 3 0 0 (+ #x1000 string-table-start) string-table-size
+                              0 0 1 0)
+        (section-header/bytes 17 3 0 0 (+ #x1000 section-string-table-start) section-string-table-size 0 0 1 0)
 
       ))))
 
@@ -613,18 +628,17 @@
       (case 3
         [_
          (match-define magic-number (bytes-ref/quad-le raw-content 0))
-         (match-define bit-size (bytes-ref raw-content 4))
-         (match-define endianness (bytes-ref raw-content 5))
-         (match-define first-version (bytes-ref raw-content 6))
-         (match-define os-abi (bytes-ref raw-content 7))
-         (match-define os-abi-version (bytes-ref raw-content 8))
+         (match-define bit-size (u8->s64 (bytes-ref raw-content 4)))
+         (match-define endianness (u8->s64 (bytes-ref raw-content 5)))
+         (match-define first-version (u8->s64 (bytes-ref raw-content 6)))
+         (match-define os-abi (u8->s64 (bytes-ref raw-content 7)))
          ;; padding
          (match-define object-type (bytes-ref/u16-le raw-content 16))
          (match-define instruction-set (bytes-ref/u16-le raw-content 18))
          (match-define second-version (bytes-ref/quad-le raw-content 20))
-         (match-define entry-point (bytes-ref/u64-le raw-content 24))
-         (match-define program-header-offset (bytes-ref/u64-le raw-content 32))
-         (match-define section-header-offset (bytes-ref/u64-le raw-content 40))
+         (match-define entry-point (u64->s64 (bytes-ref/u64-le raw-content 24)))
+         (match-define program-header-offset (u64->s64 (bytes-ref/u64-le raw-content 32)))
+         (match-define section-header-offset (u64->s64 (bytes-ref/u64-le raw-content 40)))
          (match-define flags (bytes-ref/quad-le raw-content 48))
          (match-define header-size (bytes-ref/u16-le raw-content 52))
          (match-define program-header-table-entry-size (bytes-ref/u16-le raw-content 54))
@@ -633,5 +647,60 @@
          (match-define section-header-table-num-entries (bytes-ref/u16-le raw-content 60))
          (match-define section-names-index (bytes-ref/u16-le raw-content 62))
          (if (not (= magic-number #x464c457f))
-             (left #"File doesn't start with correct magic number")
-             (right (elf-file (elf-header))))])))
+             (left #"ELF file doesn't start with correct magic number")
+             (if (not (= bit-size 2))
+                 (left #"ELF file isn't 64 bit")
+             (if (not (= endianness 1))
+                 (left #"ELF file isn't little endian")
+             (if (not (= first-version 1))
+                 (left #"ELF file version (1) isn't 1")
+             (if (not (= os-abi 0))
+                 (left #"ELF file os abi is set unexpectedly")
+             (if (not (= object-type 1))
+                 (left #"ELF file isn't a relocatable object")
+             (if (not (= instruction-set #x3E))
+                 (left #"ELF file's instruction set is not x86_64")
+             (if (not (= second-version 1))
+                 (left #"ELF file's version (2) isn't 1")
+             (if (not (= entry-point 0))
+                 (left #"ELF file's entry point isn't 0")
+             (if (not (= program-header-offset 0))
+                 (left #"ELF file's program header offset isn't 0")
+             (if (not (= flags 0))
+                 (left #"ELF file has unknown flags set")
+             (if (not (= header-size 64))
+                 (left #"ELF file's header-size is not 64")
+             (if (not (= program-header-table-entry-size 0))
+                 (left #"ELF file's program header table entry size is not zero")
+             (if (not (= program-header-table-num-entries 0))
+                 (left #"ELF file's number of program header entries is not zero")
+             (if (not (= section-header-table-entry-size #x40))
+                 (left #"ELF file's section header table entry size is not 64")
+             (if (not (= section-header-table-num-entries 8))
+                 (left #"ELF file's number of section header table enties is not 8")
+             (if (not (= section-names-index 7))
+                 (left #"ELF file's section header names table is not section 7")
+                 (right (elf-file (elf-header section-header-offset) raw-content)))))))))))))))))))])))
+
+(define (parse-section-header [contents : Bytes] [offset : Int]) : SectionHeader
+  (match-define name-offset (bytes-ref/quad-le contents (+ offset 0)))
+  (match-define section-type (bytes-ref/quad-le contents (+ offset 4)))
+  (match-define section-attributes (u64->s64 (bytes-ref/u64-le contents (+ offset 8))))
+  (match-define section-addr (u64->s64 (bytes-ref/u64-le contents (+ offset 16))))
+  (match-define section-offset (u64->s64 (bytes-ref/u64-le contents (+ offset 24))))
+  (match-define section-size (u64->s64 (bytes-ref/u64-le contents (+ offset 32))))
+  (match-define section-info (bytes-ref/quad-le contents (+ offset 40)))
+  (match-define section-link (bytes-ref/quad-le contents (+ offset 44)))
+  (match-define section-addr-align (u64->s64 (bytes-ref/u64-le contents (+ offset 48))))
+  (match-define section-entry-size (u64->s64 (bytes-ref/u64-le contents (+ offset 56))))
+  (section-header
+    name-offset
+    section-type
+    section-attributes
+    section-addr
+    section-offset
+    section-size
+    section-info
+    section-link
+    section-addr-align
+    section-entry-size))
