@@ -5,6 +5,7 @@
   (data indexed-set)
   (data lifted-primitives)
   (dict)
+  (either)
   (io)
   (join-list)
   (list)
@@ -18,12 +19,19 @@
   (tuples)
 }
 (export
-  (#:types)
+  (#:types ElfFile ElfHeader)
   (#:values
      serialize-elf-library
-     write-elf-executable)
+     write-elf-executable
+     read-elf)
   (#:patterns))
 (types
+  (define-type ElfFile
+    (elf-file
+      [header : ElfHeader]))
+  (define-type ElfHeader
+    (elf-header))
+
   (define-type SymbolReference
     (symbol-reference
       [symbol : Bytes]
@@ -597,3 +605,33 @@
         (section-header 17 3 0 0 (+ #x1000 section-string-table-start) section-string-table-size 0 0 1 0)
 
       ))))
+
+(define (read-elf [input : InputPort]) : (Either Bytes ElfFile)
+  (match-define raw-content (read-all-bytes input))
+  (if (< (bytes-length raw-content) 64)
+      (left #"Elf file is too short")
+      (case 3
+        [_
+         (match-define magic-number (bytes-ref/quad-le raw-content 0))
+         (match-define bit-size (bytes-ref raw-content 4))
+         (match-define endianness (bytes-ref raw-content 5))
+         (match-define first-version (bytes-ref raw-content 6))
+         (match-define os-abi (bytes-ref raw-content 7))
+         (match-define os-abi-version (bytes-ref raw-content 8))
+         ;; padding
+         (match-define object-type (bytes-ref/u16-le raw-content 16))
+         (match-define instruction-set (bytes-ref/u16-le raw-content 18))
+         (match-define second-version (bytes-ref/quad-le raw-content 20))
+         (match-define entry-point (bytes-ref/u64-le raw-content 24))
+         (match-define program-header-offset (bytes-ref/u64-le raw-content 32))
+         (match-define section-header-offset (bytes-ref/u64-le raw-content 40))
+         (match-define flags (bytes-ref/quad-le raw-content 48))
+         (match-define header-size (bytes-ref/u16-le raw-content 52))
+         (match-define program-header-table-entry-size (bytes-ref/u16-le raw-content 54))
+         (match-define program-header-table-num-entries (bytes-ref/u16-le raw-content 56))
+         (match-define section-header-table-entry-size (bytes-ref/u16-le raw-content 58))
+         (match-define section-header-table-num-entries (bytes-ref/u16-le raw-content 60))
+         (match-define section-names-index (bytes-ref/u16-le raw-content 62))
+         (if (not (= magic-number #x464c457f))
+             (left #"File doesn't start with correct magic number")
+             (right (elf-file (elf-header))))])))
