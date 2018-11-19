@@ -1,14 +1,14 @@
 #:module (structured-elf)
 #:import {
   (aligned-bytes)
-  (either)
-  (maybe)
-  (tuples)
   (bytes)
+  (either)
   (formats elf)
   (list)
+  (maybe)
   (prim)
   (structured-native-code)
+  (tuples)
 }
 (export
   (#:types ElfRelocationKind)
@@ -68,7 +68,26 @@
        [(left v) (left v)]
         [(right strtab-section-header)
          (match-define raw-contents (elf-file-raw-contents e))
-         (right (tuple2 (empty) (empty)))])]))
+         (case (parse-elf-symbol-table symtab-section-header raw-contents)
+           [(left v) (left v)]
+           [(right symbol-table-entries)
+            ;; TODO actually figure out what the right symbols are
+            (match-define text-symbols (drop 4 symbol-table-entries))
+            (match-define defined-text-symbols
+              (map
+                (lambda ([s : SymbolTableEntry])
+                  (case s
+                    [(symbol-table-entry name-offset value size)
+                     (defined-symbol
+                       (read-null-terminated-bytes
+                         raw-contents
+                         (+ (section-header-section-offset strtab-section-header)
+                            name-offset))
+                       value)]))
+                text-symbols))
+            (match-define num-local-symbols (- (section-header-section-info symtab-section-header) 4))
+            (right (tuple2 (take num-local-symbols defined-text-symbols)
+                           (drop num-local-symbols defined-text-symbols)))])])]))
 
 (define (find-named-section-header [e : ElfFile] [name : Bytes]) : (Either Bytes SectionHeader)
   (match-define (elf-file sections section-name-index raw-contents) e)

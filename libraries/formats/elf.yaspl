@@ -7,16 +7,19 @@
   (prim)
 }
 (export
-  (#:types ElfFile SectionHeader)
+  (#:types ElfFile SectionHeader SymbolTableEntry)
   (#:values
      read-elf
+     parse-elf-symbol-table
      elf-file-raw-contents
      section-header-name-offset
      section-header-section-size
-     section-header-section-offset)
+     section-header-section-offset
+     section-header-section-info)
   (#:patterns
      elf-file
-     section-header))
+     section-header
+     symbol-table-entry))
 (types
   (define-type ElfFile
     (elf-file
@@ -34,7 +37,13 @@
       [section-info : Int]
       [section-link : Int]
       [section-addr-align : Int]
-      [section-entry-size : Int])))
+      [section-entry-size : Int]))
+  (define-type SymbolTableEntry
+    (symbol-table-entry
+      [name-offset : Int]
+      [value : Int]
+      [size : Int])))
+
 
 (define (read-elf [input : InputPort]) : (Either Bytes ElfFile)
   (match-define raw-contents (read-all-bytes input))
@@ -131,3 +140,27 @@
     section-link
     section-addr-align
     section-entry-size))
+
+(define (parse-elf-symbol-table [section-header : SectionHeader] [raw-contents : Bytes])
+  : (Either Bytes (List SymbolTableEntry))
+  (if (not (= (section-header-section-entry-size section-header) 24))
+      (left #"Symbol table entries must have a size of 24")
+      (right
+        (parse-elf-symbol-table/entries
+          (section-header-section-offset section-header)
+          (quotient (section-header-section-size section-header) 24)
+          raw-contents))))
+
+(define (parse-elf-symbol-table/entries [offset : Int] [remaining : Int] [raw-contents : Bytes])
+  : (List SymbolTableEntry)
+  (if (= remaining 0)
+      (empty)
+      (cons
+        (symbol-table-entry
+          (bytes-ref/quad-le raw-contents (+ offset 0)) ;; name
+          ;; info : 1 byte
+          ;; reserved : 1 byte
+          ;; section-table-index : 2 byte
+          (u64->s64 (bytes-ref/u64-le raw-contents (+ offset 8))) ;; value/address
+          (u64->s64 (bytes-ref/u64-le raw-contents (+ offset 16)))) ;; size
+        (parse-elf-symbol-table/entries (+ offset 24) (- remaining 1) raw-contents))))
