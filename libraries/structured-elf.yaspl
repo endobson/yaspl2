@@ -1,11 +1,12 @@
 #:module (structured-elf)
 #:import {
   (aligned-bytes)
-  (bytes)
   (either)
+  (maybe)
+  (tuples)
+  (bytes)
   (formats elf)
   (list)
-  (maybe)
   (prim)
   (structured-native-code)
 }
@@ -35,13 +36,16 @@
   (case (elf-file->text-contents elf)
     [(left v) (left v)]
     [(right text-contents)
-     (right
-       (parsed-elf
-         (program-section
-           (aligned-bytes text-contents 1)
-           (empty)
-           (empty)
-           (empty))))]))
+     (case (elf-file->symbols elf)
+       [(left v) (left v)]
+       [(right (tuple2 local-symbols global-symbols))
+        (right
+          (parsed-elf
+            (program-section
+              (aligned-bytes text-contents 1)
+              (empty)
+              global-symbols
+              local-symbols)))])]))
 
 (define (elf-file->text-contents [e : ElfFile]) : (Either Bytes Bytes)
   (match-define raw-contents (elf-file-raw-contents e))
@@ -53,6 +57,18 @@
                  (section-header-section-offset text-section-header)
                  (+ (section-header-section-offset text-section-header)
                     (section-header-section-size text-section-header))))]))
+
+
+(define (elf-file->symbols [e : ElfFile])
+  : (Either Bytes (Tuple2 (List DefinedSymbol) (List DefinedSymbol)))
+  (case (find-named-section-header e #".symtab")
+    [(left v) (left v)]
+    [(right symtab-section-header)
+     (case (find-named-section-header e #".strtab")
+       [(left v) (left v)]
+        [(right strtab-section-header)
+         (match-define raw-contents (elf-file-raw-contents e))
+         (right (tuple2 (empty) (empty)))])]))
 
 (define (find-named-section-header [e : ElfFile] [name : Bytes]) : (Either Bytes SectionHeader)
   (match-define (elf-file sections section-name-index raw-contents) e)

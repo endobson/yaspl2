@@ -481,6 +481,7 @@ yaspl_bootstrap_library(
         "//libraries/data:either",
         "//libraries/data:list",
         "//libraries/data:maybe",
+        "//libraries/data:tuples",
         "//libraries/formats:elf",
     ],
 )
