@@ -53,9 +53,9 @@ yaspl_bootstrap_binary(
     srcs = ["linker-main.yaspl"],
     deps = [
         ":io",
-        ":linker_lib",
         ":mach-o",
         ":mach-o-writer",
+        ":structured-mach-o",
         ":structured-native-code",
         "//libraries/data:either",
         "//libraries/data:list",
@@ -482,6 +482,7 @@ yaspl_bootstrap_library(
         ":mach-o",
         ":structured-native-code",
         "//libraries/data:aligned-bytes",
+        "//libraries/data:either",
         "//libraries/data:list",
         "//libraries/data:maybe",
     ],
