@@ -55,6 +55,7 @@ yaspl_bootstrap_binary(
         ":io",
         ":mach-o",
         ":mach-o-writer",
+        ":structured-elf",
         ":structured-mach-o",
         ":structured-native-code",
         "//libraries/data:either",
@@ -473,7 +474,13 @@ yaspl_bootstrap_library(
 yaspl_bootstrap_library(
     name = "structured-elf",
     srcs = ["structured-elf.yaspl"],
-    deps = [":structured-native-code"],
+    deps = [
+        ":structured-native-code",
+        "//libraries/data:aligned-bytes",
+        "//libraries/data:either",
+        "//libraries/data:list",
+        "//libraries/formats:elf",
+    ],
 )
 
 yaspl_bootstrap_library(

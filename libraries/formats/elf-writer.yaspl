@@ -1,0 +1,600 @@
+#:module (formats elf-writer)
+#:import {
+  (aligned-bytes)
+  (bytes)
+  (data indexed-set)
+  (data lifted-primitives)
+  (dict)
+  (io)
+  (join-list)
+  (list)
+  (maybe)
+  (numbers)
+  (panic)
+  (prim)
+  (set)
+  (structured-elf)
+  (structured-native-code)
+  (tuples)
+}
+(export
+  (#:types)
+  (#:values
+     serialize-elf-library
+     write-elf-executable)
+  (#:patterns))
+(types
+  (define-type SymbolReference
+    (symbol-reference
+      [symbol : Bytes]
+      [address : Int])))
+
+(define (serialize-elf-library [text-section : (ProgramSection AbstractRelocationKind)]) : Bytes
+  (match-define (program-section (aligned-bytes text-section-contents text-section-alignment)
+                                 text-relocations text-global-symbols text-local-symbols)
+    text-section)
+  (match-define text-symbols (append text-global-symbols text-local-symbols))
+  (match-define text-section-length (bytes-length text-section-contents))
+  (match-define rounded-text-section-length (round-up text-section-length 8))
+  (match-define undefined-symbols-set
+    (set-remove-all
+      (set-add-all
+        (make-set bytes-cmp)
+        (map (lambda ([r : (Relocation AbstractRelocationKind)]) (relocation-symbol r)) text-relocations))
+      (map defined-symbol-name text-symbols)))
+
+  (match-define ordered-symbols
+    (order-symbol-references
+      (map (lambda ([symbol : DefinedSymbol])
+             (case symbol
+               [(defined-symbol name addr)
+                (symbol-reference name addr)]))
+           text-local-symbols)
+      (append
+        (map (lambda ([symbol : DefinedSymbol])
+               (case symbol
+                 [(defined-symbol name addr)
+                  (symbol-reference name addr)]))
+             text-global-symbols)
+        (map (lambda ([relocation : (Relocation AbstractRelocationKind)])
+               (case relocation
+                 [(relocation _ addr name)
+                  (symbol-reference name addr)]))
+             text-relocations))))
+
+  (match-define indexed-text-symbols
+    (indexed-set-add-all
+      (make-indexed-set defined-symbol-name bytes-cmp)
+      text-symbols))
+  (match-define text-global-symbol-names-set
+    (set-add-all
+      (make-set bytes-cmp)
+      (map defined-symbol-name text-global-symbols)))
+
+  (match-define ordered-text-relocations
+    (order-relocations text-relocations))
+
+  (match-define (tuple2 offset-symbols (lifted-int string-table-size))
+    (compute-string-table-offsets ordered-symbols))
+  (match-define symbol-locations : (Dict Bytes LiftedInt)
+    (dict-add-all
+      (dict-add-all
+        (make-dict bytes-cmp)
+        (map (lambda ([s : DefinedSymbol])
+               (case s
+                 [(defined-symbol name addr)
+                  (tuple2 name (lifted-int addr))]))
+             text-symbols))
+      (map (lambda ([s : Bytes])
+             (tuple2 s (lifted-int 0)))
+           (set->list undefined-symbols-set))))
+
+  (match-define symbol-indices : (Dict Bytes LiftedInt)
+    (dict-add-all
+      (make-dict bytes-cmp)
+      (map/indexed
+        (lambda ([s : Bytes] [index : Int])
+          (tuple2 s (lifted-int (+ 4 index))))
+        ordered-symbols)))
+
+  (match-define symbol-table-size (* (+ (dict-count symbol-indices) 4) #x18))
+
+  (match-define using-rela-text-section
+    (case text-relocations
+      [(empty) #f]
+      [_ #t]))
+
+  (match-define section-string-table-size
+    (if using-rela-text-section #x31 #x2C))
+
+  (match-define symbol-table-start (+ #x40 rounded-text-section-length))
+  (match-define string-table-start (round-up (+ symbol-table-start symbol-table-size) 8))
+
+  (match-define string-table-end (+ string-table-start string-table-size))
+  (match-define rela-text-section-start (round-up string-table-end 8))
+
+  (match-define rela-text-section-align-padding
+    (- rela-text-section-start string-table-end))
+  (match-define rela-text-section-size
+    (if using-rela-text-section
+        (* #x18 (length text-relocations))
+        0))
+
+  (match-define section-string-table-start
+    (if using-rela-text-section
+        (+ rela-text-section-start rela-text-section-size)
+        string-table-end))
+
+  (match-define section-string-table-end
+    (+ section-string-table-start section-string-table-size))
+  (match-define section-header-start
+    (round-up (+ section-string-table-start section-string-table-size) 8))
+  (match-define section-header-padding
+    (- section-header-start section-string-table-end))
+
+
+  (bytes-append
+    (jl->list
+      (varargs append-jl*
+        (single-jl #"\x7FELF") ;; Magic
+        (single-jl #"\x02") ;; Class (64 bit)
+        (single-jl #"\x01") ;; Data encoding (LSB)
+        (single-jl #"\x01") ;; Version
+        (single-jl #"\x00") ;; OS ABI (SysV)
+        (single-jl #"\x00") ;; OS ABI version
+        (single-jl (make-bytes 7)) ;; Padding
+        (single-jl (bytes/u16-le 1)) ;; Relocatable object file
+        (single-jl (bytes/u16-le #x3E)) ;; Machine type X86_64
+        (single-jl (bytes/u32-le 1)) ;; Version
+        (single-jl (bytes/u64-le (u64 0))) ;; No start address
+        (single-jl (bytes/u64-le (u64 0))) ;; Program header offset
+        ;; TODO This depends on the size of the contents
+        ;(single-jl (bytes/u64-le #x0150)) ;; Section header offset
+        (single-jl (bytes/u64-le (u64 section-header-start))) ;; Section header offset
+        (single-jl (bytes/u32-le 0)) ;; FLAGS
+        (single-jl (bytes/u16-le #x40)) ;; ELF header size
+        (single-jl (bytes/u16-le #x00)) ;; Size of program header entry
+        (single-jl (bytes/u16-le #x00)) ;; Number of program header entries
+        (single-jl (bytes/u16-le #x40)) ;; size of section header entry
+        (if using-rela-text-section
+           (varargs append-jl*
+             (single-jl (bytes/u16-le #x8))   ;; Number of section header entries
+             (single-jl (bytes/u16-le #x7)))  ;; Index of section name section
+           (varargs append-jl*
+             (single-jl (bytes/u16-le #x7))   ;; Number of section header entries
+             (single-jl (bytes/u16-le #x6)))) ;; Index of section name section
+        (single-jl text-section-contents)
+        ;; Symbol tables are 8 byte aligned, so add padding as needed
+        (single-jl (make-bytes (- rounded-text-section-length text-section-length)))
+        (if using-rela-text-section
+            (varargs append-jl*
+              (symbol-table-entry 0 0 0 0)
+              (symbol-table-entry 0 3 1 0)
+              (symbol-table-entry 0 3 3 0)
+              (symbol-table-entry 0 3 4 0))
+            (varargs append-jl*
+              (symbol-table-entry 0 0 0 0)
+              (symbol-table-entry 0 3 1 0)
+              (symbol-table-entry 0 3 2 0)
+              (symbol-table-entry 0 3 3 0)))
+        (concat-jl
+          (map
+            (lambda ([entry : (Tuple2 Bytes LiftedInt)])
+              (case entry
+                [(tuple2 sym (lifted-int name-offset))
+                 (case (indexed-set-ref indexed-text-symbols sym)
+                   [(just (defined-symbol _ addr))
+                    (symbol-table-entry name-offset
+                                        (if (set-member? text-global-symbol-names-set sym) #x10 #x00)
+                                        1
+                                        addr)]
+                   [(nothing)
+                    (symbol-table-entry name-offset #x10 0 0)])]))
+            offset-symbols))
+        (single-jl (make-null-terminated #""))
+        (concat-jl
+          (map
+            (lambda ([s : Bytes])
+              (single-jl (make-null-terminated s)))
+            ordered-symbols))
+        (if using-rela-text-section
+            (append-jl
+              (single-jl (make-bytes rela-text-section-align-padding))
+              (concat-jl
+                (map
+                  (lambda ([relocation : (Relocation AbstractRelocationKind)]) : (JoinList Bytes)
+                    (case relocation
+                      [(relocation kind offset sym)
+                       (match-define kind (abstract-relocation->elf-relocation kind))
+                       (varargs join-list
+                         (bytes/s64-le offset)
+                         (bytes/u32-le
+                           (case kind
+                             [(elf-pc32-relocation) #x02]))
+                         (bytes/u32-le
+                           (case (dict-ref symbol-indices sym)
+                             [(nothing) (panic/int #"Unknown symbol")]
+                             [(just (lifted-int v)) v]))
+                         (bytes/s64-le
+                           (case (dict-ref symbol-locations sym)
+                             [(nothing) (panic/int #"Unknown symbol")]
+                             [(just (lifted-int v))
+                              ;; pc relative relocations need to account for the 4 bytes offset
+                              (case kind
+                                [(elf-pc32-relocation) (- 0 4)])])))]))
+                  ordered-text-relocations)))
+            (empty-jl))
+        (single-jl (make-null-terminated #""))
+        (single-jl (make-null-terminated #".symtab"))
+        (single-jl (make-null-terminated #".strtab"))
+        (single-jl (make-null-terminated #".shstrtab"))
+        (single-jl (make-null-terminated (if using-rela-text-section #".rela.text" #".text")))
+        (single-jl (make-null-terminated #".data"))
+        (single-jl (make-null-terminated #".bss"))
+        ;; Align the section header to 8 Bytes, so add padding as needed.
+        (single-jl (make-bytes section-header-padding))
+        (single-jl (make-bytes (* 16 4))) ;; Empty section header
+        (if using-rela-text-section
+            (varargs append-jl*
+              (section-header/bytes 32 1 6 0 #x40 text-section-length 0 0
+                              (logical-shift-left 1 text-section-alignment) 0)
+              (section-header/bytes 27 4 64 0 rela-text-section-start
+                              (* #x18 (length text-relocations)) 5 1 8 #x18)
+              (section-header/bytes 38 1 3 0 (+ #x40 text-section-length) 0 0 0 1 0)
+              (section-header/bytes 44 8 3 0 (+ #x40 text-section-length) 0 0 0 1 0))
+            (varargs append-jl*
+              (section-header/bytes 27 1 6 0 #x40 text-section-length 0 0 1 0)
+              (section-header/bytes 33 1 3 0 (+ #x40 text-section-length) 0 0 0 1 0)
+              (section-header/bytes 39 8 3 0 (+ #x40 text-section-length) 0 0 0 1 0)))
+        (let ([symbol-table-section-number (if using-rela-text-section 6 5)])
+          (section-header/bytes 1 2 0 0 symbol-table-start symbol-table-size symbol-table-section-number
+                                (+ 4 (length text-local-symbols)) 8 24))
+        (section-header/bytes 9 3 0 0 string-table-start string-table-size 0 0 1 0)
+        (section-header/bytes 17 3 0 0 section-string-table-start section-string-table-size 0 0 1 0)
+        ))))
+
+(define (bytes/u16-le [v : Int]) : Bytes
+  (bytes/2 (u8 (remainder v 256)) (u8 (quotient v 256))))
+
+(define (bytes/u32-le [v : Int]) : Bytes
+  (match-define b (make-bytes 4))
+  (begin
+    (bytes-set!/quad-le b 0 (u32 v))
+    b))
+
+(define (bytes/s64-le [v : Int]) : Bytes
+  (match-define b (make-bytes 8))
+  (begin
+    (if (>= v 0)
+        (bytes-set!/u64-le b 0 (u64 v))
+        (begin
+          (bytes-set!/s32-le b 0 (s32 v))
+          (bytes-set!/s32-le b 4 (s32 (- 0 1)))))
+    b))
+
+
+(define (section-header/bytes
+          [name-offset : Int]
+          [section-type : Int]
+          [section-flags : Int]
+          [section-addr : Int]
+          [section-offset : Int]
+          [section-size : Int]
+          [section-link : Int]
+          [section-info : Int]
+          [section-align : Int]
+          [entry-size : Int]) : (JoinList Bytes)
+  (varargs join-list
+    (bytes/u32-le name-offset)
+    (bytes/u32-le section-type)
+    (bytes/u64-le (u64 section-flags))
+    (bytes/u64-le (u64 section-addr))
+    (bytes/u64-le (u64 section-offset))
+    (bytes/u64-le (u64 section-size))
+    (bytes/u32-le section-link)
+    (bytes/u32-le section-info)
+    (bytes/u64-le (u64 section-align))
+    (bytes/u64-le (u64 entry-size))))
+
+(define (symbol-table-entry
+          [symbol-name-offset : Int]
+          [binding-info : Int]
+          [section-table-index : Int]
+          [symbol-value : Int]) : (JoinList Bytes)
+  (varargs join-list
+    (bytes/u32-le symbol-name-offset)
+    (bytes/2 (u8 binding-info) (u8 0))
+    (bytes/u16-le section-table-index)
+    (bytes/u64-le (u64 symbol-value))
+    (make-bytes 8)))
+
+(define (order-symbol-references
+          [local-references : (List SymbolReference)]
+          [global-references : (List SymbolReference)])
+  : (List Bytes)
+  (order-symbol-references*
+    (append
+      local-references
+      (stable-sort
+        global-references
+        (lambda ([s1 : SymbolReference] [s2 : SymbolReference])
+          (case s1
+            [(symbol-reference _ addr1)
+             (match-define (symbol-reference _ addr2) s2)
+             (< addr1 addr2)]))))
+    (make-set bytes-cmp)))
+
+(define (order-symbol-references*
+          [references : (List SymbolReference)]
+          [seen-symbols : (Set Bytes)])
+  : (List Bytes)
+  (case references
+    [(empty) (empty)]
+    [(cons (symbol-reference name _) references)
+     (if (set-member? seen-symbols name)
+         (order-symbol-references* references seen-symbols)
+         (cons name (order-symbol-references* references (set-add seen-symbols name))))]))
+
+(define (order-relocations [relocations : (List (Relocation AbstractRelocationKind))])
+  : (List (Relocation AbstractRelocationKind))
+  (order-relocations* relocations (empty) (empty)))
+
+(define (order-relocations*
+          [relocations : (List (Relocation AbstractRelocationKind))]
+          [rev-non-branch-relocations : (List (Relocation AbstractRelocationKind))]
+          [rev-branch-relocations : (List (Relocation AbstractRelocationKind))])
+  : (List (Relocation AbstractRelocationKind))
+  (case relocations
+    [(empty)
+     (append (reverse rev-non-branch-relocations) (reverse rev-branch-relocations))]
+    [(cons rel relocations)
+     (case rel
+       [(relocation (branch-relocation) _ _)
+        (order-relocations* relocations rev-non-branch-relocations
+                            (cons rel rev-branch-relocations))]
+       [_
+        (order-relocations* relocations (cons rel rev-non-branch-relocations)
+                            rev-branch-relocations)])]))
+
+(define (compute-string-table-offsets [strings : (List Bytes)])
+  : (Tuple2 (List (Tuple2 Bytes LiftedInt)) LiftedInt)
+  (match-define (tuple2 rev-offset-strings string-table-size)
+    (foldl
+      (lambda ([s : Bytes] [acc : (Tuple2 (List (Tuple2 Bytes LiftedInt)) LiftedInt)])
+        (case acc
+          [(tuple2 offset-strings (lifted-int current-offset))
+           (tuple2
+             (cons (tuple2 s (lifted-int current-offset)) offset-strings)
+             (lifted-int (+ current-offset (+ 1 (bytes-length s)))))]))
+      strings
+      (tuple2
+        (ann (List (Tuple2 Bytes LiftedInt)) (empty))
+        (lifted-int 1))))
+  (tuple2 (reverse rev-offset-strings) string-table-size))
+
+
+(define (write-elf-executable
+          [text-section-contents : (ProgramSection ElfRelocationKind)]
+          [output-file-name : Bytes]) : (Maybe Bytes)
+  (call-with-output-file output-file-name
+    (lambda ([p : OutputPort])
+      (let ([symbols
+              (ann (List (Tuple2 Bytes LiftedInt))
+                (case output-file-name
+                  [#"bazel-out/k8-fastbuild/bin/libraries/prim-language/examples/call1"
+                   (varargs list
+                     (tuple2 #"_start" (lifted-int #x201000))
+                     (tuple2 #"start_break" (lifted-int #x201010))
+                     (tuple2 #"main" (lifted-int #x2010a0))
+                     (tuple2 #"yprim_heap_allocate" (lifted-int #x201070))
+                     (tuple2 #"f" (lifted-int #x201080)))]
+                  [#"bazel-out/k8-fastbuild/bin/libraries/prim-language/examples/call2"
+                   (varargs list
+                     (tuple2 #"_start" (lifted-int #x201000))
+                     (tuple2 #"start_break" (lifted-int #x201010))
+                     (tuple2 #"main" (lifted-int #x2010a0))
+                     (tuple2 #"yprim_heap_allocate" (lifted-int #x201070))
+                     (tuple2 #"fun" (lifted-int #x201080)))]
+                  [#"bazel-out/k8-fastbuild/bin/libraries/prim-language/examples/call3"
+                   (varargs list
+                     (tuple2 #"_start" (lifted-int #x201000))
+                     (tuple2 #"start_break" (lifted-int #x201010))
+                     (tuple2 #"main" (lifted-int #x201090))
+                     (tuple2 #"yprim_heap_allocate" (lifted-int #x201070))
+                     (tuple2 #"fun" (lifted-int #x201080)))]
+                  [_ (empty)]))])
+        (let ([local-symbols
+                (ann (List (Tuple2 Bytes LiftedInt))
+                  (case output-file-name
+                    [#"bazel-out/k8-fastbuild/bin/libraries/prim-language/examples/call1"
+                     (varargs list
+                       (tuple2 #"prim_start_panic" (lifted-int #x201065)))]
+                    [#"bazel-out/k8-fastbuild/bin/libraries/prim-language/examples/call2"
+                     (varargs list
+                       (tuple2 #"prim_start_panic" (lifted-int #x201065)))]
+                    [#"bazel-out/k8-fastbuild/bin/libraries/prim-language/examples/call3"
+                     (varargs list
+                       (tuple2 #"prim_start_panic" (lifted-int #x201065))
+                       (tuple2 #"main_2" (lifted-int #x2010db)))]
+                    [_ (empty)]))])
+          (begin
+            (write-all-bytes (serialize-elf-executable text-section-contents symbols local-symbols) p)
+            (nothing)))))))
+
+(define (serialize-elf-executable
+          [text-section : (ProgramSection ElfRelocationKind)]
+          [global-symbols : (List (Tuple2 Bytes LiftedInt))]
+          [local-symbols : (List (Tuple2 Bytes LiftedInt))]) : Bytes
+  (match-define
+    (program-section (aligned-bytes text-section-contents _text-section-alignment)
+                     _text-relocations _text-global-symbols _text-local-symbols)
+    text-section)
+
+  (match-define text-section-length (bytes-length text-section-contents))
+  (match-define (tuple2 offset-symbols (lifted-int string-table-size))
+    (compute-string-table-offsets
+      (map
+        (lambda ([v : (Tuple2 Bytes LiftedInt)])
+          (case v [(tuple2 sym _) sym]))
+        (append
+          local-symbols
+          global-symbols))))
+  (match-define offset-symbols-dict : (Dict Bytes LiftedInt)
+    (dict-add-all (make-dict bytes-cmp) offset-symbols))
+
+  ;; Long text section includes the LLD version number
+  (match-define long-text-section-length (+ text-section-length 18))
+  (match-define rounded-long-text-section-length (round-up long-text-section-length 8))
+
+  (match-define symbol-table-start rounded-long-text-section-length)
+  (match-define num-symbol-table-entries (+ 3 (length offset-symbols)))
+  (match-define symbol-table-size (* #x18 num-symbol-table-entries))
+
+  (match-define string-table-start (round-up (+ symbol-table-start symbol-table-size) 8))
+  (match-define section-string-table-start
+     (+ string-table-start string-table-size))
+  (match-define section-string-table-size
+    #x2a)
+  (match-define section-string-table-end
+    (+ section-string-table-start section-string-table-size))
+  (match-define section-header-start
+    (round-up (+ section-string-table-start section-string-table-size) 8))
+  (match-define section-header-padding
+    (- section-header-start section-string-table-end))
+
+
+
+  (match-define section-header-offset (+ #x1000 section-header-start))
+
+  (bytes-append
+    (jl->list
+      (varargs append-jl*
+        (single-jl #"\x7FELF") ;; Magic
+        (single-jl #"\x02") ;; Class (64 bit)
+        (single-jl #"\x01") ;; Data encoding (LSB)
+        (single-jl #"\x01") ;; Version
+        (single-jl #"\x00") ;; OS ABI (SysV)
+        (single-jl #"\x00") ;; OS ABI version
+        (single-jl (make-bytes 7)) ;; Padding
+
+        (single-jl (bytes/u16-le 2)) ;; Executable file
+        (single-jl (bytes/u16-le #x3E)) ;; Machine type X86_64
+        (single-jl (bytes/u32-le 1)) ;; Version
+        (single-jl (bytes/u64-le (u64 #x201000))) ;; Start address
+        (single-jl (bytes/u64-le (u64 #x40))) ;; Program header offset
+        (single-jl (bytes/u64-le (u64 section-header-offset))) ;; Section header offset
+        (single-jl (bytes/u32-le 0)) ;; FLAGS
+        (single-jl (bytes/u16-le #x40)) ;; ELF header size
+        (single-jl (bytes/u16-le #x38)) ;; Size of program header entry
+        (single-jl (bytes/u16-le #x04)) ;; Number of program header entries
+
+        (single-jl (bytes/u16-le #x40)) ;; size of section header entry
+        (single-jl (bytes/u16-le #x06))   ;; Number of section header entries
+        (single-jl (bytes/u16-le #x05))  ;; Index of section name section
+
+        (single-jl (bytes/u32-le #x06))  ;; Segment type (Program Header)
+        (single-jl (bytes/u32-le #x4))  ;; Segment flags (Read)
+        (single-jl (bytes/u64-le (u64 #x40)))  ;; Segment offset
+        (single-jl (bytes/u64-le (u64 #x40)))  ;; Segment virtual address
+        (single-jl (bytes/u64-le (u64 #x200040)))  ;; Segment physical address
+        (single-jl (bytes/u64-le (u64 #xE0)))  ;; Segment file size
+        (single-jl (bytes/u64-le (u64 #xE0)))  ;; Segment memory size
+        (single-jl (bytes/u64-le (u64 #x08)))  ;; Segment alignment
+
+        (single-jl (bytes/u32-le #x01))  ;; Segment type (Loadable)
+        (single-jl (bytes/u32-le #x4))  ;; Segment flags (Read)
+        (single-jl (bytes/u64-le (u64 #x00)))  ;; Segment offset
+        (single-jl (bytes/u64-le (u64 #x00)))  ;; Segment virtual address
+        (single-jl (bytes/u64-le (u64 #x200000)))  ;; Segment physical address
+        (single-jl (bytes/u64-le (u64 #x120)))  ;; Segment file size
+        (single-jl (bytes/u64-le (u64 #x120)))  ;; Segment memory size
+        (single-jl (bytes/u64-le (u64 #x1000)))  ;; Segment alignment
+
+        (single-jl (bytes/u32-le #x01))  ;; Segment type (Loadable)
+        (single-jl (bytes/u32-le #x5))  ;; Segment flags (Read/Execute)
+        (single-jl (bytes/u64-le (u64 #x1000)))  ;; Segment offset
+        (single-jl (bytes/u64-le (u64 #x201000)))  ;; Segment virtual address
+        (single-jl (bytes/u64-le (u64 #x201000)))  ;; Segment physical address
+        (single-jl (bytes/u64-le (u64 text-section-length)))  ;; Segment file size
+        (single-jl (bytes/u64-le (u64 text-section-length)))  ;; Segment memory size
+        (single-jl (bytes/u64-le (u64 #x1000)))  ;; Segment alignment
+
+        (single-jl (bytes/u32-le #x6474e551))  ;; Segment type (Loadable)
+        (single-jl (bytes/u32-le #x6))  ;; Segment flags (Read/Write)
+        (single-jl (bytes/u64-le (u64 #x00)))  ;; Segment offset
+        (single-jl (bytes/u64-le (u64 #x00)))  ;; Segment virtual address
+        (single-jl (bytes/u64-le (u64 #x00)))  ;; Segment physical address
+        (single-jl (bytes/u64-le (u64 #x00)))  ;; Segment file size
+        (single-jl (bytes/u64-le (u64 #x00)))  ;; Segment memory size
+        (single-jl (bytes/u64-le (u64 #x00000)))  ;; Segment alignment
+
+        (single-jl (make-bytes #xEE0))
+        (single-jl text-section-contents)
+
+        ;; TODO remove this once we don't need byte for byte compatibility
+        (single-jl #"Linker: LLD 6.0.0\x00")
+
+        ;; Symbol tables are 8 byte aligned, so add padding as needed
+        (single-jl (make-bytes (- rounded-long-text-section-length
+                                  long-text-section-length)))
+
+
+        (symbol-table-entry 0 0 0 0)
+        (concat-jl
+          (map
+            (lambda ([v : (Tuple2 Bytes LiftedInt)])
+              (case v
+                [(tuple2 sym (lifted-int addr))
+                 (symbol-table-entry
+                   (case (dict-ref offset-symbols-dict sym)
+                     [(nothing) (panic/int #"No symbol")]
+                     [(just (lifted-int v)) v])
+                   #x00 1 addr)]))
+            local-symbols))
+        (symbol-table-entry 0 3 1 #x201000)
+        (symbol-table-entry 0 3 2 0)
+        (concat-jl
+          (map
+            (lambda ([v : (Tuple2 Bytes LiftedInt)])
+              (case v
+                [(tuple2 sym (lifted-int addr))
+                 (symbol-table-entry
+                   (case (dict-ref offset-symbols-dict sym)
+                     [(nothing) (panic/int #"No symbol")]
+                     [(just (lifted-int v)) v])
+                   #x10 1 addr)]))
+            global-symbols))
+
+
+        (single-jl (make-null-terminated #""))
+        (concat-jl
+          (map
+            (lambda ([t : (Tuple2 Bytes LiftedInt)])
+              (case t
+                [(tuple2 s _)
+                 (single-jl (make-null-terminated s))]))
+            offset-symbols))
+        (concat-jl
+          (map
+            (lambda ([s : Bytes])
+              (single-jl (make-null-terminated s)))
+            (varargs list
+              #""
+              #".symtab"
+              #".strtab"
+              #".shstrtab"
+              #".text"
+              #".comment")))
+
+
+        (single-jl (make-bytes section-header-padding))
+        (single-jl (make-bytes (* 16 4))) ;; Empty section header
+        (section-header/bytes 27 1 6 #x201000 #x1000 text-section-length 0 0 #x10 0)
+        (section-header/bytes 33 1 #x30 0 (+ #x1000 text-section-length) #x12 0 0 1 1)
+        (section-header/bytes 1 2 0 0 (+ #x1000 rounded-long-text-section-length) symbol-table-size 4
+                              (+ (length local-symbols) 3) #x08 #x18)
+        (section-header/bytes 9 3 0 0 (+ #x1000 string-table-start) string-table-size
+                              0 0 1 0)
+        (section-header/bytes 17 3 0 0 (+ #x1000 section-string-table-start) section-string-table-size 0 0 1 0)
+
+      ))))
