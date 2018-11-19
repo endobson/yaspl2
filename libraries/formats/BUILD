@@ -9,13 +9,24 @@ yaspl_bootstrap_library(
     srcs = ["elf.yaspl"],
     deps = [
         "//libraries:io",
+        "//libraries/data:bytes",
+        "//libraries/data:either",
+        "//libraries/data:list",
+        "//libraries/data:maybe",
+    ],
+)
+
+yaspl_bootstrap_library(
+    name = "elf-writer",
+    srcs = ["elf-writer.yaspl"],
+    deps = [
+        "//libraries:io",
         "//libraries:panic",
         "//libraries:structured-elf",
         "//libraries:structured-native-code",
         "//libraries/data:aligned-bytes",
         "//libraries/data:bytes",
         "//libraries/data:dict",
-        "//libraries/data:either",
         "//libraries/data:indexed-set",
         "//libraries/data:join-list",
         "//libraries/data:lifted-primitives",

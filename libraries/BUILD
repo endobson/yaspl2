@@ -61,6 +61,7 @@ yaspl_bootstrap_binary(
         "//libraries/data:list",
         "//libraries/data:maybe",
         "//libraries/formats:elf",
+        "//libraries/formats:elf-writer",
     ],
 )
 

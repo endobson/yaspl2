@@ -19,7 +19,7 @@ yaspl_binary(
         "//libraries/data:aligned-bytes",
         "//libraries/data:bytes",
         "//libraries/data:list",
-        "//libraries/formats:elf",
+        "//libraries/formats:elf-writer",
     ],
 )
 
