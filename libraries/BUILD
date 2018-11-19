@@ -477,8 +477,10 @@ yaspl_bootstrap_library(
     deps = [
         ":structured-native-code",
         "//libraries/data:aligned-bytes",
+        "//libraries/data:bytes",
         "//libraries/data:either",
         "//libraries/data:list",
+        "//libraries/data:maybe",
         "//libraries/formats:elf",
     ],
 )

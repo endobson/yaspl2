@@ -1,9 +1,11 @@
 #:module (structured-elf)
 #:import {
   (aligned-bytes)
+  (bytes)
   (either)
   (formats elf)
   (list)
+  (maybe)
   (prim)
   (structured-native-code)
 }
@@ -40,3 +42,31 @@
            (empty)
            (empty)
            (empty))))]))
+
+(define (elf-file->text-contents [e : ElfFile]) : (Either Bytes Bytes)
+  (match-define raw-contents (elf-file-raw-contents e))
+  (case (find-named-section-header e #".text")
+    [(left v) (left v)]
+    [(right text-section-header)
+     (right
+       (subbytes raw-contents
+                 (section-header-section-offset text-section-header)
+                 (+ (section-header-section-offset text-section-header)
+                    (section-header-section-size text-section-header))))]))
+
+(define (find-named-section-header [e : ElfFile] [name : Bytes]) : (Either Bytes SectionHeader)
+  (match-define (elf-file sections section-name-index raw-contents) e)
+  (case (list-ref sections section-name-index)
+    [(nothing) (left #"Not enough sections for section name index")]
+    [(just (section-header _ _ _ _ name-section-offset _ _ _ _ _))
+     (case (findf
+             (lambda ([v : SectionHeader])
+               (let ([start (+ name-section-offset (section-header-name-offset v))])
+                 (bytes=?
+                   (subbytes raw-contents start (+ start (bytes-length name)))
+                   name)))
+             sections)
+       [(nothing)
+        (left (bytes-append (varargs list #"No section for name: " name)))]
+       [(just v)
+        (right v)])]))
