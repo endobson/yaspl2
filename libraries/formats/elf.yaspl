@@ -23,13 +23,15 @@
   (#:values
      serialize-elf-library
      write-elf-executable
-     read-elf)
+     read-elf
+     elf-file->text-contents)
   (#:patterns))
 (types
   (define-type ElfFile
     (elf-file
       [section-headers : (List SectionHeader)]
-      [raw-content : Bytes]))
+      [section-header-names-index : Int]
+      [raw-contents : Bytes]))
   (define-type SectionHeader
     (section-header
       [name-offset : Int]
@@ -393,57 +395,51 @@
   (tuple2 (reverse rev-offset-strings) string-table-size))
 
 
-(define (write-elf-executable [output-file-name : Bytes]) : (Maybe Bytes)
+(define (write-elf-executable [text-section-contents : Bytes] [output-file-name : Bytes]) : (Maybe Bytes)
   (call-with-output-file output-file-name
     (lambda ([p : OutputPort])
-      (let ([text-section-contents
-              (case output-file-name
-                [#"bazel-out/k8-fastbuild/bin/libraries/prim-language/examples/call1" (make-bytes 179)]
-                [#"bazel-out/k8-fastbuild/bin/libraries/prim-language/examples/call2" (make-bytes 207)]
-                [#"bazel-out/k8-fastbuild/bin/libraries/prim-language/examples/call3" (make-bytes 239)]
-                [_ (make-bytes 5)])])
-        (let ([symbols
+      (let ([symbols
+              (ann (List (Tuple2 Bytes LiftedInt))
+                (case output-file-name
+                  [#"bazel-out/k8-fastbuild/bin/libraries/prim-language/examples/call1"
+                   (varargs list
+                     (tuple2 #"_start" (lifted-int #x201000))
+                     (tuple2 #"start_break" (lifted-int #x201010))
+                     (tuple2 #"main" (lifted-int #x2010a0))
+                     (tuple2 #"yprim_heap_allocate" (lifted-int #x201070))
+                     (tuple2 #"f" (lifted-int #x201080)))]
+                  [#"bazel-out/k8-fastbuild/bin/libraries/prim-language/examples/call2"
+                   (varargs list
+                     (tuple2 #"_start" (lifted-int #x201000))
+                     (tuple2 #"start_break" (lifted-int #x201010))
+                     (tuple2 #"main" (lifted-int #x2010a0))
+                     (tuple2 #"yprim_heap_allocate" (lifted-int #x201070))
+                     (tuple2 #"fun" (lifted-int #x201080)))]
+                  [#"bazel-out/k8-fastbuild/bin/libraries/prim-language/examples/call3"
+                   (varargs list
+                     (tuple2 #"_start" (lifted-int #x201000))
+                     (tuple2 #"start_break" (lifted-int #x201010))
+                     (tuple2 #"main" (lifted-int #x201090))
+                     (tuple2 #"yprim_heap_allocate" (lifted-int #x201070))
+                     (tuple2 #"fun" (lifted-int #x201080)))]
+                  [_ (empty)]))])
+        (let ([local-symbols
                 (ann (List (Tuple2 Bytes LiftedInt))
                   (case output-file-name
                     [#"bazel-out/k8-fastbuild/bin/libraries/prim-language/examples/call1"
                      (varargs list
-                       (tuple2 #"_start" (lifted-int #x201000))
-                       (tuple2 #"start_break" (lifted-int #x201010))
-                       (tuple2 #"main" (lifted-int #x2010a0))
-                       (tuple2 #"yprim_heap_allocate" (lifted-int #x201070))
-                       (tuple2 #"f" (lifted-int #x201080)))]
+                       (tuple2 #"prim_start_panic" (lifted-int #x201065)))]
                     [#"bazel-out/k8-fastbuild/bin/libraries/prim-language/examples/call2"
                      (varargs list
-                       (tuple2 #"_start" (lifted-int #x201000))
-                       (tuple2 #"start_break" (lifted-int #x201010))
-                       (tuple2 #"main" (lifted-int #x2010a0))
-                       (tuple2 #"yprim_heap_allocate" (lifted-int #x201070))
-                       (tuple2 #"fun" (lifted-int #x201080)))]
+                       (tuple2 #"prim_start_panic" (lifted-int #x201065)))]
                     [#"bazel-out/k8-fastbuild/bin/libraries/prim-language/examples/call3"
                      (varargs list
-                       (tuple2 #"_start" (lifted-int #x201000))
-                       (tuple2 #"start_break" (lifted-int #x201010))
-                       (tuple2 #"main" (lifted-int #x201090))
-                       (tuple2 #"yprim_heap_allocate" (lifted-int #x201070))
-                       (tuple2 #"fun" (lifted-int #x201080)))]
+                       (tuple2 #"prim_start_panic" (lifted-int #x201065))
+                       (tuple2 #"main_2" (lifted-int #x2010db)))]
                     [_ (empty)]))])
-          (let ([local-symbols
-                  (ann (List (Tuple2 Bytes LiftedInt))
-                    (case output-file-name
-                      [#"bazel-out/k8-fastbuild/bin/libraries/prim-language/examples/call1"
-                       (varargs list
-                         (tuple2 #"prim_start_panic" (lifted-int #x201065)))]
-                      [#"bazel-out/k8-fastbuild/bin/libraries/prim-language/examples/call2"
-                       (varargs list
-                         (tuple2 #"prim_start_panic" (lifted-int #x201065)))]
-                      [#"bazel-out/k8-fastbuild/bin/libraries/prim-language/examples/call3"
-                       (varargs list
-                         (tuple2 #"prim_start_panic" (lifted-int #x201065))
-                         (tuple2 #"main_2" (lifted-int #x2010db)))]
-                      [_ (empty)]))])
-            (begin
-              (write-all-bytes (serialize-elf-executable text-section-contents symbols local-symbols) p)
-              (nothing))))))))
+          (begin
+            (write-all-bytes (serialize-elf-executable text-section-contents symbols local-symbols) p)
+            (nothing)))))))
 
 (define (serialize-elf-executable
           [text-section-contents : Bytes]
@@ -619,30 +615,30 @@
       ))))
 
 (define (read-elf [input : InputPort]) : (Either Bytes ElfFile)
-  (match-define raw-content (read-all-bytes input))
-  (if (< (bytes-length raw-content) 64)
+  (match-define raw-contents (read-all-bytes input))
+  (if (< (bytes-length raw-contents) 64)
       (left #"Elf file is too short")
       (case 3
         [_
-         (match-define magic-number (bytes-ref/quad-le raw-content 0))
-         (match-define bit-size (u8->s64 (bytes-ref raw-content 4)))
-         (match-define endianness (u8->s64 (bytes-ref raw-content 5)))
-         (match-define first-version (u8->s64 (bytes-ref raw-content 6)))
-         (match-define os-abi (u8->s64 (bytes-ref raw-content 7)))
+         (match-define magic-number (bytes-ref/quad-le raw-contents 0))
+         (match-define bit-size (u8->s64 (bytes-ref raw-contents 4)))
+         (match-define endianness (u8->s64 (bytes-ref raw-contents 5)))
+         (match-define first-version (u8->s64 (bytes-ref raw-contents 6)))
+         (match-define os-abi (u8->s64 (bytes-ref raw-contents 7)))
          ;; padding
-         (match-define object-type (bytes-ref/u16-le raw-content 16))
-         (match-define instruction-set (bytes-ref/u16-le raw-content 18))
-         (match-define second-version (bytes-ref/quad-le raw-content 20))
-         (match-define entry-point (u64->s64 (bytes-ref/u64-le raw-content 24)))
-         (match-define program-header-offset (u64->s64 (bytes-ref/u64-le raw-content 32)))
-         (match-define section-header-offset (u64->s64 (bytes-ref/u64-le raw-content 40)))
-         (match-define flags (bytes-ref/quad-le raw-content 48))
-         (match-define header-size (bytes-ref/u16-le raw-content 52))
-         (match-define program-header-table-entry-size (bytes-ref/u16-le raw-content 54))
-         (match-define program-header-table-num-entries (bytes-ref/u16-le raw-content 56))
-         (match-define section-header-table-entry-size (bytes-ref/u16-le raw-content 58))
-         (match-define section-header-table-num-entries (bytes-ref/u16-le raw-content 60))
-         (match-define section-names-index (bytes-ref/u16-le raw-content 62))
+         (match-define object-type (bytes-ref/u16-le raw-contents 16))
+         (match-define instruction-set (bytes-ref/u16-le raw-contents 18))
+         (match-define second-version (bytes-ref/quad-le raw-contents 20))
+         (match-define entry-point (u64->s64 (bytes-ref/u64-le raw-contents 24)))
+         (match-define program-header-offset (u64->s64 (bytes-ref/u64-le raw-contents 32)))
+         (match-define section-header-offset (u64->s64 (bytes-ref/u64-le raw-contents 40)))
+         (match-define flags (bytes-ref/quad-le raw-contents 48))
+         (match-define header-size (bytes-ref/u16-le raw-contents 52))
+         (match-define program-header-table-entry-size (bytes-ref/u16-le raw-contents 54))
+         (match-define program-header-table-num-entries (bytes-ref/u16-le raw-contents 56))
+         (match-define section-header-table-entry-size (bytes-ref/u16-le raw-contents 58))
+         (match-define section-header-table-num-entries (bytes-ref/u16-le raw-contents 60))
+         (match-define section-names-index (bytes-ref/u16-le raw-contents 62))
          (if (not (= magic-number #x464c457f))
              (left #"ELF file doesn't start with correct magic number")
              (if (not (= bit-size 2))
@@ -679,10 +675,10 @@
                  (left #"ELF file's section header names table is not section 7")
                  (let ([section-headers
                          (parse-section-headers
-                           raw-content
-                           (+ section-header-offset 64)
-                           (- section-header-table-num-entries 1))])
-                   (right (elf-file section-headers raw-content))))))))))))))))))))])))
+                           raw-contents
+                           section-header-offset
+                           section-header-table-num-entries)])
+                   (right (elf-file section-headers section-names-index raw-contents))))))))))))))))))))])))
 
 (define (parse-section-headers [contents : Bytes] [offset : Int] [section-count : Int])
   : (List SectionHeader)
@@ -713,3 +709,31 @@
     section-link
     section-addr-align
     section-entry-size))
+
+(define (elf-file->text-contents [e : ElfFile]) : (Either Bytes Bytes)
+  (match-define raw-contents (elf-file-raw-contents e))
+  (case (find-named-section-header e #".text")
+    [(left v) (left v)]
+    [(right text-section-header)
+     (right
+       (subbytes raw-contents
+                 (section-header-section-offset text-section-header)
+                 (+ (section-header-section-offset text-section-header)
+                    (section-header-section-size text-section-header))))]))
+
+(define (find-named-section-header [e : ElfFile] [name : Bytes]) : (Either Bytes SectionHeader)
+  (match-define (elf-file sections section-name-index raw-contents) e)
+  (case (list-ref sections section-name-index)
+    [(nothing) (left #"Not enough sections for section name index")]
+    [(just (section-header _ _ _ _ name-section-offset _ _ _ _ _))
+     (case (findf
+             (lambda ([v : SectionHeader])
+               (let ([start (+ name-section-offset (section-header-name-offset v))])
+                 (bytes=?
+                   (subbytes raw-contents start (+ start (bytes-length name)))
+                   name)))
+             sections)
+       [(nothing)
+        (left (bytes-append (varargs list #"No section for name: " name)))]
+       [(just v)
+        (right v)])]))
