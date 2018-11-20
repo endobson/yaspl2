@@ -39,13 +39,16 @@
      (case (elf-file->symbols elf)
        [(left v) (left v)]
        [(right (tuple2 local-symbols global-symbols))
-        (right
-          (parsed-elf
-            (program-section
-              (aligned-bytes text-contents 1)
-              (empty)
-              global-symbols
-              local-symbols)))])]))
+        (case (elf-file->relocations elf)
+          [(left v) (left v)]
+          [(right relocations)
+           (right
+             (parsed-elf
+               (program-section
+                 (aligned-bytes text-contents 1)
+                 relocations
+                 global-symbols
+                 local-symbols)))])])]))
 
 (define (elf-file->text-contents [e : ElfFile]) : (Either Bytes Bytes)
   (match-define raw-contents (elf-file-raw-contents e))
@@ -88,6 +91,40 @@
             (match-define num-local-symbols (- (section-header-section-info symtab-section-header) 4))
             (right (tuple2 (take num-local-symbols defined-text-symbols)
                            (drop num-local-symbols defined-text-symbols)))])])]))
+
+(define (elf-file->relocations [e : ElfFile])
+  : (Either Bytes (List (Relocation ElfRelocationKind)))
+  (case (find-named-section-header e #".rela.text")
+    [(left v) (left v)]
+    [(right rela-section-header)
+     (case (find-named-section-header e #".strtab")
+       [(left v) (left v)]
+        [(right strtab-section-header)
+         (match-define raw-contents (elf-file-raw-contents e))
+         (case (parse-elf-relocations rela-section-header raw-contents)
+           [(left v) (left v)]
+           [(right relocations)
+            (extract-rights
+              (map
+                (lambda ([relocation-entry : RelocationEntry])
+                  : (Either Bytes (Relocation ElfRelocationKind))
+                  (case relocation-entry
+                    [(relocation-entry offset type symbol-offset value)
+                     (if (not (= type 2))
+                         (left #"Unknown relocation entry type")
+                     (if (not (= value (- 0 4)))
+                         (left #"Bad relocation value for pc32 relocation")
+                     (right
+                       (relocation
+                         (elf-pc32-relocation)
+                         offset
+                         (read-null-terminated-bytes
+                            raw-contents
+                            (+ (section-header-section-offset strtab-section-header)
+                               symbol-offset))))))]))
+                relocations))])])]))
+
+
 
 (define (find-named-section-header [e : ElfFile] [name : Bytes]) : (Either Bytes SectionHeader)
   (match-define (elf-file sections section-name-index raw-contents) e)
