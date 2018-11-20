@@ -175,4 +175,26 @@
 
 (define (parse-elf-relocations [section-header : SectionHeader] [raw-contents : Bytes])
   : (Either Bytes (List RelocationEntry))
-  (right (empty)))
+  (if (not (= (section-header-section-entry-size section-header) 24))
+      (left #"Relocation table entries must have a size of 24")
+      (right
+        (parse-elf-relocations/entries
+          (section-header-section-offset section-header)
+          (quotient (section-header-section-size section-header) 24)
+          raw-contents))))
+
+(define (parse-elf-relocations/entries [offset : Int] [remaining : Int] [raw-contents : Bytes])
+  : (List RelocationEntry)
+  (if (= remaining 0)
+      (empty)
+      (cons
+        (relocation-entry
+          (u64->s64 (bytes-ref/u64-le raw-contents (+ offset 0))) ;; offset
+          (bytes-ref/quad-le raw-contents (+ offset 8)) ;; type
+          (bytes-ref/quad-le raw-contents (+ offset 12)) ;; symbol offset
+          ;; TODO actually read the whole value instead of assuming its range
+          (let ([unsigned-val (bytes-ref/quad-le raw-contents (+ offset 16))])
+            (if (> unsigned-val #x7FFFFFFF)
+                (- unsigned-val #x100000000)
+                unsigned-val)))
+        (parse-elf-relocations/entries (+ offset 24) (- remaining 1) raw-contents))))
