@@ -40,7 +40,7 @@
      (case (elf-file->symbols elf)
        [(left v) (left v)]
        [(right (tuple2 local-symbols global-symbols))
-        (case (elf-file->relocations elf)
+        (case (elf-file->relocations elf (append local-symbols global-symbols))
           [(left v) (left v)]
           [(right relocations)
            (right
@@ -93,7 +93,7 @@
             (right (tuple2 (take num-local-symbols defined-text-symbols)
                            (drop num-local-symbols defined-text-symbols)))])])]))
 
-(define (elf-file->relocations [e : ElfFile])
+(define (elf-file->relocations [e : ElfFile] [symbols : (List DefinedSymbol)])
   : (Either Bytes (List (Relocation ElfRelocationKind)))
   (case (find-named-section-header e #".rela.text")
     [(left v) (left v)]
@@ -110,7 +110,7 @@
                 (lambda ([relocation-entry : RelocationEntry])
                   : (Either Bytes (Relocation ElfRelocationKind))
                   (case relocation-entry
-                    [(relocation-entry offset type symbol-offset value)
+                    [(relocation-entry offset type symbol-index value)
                      (if (not (= type 2))
                          (left #"Unknown relocation entry type")
                      (if (not (= value (- 0 4)))
@@ -118,14 +118,10 @@
                                  (varargs list
                                    #"Bad relocation value for pc32 relocation: "
                                    (integer->decimal-bytes value))))
-                     (right
-                       (relocation
-                         (elf-pc32-relocation)
-                         offset
-                         (read-null-terminated-bytes
-                            raw-contents
-                            (+ (section-header-section-offset strtab-section-header)
-                               symbol-offset))))))]))
+                     (case (list-ref symbols (- symbol-index 4))
+                       [(nothing) (left #"Bad symbol index")]
+                       [(just (defined-symbol name addr))
+                        (right (relocation (elf-pc32-relocation) offset name))])))]))
                 relocations))])])]))
 
 

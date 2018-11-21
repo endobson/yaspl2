@@ -400,6 +400,20 @@
   (match-define offset-symbols-dict : (Dict Bytes LiftedInt)
     (dict-add-all (make-dict bytes-cmp) offset-symbols))
 
+  (match-define symbol-locations : (Dict Bytes LiftedInt)
+    (dict-add-all
+      (make-dict bytes-cmp)
+      (map
+        (lambda ([s : DefinedSymbol])
+          (case s
+            [(defined-symbol name addr)
+             (tuple2 name (lifted-int addr))]))
+        (append
+          text-local-symbols
+          text-global-symbols))))
+
+
+
   ;; Long text section includes the LLD version number
   (match-define long-text-section-length (+ text-section-length 18))
   (match-define rounded-long-text-section-length (round-up long-text-section-length 8))
@@ -423,6 +437,7 @@
   (match-define text-section-contents
     (apply-elf-relocations
       text-relocations
+      symbol-locations
       text-section-contents))
 
   (match-define section-header-offset (+ #x1000 section-header-start))
@@ -561,6 +576,7 @@
       ))))
 
 (define (apply-elf-relocations [relocations : (List (Relocation ElfRelocationKind))]
+                               [symbol-locations : (Dict Bytes LiftedInt)]
                                [section-contents : Bytes])
   : Bytes
   (case relocations
@@ -572,5 +588,8 @@
        (bytes-set!/s32-le
          section-contents
          offset
-         (s32 #xABCDEF00))
-       (apply-elf-relocations relocations section-contents))]))
+         (case (dict-ref symbol-locations symbol)
+           [(nothing) (s32 #xDEADBEEF)]
+           [(just (lifted-int v))
+            (s32 (- (- v offset) 4))]))
+       (apply-elf-relocations relocations symbol-locations section-contents))]))
