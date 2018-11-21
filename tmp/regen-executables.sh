@@ -9,4 +9,5 @@ rm -f $WORKSPACE/tmp/bazel/call1_lib.o
 for prog in `find $WORKSPACE/tmp/bazel -type file -name '*.o' | sed -e 's/.o$//'`;
 do
   xxd "${prog}" "${prog}.xxd";
+  diff -u "${prog}.xxd" "$(dirname $(dirname ${prog}))/bazel-obj/$(basename ${prog}).xxd";
 done;
