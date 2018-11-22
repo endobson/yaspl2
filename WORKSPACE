@@ -3,9 +3,9 @@ load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
 
 http_archive(
   name = "minimal_racket",
-  sha256 = "dcbd3de1bc301b6decf87f396ad744c49351b414934a28ebfba9502b050e5e6b",
-  strip_prefix = "minimal-racket-c9b5cc2cd142eaad21cf3077bd90131ed0252e17",
-  urls = ["https://github.com/endobson/minimal-racket/archive/c9b5cc2cd142eaad21cf3077bd90131ed0252e17.tar.gz"]
+  sha256 = "be730207d2aea33f0651569351a7ee0cde8dc9fd5d7ae0f0157c370fdd5cb38a",
+  strip_prefix = "minimal-racket-b54d4aae1de462c272d98c0fadb45fc45abaca57",
+  urls = ["https://github.com/endobson/minimal-racket/archive/b54d4aae1de462c272d98c0fadb45fc45abaca57.tar.gz"]
 )
 load("@minimal_racket//:releases.bzl", "racket_releases")
 racket_releases()
@@ -13,4 +13,8 @@ racket_releases()
 register_toolchains(
     '//libraries/prim-language:osx_prim_language_toolchain',
     '//libraries/prim-language:linux_prim_language_toolchain',
+)
+register_toolchains(
+    '@minimal_racket//:osx_racket_toolchain',
+    '@minimal_racket//:linux_racket_toolchain',
 )
