@@ -1,5 +1,7 @@
 load("@minimal_racket//:racket.bzl", "racket_binary", "racket_library")
 
+load(":bootstrap.bzl", "bootstrap_binary")
+
 package(
     default_visibility = ["//visibility:public"],
 )
@@ -182,116 +184,22 @@ racket_library(
     srcs = ["type-structs.rkt"],
 )
 
-genrule(
-    name = "gen_bootstrap_library_compiler",
-    outs = ["bootstrap_library_compiler.s"],
-    cmd = "$(location :library-compiler-compiler_bin) $@",
-    tools = [":library-compiler-compiler_bin"],
+bootstrap_binary(
+    name = "bootstrap_library_compiler",
+    generator = ":library-compiler-compiler_bin"
 )
 
-genrule(
-    name = "assemble_bootstrap_library_compiler",
-    srcs = ["bootstrap_library_compiler.s"],
-    outs = ["bootstrap_library_compiler.o"],
-    cmd = "as $(location bootstrap_library_compiler.s) -o $(location bootstrap_library_compiler.o)",
+bootstrap_binary(
+    name = "bootstrap_main_stub",
+    generator = ":main-stub-compiler_bin"
 )
 
-genrule(
-    name = "link_bootstrap_library_compiler",
-    srcs = ["bootstrap_library_compiler.o"],
-    outs = ["bootstrap_library_compiler"],
-    cmd = "ld -arch x86_64 " +
-          "-macosx_version_min 10.11 " +
-          "-static " +
-          "-no_uuid " +
-          "-sectcreate __DATA __data /dev/null " +
-          "$(location bootstrap_library_compiler.o) -o $(location bootstrap_library_compiler)",
-    executable = 1,
-    output_to_bindir = 1,
+bootstrap_binary(
+    name = "bootstrap_linker",
+    generator = ":linker-compiler_bin"
 )
 
-genrule(
-    name = "gen_bootstrap_main_stub",
-    outs = ["bootstrap_main_stub.s"],
-    cmd = "$(location :main-stub-compiler_bin) $@",
-    tools = [":main-stub-compiler_bin"],
-)
-
-genrule(
-    name = "assemble_bootstrap_main_stub",
-    srcs = ["bootstrap_main_stub.s"],
-    outs = ["bootstrap_main_stub.o"],
-    cmd = "as $(location bootstrap_main_stub.s) -o $(location bootstrap_main_stub.o)",
-)
-
-genrule(
-    name = "link_bootstrap_main_stub",
-    srcs = ["bootstrap_main_stub.o"],
-    outs = ["bootstrap_main_stub"],
-    cmd = "ld -arch x86_64 " +
-          "-macosx_version_min 10.11 " +
-          "-static " +
-          "-no_uuid " +
-          "-sectcreate __DATA __data /dev/null " +
-          "$(location bootstrap_main_stub.o) -o $(location bootstrap_main_stub)",
-    executable = 1,
-    output_to_bindir = 1,
-)
-
-genrule(
-    name = "gen_bootstrap_linker",
-    outs = ["bootstrap_linker.s"],
-    cmd = "$(location :linker-compiler_bin) $@",
-    tools = [":linker-compiler_bin"],
-)
-
-genrule(
-    name = "assemble_bootstrap_linker",
-    srcs = ["bootstrap_linker.s"],
-    outs = ["bootstrap_linker.o"],
-    cmd = "as $(location bootstrap_linker.s) -o $(location bootstrap_linker.o)",
-)
-
-genrule(
-    name = "link_bootstrap_linker",
-    srcs = ["bootstrap_linker.o"],
-    outs = ["bootstrap_linker"],
-    cmd = "ld -arch x86_64 " +
-          "-macosx_version_min 10.11 " +
-          "-static " +
-          "-no_uuid " +
-          "-sectcreate __DATA __data /dev/null " +
-          "$(location bootstrap_linker.o) -o $(location bootstrap_linker)",
-    executable = 1,
-    output_to_bindir = 1,
-)
-
-genrule(
-    name = "gen_bootstrap_prim_language_library_compiler",
-    outs = ["bootstrap_prim_language_library_compiler.s"],
-    cmd = "$(location :prim-language-library-compiler-compiler_bin) $@",
-    tools = [":prim-language-library-compiler-compiler_bin"],
-)
-
-genrule(
-    name = "assemble_bootstrap_prim_language_library_compiler",
-    srcs = ["bootstrap_prim_language_library_compiler.s"],
-    outs = ["bootstrap_prim_language_library_compiler.o"],
-    cmd = "as $(location bootstrap_prim_language_library_compiler.s) " +
-          "-o $(location bootstrap_prim_language_library_compiler.o)",
-)
-
-genrule(
-    name = "link_bootstrap_prim_language_library_compiler",
-    srcs = ["bootstrap_prim_language_library_compiler.o"],
-    outs = ["bootstrap_prim_language_library_compiler"],
-    cmd = "ld -arch x86_64 " +
-          "-macosx_version_min 10.11 " +
-          "-static " +
-          "-no_uuid " +
-          "-sectcreate __DATA __data /dev/null " +
-          "$(location bootstrap_prim_language_library_compiler.o) " +
-          "-o $(location bootstrap_prim_language_library_compiler)",
-    executable = 1,
-    output_to_bindir = 1,
+bootstrap_binary(
+    name = "bootstrap_prim_language_library_compiler",
+    generator = ":prim-language-library-compiler-compiler_bin"
 )
