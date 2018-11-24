@@ -5,7 +5,9 @@
   "libraries.rkt"
   "parser-structs.rkt"
   racket/file
-  racket/runtime-path)
+  racket/match
+  racket/runtime-path
+  racket/vector)
 
 (provide
   run-bootstrap-compiler)
@@ -27,13 +29,14 @@
 
   (define-values (modules signatures) (load-modules compiler-files))
 
-  (define output-file
-    (string->bytes/utf-8
-      (vector-ref (current-command-line-arguments) 0)))
+  (match-define (vector output-format output-file)
+    (vector-map
+      string->bytes/utf-8
+      (current-command-line-arguments)))
 
 
   (let ([result (run-program modules signatures (module-name& '(compiler-main)) 'main #:stdin #""
-                             #:args `(#"osx-assembly" ,output-file ,main-function ,@source-files ,@prim-files))])
+                             #:args `(,output-format ,output-file ,main-function ,@source-files ,@prim-files))])
     (write-bytes (program-result-stdout result) (current-output-port))
     (write-bytes (program-result-stderr result) (current-error-port))
     (when (program-result-error-info result)
