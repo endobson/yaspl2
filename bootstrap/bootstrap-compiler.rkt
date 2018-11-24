@@ -33,7 +33,7 @@
 
 
   (let ([result (run-program modules signatures (module-name& '(compiler-main)) 'main #:stdin #""
-                             #:args `(,output-file ,main-function ,@source-files ,@prim-files))])
+                             #:args `(#"osx-assembly" ,output-file ,main-function ,@source-files ,@prim-files))])
     (write-bytes (program-result-stdout result) (current-output-port))
     (write-bytes (program-result-stderr result) (current-error-port))
     (when (program-result-error-info result)
