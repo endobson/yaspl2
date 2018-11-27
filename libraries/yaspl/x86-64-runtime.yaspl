@@ -19,7 +19,7 @@
     (linux-abi)))
 
 (define (yaspl-runtime [main-function-name : TopLevelName] [abi : SystemAbi]) : AssemblyFragments
-  (match-define (tuple2 text-fragments const-fragments) (unzip (prim-function-fragments)))
+  (match-define (tuple2 text-fragments const-fragments) (unzip (prim-function-fragments abi)))
   (assembly-fragments
     (append (start-function-fragments main-function-name abi) text-fragments)
     const-fragments))
@@ -265,22 +265,33 @@
                    (movq (imm64/s32 #x3C) (r64m-reg (rax)))])
                 (syscall)))))))))
 
-(define (prim-function-fragments) : (List (Tuple2 TextFragment ConstFragment))
+(define (prim-function-fragments [abi : SystemAbi])
+  : (List (Tuple2 TextFragment ConstFragment))
   (match-define prim-syscall
-    (lambda ([name : Bytes] [body : (JoinList Instruction)])
+    (lambda ([name : Bytes] [osx-syscall-number : Int]
+             [linux-syscall-number : Int] [body : (JoinList Instruction)])
       (prim-assembly-function/panic name
         (append-jl
           body
-          (varargs join-list
-            (syscall)
-            (jb (bytes-append (varargs list #"yprim_" name #"_panic")))
-            (ret))))))
+          (case abi
+            [(osx-abi)
+             (varargs join-list
+               (movq (imm64/s32 (+ #x2000000 osx-syscall-number)) (r64m-reg (rax)))
+               (syscall)
+               (jb (bytes-append (varargs list #"yprim_" name #"_panic")))
+               (ret))]
+            [(linux-abi)
+             (varargs join-list
+               (movq (imm64/s32 linux-syscall-number) (r64m-reg (rax)))
+               (syscall)
+               (cmpq (imm64/s32 0) (r64m-reg (rax)))
+               (jl (bytes-append (varargs list #"yprim_" name #"_panic"))))])))))
 
   (varargs list
     ;; Standard system calls
 
     ;; write-bytes
-    (prim-syscall #"write_bytes"
+    (prim-syscall #"write_bytes" #x04 #x01
       (varargs join-list
         ;; Swap %rdi and %rsi
         (movq (r64mi-reg (rdi)) (r64m-reg (rax)))
@@ -292,11 +303,10 @@
         (leaq (scaled (rsi) (scale-1) (rdx) 16) (rsi))
         ;; Make %rdx the length to write
         (subq (r64mi-reg (rdx)) (rcx))
-        (movq (r64mi-reg (rcx)) (r64m-reg (rdx)))
-        (movq (imm64/s32 #x2000004) (r64m-reg (rax)))))
+        (movq (r64mi-reg (rcx)) (r64m-reg (rdx)))))
 
     ;; read-bytes
-    (prim-syscall #"read_bytes"
+    (prim-syscall #"read_bytes" #x03 #x00
       (varargs join-list
         ;; Swap %rdi and %rsi
         (movq (r64mi-reg (rdi)) (r64m-reg (rax)))
@@ -308,75 +318,68 @@
         (leaq (scaled (rsi) (scale-1) (rdx) 16) (rsi))
         ;; Make %rdx the length to read
         (subq (r64mi-reg (rdx)) (rcx))
-        (movq (r64mi-reg (rcx)) (r64m-reg (rdx)))
-        (movq (imm64/s32 #x2000003) (r64m-reg (rax)))))
+        (movq (r64mi-reg (rcx)) (r64m-reg (rdx)))))
 
     ;; open-input-file
-    (prim-syscall #"open_input_file"
+    (prim-syscall #"open_input_file" #x05 #x02
       (varargs join-list
         ;; Make %rdi point at start of null terminated path
         (addq (imm64/s32 16) (r64m-reg (rdi)))
-        (movq (imm64/s32 0) (r64m-reg (rsi))) ;; 0 is read only
-        (movq (imm64/s32 #x2000005) (r64m-reg (rax)))))
+        (movq (imm64/s32 0) (r64m-reg (rsi))))) ;; 0 is read only
 
     ;; open-output-file
-    (prim-syscall #"open_output_file"
+    (prim-syscall #"open_output_file" #x05 #x02
       (varargs join-list
         ;; Make %rdi point at start of null terminated path
         (addq (imm64/s32 16) (r64m-reg (rdi)))
         (movq (imm64/s32 #x0a01) (r64m-reg (rsi))) ;; 0x01 is write only, 0x0a00 is exclusive create
-        (movq (imm64/s32 504) (r64m-reg (rdx))) ;; 770 for mode
-        (movq (imm64/s32 #x2000005) (r64m-reg (rax)))))
+        (movq (imm64/s32 504) (r64m-reg (rdx))))) ;; 770 for mode
 
     ;; close-output-port
     ;; close-input-port
-    (prim-syscall #"close_port"
-      (varargs join-list
-        (movq (imm64/s32 #x2000006) (r64m-reg (rax)))))
+    (prim-syscall #"close_port" #x06 #x03
+      (empty-jl))
 
     ;; delete-file
-    (prim-syscall #"delete_file"
+    (prim-syscall #"delete_file" #x0a #x57
       (varargs join-list
         ;; Make %rdi point at start of null terminated path
-        (addq (imm64/s32 16) (r64m-reg (rdi)))
-        (movq (imm64/s32 #x200000a) (r64m-reg (rax)))))
+        (addq (imm64/s32 16) (r64m-reg (rdi)))))
 
     ;; make-directory
-    (prim-syscall #"make_directory"
+    (prim-syscall #"make_directory" #x88 #x53
       (varargs join-list
         ;; Make %rdi point at start of null terminated path
         (addq (imm64/s32 16) (r64m-reg (rdi)))
-        (movq (imm64/s32 504) (r64m-reg (rsi))) ;; 770 for mode
-        (movq (imm64/s32 #x2000088) (r64m-reg (rax)))))
+        (movq (imm64/s32 504) (r64m-reg (rsi))))) ;; 770 for mode
 
 
     ;; set-file-or-directory-permissions
-    (prim-syscall #"set_file_or_directory_permissions"
+    (prim-syscall #"set_file_or_directory_permissions" #x0f #x5a
       (varargs join-list
         ;; Make %rdi point at start of null terminated path
         (addq (imm64/s32 16) (r64m-reg (rdi)))
         ;; %rsi is already the permissions
-        (movq (imm64/s32 #x200000f) (r64m-reg (rax)))))
+        ))
 
     ;; socket
-    (prim-syscall #"socket"
-      (varargs join-list
+    (prim-syscall #"socket" #x61 #x29
+      (empty-jl
         ;; Argument 1: domain
         ;; Argument 2: type
         ;; Argument 3: protocol
-        (movq (imm64/s32 #x2000061) (r64m-reg (rax)))))
+        ))
 
     ;; bind
-    (prim-syscall #"bind"
+    (prim-syscall #"bind" #x68 #x31
       (varargs join-list
         ;; Argument 1: socket
         ;; Argument 2: sockaddr
         ;; Argument 3: length
-        (addq (imm64/s32 16) (r64m-reg (rsi)))
-        (movq (imm64/s32 #x2000068) (r64m-reg (rax)))))
+        (addq (imm64/s32 16) (r64m-reg (rsi)))))
 
     ;; sendto
-    (prim-syscall #"sendto"
+    (prim-syscall #"sendto" #x85 #x2c
       (varargs join-list
         ;; Argument 1: socket
         ;; Argument 2: buffer
@@ -386,11 +389,10 @@
         ;; Argument 6: sockaddr-length
         (addq (imm64/s32 16) (r64m-reg (rsi)))
         (addq (imm64/s32 16) (r64m-reg (r8)))
-        (movq (r64mi-reg (rcx)) (r64m-reg (r10)))
-        (movq (imm64/s32 #x2000085) (r64m-reg (rax)))))
+        (movq (r64mi-reg (rcx)) (r64m-reg (r10)))))
 
     ;; recvfrom
-    (prim-syscall #"recvfrom"
+    (prim-syscall #"recvfrom" #x1d #x2d
       (varargs join-list
         ;; Argument 1: socket
         ;; Argument 2: buffer
@@ -401,44 +403,41 @@
         (addq (imm64/s32 16) (r64m-reg (rsi)))
         (addq (imm64/s32 16) (r64m-reg (r8)))
         (addq (imm64/s32 16) (r64m-reg (r9)))
-        (movq (r64mi-reg (rcx)) (r64m-reg (r10)))
-        (movq (imm64/s32 #x200001d) (r64m-reg (rax)))))
+        (movq (r64mi-reg (rcx)) (r64m-reg (r10)))))
 
     ;; connect
-    (prim-syscall #"connect"
+    (prim-syscall #"connect" #x62 #x2a
       (varargs join-list
         ;; Argument 1: socket
         ;; Argument 2: sockaddr
         ;; Argument 3: sockaddr-length
-        (addq (imm64/s32 16) (r64m-reg (rsi)))
-        (movq (imm64/s32 #x2000062) (r64m-reg (rax)))))
+        (addq (imm64/s32 16) (r64m-reg (rsi)))))
 
     ;; shutdown
-    (prim-syscall #"shutdown"
-      (varargs join-list
+    (prim-syscall #"shutdown" #x86 #x30
+      (empty-jl
         ;; Argument 1: socket
         ;; Argument 2: how
-        (movq (imm64/s32 #x2000086) (r64m-reg (rax)))))
+        ))
 
     ;; listen
-    (prim-syscall #"listen"
-      (varargs join-list
+    (prim-syscall #"listen" #x6A #x32
+      (empty-jl
         ;; Argument 1: socket
         ;; Argument 2: backlog
-        (movq (imm64/s32 #x200006A) (r64m-reg (rax)))))
+        ))
 
     ;; accept
-    (prim-syscall #"accept"
+    (prim-syscall #"accept" #x1E #x2b
       (varargs join-list
         ;; Argument 1: socket
         ;; Argument 2: sockaddr
         ;; Argument 3: sockaddr-length
         (addq (imm64/s32 16) (r64m-reg (rsi)))
-        (addq (imm64/s32 16) (r64m-reg (rdx)))
-        (movq (imm64/s32 #x200001E) (r64m-reg (rax)))))
+        (addq (imm64/s32 16) (r64m-reg (rdx)))))
 
     ;; setsockopt
-    (prim-syscall #"setsockopt"
+    (prim-syscall #"setsockopt" #x69 #x36
       (varargs join-list
         ;; Argument 1: socket
         ;; Argument 2: level
@@ -446,15 +445,13 @@
         ;; Argument 4: option value
         ;; Argument 5: option length
         (movq (r64mi-reg (rcx)) (r64m-reg (r10)))
-        (addq (imm64/s32 16) (r64m-reg (r10)))
-        (movq (imm64/s32 #x2000069) (r64m-reg (rax)))))
+        (addq (imm64/s32 16) (r64m-reg (r10)))))
 
     ;; ioctl
-    (prim-syscall #"ioctl"
+    (prim-syscall #"ioctl" #x36 #x10
       (varargs join-list
         ;; Make %rdx point at the actual buffer
-        (addq (imm64/s32 16) (r64m-reg (rdx)))
-        (movq (imm64/s32 #x2000036) (r64m-reg (rax)))))
+        (addq (imm64/s32 16) (r64m-reg (rdx)))))
 
     ;; Mach calls
 
