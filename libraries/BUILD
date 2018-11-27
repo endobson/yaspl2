@@ -69,7 +69,7 @@ yaspl_bootstrap_binary(
 
 yaspl_bootstrap_binary(
     name = "main-stub",
-    srcs = ["main-stub.yaspl"],
+    srcs = ["main-stub-main.yaspl"],
     deps = [
         ":assembler",
         ":io",

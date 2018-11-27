@@ -6,74 +6,6 @@ package(
     default_visibility = ["//visibility:public"],
 )
 
-racket_binary(
-    name = "library-compiler-compiler_bin",
-    data = [
-        "//libraries:library-compiler_library_files",
-    ],
-    main_module = ":library-compiler-compiler.rkt",
-    deps = [":library-compiler-compiler"],
-)
-
-racket_binary(
-    name = "main-stub-compiler_bin",
-    data = [
-        "//libraries:main-stub_library_files",
-    ],
-    main_module = ":main-stub-compiler.rkt",
-    deps = [":main-stub-compiler"],
-)
-
-racket_binary(
-    name = "linker-compiler_bin",
-    data = [
-        "//libraries:linker_library_files",
-    ],
-    main_module = ":linker-compiler.rkt",
-    deps = [":linker-compiler"],
-)
-
-racket_binary(
-    name = "prim-language-library-compiler-compiler_bin",
-    data = [
-        "//libraries/prim-language:prim-language-library-compiler_library_files",
-    ],
-    main_module = ":prim-language-library-compiler-compiler.rkt",
-    deps = [":prim-language-library-compiler-compiler"],
-)
-
-racket_library(
-    name = "library-compiler-compiler",
-    srcs = ["library-compiler-compiler.rkt"],
-    deps = [
-        ":bootstrap-compiler",
-    ],
-)
-
-racket_library(
-    name = "main-stub-compiler",
-    srcs = ["main-stub-compiler.rkt"],
-    deps = [
-        ":bootstrap-compiler",
-    ],
-)
-
-racket_library(
-    name = "linker-compiler",
-    srcs = ["linker-compiler.rkt"],
-    deps = [
-        ":bootstrap-compiler",
-    ],
-)
-
-racket_library(
-    name = "prim-language-library-compiler-compiler",
-    srcs = ["prim-language-library-compiler-compiler.rkt"],
-    deps = [
-        ":bootstrap-compiler",
-    ],
-)
-
 racket_library(
     name = "parser-structs",
     srcs = ["parser-structs.rkt"],
@@ -186,20 +118,20 @@ racket_library(
 
 bootstrap_binary(
     name = "bootstrap_library_compiler",
-    generator = ":library-compiler-compiler_bin"
+    source_files = "//libraries:library-compiler_library_files",
 )
 
 bootstrap_binary(
     name = "bootstrap_main_stub",
-    generator = ":main-stub-compiler_bin"
+    source_files = "//libraries:main-stub_library_files",
 )
 
 bootstrap_binary(
     name = "bootstrap_linker",
-    generator = ":linker-compiler_bin"
+    source_files = "//libraries:linker_library_files",
 )
 
 bootstrap_binary(
     name = "bootstrap_prim_language_library_compiler",
-    generator = ":prim-language-library-compiler-compiler_bin"
+    source_files = "//libraries/prim-language:prim-language-library-compiler_library_files",
 )
