@@ -68,7 +68,7 @@ yaspl_bootstrap_binary(
         "//libraries:mach-o-writer",
         "//libraries/data:either",
         "//libraries/data:list",
-        "//libraries/data:tuples",
+        "//libraries/data:maybe",
     ],
 )
 
