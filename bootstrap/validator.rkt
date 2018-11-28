@@ -431,6 +431,7 @@
         [(u8-ty) (void)]
         [(s32-ty) (void)]
         [(u32-ty) (void)]
+        [(u64-ty) (void)]
         [(int-ty) (void)]
         [(bytes-ty) (void)]
         [(boolean-ty) (void)]

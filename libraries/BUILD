@@ -18,6 +18,7 @@ yaspl_bootstrap_binary(
         ":compiler_lib",
         ":io",
         ":machine-code",
+        ":machine-code-writer",
         ":module-name",
         ":top-level-name",
         "//libraries/data:bytes",
@@ -28,7 +29,6 @@ yaspl_bootstrap_binary(
         "//libraries/prim-language:prim-language-compiler_lib",
         "//libraries/yaspl:top-level-objects-to-x86-64",
         "//libraries/yaspl:x86-64-assembly",
-        "//libraries/yaspl:x86-64-assembly-printer",
         "//libraries/yaspl:x86-64-runtime",
     ],
 )

@@ -55,9 +55,9 @@ def bootstrap_binary(name, source_files):
       outs = [assembly_name],
       cmd = select({
         "//conditions:darwin":
-            "$(location %s) osx-assembly $@" % racket_bin_name,
+            "$(location %s) assembly-osx $@" % racket_bin_name,
         "//conditions:linux_x86_64":
-            "$(location %s) linux-assembly $@" % racket_bin_name,
+            "$(location %s) assembly-linux $@" % racket_bin_name,
        }),
       tools = [racket_bin_name],
   )
