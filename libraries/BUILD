@@ -377,6 +377,7 @@ yaspl_bootstrap_library(
         ":assembler",
         ":io",
         ":mach-o-writer",
+        "//libraries/data:maybe",
         "//libraries/formats:elf-writer",
         "//libraries/yaspl:x86-64-assembly",
         "//libraries/yaspl:x86-64-assembly-printer",
