@@ -17,6 +17,7 @@ yaspl_bootstrap_binary(
     deps = [
         ":compiler_lib",
         ":io",
+        ":machine-code",
         ":module-name",
         ":top-level-name",
         "//libraries/data:bytes",
@@ -74,6 +75,7 @@ yaspl_bootstrap_binary(
         ":assembler",
         ":io",
         ":mach-o-writer",
+        ":machine-code",
         ":module-name",
         ":prim-implementation",
         ":sexp-parser",
