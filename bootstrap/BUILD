@@ -1,5 +1,4 @@
-load("@minimal_racket//:racket.bzl", "racket_binary", "racket_library")
-
+load("@minimal_racket//:racket.bzl", "racket_library")
 load(":bootstrap.bzl", "bootstrap_binary")
 
 package(

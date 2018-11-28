@@ -1,17 +1,14 @@
 #:module (prim-language-compiler-main)
 #:import {
-  (assembler)
   (either)
-  (formats elf-writer)
   (io)
   (list)
-  (mach-o-writer)
+  (machine-code-writer)
   (maybe)
   (prim)
   (prim-language-compiler)
   (prim-language-runtime)
   (yaspl x86-64-assembly)
-  (yaspl x86-64-assembly-printer)
 }
 (export)
 (types
@@ -19,12 +16,7 @@
     (args
       [input-file-name : Bytes]
       [output-file-name : Bytes]
-      [output-format : OutputFormat]))
-  (define-type OutputFormat
-    (mach-osx)
-    (elf-linux)
-    (assembly-osx)
-    (assembly-linux)))
+      [output-format : MachineCodeOutputFormat])))
 
 (define (parse-args [input : (List Bytes)]) : (Either Bytes Args)
   (case input
@@ -40,12 +32,12 @@
      (left #"Too many arguments.")]
     [(cons _ (cons output-format-bytes (cons file-name (cons out-file-name (empty)))))
      (case
-       (ann (Either Bytes OutputFormat)
+       (ann (Either Bytes MachineCodeOutputFormat)
          (case output-format-bytes
-           [#"osx" (right (mach-osx))]
-           [#"linux" (right (elf-linux))]
-           [#"assembly-osx" (right (assembly-osx))]
-           [#"assembly-linux" (right (assembly-linux))]
+           [#"osx" (right (object-format (osx-abi)))]
+           [#"linux" (right (object-format (linux-abi)))]
+           [#"assembly-osx" (right (assembly-format (osx-abi)))]
+           [#"assembly-linux" (right (assembly-format (linux-abi)))]
            [_ (left #"Unknown output format")]))
        [(left v) (left v)]
        [(right output-format)
@@ -58,46 +50,18 @@
      (case (compile-prim-program (sourced-bytes-from-file file-name))
        [(left v) (just v)]
        [(right text-fragments)
-        (case output-format
-          [(mach-osx)
-           (match-define text-fragments
-             (append (osx-start-function-fragments) text-fragments))
-           (match-define text-section (assemble-text-section text-fragments))
-           (match-define const-section (assemble-const-section (empty)))
-           (begin
-             (write-mach-o-library text-section const-section out-file-name)
-             (nothing))]
-          [(elf-linux)
-           (match-define text-fragments
-             (append (linux-start-function-fragments) text-fragments))
-           (match-define text-section (assemble-text-section text-fragments))
-           (call-with-output-file out-file-name
-              (lambda ([output-port : OutputPort])
-                (begin
-                  (write-all-bytes (serialize-elf-library text-section) output-port)
-                  (nothing))))]
-          [(assembly-osx)
-           (match-define text-fragments
-             (append (osx-start-function-fragments) text-fragments))
-           (call-with-output-file out-file-name
-              (lambda ([output-port : OutputPort])
-                (begin
-                  (write-fragments
-                    (osx-assembly-style)
-                    (assembly-fragments text-fragments (empty))
-                    output-port)
-                  (nothing))))]
-          [(assembly-linux)
-           (match-define text-fragments
-             (append (linux-start-function-fragments) text-fragments))
-           (call-with-output-file out-file-name
-              (lambda ([output-port : OutputPort])
-                (begin
-                  (write-fragments
-                    (linux-assembly-style)
-                    (assembly-fragments text-fragments (empty))
-                    output-port)
-                  (nothing))))])])]))
+        (match-define text-fragments
+          (append
+            (case (machine-code-output-format-abi output-format)
+              [(osx-abi) (osx-start-function-fragments)]
+              [(linux-abi) (linux-start-function-fragments)])
+            text-fragments))
+        (begin
+          (write-library-machine-code
+            (assembly-fragments text-fragments (empty))
+            output-format
+            out-file-name)
+          (nothing))])]))
 
 (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]): Int
   (case (run args)

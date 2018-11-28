@@ -49,15 +49,12 @@ yaspl_binary(
     deps = [
         ":prim-language-compiler_lib",
         ":prim-language-runtime",
-        "//libraries:assembler",
         "//libraries:io",
-        "//libraries:mach-o-writer",
+        "//libraries:machine-code-writer",
         "//libraries/data:either",
         "//libraries/data:list",
         "//libraries/data:maybe",
-        "//libraries/formats:elf-writer",
         "//libraries/yaspl:x86-64-assembly",
-        "//libraries/yaspl:x86-64-assembly-printer",
     ],
 )
 

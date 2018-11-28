@@ -1,0 +1,56 @@
+#:module (machine-code-writer)
+#:import {
+  (assembler)
+  (formats elf-writer)
+  (io)
+  (mach-o-writer)
+  (prim)
+  (yaspl x86-64-assembly)
+  (yaspl x86-64-assembly-printer)
+}
+(export
+  (#:types SystemAbi MachineCodeOutputFormat)
+  (#:values write-library-machine-code machine-code-output-format-abi
+            object-format assembly-format osx-abi linux-abi)
+  (#:patterns osx-abi linux-abi))
+(types
+  (define-type SystemAbi
+    (osx-abi)
+    (linux-abi))
+
+  (define-type MachineCodeOutputFormat
+    (object-format [abi : SystemAbi])
+    (assembly-format [abi : SystemAbi])))
+
+(define (machine-code-output-format-abi [mc : MachineCodeOutputFormat]) : SystemAbi
+  (case mc
+    [(object-format abi) abi]
+    [(assembly-format abi) abi]))
+
+(define (write-library-machine-code
+          [fragments : AssemblyFragments]
+          [format : MachineCodeOutputFormat]
+          [output-file-name : Bytes])
+  : Void
+  (case format
+    [(object-format abi)
+     (match-define (assembly-fragments text-fragments const-fragments) fragments)
+     (match-define text-section (assemble-text-section text-fragments))
+     (match-define const-section (assemble-const-section const-fragments))
+     (case abi
+       [(osx-abi)
+        (write-mach-o-library text-section const-section output-file-name)]
+       [(linux-abi)
+        ;; TODO use the const section
+        (call-with-output-file/void output-file-name
+           (lambda ([output-port : OutputPort])
+             (write-all-bytes (serialize-elf-library text-section) output-port)))])]
+    [(assembly-format abi)
+     (call-with-output-file/void output-file-name
+        (lambda ([output-port : OutputPort])
+          (write-fragments
+            (case abi
+              [(osx-abi) (osx-assembly-style)]
+              [(linux-abi) (linux-assembly-style)])
+            fragments
+            output-port)))]))

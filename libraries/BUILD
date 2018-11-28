@@ -371,6 +371,19 @@ yaspl_test(
 )
 
 yaspl_bootstrap_library(
+    name = "machine-code-writer",
+    srcs = ["machine-code-writer.yaspl"],
+    deps = [
+        ":assembler",
+        ":io",
+        ":mach-o-writer",
+        "//libraries/formats:elf-writer",
+        "//libraries/yaspl:x86-64-assembly",
+        "//libraries/yaspl:x86-64-assembly-printer",
+    ],
+)
+
+yaspl_bootstrap_library(
     name = "compiler_lib",
     srcs = ["compiler.yaspl"],
     deps = [
