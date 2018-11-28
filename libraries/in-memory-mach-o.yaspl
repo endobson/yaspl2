@@ -1,0 +1,43 @@
+#:module (in-memory-mach-o)
+#:import {
+  (bytes)
+  (data lifted-primitives)
+  (either)
+  (mach-o)
+  (prim)
+  (tuples)
+}
+(export
+  (#:types)
+  (#:values read-mach-o/mem)
+  (#:patterns))
+(types)
+
+
+;; TODO put this in a shared place
+(define (read-memory [address : Int] [amount : Int]) : Bytes
+  (match-define mem (make-bytes amount))
+  (begin
+    (read-memory-raw address mem amount)
+    mem))
+
+(define (read-mach-o/mem) : (Either Bytes MachOFile)
+  (match-define raw-header (read-memory #x100000000 32))
+  (match-define header
+    (mach-o-header
+      (u32 (bytes-ref/quad-le raw-header 0))
+      (u32 (bytes-ref/quad-le raw-header 4))
+      (u32 (bytes-ref/quad-le raw-header 8))
+      (u32 (bytes-ref/quad-le raw-header 12))
+      (u32 (bytes-ref/quad-le raw-header 16))
+      (u32 (bytes-ref/quad-le raw-header 20))
+      (u32 (bytes-ref/quad-le raw-header 24))
+      (u32 (bytes-ref/quad-le raw-header 28))))
+  (match-define raw-load-commands
+    (read-memory #x100000020 (u32->s64 (mach-o-header-commands-size header))))
+  (case (parse-load-commands (u32->s64 (mach-o-header-number-commands header)) raw-load-commands 0)
+    [(left v) (left v)]
+    [(right (tuple2 commands (lifted-int offset)))
+     (right (mach-o-file header commands (mach-o-raw-contents-abstract
+                                           (lambda ([start : Int] [size : Int])
+                                             (read-memory (+ start #x100000000) size)))))]))

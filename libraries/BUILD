@@ -184,6 +184,7 @@ yaspl_library(
     name = "stack-trace",
     srcs = ["stack-trace.yaspl"],
     deps = [
+        ":in-memory-mach-o",
         ":mach-o",
         "//libraries/data:bytes",
         "//libraries/data:either",
@@ -490,6 +491,18 @@ yaspl_bootstrap_library(
         "//libraries/data:lifted-primitives",
         "//libraries/data:list",
         "//libraries/data:numbers",
+        "//libraries/data:tuples",
+    ],
+)
+
+yaspl_library(
+    name = "in-memory-mach-o",
+    srcs = ["in-memory-mach-o.yaspl"],
+    deps = [
+        ":mach-o",
+        "//libraries/data:bytes",
+        "//libraries/data:either",
+        "//libraries/data:lifted-primitives",
         "//libraries/data:tuples",
     ],
 )
