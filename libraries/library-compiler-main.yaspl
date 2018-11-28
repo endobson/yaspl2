@@ -1,6 +1,7 @@
 #:module (library-compiler-main)
 #:import {
   (assembler)
+  (bytes)
   (compiler)
   (either)
   (io)
@@ -10,6 +11,8 @@
       write-mach-o-library
     }
   }
+  (machine-code)
+  (machine-code-writer)
   (maybe)
   {(module-signature-serialization)
     {#:values
@@ -29,6 +32,7 @@
 (types
   (define-type Args
     (args
+      [output-format : MachineCodeOutputFormat]
       [output-object-file : Bytes]
       [output-signature-file : Bytes]
       [module-file : Bytes]
@@ -39,18 +43,27 @@
     [(empty)
      (left #"No executable specified???")]
     [(cons _ (empty))
-     (left #"No output object file name supplied.")]
+     (left #"No output format supplied.")]
     [(cons _ (cons _ (empty)))
-     (left #"No output signature file name supplied.")]
+     (left #"No output object file name supplied.")]
     [(cons _ (cons _ (cons _ (empty))))
+     (left #"No output signature file name supplied.")]
+    [(cons _ (cons _ (cons _ (cons _ (empty)))))
      (left #"No module file name supplied.")]
-    [(cons _ (cons output-object-file (cons output-signature-file (cons module-file sig-files))))
-     (right (args output-object-file output-signature-file module-file sig-files))]))
+    [(cons _ (cons output-format
+                   (cons output-object-file
+                         (cons output-signature-file
+                               (cons module-file sig-files)))))
+     (case (parse-machine-code-output-format output-format)
+       [(nothing) (left (bytes-append (varargs list #"Unknown output format: " output-format)))]
+       [(just output-format)
+        (right (args output-format output-object-file output-signature-file module-file
+                     sig-files))])]))
 
 (define (run [input : (List Bytes)]) : (Maybe Bytes)
   (case (parse-args input)
     [(left v) (just v)]
-    [(right (args output-object-file output-signature-file module-file sig-files))
+    [(right (args output-format output-object-file output-signature-file module-file sig-files))
      (case (parse-module-file module-file)
        [(left v) (just v)]
        [(right main-module)
@@ -60,12 +73,8 @@
            (case (compile-main-module main-module signatures)
              [(left v) (just v)]
              [(right (tuple2 objects sig))
-              (match-define (assembly-fragments text-fragments const-fragments)
-                (convert-objects objects))
-              (match-define text-section (assemble-text-section text-fragments))
-              (match-define const-section (assemble-const-section const-fragments))
               (begin
-                (write-mach-o-library text-section const-section output-object-file)
+                (write-library-machine-code (convert-objects objects) output-format output-object-file)
                 (call-with-output-file/void output-signature-file
                   (lambda ([output-port : OutputPort])
                     (write-all-bytes (serialize-module-signature sig) output-port)))

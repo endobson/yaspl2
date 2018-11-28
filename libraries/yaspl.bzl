@@ -10,6 +10,7 @@ def _lib_impl(ctx):
   input_signatures = [dep[yaspl_provider].signature for dep in ctx.attr.deps]
 
   args = ctx.actions.args()
+  args.add("osx") # TODO use a toolchain to target other platforms
   args.add(ctx.outputs.object)
   args.add(ctx.outputs.signature)
   args.add(src_file)
