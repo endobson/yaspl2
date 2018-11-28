@@ -69,12 +69,17 @@ prim_binary = rule(
 )
 
 def _lib_impl(ctx):
-  # TODO check that srcs has exactly one value
+  if (len(ctx.files.srcs) != 1):
+    fail("Must have exactly one source file.", "srcs")
+
+  toolchain = ctx.toolchains["//libraries/prim-language:prim_language_toolchain"]
+
   ctx.actions.run(
     inputs = ctx.files.srcs,
     outputs = [ctx.outputs.object],
     executable = ctx.executable._compiler,
     arguments = [
+      toolchain.platform,
       ctx.files.srcs[0].path,
       ctx.outputs.object.path,
     ]
@@ -87,6 +92,7 @@ prim_library = rule(
   outputs = {
     "object": "%{name}.o",
   },
+  toolchains = ["//libraries/prim-language:prim_language_toolchain"],
   attrs = {
     "srcs": attr.label_list(
       allow_files=[".prim"],
