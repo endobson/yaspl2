@@ -63,12 +63,12 @@ yaspl_bootstrap_binary(
     srcs = ["prim-language-library-compiler-main.yaspl"],
     deps = [
         ":prim-language-compiler_lib",
-        "//libraries:assembler",
         "//libraries:io",
-        "//libraries:mach-o-writer",
+        "//libraries:machine-code-writer",
         "//libraries/data:either",
         "//libraries/data:list",
         "//libraries/data:maybe",
+        "//libraries/yaspl:x86-64-assembly",
     ],
 )
 

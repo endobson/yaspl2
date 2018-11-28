@@ -1,20 +1,21 @@
 #:module (prim-language-library-compiler-main)
 #:import {
-  (assembler)
   (either)
   (io)
   (list)
-  (mach-o-writer)
+  (machine-code-writer)
   (maybe)
   (prim)
   (prim-language-compiler)
+  (yaspl x86-64-assembly)
 }
 (export)
 (types
   (define-type Args
     (args
       [input-file-name : Bytes]
-      [output-file-name : Bytes])))
+      [output-file-name : Bytes]
+      [output-format : MachineCodeOutputFormat])))
 
 (define (parse-args [input : (List Bytes)]) : (Either Bytes Args)
   (case input
@@ -27,19 +28,20 @@
     [(cons _ (cons _ (cons _ (cons _ _))))
      (left #"Too many arguments.")]
     [(cons _ (cons file-name (cons out-file-name (empty))))
-     (right (args file-name out-file-name))]))
+     (right (args file-name out-file-name (object-format (osx-abi))))]))
 
 (define (run [args : (Array Bytes)]) : (Maybe Bytes)
   (case (parse-args (array->list args))
     [(left msg) (just msg)]
-    [(right (args file-name out-file-name))
+    [(right (args file-name out-file-name output-format))
      (case (compile-prim-program (sourced-bytes-from-file file-name))
        [(left msg) (just msg)]
        [(right text-fragments)
-        (match-define text-section (assemble-text-section text-fragments))
-        (match-define const-section (assemble-const-section (empty)))
         (begin
-          (write-mach-o-library text-section const-section out-file-name)
+          (write-library-machine-code
+            (assembly-fragments text-fragments (empty))
+            output-format
+            out-file-name)
           (nothing))])]))
 
 (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]): Int
