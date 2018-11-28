@@ -10,6 +10,7 @@
       write-mach-o-library
     }
   }
+  (maybe)
   {(module-signature-serialization)
     {#:values
       serialize-module-signature
@@ -25,44 +26,39 @@
   (yaspl x86-64-assembly)
 }
 (export)
-(types)
+(types
+  (define-type Args
+    (args
+      [output-object-file : Bytes]
+      [output-signature-file : Bytes]
+      [module-file : Bytes]
+      [sig-files : (List Bytes)])))
 
-(define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Int
-  (case (array->list args)
+(define (parse-args [input : (List Bytes)]) : (Either Bytes Args)
+  (case input
     [(empty)
-     (begin
-       (write-line #"No executable specified???" stderr)
-       1)]
+     (left #"No executable specified???")]
     [(cons _ (empty))
-     (begin
-       (write-line #"No output object file name supplied." stderr)
-       1)]
+     (left #"No output object file name supplied.")]
     [(cons _ (cons _ (empty)))
-     (begin
-       (write-line #"No output signature file name supplied." stderr)
-       1)]
+     (left #"No output signature file name supplied.")]
     [(cons _ (cons _ (cons _ (empty))))
-     (begin
-       (write-line #"No main-moudle file name supplied." stderr)
-       1)]
-    [(cons _ (cons output-object-file (cons output-signature-file (cons main-module-file sig-files))))
-     (case (parse-module-file main-module-file)
-       [(left v)
-        (begin
-          (write-line v stderr)
-          1)]
+     (left #"No module file name supplied.")]
+    [(cons _ (cons output-object-file (cons output-signature-file (cons module-file sig-files))))
+     (right (args output-object-file output-signature-file module-file sig-files))]))
+
+(define (run [input : (List Bytes)]) : (Maybe Bytes)
+  (case (parse-args input)
+    [(left v) (just v)]
+    [(right (args output-object-file output-signature-file module-file sig-files))
+     (case (parse-module-file module-file)
+       [(left v) (just v)]
        [(right main-module)
         (case (parse-signature-files sig-files)
-          [(left v)
-           (begin
-             (write-line v stderr)
-             1)]
+          [(left v) (just v)]
           [(right signatures)
            (case (compile-main-module main-module signatures)
-             [(left v)
-              (begin
-                (write-line v stderr)
-                1)]
+             [(left v) (just v)]
              [(right (tuple2 objects sig))
               (match-define (assembly-fragments text-fragments const-fragments)
                 (convert-objects objects))
@@ -73,4 +69,13 @@
                 (call-with-output-file/void output-signature-file
                   (lambda ([output-port : OutputPort])
                     (write-all-bytes (serialize-module-signature sig) output-port)))
-                0)])])])]))
+                (nothing))])])])]))
+
+(define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Int
+  (case (run (array->list args))
+    [(just v)
+     (begin
+       (write-line v stderr)
+       1)]
+    [(nothing)
+     0]))

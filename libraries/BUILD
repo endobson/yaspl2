@@ -44,6 +44,7 @@ yaspl_bootstrap_binary(
         ":module-signature-serialization",
         "//libraries/data:either",
         "//libraries/data:list",
+        "//libraries/data:maybe",
         "//libraries/data:tuples",
         "//libraries/yaspl:top-level-objects-to-x86-64",
         "//libraries/yaspl:x86-64-assembly",
