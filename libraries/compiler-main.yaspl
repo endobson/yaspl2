@@ -20,7 +20,13 @@
   (#:types)
   (#:values main)
   (#:patterns))
-(types)
+(types
+  (define-type Args
+    (args
+      [output-format : (Tuple2 AssemblyStyle SystemAbi)]
+      [output-file-name : Bytes]
+      [module-name : Bytes]
+      [module-file-names : (List Bytes)])))
 
 (define (append-fragments [f1 : AssemblyFragments] [f2 : AssemblyFragments]) : AssemblyFragments
   (match-define (assembly-fragments text1 const1) f1)
@@ -51,16 +57,16 @@
        [(right text-fragments)
         (compile-prim-files* prim-files (append text-fragments acc))])]))
 
-(define (run [args : (List Bytes)]) : (Maybe Bytes)
-  (case args
+(define (parse-args [input : (List Bytes)]) : (Either Bytes Args)
+  (case input
     [(empty)
-     (just #"No executable specified???")]
+     (left #"No executable specified???")]
     [(cons _ (empty))
-     (just #"No output format supplied.")]
+     (left #"No output format supplied.")]
     [(cons _ (cons _ (empty)))
-     (just #"No output file name supplied.")]
+     (left #"No output file name supplied.")]
     [(cons _ (cons _ (cons _ (empty))))
-     (just #"No module name supplied")]
+     (left #"No module name supplied")]
     [(cons _ (cons output-format (cons output-file-name (cons module-name module-files))))
      (case
        (ann
@@ -69,31 +75,38 @@
            [#"osx-assembly" (right (tuple2 (osx-assembly-style) (osx-abi)))]
            [#"linux-assembly" (right (tuple2 (linux-assembly-style) (linux-abi)))]
            [_ (left #"Unknown output format")]))
-       [(left v) (just v)]
-       [(right (tuple2 output-style abi))
-        (match-define (tuple2 yaspl-files prim-files) (split-module-files module-files))
-        (call-with-output-file output-file-name
-          (lambda ([output : OutputPort])
-            (case (parse-module-files yaspl-files)
+       [(left v) (left v)]
+       [(right output-format)
+        (right (args output-format output-file-name module-name module-files))])]))
+
+
+(define (run [input : (List Bytes)]) : (Maybe Bytes)
+  (case (parse-args input)
+    [(left v) (just v)]
+    [(right (args (tuple2 output-style abi) output-file-name module-name module-files))
+     (match-define (tuple2 yaspl-files prim-files) (split-module-files module-files))
+     (call-with-output-file output-file-name
+       (lambda ([output : OutputPort])
+         (case (parse-module-files yaspl-files)
+           [(left v) (just v)]
+           [(right modules)
+            (case (compile-modules modules)
               [(left v) (just v)]
-              [(right modules)
-               (case (compile-modules modules)
+              [(right code)
+               (case (compile-prim-files prim-files)
                  [(left v) (just v)]
-                 [(right code)
-                  (case (compile-prim-files prim-files)
-                    [(left v) (just v)]
-                    [(right prim-fragments)
-                     (let ([assembly
-                             (append-fragments
-                               prim-fragments
-                               (append-fragments
-                                 (yaspl-runtime
-                                   (top-level-name (mod-name (varargs list module-name)) #"main")
-                                   abi)
-                                 (convert-objects code)))])
-                       (begin
-                         (write-fragments output-style assembly output)
-                         (nothing)))])])])))])]))
+                 [(right prim-fragments)
+                  (let ([assembly
+                          (append-fragments
+                            prim-fragments
+                            (append-fragments
+                              (yaspl-runtime
+                                (top-level-name (mod-name (varargs list module-name)) #"main")
+                                abi)
+                              (convert-objects code)))])
+                    (begin
+                      (write-fragments output-style assembly output)
+                      (nothing)))])])])))]))
 
 (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Int
   (case (run (array->list args))
