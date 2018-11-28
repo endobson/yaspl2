@@ -371,12 +371,18 @@ yaspl_test(
 )
 
 yaspl_bootstrap_library(
+    name = "machine-code",
+    srcs = ["machine-code.yaspl"],
+)
+
+yaspl_bootstrap_library(
     name = "machine-code-writer",
     srcs = ["machine-code-writer.yaspl"],
     deps = [
         ":assembler",
         ":io",
         ":mach-o-writer",
+        ":machine-code",
         "//libraries/data:maybe",
         "//libraries/formats:elf-writer",
         "//libraries/yaspl:x86-64-assembly",

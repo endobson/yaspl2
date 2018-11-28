@@ -50,6 +50,7 @@ yaspl_binary(
         ":prim-language-compiler_lib",
         ":prim-language-runtime",
         "//libraries:io",
+        "//libraries:machine-code",
         "//libraries:machine-code-writer",
         "//libraries/data:either",
         "//libraries/data:list",
@@ -64,6 +65,7 @@ yaspl_bootstrap_binary(
     deps = [
         ":prim-language-compiler_lib",
         "//libraries:io",
+        "//libraries:machine-code",
         "//libraries:machine-code-writer",
         "//libraries/data:either",
         "//libraries/data:list",
