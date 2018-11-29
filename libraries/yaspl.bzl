@@ -69,13 +69,16 @@ def _bin_impl(ctx):
     fail("Only one dep is supported", "deps")
   dep = ctx.attr.deps[0]
 
+  toolchain = ctx.toolchains["//libraries/yaspl:yaspl_toolchain"]
+
   ctx.actions.run_shell(
     inputs = [dep[yaspl_provider].module_name_file],
     tools = [ctx.executable._main_stub],
     outputs = [ctx.outputs.main_stub_object],
     mnemonic = "YasplGenerateMain",
-    command = '%s %s "$(cat %s)"' % (
+    command = '%s %s %s "$(cat %s)"' % (
       ctx.executable._main_stub.path,
+      toolchain.platform,
       ctx.outputs.main_stub_object.path,
       dep[yaspl_provider].module_name_file.path,
     )
@@ -88,7 +91,7 @@ def _bin_impl(ctx):
   )
 
   args = ctx.actions.args()
-  args.add("osx")
+  args.add(toolchain.platform)
   args.add(ctx.outputs.executable)
   args.add_all(input_objects)
 
@@ -162,6 +165,7 @@ def _yaspl_binary_rule(test):
     },
     executable = True,
     test = test,
+    toolchains = ["//libraries/yaspl:yaspl_toolchain"],
     attrs = {
       "deps": attr.label_list(
         providers = [yaspl_provider],

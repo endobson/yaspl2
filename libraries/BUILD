@@ -80,6 +80,7 @@ yaspl_bootstrap_binary(
         ":io",
         ":mach-o-writer",
         ":machine-code",
+        ":machine-code-writer",
         ":module-name",
         ":prim-implementation",
         ":sexp-parser",
