@@ -15,6 +15,10 @@ register_toolchains(
     '//libraries/prim-language:linux_prim_language_toolchain',
 )
 register_toolchains(
+    '//libraries/yaspl:osx_yaspl_toolchain',
+    '//libraries/yaspl:linux_yaspl_toolchain',
+)
+register_toolchains(
     '@minimal_racket//:osx_osx_racket_toolchain',
     '@minimal_racket//:linux_linux_racket_toolchain',
     '@minimal_racket//:osx_linux_racket_toolchain',

@@ -1,8 +1,42 @@
-load("//libraries:yaspl.bzl", "yaspl_bootstrap_library")
+load("//libraries:yaspl.bzl", "yaspl_bootstrap_library", "yaspl_toolchain")
 
 package(
     default_visibility = ["//visibility:public"],
 )
+
+toolchain_type(name = "yaspl_toolchain")
+
+yaspl_toolchain(
+    name = "osx_yaspl_toolchain_impl",
+    platform = "osx",
+)
+
+toolchain(
+    name = "osx_yaspl_toolchain",
+    target_compatible_with = [
+        "@bazel_tools//platforms:osx",
+        "@bazel_tools//platforms:x86_64",
+    ],
+    toolchain = ":osx_yaspl_toolchain_impl",
+    toolchain_type = ":yaspl_toolchain",
+)
+
+yaspl_toolchain(
+    name = "linux_yaspl_toolchain_impl",
+    platform = "linux",
+)
+
+toolchain(
+    name = "linux_yaspl_toolchain",
+    target_compatible_with = [
+        "@bazel_tools//platforms:linux",
+        "@bazel_tools//platforms:x86_64",
+    ],
+    toolchain = ":linux_yaspl_toolchain_impl",
+    toolchain_type = ":yaspl_toolchain",
+)
+
+
 
 yaspl_bootstrap_library(
     name = "intermediate-to-register",

@@ -171,4 +171,5 @@ prim_language_toolchain = rule(
   implementation = _prim_language_toolchain_impl,
   attrs = {
     'platform': attr.string(),
-  })
+  }
+)

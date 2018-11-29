@@ -7,10 +7,11 @@ def _lib_impl(ctx):
     fail("Only one source is supported", "srcs")
   src_file = ctx.files.srcs[0]
 
+  toolchain = ctx.toolchains["//libraries/yaspl:yaspl_toolchain"]
   input_signatures = [dep[yaspl_provider].signature for dep in ctx.attr.deps]
 
   args = ctx.actions.args()
-  args.add("osx") # TODO use a toolchain to target other platforms
+  args.add(toolchain.platform)
   args.add(ctx.outputs.object)
   args.add(ctx.outputs.signature)
   args.add(src_file)
@@ -138,6 +139,7 @@ yaspl_library = rule(
     "signature": "%{name}.sig",
     "module_name": "%{name}.module_name",
   },
+  toolchains = ["//libraries/yaspl:yaspl_toolchain"],
   attrs = {
     "srcs": attr.label_list(
       allow_files=_yaspl_src_file_extensions,
@@ -187,6 +189,19 @@ yaspl_srcs = rule(
   },
 )
 
+def _yaspl_toolchain_impl(ctx):
+  return [
+    platform_common.ToolchainInfo(
+      platform = ctx.attr.platform,
+    ),
+  ]
+
+yaspl_toolchain = rule(
+  implementation = _yaspl_toolchain_impl,
+  attrs = {
+    'platform': attr.string(),
+  }
+)
 
 def yaspl_test(name, srcs=[], deps=[], size="medium"):
   yaspl_library(
