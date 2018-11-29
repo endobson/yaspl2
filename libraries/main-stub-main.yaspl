@@ -22,40 +22,57 @@
   (#:types)
   (#:values main)
   (#:patterns))
-(types)
+(types
+  (define-type Args
+    (args
+      [output-format : MachineCodeOutputFormat]
+      [module-name-file : Bytes]
+      [output-file : Bytes])))
 
 (define (append-fragments [f1 : AssemblyFragments] [f2 : AssemblyFragments]) : AssemblyFragments
   (match-define (assembly-fragments text1 const1) f1)
   (match-define (assembly-fragments text2 const2) f2)
   (assembly-fragments (append text1 text2) (append const1 const2)))
 
+(define (parse-args [input : (List Bytes)]) : (Either Bytes Args)
+  (case input
+    [(empty)
+     (left #"No executable specified???")]
+    [(cons _ (empty))
+     (left #"No output file name supplied")]
+    [(cons _ (cons _ (empty)))
+     (left #"No module name supplied")]
+    [(cons _ (cons _ (cons _ (cons _ _))))
+     (left #"Too many arguments.")]
+    [(cons _ (cons module-name-file (cons output-file (empty))))
+     (right (args (object-format (osx-abi)) module-name-file output-file))]))
+
+(define (run [input : (List Bytes)]) : (Maybe Bytes)
+  (case (parse-args input)
+    [(left v) (just v)]
+    [(right (args object-format module-name-file output-file))
+     (case (parse-single-sexp (sourced-bytes (unnamed-source) module-name-file))
+       [(left v) (just #"Unparseable module name sexp")]
+       [(right v)
+        (case (sexp->mod-name v)
+          [(nothing) (just #"Unparseable module name")]
+          [(just mod-name)
+           (case (append-fragments
+                   (yaspl-runtime (top-level-name mod-name #"main") (osx-abi))
+                   (convert-objects (optimize-tlos (prim-implementation))))
+             [(assembly-fragments text-fragments const-fragments)
+              (match-define text-section (assemble-text-section text-fragments))
+              (match-define const-section (assemble-const-section const-fragments))
+              (begin
+                (write-mach-o-library text-section const-section output-file)
+                (nothing))])])])]))
+
+
 (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Int
-  (if (< (array-length args) 2)
-      (begin
-        (write-line #"No output file name supplied" stderr)
-        1)
-      (if (< (array-length args) 3)
-          (begin
-            (write-line #"No module name supplied" stderr)
-            1)
-          (case (parse-single-sexp (sourced-bytes (unnamed-source) (array-ref args 2)))
-            [(left v)
-             (begin
-               (write-line #"Unparseable module name sexp" stderr)
-               1)]
-            [(right v)
-             (case (sexp->mod-name v)
-               [(nothing)
-                (begin
-                  (write-line #"Unparseable module name" stderr)
-                  1)]
-               [(just mod-name)
-                (case (append-fragments
-                        (yaspl-runtime (top-level-name mod-name #"main") (osx-abi))
-                        (convert-objects (optimize-tlos (prim-implementation))))
-                  [(assembly-fragments text-fragments const-fragments)
-                   (match-define text-section (assemble-text-section text-fragments))
-                   (match-define const-section (assemble-const-section const-fragments))
-                   (begin
-                     (write-mach-o-library text-section const-section (array-ref args 1))
-                     0)])])]))))
+  (case (run (array->list args))
+    [(just v)
+     (begin
+       (write-line v stderr)
+       1)]
+    [(nothing)
+     0]))
