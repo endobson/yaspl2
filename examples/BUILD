@@ -11,19 +11,6 @@ yaspl_binary(
 )
 
 yaspl_binary(
-    name = "elf-file",
-    srcs = ["elf-file.yaspl"],
-    deps = [
-        "//libraries:io",
-        "//libraries:structured-native-code",
-        "//libraries/data:aligned-bytes",
-        "//libraries/data:bytes",
-        "//libraries/data:list",
-        "//libraries/formats:elf-writer",
-    ],
-)
-
-yaspl_binary(
     name = "env",
     srcs = ["env.yaspl"],
     deps = [
@@ -93,7 +80,6 @@ test_suite(
 filegroup(
     name = "package_binaries",
     srcs = [
-        ":elf-file",
         ":env",
         ":hello-world",
         ":http-echo-server",
