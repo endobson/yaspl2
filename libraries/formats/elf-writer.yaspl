@@ -29,13 +29,22 @@
       [symbol : Bytes]
       [address : Int])))
 
-(define (serialize-elf-library [text-section : (ProgramSection AbstractRelocationKind)]) : Bytes
+(define (serialize-elf-library
+          [text-section : (ProgramSection AbstractRelocationKind)]
+          [const-section : (ProgramSection AbstractRelocationKind)])
+  : Bytes
   (match-define (program-section (aligned-bytes text-section-contents text-section-alignment)
                                  text-relocations text-global-symbols text-local-symbols)
     text-section)
   (match-define text-symbols (append text-global-symbols text-local-symbols))
   (match-define text-section-length (bytes-length text-section-contents))
   (match-define rounded-text-section-length (round-up text-section-length 8))
+
+  (match-define (program-section (aligned-bytes const-section-contents const-section-alignment)
+                                 const-relocations const-global-symbols const-local-symbols)
+    const-section)
+  (match-define const-section-length (bytes-length const-section-contents))
+
   (match-define undefined-symbols-set
     (set-remove-all
       (set-add-all
@@ -49,18 +58,18 @@
              (case symbol
                [(defined-symbol name addr)
                 (symbol-reference name addr)]))
-           text-local-symbols)
+           (append text-local-symbols const-local-symbols))
       (append
         (map (lambda ([symbol : DefinedSymbol])
                (case symbol
                  [(defined-symbol name addr)
                   (symbol-reference name addr)]))
-             text-global-symbols)
+             (append text-global-symbols const-global-symbols))
         (map (lambda ([relocation : (Relocation AbstractRelocationKind)])
                (case relocation
                  [(relocation _ addr name)
                   (symbol-reference name addr)]))
-             text-relocations))))
+             (append text-relocations const-relocations)))))
 
   (match-define indexed-text-symbols
     (indexed-set-add-all
@@ -71,8 +80,8 @@
       (make-set bytes-cmp)
       (map defined-symbol-name text-global-symbols)))
 
-  (match-define ordered-text-relocations
-    (order-relocations text-relocations))
+  (match-define ordered-relocations
+    (order-relocations (append text-relocations const-relocations)))
 
   (match-define (tuple2 offset-symbols (lifted-int string-table-size))
     (compute-string-table-offsets ordered-symbols))
@@ -107,7 +116,7 @@
   (match-define section-string-table-size
     (if using-rela-text-section #x31 #x2C))
 
-  (match-define symbol-table-start (+ #x40 rounded-text-section-length))
+  (match-define symbol-table-start (+ #x40 (+ rounded-text-section-length const-section-length)))
   (match-define string-table-start (round-up (+ symbol-table-start symbol-table-size) 8))
 
   (match-define string-table-end (+ string-table-start string-table-size))
@@ -117,7 +126,7 @@
     (- rela-text-section-start string-table-end))
   (match-define rela-text-section-size
     (if using-rela-text-section
-        (* #x18 (length text-relocations))
+        (* #x18 (length ordered-relocations))
         0))
 
   (match-define section-string-table-start
@@ -164,6 +173,7 @@
              (single-jl (bytes/u16-le #x7))   ;; Number of section header entries
              (single-jl (bytes/u16-le #x6)))) ;; Index of section name section
         (single-jl text-section-contents)
+        (single-jl const-section-contents)
         ;; Symbol tables are 8 byte aligned, so add padding as needed
         (single-jl (make-bytes (- rounded-text-section-length text-section-length)))
         (if using-rela-text-section
@@ -222,7 +232,7 @@
                               ;; pc relative relocations need to account for the 4 bytes offset
                               (case kind
                                 [(elf-pc32-relocation) (- 0 4)])])))]))
-                  ordered-text-relocations)))
+                  ordered-relocations)))
             (empty-jl))
         (single-jl (make-null-terminated #""))
         (single-jl (make-null-terminated #".symtab"))
