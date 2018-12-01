@@ -95,20 +95,23 @@
              (tuple2 s (lifted-int 0)))
            (set->list undefined-symbols-set))))
 
+  (match-define using-rela-text-section
+    (case text-relocations
+      [(empty) #f]
+      [_ #t]))
+
+  (match-define named-sections : (List LiftedInt)
+    (varargs list (lifted-int 1) (lifted-int 3) (lifted-int 4)))
+
   (match-define symbol-indices : (Dict Bytes LiftedInt)
     (dict-add-all
       (make-dict bytes-cmp)
       (map/indexed
         (lambda ([s : Bytes] [index : Int])
-          (tuple2 s (lifted-int (+ 4 index))))
+          (tuple2 s (lifted-int (+ 1 (+ (length named-sections) index)))))
         ordered-symbols)))
 
-  (match-define symbol-table-size (* (+ (dict-count symbol-indices) 4) #x18))
-
-  (match-define using-rela-text-section
-    (case text-relocations
-      [(empty) #f]
-      [_ #t]))
+  (match-define symbol-table-size (* (+ 1 (+ (length named-sections) (dict-count symbol-indices))) #x18))
 
   (match-define section-string-table-size
     (if using-rela-text-section #x31 #x2C))
@@ -173,17 +176,14 @@
         (single-jl const-section-contents)
         ;; Symbol tables are 8 byte aligned, so add padding as needed
         (single-jl (make-bytes (- rounded-text-section-length text-section-length)))
-        (if using-rela-text-section
-            (varargs append-jl*
-              (symbol-table-entry 0 0 0 0)
-              (symbol-table-entry 0 3 1 0)
-              (symbol-table-entry 0 3 3 0)
-              (symbol-table-entry 0 3 4 0))
-            (varargs append-jl*
-              (symbol-table-entry 0 0 0 0)
-              (symbol-table-entry 0 3 1 0)
-              (symbol-table-entry 0 3 2 0)
-              (symbol-table-entry 0 3 3 0)))
+        (symbol-table-entry 0 0 0 0)
+        (concat-jl
+          (map
+            (lambda ([named-section-index : LiftedInt])
+              (case named-section-index
+                [(lifted-int v)
+                 (symbol-table-entry 0 3 v 0)]))
+            named-sections))
         (concat-jl
           (map
             (lambda ([entry : (Tuple2 Bytes LiftedInt)])
