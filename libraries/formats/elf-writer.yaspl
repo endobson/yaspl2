@@ -152,6 +152,27 @@
   (match-define section-header-padding
     (- section-header-start section-string-table-end))
 
+  (match-define section-headers : (List (JoinList Bytes))
+    (varargs list
+      (single-jl (make-bytes (* 16 4))) ;; Empty section header
+      (if using-rela-text-section
+          (varargs append-jl*
+            (section-header/bytes 32 1 6 0 #x40 text-section-length 0 0
+                            (logical-shift-left 1 text-section-alignment) 0)
+            (section-header/bytes 27 4 64 0 rela-text-section-start
+                            (* #x18 (length text-relocations)) 5 1 8 #x18)
+            (section-header/bytes 38 1 3 0 (+ #x40 text-section-length) 0 0 0 1 0)
+            (section-header/bytes 44 8 3 0 (+ #x40 text-section-length) 0 0 0 1 0))
+          (varargs append-jl*
+            (section-header/bytes 27 1 6 0 #x40 text-section-length 0 0 1 0)
+            (section-header/bytes 33 1 3 0 (+ #x40 text-section-length) 0 0 0 1 0)
+            (section-header/bytes 39 8 3 0 (+ #x40 text-section-length) 0 0 0 1 0)))
+      (let ([symbol-table-section-number (if using-rela-text-section 6 5)])
+        (section-header/bytes 1 2 0 0 symbol-table-start symbol-table-size symbol-table-section-number
+                              (+ 4 (length text-local-symbols)) 8 24))
+      (section-header/bytes 9 3 0 0 string-table-start string-table-size 0 0 1 0)
+      (section-header/bytes 17 3 0 0 section-string-table-start section-string-table-size 0 0 1 0)))
+
   (bytes-append
     (jl->list
       (varargs append-jl*
@@ -175,13 +196,8 @@
         (single-jl (bytes/u16-le #x00)) ;; Size of program header entry
         (single-jl (bytes/u16-le #x00)) ;; Number of program header entries
         (single-jl (bytes/u16-le #x40)) ;; size of section header entry
-        (if using-rela-text-section
-           (varargs append-jl*
-             (single-jl (bytes/u16-le #x8))   ;; Number of section header entries
-             (single-jl (bytes/u16-le #x7)))  ;; Index of section name section
-           (varargs append-jl*
-             (single-jl (bytes/u16-le #x7))   ;; Number of section header entries
-             (single-jl (bytes/u16-le #x6)))) ;; Index of section name section
+        (single-jl (bytes/u16-le (length section-headers)))   ;; Number of section header entries
+        (single-jl (bytes/u16-le (- (length section-headers) 1)))  ;; Index of section name section
         (single-jl text-section-contents)
         (single-jl const-section-contents)
         ;; Symbol tables are 8 byte aligned, so add padding as needed
@@ -251,25 +267,7 @@
         (concat-jl (map (lambda ([v : Bytes]) (single-jl v)) section-string-table-strings))
         ;; Align the section header to 8 Bytes, so add padding as needed.
         (single-jl (make-bytes section-header-padding))
-        (single-jl (make-bytes (* 16 4))) ;; Empty section header
-        (if using-rela-text-section
-            (varargs append-jl*
-              (section-header/bytes 32 1 6 0 #x40 text-section-length 0 0
-                              (logical-shift-left 1 text-section-alignment) 0)
-              (section-header/bytes 27 4 64 0 rela-text-section-start
-                              (* #x18 (length text-relocations)) 5 1 8 #x18)
-              (section-header/bytes 38 1 3 0 (+ #x40 text-section-length) 0 0 0 1 0)
-              (section-header/bytes 44 8 3 0 (+ #x40 text-section-length) 0 0 0 1 0))
-            (varargs append-jl*
-              (section-header/bytes 27 1 6 0 #x40 text-section-length 0 0 1 0)
-              (section-header/bytes 33 1 3 0 (+ #x40 text-section-length) 0 0 0 1 0)
-              (section-header/bytes 39 8 3 0 (+ #x40 text-section-length) 0 0 0 1 0)))
-        (let ([symbol-table-section-number (if using-rela-text-section 6 5)])
-          (section-header/bytes 1 2 0 0 symbol-table-start symbol-table-size symbol-table-section-number
-                                (+ 4 (length text-local-symbols)) 8 24))
-        (section-header/bytes 9 3 0 0 string-table-start string-table-size 0 0 1 0)
-        (section-header/bytes 17 3 0 0 section-string-table-start section-string-table-size 0 0 1 0)
-        ))))
+        (concat-jl section-headers)))))
 
 (define (bytes/u16-le [v : Int]) : Bytes
   (bytes/2 (u8 (remainder v 256)) (u8 (quotient v 256))))
