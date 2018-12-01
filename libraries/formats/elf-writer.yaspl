@@ -117,7 +117,8 @@
         #".shstrtab"
         #".rela.text"
         #".data"
-        #".bss")))
+        #".bss"
+        #".rela.rodata")))
 
   (match-define section-string-table-size
     (sum bytes-length section-string-table-strings))
@@ -146,15 +147,32 @@
   (match-define section-headers : (List (JoinList Bytes))
     (varargs list
       (single-jl (make-bytes (* 16 4))) ;; Empty section header
+      ;; .text section
       (section-header/bytes 32 1 6 0 #x40 text-section-length 0 0
                       (logical-shift-left 1 text-section-alignment) 0)
+      ;; .rela.text section
       (section-header/bytes 27 4 64 0 rela-text-section-start
-                      (* #x18 (length text-relocations)) 5 1 8 #x18)
+                      (* #x18 (length text-relocations))
+                      7 ;; Section number of the symbol table
+                      1 8 #x18)
+      ;; .data section
       (section-header/bytes 38 1 3 0 (+ #x40 text-section-length) 0 0 0 1 0)
+      ;; .bss section
       (section-header/bytes 44 8 3 0 (+ #x40 text-section-length) 0 0 0 1 0)
-      (section-header/bytes 1 2 0 0 symbol-table-start symbol-table-size 6
-                            (+ 4 (length text-local-symbols)) 8 24)
+      ;; .rodata section
+      (section-header/bytes 54 1 2 0 (+ #x40 text-section-length)
+                            const-section-length
+                            0 0 1 0)
+      ;; .rela.rodata section
+      (section-header/bytes 49 4 64 0 (+ (* #x18 (length text-relocations)) rela-text-section-start)
+                            (* #x18 (length const-relocations))
+                            7 5 8 #x18)
+      ;; .symtab section
+      (section-header/bytes 1 2 0 0 symbol-table-start symbol-table-size 8
+                            (+ 5 (length text-local-symbols)) 8 24)
+      ;; .strtab section
       (section-header/bytes 9 3 0 0 string-table-start string-table-size 0 0 1 0)
+      ;; .shstrtab section
       (section-header/bytes 17 3 0 0 section-string-table-start section-string-table-size 0 0 1 0)))
 
   (bytes-append
@@ -172,8 +190,6 @@
         (single-jl (bytes/u32-le 1)) ;; Version
         (single-jl (bytes/u64-le (u64 0))) ;; No start address
         (single-jl (bytes/u64-le (u64 0))) ;; Program header offset
-        ;; TODO This depends on the size of the contents
-        ;(single-jl (bytes/u64-le #x0150)) ;; Section header offset
         (single-jl (bytes/u64-le (u64 section-header-start))) ;; Section header offset
         (single-jl (bytes/u32-le 0)) ;; FLAGS
         (single-jl (bytes/u16-le #x40)) ;; ELF header size
