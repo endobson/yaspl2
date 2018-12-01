@@ -43,39 +43,35 @@
   (match-define (program-section (aligned-bytes const-section-contents const-section-alignment)
                                  const-relocations const-global-symbols const-local-symbols)
     const-section)
+  (match-define const-symbols (append text-global-symbols text-local-symbols))
   (match-define const-section-length (bytes-length const-section-contents))
+
+  (match-define ordered-symbols
+    (map defined-symbol-name
+         (append* (varargs list
+                    text-local-symbols text-global-symbols
+                    const-local-symbols const-global-symbols))))
 
   (match-define undefined-symbols-set
     (set-remove-all
       (set-add-all
         (make-set bytes-cmp)
         (map (lambda ([r : (Relocation AbstractRelocationKind)]) (relocation-symbol r)) text-relocations))
-      (map defined-symbol-name text-symbols)))
-
-  (match-define ordered-symbols
-    (order-symbol-references
-      (map (lambda ([symbol : DefinedSymbol])
-             (case symbol
-               [(defined-symbol name addr)
-                (symbol-reference name addr)]))
-           (append text-local-symbols const-local-symbols))
-      (append
-        (map (lambda ([symbol : DefinedSymbol])
-               (case symbol
-                 [(defined-symbol name addr)
-                  (symbol-reference name addr)]))
-             (append text-global-symbols const-global-symbols))
-        (map (lambda ([relocation : (Relocation AbstractRelocationKind)])
-               (case relocation
-                 [(relocation _ addr name)
-                  (symbol-reference name addr)]))
-             (append text-relocations const-relocations)))))
+      ordered-symbols))
 
   (match-define indexed-text-symbols
     (indexed-set-add-all
       (make-indexed-set defined-symbol-name bytes-cmp)
       text-symbols))
+  (match-define indexed-const-symbols
+    (indexed-set-add-all
+      (make-indexed-set defined-symbol-name bytes-cmp)
+      const-symbols))
   (match-define text-global-symbol-names-set
+    (set-add-all
+      (make-set bytes-cmp)
+      (map defined-symbol-name text-global-symbols)))
+  (match-define const-global-symbol-names-set
     (set-add-all
       (make-set bytes-cmp)
       (map defined-symbol-name text-global-symbols)))
@@ -199,7 +195,14 @@
                                         1
                                         addr)]
                    [(nothing)
-                    (symbol-table-entry name-offset #x10 0 0)])]))
+                    (case (indexed-set-ref indexed-const-symbols sym)
+                      [(just (defined-symbol _ addr))
+                       (symbol-table-entry name-offset
+                                           (if (set-member? const-global-symbol-names-set sym) #x10 #x00)
+                                           5
+                                           addr)]
+                      [(nothing)
+                       (symbol-table-entry name-offset #x10 0 0)])])]))
             offset-symbols))
         (single-jl (make-null-terminated #""))
         (concat-jl
@@ -317,33 +320,6 @@
     (bytes/u16-le section-table-index)
     (bytes/u64-le (u64 symbol-value))
     (make-bytes 8)))
-
-(define (order-symbol-references
-          [local-references : (List SymbolReference)]
-          [global-references : (List SymbolReference)])
-  : (List Bytes)
-  (order-symbol-references*
-    (append
-      local-references
-      (stable-sort
-        global-references
-        (lambda ([s1 : SymbolReference] [s2 : SymbolReference])
-          (case s1
-            [(symbol-reference _ addr1)
-             (match-define (symbol-reference _ addr2) s2)
-             (< addr1 addr2)]))))
-    (make-set bytes-cmp)))
-
-(define (order-symbol-references*
-          [references : (List SymbolReference)]
-          [seen-symbols : (Set Bytes)])
-  : (List Bytes)
-  (case references
-    [(empty) (empty)]
-    [(cons (symbol-reference name _) references)
-     (if (set-member? seen-symbols name)
-         (order-symbol-references* references seen-symbols)
-         (cons name (order-symbol-references* references (set-add seen-symbols name))))]))
 
 (define (order-relocations [relocations : (List (Relocation AbstractRelocationKind))])
   : (List (Relocation AbstractRelocationKind))
