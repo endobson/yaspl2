@@ -45,19 +45,25 @@
   (match-define const-symbols (append const-global-symbols const-local-symbols))
   (match-define const-section-length (bytes-length const-section-contents))
 
-  (match-define ordered-symbols
+  (match-define defined-symbols
     (map defined-symbol-name
          (append* (varargs list
                     text-local-symbols text-global-symbols
                     const-local-symbols const-global-symbols))))
 
-  (match-define undefined-symbols-set
-    (set-remove-all
-      (set-add-all
-        (make-set bytes-cmp)
-        (map (lambda ([r : (Relocation AbstractRelocationKind)]) (relocation-symbol r))
-             (append text-relocations const-relocations)))
-      ordered-symbols))
+  (match-define undefined-symbols
+    (let ([defined-symbols-set (set-add-all (make-set bytes-cmp) defined-symbols)])
+      (remove-duplicates
+        (filter-map
+          (lambda ([r : (Relocation AbstractRelocationKind)]) : (Maybe Bytes)
+            (let ([sym (relocation-symbol r)])
+              (if (set-member? defined-symbols-set sym)
+                  (nothing)
+                  (just sym))))
+          (append text-relocations const-relocations)))))
+
+  (match-define ordered-symbols
+    (append defined-symbols undefined-symbols))
 
   (match-define indexed-text-symbols
     (indexed-set-add-all
@@ -92,7 +98,7 @@
              (append text-symbols const-symbols)))
       (map (lambda ([s : Bytes])
              (tuple2 s (lifted-int 0)))
-           (set->list undefined-symbols-set))))
+           undefined-symbols)))
 
   (match-define named-sections : (List LiftedInt)
     (varargs list (lifted-int 1) (lifted-int 3) (lifted-int 4) (lifted-int 5)))
@@ -269,6 +275,18 @@
         (single-jl (make-bytes (- section-header-start section-string-table-end)))
         (concat-jl section-headers)))))
 
+(define (remove-duplicates [l : (List Bytes)]) : (List Bytes)
+  (remove-duplicates* l (empty) (make-set bytes-cmp)))
+
+(define (remove-duplicates* [l : (List Bytes)] [rev-acc : (List Bytes)] [seen : (Set Bytes)])
+  : (List Bytes)
+  (case l
+    [(empty) (reverse rev-acc)]
+    [(cons e l)
+     (if (set-member? seen e)
+         (remove-duplicates* l rev-acc seen)
+         (remove-duplicates* l (cons e rev-acc) (set-add seen e)))]))
+
 (define (bytes/u16-le [v : Int]) : Bytes
   (bytes/2 (u8 (remainder v 256)) (u8 (quotient v 256))))
 
@@ -287,7 +305,6 @@
           (bytes-set!/s32-le b 0 (s32 v))
           (bytes-set!/s32-le b 4 (s32 (- 0 1)))))
     b))
-
 
 (define (section-header/bytes
           [name-offset : Int]
