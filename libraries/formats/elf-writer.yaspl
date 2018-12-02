@@ -111,6 +111,26 @@
           (tuple2 s (lifted-int (+ 1 (+ (length named-sections) index)))))
         ordered-symbols)))
 
+  (match-define serialize-relocation
+    (lambda ([relocation : (Relocation AbstractRelocationKind)]) : (JoinList Bytes)
+      (case relocation
+        [(relocation kind offset sym)
+         (match-define kind (abstract-relocation->elf-relocation kind))
+         (varargs join-list
+           (bytes/s64-le offset)
+           (bytes/u32-le
+             (case kind
+               [(elf-pc32-relocation) #x02]))
+           (bytes/u32-le
+             (case (dict-ref symbol-indices sym)
+               [(nothing) (panic/int #"Unknown symbol")]
+               [(just (lifted-int v)) v]))
+           (bytes/s64-le
+             (case kind
+               ;; pc relative relocations need to account for the 4 bytes offset
+               [(elf-pc32-relocation) (- 0 4)])))])))
+
+
   (match-define text-section-start #x40)
   (match-define text-section-end (+ text-section-start text-section-length))
   (match-define const-section-start
@@ -248,29 +268,8 @@
               (single-jl (make-null-terminated s)))
             ordered-symbols))
         (single-jl (make-bytes (- rela-text-section-start string-table-end)))
-        (concat-jl
-          (map
-            (lambda ([relocation : (Relocation AbstractRelocationKind)]) : (JoinList Bytes)
-              (case relocation
-                [(relocation kind offset sym)
-                 (match-define kind (abstract-relocation->elf-relocation kind))
-                 (varargs join-list
-                   (bytes/s64-le offset)
-                   (bytes/u32-le
-                     (case kind
-                       [(elf-pc32-relocation) #x02]))
-                   (bytes/u32-le
-                     (case (dict-ref symbol-indices sym)
-                       [(nothing) (panic/int #"Unknown symbol")]
-                       [(just (lifted-int v)) v]))
-                   (bytes/s64-le
-                     (case (dict-ref symbol-locations sym)
-                       [(nothing) (panic/int #"Unknown symbol")]
-                       [(just (lifted-int v))
-                        ;; pc relative relocations need to account for the 4 bytes offset
-                        (case kind
-                          [(elf-pc32-relocation) (- 0 4)])])))]))
-            (append ordered-text-relocations const-relocations)))
+        (concat-jl (map serialize-relocation ordered-text-relocations))
+        (concat-jl (map serialize-relocation const-relocations))
         (concat-jl (map (lambda ([v : Bytes]) (single-jl v)) section-string-table-strings))
         (single-jl (make-bytes (- section-header-start section-string-table-end)))
         (concat-jl section-headers)))))
