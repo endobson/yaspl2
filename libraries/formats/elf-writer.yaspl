@@ -38,7 +38,6 @@
     text-section)
   (match-define text-symbols (append text-global-symbols text-local-symbols))
   (match-define text-section-length (bytes-length text-section-contents))
-  (match-define rounded-text-section-length (round-up text-section-length 8))
 
   (match-define (program-section (aligned-bytes const-section-contents const-section-alignment)
                                  const-relocations const-global-symbols const-local-symbols)
@@ -106,6 +105,12 @@
           (tuple2 s (lifted-int (+ 1 (+ (length named-sections) index)))))
         ordered-symbols)))
 
+  (match-define text-section-start #x40)
+  (match-define text-section-end (+ text-section-start text-section-length))
+  (match-define const-section-start
+    (round-up text-section-end (logical-shift-left 1 const-section-alignment)))
+  (match-define const-section-end (+ const-section-start const-section-length))
+
   (match-define symbol-table-size (* (+ 1 (+ (length named-sections) (dict-count symbol-indices))) #x18))
 
   (match-define section-string-table-strings
@@ -123,53 +128,52 @@
   (match-define section-string-table-size
     (sum bytes-length section-string-table-strings))
 
-  (match-define symbol-table-start (+ #x40 (+ rounded-text-section-length const-section-length)))
+  (match-define symbol-table-start (round-up const-section-end 8))
   (match-define string-table-start (round-up (+ symbol-table-start symbol-table-size) 8))
 
   (match-define string-table-end (+ string-table-start string-table-size))
   (match-define rela-text-section-start (round-up string-table-end 8))
-
-  (match-define rela-text-section-align-padding
-    (- rela-text-section-start string-table-end))
   (match-define rela-text-section-size
-    (* #x18 (+ (length text-relocations) (length const-relocations))))
+    (* #x18 (length text-relocations)))
+  (match-define rela-text-section-end
+    (+ rela-text-section-start rela-text-section-size))
+
+  (match-define rela-const-section-start (round-up rela-text-section-end 8))
+  (match-define rela-const-section-size
+    (* #x18 (length const-relocations)))
+  (match-define rela-const-section-end
+    (+ rela-const-section-start rela-const-section-size))
 
   (match-define section-string-table-start
-    (+ rela-text-section-start rela-text-section-size))
+    (round-up rela-const-section-end 1))
 
   (match-define section-string-table-end
     (+ section-string-table-start section-string-table-size))
   (match-define section-header-start
     (round-up section-string-table-end 8))
-  (match-define section-header-padding
-    (- section-header-start section-string-table-end))
 
   (match-define section-headers : (List (JoinList Bytes))
     (varargs list
       (single-jl (make-bytes (* 16 4))) ;; Empty section header
       ;; .text section
-      (section-header/bytes 32 1 6 0 #x40 text-section-length 0 0
+      (section-header/bytes 32 1 6 0 text-section-start text-section-length 0 0
                       (logical-shift-left 1 text-section-alignment) 0)
       ;; .rela.text section
-      (section-header/bytes 27 4 64 0 rela-text-section-start
-                      (* #x18 (length text-relocations))
-                      7 ;; Section number of the symbol table
-                      1 8 #x18)
+      (section-header/bytes 27 4 64 0 rela-text-section-start rela-text-section-size
+                      7 1 8 #x18)
       ;; .data section
-      (section-header/bytes 38 1 3 0 (+ #x40 text-section-length) 0 0 0 1 0)
+      (section-header/bytes 38 1 3 0 text-section-end 0 0 0 1 0)
       ;; .bss section
-      (section-header/bytes 44 8 3 0 (+ #x40 text-section-length) 0 0 0 1 0)
+      (section-header/bytes 44 8 3 0 text-section-end 0 0 0 1 0)
       ;; .rodata section
-      (section-header/bytes 54 1 2 0 (+ #x40 text-section-length)
-                            const-section-length
+      (section-header/bytes 54 1 2 0 const-section-start const-section-length
                             0 0 1 0)
       ;; .rela.rodata section
-      (section-header/bytes 49 4 64 0 (+ (* #x18 (length text-relocations)) rela-text-section-start)
-                            (* #x18 (length const-relocations))
+      (section-header/bytes 49 4 64 0 rela-const-section-start rela-const-section-size
                             7 5 8 #x18)
       ;; .symtab section
-      (section-header/bytes 1 2 0 0 symbol-table-start symbol-table-size 8
-                            (+ 5 (length text-local-symbols)) 8 24)
+      (section-header/bytes 1 2 0 0 symbol-table-start symbol-table-size
+                            8 (+ 5 (+ (length text-local-symbols) (length const-local-symbols))) 8 24)
       ;; .strtab section
       (section-header/bytes 9 3 0 0 string-table-start string-table-size 0 0 1 0)
       ;; .shstrtab section
@@ -199,9 +203,9 @@
         (single-jl (bytes/u16-le (length section-headers)))   ;; Number of section header entries
         (single-jl (bytes/u16-le (- (length section-headers) 1)))  ;; Index of section name section
         (single-jl text-section-contents)
+        (single-jl (make-bytes (- const-section-start text-section-end)))
         (single-jl const-section-contents)
-        ;; Symbol tables are 8 byte aligned, so add padding as needed
-        (single-jl (make-bytes (- rounded-text-section-length text-section-length)))
+        (single-jl (make-bytes (- symbol-table-start const-section-end)))
         (symbol-table-entry 0 0 0 0)
         (concat-jl
           (map
@@ -237,34 +241,32 @@
             (lambda ([s : Bytes])
               (single-jl (make-null-terminated s)))
             ordered-symbols))
-        (append-jl
-          (single-jl (make-bytes rela-text-section-align-padding))
-          (concat-jl
-            (map
-              (lambda ([relocation : (Relocation AbstractRelocationKind)]) : (JoinList Bytes)
-                (case relocation
-                  [(relocation kind offset sym)
-                   (match-define kind (abstract-relocation->elf-relocation kind))
-                   (varargs join-list
-                     (bytes/s64-le offset)
-                     (bytes/u32-le
-                       (case kind
-                         [(elf-pc32-relocation) #x02]))
-                     (bytes/u32-le
-                       (case (dict-ref symbol-indices sym)
-                         [(nothing) (panic/int #"Unknown symbol")]
-                         [(just (lifted-int v)) v]))
-                     (bytes/s64-le
-                       (case (dict-ref symbol-locations sym)
-                         [(nothing) (panic/int #"Unknown symbol")]
-                         [(just (lifted-int v))
-                          ;; pc relative relocations need to account for the 4 bytes offset
-                          (case kind
-                            [(elf-pc32-relocation) (- 0 4)])])))]))
-              (append ordered-text-relocations const-relocations))))
+        (single-jl (make-bytes (- rela-text-section-start string-table-end)))
+        (concat-jl
+          (map
+            (lambda ([relocation : (Relocation AbstractRelocationKind)]) : (JoinList Bytes)
+              (case relocation
+                [(relocation kind offset sym)
+                 (match-define kind (abstract-relocation->elf-relocation kind))
+                 (varargs join-list
+                   (bytes/s64-le offset)
+                   (bytes/u32-le
+                     (case kind
+                       [(elf-pc32-relocation) #x02]))
+                   (bytes/u32-le
+                     (case (dict-ref symbol-indices sym)
+                       [(nothing) (panic/int #"Unknown symbol")]
+                       [(just (lifted-int v)) v]))
+                   (bytes/s64-le
+                     (case (dict-ref symbol-locations sym)
+                       [(nothing) (panic/int #"Unknown symbol")]
+                       [(just (lifted-int v))
+                        ;; pc relative relocations need to account for the 4 bytes offset
+                        (case kind
+                          [(elf-pc32-relocation) (- 0 4)])])))]))
+            (append ordered-text-relocations const-relocations)))
         (concat-jl (map (lambda ([v : Bytes]) (single-jl v)) section-string-table-strings))
-        ;; Align the section header to 8 Bytes, so add padding as needed.
-        (single-jl (make-bytes section-header-padding))
+        (single-jl (make-bytes (- section-header-start section-string-table-end)))
         (concat-jl section-headers)))))
 
 (define (bytes/u16-le [v : Int]) : Bytes
