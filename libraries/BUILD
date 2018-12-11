@@ -37,10 +37,8 @@ yaspl_bootstrap_binary(
     name = "library-compiler",
     srcs = ["library-compiler-main.yaspl"],
     deps = [
-        ":assembler",
         ":compiler_lib",
         ":io",
-        ":mach-o-writer",
         ":machine-code",
         ":machine-code-writer",
         ":module-signature-serialization",
@@ -50,7 +48,6 @@ yaspl_bootstrap_binary(
         "//libraries/data:maybe",
         "//libraries/data:tuples",
         "//libraries/yaspl:top-level-objects-to-x86-64",
-        "//libraries/yaspl:x86-64-assembly",
     ],
 )
 
@@ -76,9 +73,7 @@ yaspl_bootstrap_binary(
     name = "main-stub",
     srcs = ["main-stub-main.yaspl"],
     deps = [
-        ":assembler",
         ":io",
-        ":mach-o-writer",
         ":machine-code",
         ":machine-code-writer",
         ":module-name",
