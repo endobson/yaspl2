@@ -43,20 +43,22 @@
             (right file)))
       module-files)))
 
-(define (compile-prim-files [prim-files : (List Bytes)]) : (Either Bytes AssemblyFragments)
-  (compile-prim-files* prim-files (empty)))
+(define (compile-prim-files [prim-files : (List Bytes)] [abi : SystemAbi])
+  : (Either Bytes AssemblyFragments)
+  (compile-prim-files* prim-files abi (empty)))
 
 
-(define (compile-prim-files* [prim-files : (List Bytes)] [acc : (List TextFragment)]) : (Either Bytes AssemblyFragments)
+(define (compile-prim-files* [prim-files : (List Bytes)] [abi : SystemAbi] [acc : (List TextFragment)])
+  : (Either Bytes AssemblyFragments)
   (case prim-files
     [(empty)
      (right (assembly-fragments acc (empty)))]
     [(cons prim-file prim-files)
-     (case (compile-prim-program (sourced-bytes-from-file prim-file))
+     (case (compile-prim-program (sourced-bytes-from-file prim-file) abi)
        [(left v)
         (left v)]
        [(right text-fragments)
-        (compile-prim-files* prim-files (append text-fragments acc))])]))
+        (compile-prim-files* prim-files abi (append text-fragments acc))])]))
 
 (define (parse-args [input : (List Bytes)]) : (Either Bytes Args)
   (case input
@@ -79,6 +81,7 @@
   (case (parse-args input)
     [(left v) (just v)]
     [(right (args output-format output-file-name module-name module-files))
+     (match-define abi (machine-code-output-format-abi output-format))
      (match-define (tuple2 yaspl-files prim-files) (split-module-files module-files))
      (case (parse-module-files yaspl-files)
        [(left v) (just v)]
@@ -86,7 +89,7 @@
         (case (compile-modules modules)
           [(left v) (just v)]
           [(right code)
-           (case (compile-prim-files prim-files)
+           (case (compile-prim-files prim-files abi)
              [(left v) (just v)]
              [(right prim-fragments)
               (let ([assembly
@@ -95,7 +98,7 @@
                         (append-fragments
                           (yaspl-runtime
                             (top-level-name (mod-name (varargs list module-name)) #"main")
-                            (machine-code-output-format-abi output-format))
+                            abi)
                           (convert-objects code)))])
                 (begin
                   (write-library-machine-code

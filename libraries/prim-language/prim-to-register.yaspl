@@ -5,6 +5,7 @@
   (data indexed-set)
   (dict)
   (list)
+  (machine-code)
   (maybe)
   (panic)
   (prim)
@@ -87,6 +88,7 @@
       set-add
     }
   }
+  (syscalls)
   (tuples)
   (yaspl math-operations)
   (yaspl var)
@@ -97,16 +99,18 @@
   (#:patterns))
 (types
   (define-type Environment
-    (environment [vars : (Dict Bytes Var)])))
+    (environment
+      [vars : (Dict Bytes Var)]
+      [abi : SystemAbi])))
 
-(define (convert-function [f : p:FunctionDefinition]) : r:FunctionDefinition
+(define (convert-function [f : p:FunctionDefinition] [abi : SystemAbi]) : r:FunctionDefinition
   (match-define (p:function-definition name args return-type body) f)
   (match-define acc (block-accumulator (initial-var-number) (initial-block-number)
                                        (make-indexed-set basic-block-number block-number-cmp)))
   ;; TODO Make this less hacky
   (match-define (tuple2 freshened-args acc)
     (map-state fresh-name* (map extract-arg-name args) acc))
-  (match-define env (add-all-args freshened-args (environment (make-dict bytes-cmp))))
+  (match-define env (add-all-args freshened-args (environment (make-dict bytes-cmp) abi)))
   (match-define (tuple2 start-block-num acc) (fresh-block-number* acc))
   (match-define acc (start-block start-block-num (map new-arg freshened-args) acc))
   (match-define (tuple2 acc environment)
@@ -146,13 +150,13 @@
 
 (define (env-add [env : Environment] [name : Bytes] [var : Var]) : Environment
   (case env
-    [(environment vars)
-     (environment (dict-add vars name var))]))
+    [(environment vars abi)
+     (environment (dict-add vars name var) abi)]))
 
 (define (env-replace [env : Environment] [name : Bytes] [var : Var]) : Environment
   (case env
-    [(environment vars)
-     (environment (dict-replace vars name var))]))
+    [(environment vars abi)
+     (environment (dict-replace vars name var) abi)]))
 
 
 (define (a b s) (map-state [f : (a s -> (Tuple2 b s))] [l : (List a)] [s : s]) : (Tuple2 (List b) s)
@@ -167,17 +171,17 @@
 
 (define (add-all-args [args : (List (Tuple2 Bytes Var))] [env : Environment]) : Environment
   (case env
-    [(environment vars)
-     (environment (dict-add-all vars args))]))
+    [(environment vars abi)
+     (environment (dict-add-all vars args) abi)]))
 
 (define (replace-all-args [args : (List (Tuple2 Bytes Var))] [env : Environment]) : Environment
   (case env
-    [(environment vars)
-     (environment (dict-replace-all vars args))]))
+    [(environment vars abi)
+     (environment (dict-replace-all vars args) abi)]))
 
 (define (get-differing-vars [base-env : Environment] [env1 : Environment] [env2 : Environment])
   : (List Bytes)
-  (match-define (environment vars) base-env)
+  (match-define vars (environment-vars base-env))
   (filter
     (lambda ([name : Bytes]) : Boolean
       (not (var=? (env-ref env1 name) (env-ref env2 name))))
@@ -383,7 +387,8 @@
        [(tuple2 vars acc)
         (case (fresh-name base-name acc)
           [(tuple2 (tuple2 _ name) acc)
-           (tuple2 name (add-instruction acc (function-call-inst name (syscall s) vars))) ])])]
+           (match-define syscall-num (syscall-number s (environment-abi env)))
+           (tuple2 name (add-instruction acc (function-call-inst name (syscall syscall-num) vars)))])])]
     [(call-expr f args)
      (case (convert-exprs #"arg" args acc env)
        [(tuple2 vars acc)
