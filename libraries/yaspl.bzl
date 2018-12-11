@@ -207,7 +207,7 @@ yaspl_toolchain = rule(
   }
 )
 
-def yaspl_test(name, srcs=[], deps=[], size="medium"):
+def yaspl_test(name, srcs=[], deps=[], size="medium", tags = []):
   yaspl_library(
     # TODO make this testonly once aspects work better
     name = name + "_lib",
@@ -222,6 +222,7 @@ def yaspl_test(name, srcs=[], deps=[], size="medium"):
     size = size,
     # TODO make this testonly once aspects work better
     testonly = 0,
+    tags = tags,
   )
 
 def yaspl_binary(name, srcs=[], deps=[]):

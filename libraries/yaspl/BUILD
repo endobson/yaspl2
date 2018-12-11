@@ -36,8 +36,6 @@ toolchain(
     toolchain_type = ":yaspl_toolchain",
 )
 
-
-
 yaspl_bootstrap_library(
     name = "intermediate-to-register",
     srcs = ["intermediate-to-register.yaspl"],

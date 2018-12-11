@@ -206,6 +206,9 @@ yaspl_test(
     name = "fill-stack-test",
     size = "small",
     srcs = ["fill-stack-test.yaspl"],
+    tags = [
+        "manual",
+    ],
     deps = [
         ":io",
         ":stack-trace",
