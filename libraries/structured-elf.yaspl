@@ -16,12 +16,14 @@
   (#:values
      elf-pc32-relocation elf-64-relocation
      abstract-relocation->elf-relocation
-     parse-elf parsed-elf-text-section)
-  (#:patterns elf-pc32-relocation elf-64-relocation))
+     parse-elf parsed-elf-text-section parsed-elf-const-section parsed-elf-ordered-symbols)
+  (#:patterns parsed-elf elf-pc32-relocation elf-64-relocation))
 (types
   (define-type ParsedElf
     (parsed-elf
-      [text-section : (ProgramSection ElfRelocationKind)]))
+      [text-section : (ProgramSection ElfRelocationKind)]
+      [const-section : (ProgramSection ElfRelocationKind)]
+      [ordered-symbols : (List Bytes)]))
   (define-type ElfRelocationKind
     (elf-pc32-relocation)
     (elf-64-relocation))
@@ -43,33 +45,77 @@
   (case (elf-file->text-contents elf)
     [(left v) (left v)]
     [(right text-contents)
-     (case (elf-file->all-symbols elf)
+     (case (elf-file->const-contents elf)
        [(left v) (left v)]
-       [(right all-symbols)
-        (case (all-symbols->defined-symbols elf all-symbols)
+       [(right const-contents)
+        (case (elf-file->all-symbols elf)
           [(left v) (left v)]
-          [(right (tuple2 local-symbols global-symbols))
-           (case (elf-file->relocations elf all-symbols)
+          [(right all-symbols)
+           (case (all-symbols->defined-text-symbols elf all-symbols)
              [(left v) (left v)]
-             [(right relocations)
-              (right
-                (parsed-elf
-                  (program-section
-                    (aligned-bytes text-contents 1)
-                    relocations
-                    global-symbols
-                    local-symbols)))])])])]))
+             [(right (tuple2 text-local-symbols text-global-symbols))
+              (case (all-symbols->defined-const-symbols elf all-symbols)
+                [(left v) (left v)]
+                [(right (tuple2 const-local-symbols const-global-symbols))
+                 (case (elf-file->text-relocations elf all-symbols)
+                   [(left v) (left v)]
+                   [(right text-relocations)
+                    (case (elf-file->const-relocations elf all-symbols)
+                      [(left v) (left v)]
+                      [(right const-relocations)
+                       (match-define ordered-symbols
+                         (filter-map
+                           (lambda ([entry : ParsedSymbolTableEntry]) : (Maybe Bytes)
+                             (case entry
+                               [(undefined-symbol-entry #"") (nothing)]
+                               [(undefined-symbol-entry name) (just name)]
+                               [(text-symbol-entry name _) (just name)]
+                               [(const-symbol-entry name _) (just name)]
+                               [_ (nothing)]))
+                           all-symbols))
+                       (right
+                         (parsed-elf
+                           (program-section
+                             text-contents
+                             text-relocations
+                             text-global-symbols
+                             text-local-symbols)
+                           (program-section
+                             const-contents
+                             const-relocations
+                             const-global-symbols
+                             const-local-symbols)
+                           ordered-symbols))])])])])])])]))
 
-(define (elf-file->text-contents [e : ElfFile]) : (Either Bytes Bytes)
+(define (elf-file->text-contents [e : ElfFile]) : (Either Bytes AlignedBytes)
   (match-define raw-contents (elf-file-raw-contents e))
   (case (find-named-section-header e #".text")
     [(left v) (left v)]
     [(right text-section-header)
      (right
-       (subbytes raw-contents
-                 (section-header-section-offset text-section-header)
-                 (+ (section-header-section-offset text-section-header)
-                    (section-header-section-size text-section-header))))]))
+       (aligned-bytes
+         (subbytes raw-contents
+                   (section-header-section-offset text-section-header)
+                   (+ (section-header-section-offset text-section-header)
+                      (section-header-section-size text-section-header)))
+         (log2 (section-header-section-addr-align text-section-header))))]))
+
+(define (elf-file->const-contents [e : ElfFile]) : (Either Bytes AlignedBytes)
+  (match-define raw-contents (elf-file-raw-contents e))
+  (case (find-named-section-header e #".rodata")
+    [(left v) (left v)]
+    [(right const-section-header)
+     (right
+       (aligned-bytes
+         (subbytes raw-contents
+                   (section-header-section-offset const-section-header)
+                   (+ (section-header-section-offset const-section-header)
+                      (section-header-section-size const-section-header)))
+         (log2 (section-header-section-addr-align const-section-header))))]))
+
+(define (log2 [v : Int]) : Int
+  (if (= v 1) 0
+      (+ 1 (log2 (quotient v 2)))))
 
 
 (define (elf-file->all-symbols [e : ElfFile])
@@ -98,11 +144,13 @@
                           (if (= section-index 0)
                               (right (undefined-symbol-entry name))
                               ;; TODO handle const symbols correctly
-                              (right (text-symbol-entry name value)))))]))
+                              (if (= section-index 1)
+                                  (right (text-symbol-entry name value))
+                                  (right (const-symbol-entry name value))))))]))
                symbols))])])]))
 
 
-(define (all-symbols->defined-symbols [e : ElfFile] [all-symbols : (List ParsedSymbolTableEntry)])
+(define (all-symbols->defined-text-symbols [e : ElfFile] [all-symbols : (List ParsedSymbolTableEntry)])
   : (Either Bytes (Tuple2 (List DefinedSymbol) (List DefinedSymbol)))
   (case (find-named-section-header e #".symtab")
     [(left v) (left v)]
@@ -119,8 +167,26 @@
      (right (tuple2 (filter-map text-filter local-symbols)
                     (filter-map text-filter global-symbols)))]))
 
+(define (all-symbols->defined-const-symbols [e : ElfFile] [all-symbols : (List ParsedSymbolTableEntry)])
+  : (Either Bytes (Tuple2 (List DefinedSymbol) (List DefinedSymbol)))
+  (case (find-named-section-header e #".symtab")
+    [(left v) (left v)]
+    [(right symtab-section-header)
+     (match-define num-local-symbols (section-header-section-info symtab-section-header))
+     (match-define local-symbols (take num-local-symbols all-symbols))
+     (match-define global-symbols (drop num-local-symbols all-symbols))
+     (match-define const-filter
+       (lambda ([s : ParsedSymbolTableEntry]) : (Maybe DefinedSymbol)
+         (case s
+           [(const-symbol-entry name value)
+            (just (defined-symbol name value))]
+           [_ (nothing)])))
+     (right (tuple2 (filter-map const-filter local-symbols)
+                    (filter-map const-filter global-symbols)))]))
 
-(define (elf-file->relocations [e : ElfFile] [symbols : (List ParsedSymbolTableEntry)])
+
+
+(define (elf-file->text-relocations [e : ElfFile] [symbols : (List ParsedSymbolTableEntry)])
   : (Either Bytes (List (Relocation ElfRelocationKind)))
   (case (find-named-section-header e #".rela.text")
     [(left #"No section for name: .rela.text")
@@ -163,6 +229,67 @@
                             [(const-symbol-entry name _) name]))
                         (right (relocation (elf-pc32-relocation) offset name))])))]))
                 relocations))])])]))
+
+(define (elf-file->const-relocations [e : ElfFile] [symbols : (List ParsedSymbolTableEntry)])
+  : (Either Bytes (List (Relocation ElfRelocationKind)))
+  (case (find-named-section-header e #".rela.rodata")
+    [(left #"No section for name: .rela.rodata")
+     (right (empty))]
+    [(left v) (left v)]
+    [(right rela-section-header)
+     (case (find-named-section-header e #".strtab")
+       [(left v) (left v)]
+        [(right strtab-section-header)
+         (match-define raw-contents (elf-file-raw-contents e))
+         (case (parse-elf-relocations rela-section-header raw-contents)
+           [(left v) (left v)]
+           [(right relocations)
+            (extract-rights
+              (map
+                (lambda ([relocation-entry : RelocationEntry])
+                  : (Either Bytes (Relocation ElfRelocationKind))
+                  (case relocation-entry
+                    [(relocation-entry offset 2 symbol-index value)
+                     (if (not (= value (- 0 4)))
+                         (left (bytes-append
+                                 (varargs list
+                                   #"Bad relocation value for pc32 relocation: "
+                                   (integer->decimal-bytes value))))
+                         (case (list-ref symbols symbol-index)
+                           [(nothing)
+                            (left (bytes-append (varargs list
+                              #"Bad symbol index: "
+                              (integer->decimal-bytes symbol-index)
+                              #", list size: "
+                              (integer->decimal-bytes (length symbols)))))]
+                           [(just parsed-entry)
+                            (match-define name
+                              (case parsed-entry
+                                [(section-symbol-entry name) name]
+                                [(undefined-symbol-entry name) name]
+                                [(text-symbol-entry name _) name]
+                                [(const-symbol-entry name _) name]))
+                            (right (relocation (elf-pc32-relocation) offset name))]))]
+                    [(relocation-entry offset 1 symbol-index value)
+                     (case (list-ref symbols symbol-index)
+                       [(nothing)
+                        (left (bytes-append (varargs list
+                          #"Bad symbol index: "
+                          (integer->decimal-bytes symbol-index)
+                          #", list size: "
+                          (integer->decimal-bytes (length symbols)))))]
+                       [(just parsed-entry)
+                        (match-define name
+                          (case parsed-entry
+                            [(section-symbol-entry name) name]
+                            [(undefined-symbol-entry name) name]
+                            [(text-symbol-entry name _) name]
+                            [(const-symbol-entry name _) name]))
+                        (right (relocation (elf-64-relocation) offset name))])]
+                    [(relocation-entry offset _ symbol-index value)
+                     (left #"Unknown relocation kind")]))
+                relocations))])])]))
+
 
 
 
