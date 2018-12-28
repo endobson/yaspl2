@@ -1,0 +1,179 @@
+#:module (unused-local-bindings)
+#:import {
+  (bytes)
+  (join-list)
+  (list)
+  (maybe)
+  (prim)
+  (set)
+  (source-language)
+  (tuples)
+}
+(export
+  (#:types UnusedLocalBindings UnusedFunctionLocalBindings)
+  (#:values module-unused-local-bindings)
+  (#:patterns unused-local-bindings unused-function-local-bindings))
+(types
+  (define-type UnusedLocalBindings
+    (unused-local-bindings
+      [functions : (List UnusedFunctionLocalBindings)]))
+  (define-type UnusedFunctionLocalBindings
+    (unused-function-local-bindings
+      [function-name : Bytes]
+      [variables : (List Bytes)])))
+
+
+(define (module-unused-local-bindings [mod : Module])
+  : UnusedLocalBindings
+  (case mod
+    [(module _name _imports _exports _types definitions)
+     (unused-local-bindings
+       (filter-map
+         function-unused-local-bindings
+         definitions))]))
+
+(define (function-unused-local-bindings [fun : FunctionDefinition])
+  : (Maybe UnusedFunctionLocalBindings)
+  (match-define (function-definition name _type-vars _args _return-type body) fun)
+  (match-define (tuple2 _yet-unused-args unused)
+    (unused-local-bindings/block body (make-set bytes-cmp)))
+  (case (jl->list unused)
+    [(empty) (nothing)]
+    [unused
+     (just (unused-function-local-bindings name unused))]))
+
+
+(define (unused-local-bindings/expr [e : Expression] [yet-unused-bindings : (Set Bytes)])
+  : (Tuple2 (Set Bytes) (JoinList Bytes))
+  (case e
+    [(int-literal _)
+     (tuple2 yet-unused-bindings (empty-jl))]
+    [(bytes-literal _)
+     (tuple2 yet-unused-bindings (empty-jl))]
+    [(boolean-literal _)
+     (tuple2 yet-unused-bindings (empty-jl))]
+    [(var-expr v)
+     (tuple2 (set-remove yet-unused-bindings v) (empty-jl))]
+    [(annotated-expr _type e)
+     (unused-local-bindings/expr e yet-unused-bindings)]
+    [(if-expr cond true false)
+     (match-define (tuple2 yet-unused-bindings cond-unused)
+       (unused-local-bindings/expr cond yet-unused-bindings))
+     (match-define (tuple2 yet-unused-bindings true-unused)
+       (unused-local-bindings/expr true yet-unused-bindings))
+     (match-define (tuple2 yet-unused-bindings false-unused)
+       (unused-local-bindings/expr false yet-unused-bindings))
+     (tuple2
+       yet-unused-bindings
+       (append-jl cond-unused (append-jl true-unused false-unused)))]
+    [(begin-expr exprs last-expr)
+     (unused-local-bindings/exprs (cons last-expr exprs) yet-unused-bindings)]
+    [(app-expr _tail-position op args)
+     (unused-local-bindings/exprs (cons op args) yet-unused-bindings)]
+    [(varargs-app-expr _tail-position op args)
+     (unused-local-bindings/exprs (cons op args) yet-unused-bindings)]
+    [(let-expr name expr body)
+     (match-define (tuple2 yet-unused-bindings _expr-unused)
+       (unused-local-bindings/expr expr yet-unused-bindings))
+     (unused-local-bindings/binding
+       (varargs list name)
+       yet-unused-bindings
+       body)]
+    [(lambda-expr args _type body)
+     (unused-local-bindings/binding
+       (function-args-bound-variables args)
+       yet-unused-bindings
+       body)]
+    [(case-expr expr clauses)
+     (match-define (tuple2 yet-unused-bindings expr-unused)
+       (unused-local-bindings/expr expr yet-unused-bindings))
+     (match-define (tuple2 yet-unused-bindings clauses-unused)
+       (unused-local-bindings/clauses clauses yet-unused-bindings))
+     (tuple2 yet-unused-bindings (append-jl clauses-unused expr-unused))]))
+
+(define (unused-local-bindings/exprs [es : (List Expression)] [yet-unused-bindings : (Set Bytes)])
+  : (Tuple2 (Set Bytes) (JoinList Bytes))
+  (case es
+    [(empty) (tuple2 yet-unused-bindings (empty-jl))]
+    [(cons e es)
+     (match-define (tuple2 yet-unused-bindings e-unused)
+       (unused-local-bindings/expr e yet-unused-bindings))
+     (match-define (tuple2 yet-unused-bindings es-unused)
+       (unused-local-bindings/exprs es yet-unused-bindings))
+     (tuple2 yet-unused-bindings (append-jl e-unused es-unused))]))
+
+(define (unused-local-bindings/clauses [cs : (List CaseClause)] [yet-unused-bindings : (Set Bytes)])
+  : (Tuple2 (Set Bytes) (JoinList Bytes))
+  (case cs
+    [(empty) (tuple2 yet-unused-bindings (empty-jl))]
+    [(cons c cs)
+     (match-define (tuple2 yet-unused-bindings c-unused)
+       (unused-local-bindings/clause c yet-unused-bindings))
+     (match-define (tuple2 yet-unused-bindings cs-unused)
+       (unused-local-bindings/clauses cs yet-unused-bindings))
+     (tuple2 yet-unused-bindings (append-jl c-unused cs-unused))]))
+
+(define (unused-local-bindings/clause [clause : CaseClause] [yet-unused-bindings : (Set Bytes)])
+  : (Tuple2 (Set Bytes) (JoinList Bytes))
+  (match-define (case-clause pattern body) clause)
+  (match-define vars (pattern-bound-variables pattern (empty)))
+  (unused-local-bindings/binding
+    vars
+    yet-unused-bindings
+    body))
+
+(define (function-args-bound-variables [args : (List FunctionArg)])
+  : (List Bytes)
+  (foldl
+    (lambda ([arg : FunctionArg] [acc : (List Bytes)])
+      (pattern-bound-variables (function-arg-pattern arg) acc))
+    args
+    (ann (List Bytes) (empty))))
+
+(define (pattern-bound-variables [p : Pattern] [acc : (List Bytes)]) : (List Bytes)
+  (case p
+    [(bytes-pattern _) acc]
+    [(int-pattern _) acc]
+    [(ignore-pattern) acc]
+    [(variable-pattern v) (cons v acc)]
+    [(abstraction-pattern _ pats) (pattern-bound-variables/list pats acc)]))
+
+(define (pattern-bound-variables/list [ps : (List Pattern)] [acc : (List Bytes)]) : (List Bytes)
+  (case ps
+    [(empty) acc]
+    [(cons p ps) (pattern-bound-variables/list ps (pattern-bound-variables p acc))]))
+
+(define (unused-local-bindings/block [b : Block] [yet-unused-bindings : (Set Bytes)])
+  : (Tuple2 (Set Bytes) (JoinList Bytes))
+  (case b
+    [(block (empty) expr)
+     (unused-local-bindings/expr expr yet-unused-bindings)]
+    [(block (cons (match-def pat _type expr) defs) body-expr)
+     (match-define (tuple2 yet-unused-bindings _expr-unused)
+       (unused-local-bindings/expr expr yet-unused-bindings))
+     (unused-local-bindings/binding
+       (pattern-bound-variables pat (empty))
+       yet-unused-bindings
+       (block defs body-expr))]))
+
+(define (unused-local-bindings/binding
+          [vars : (List Bytes)]
+          [yet-unused-bindings : (Set Bytes)]
+          [body : Block])
+  : (Tuple2 (Set Bytes) (JoinList Bytes))
+  (match-define shadowed-vars
+    (filter
+      (lambda ([v : Bytes]) (set-member? yet-unused-bindings v))
+      vars))
+
+  (match-define (tuple2 body-yet-unused-bindings body-unused)
+    (unused-local-bindings/block body (set-add-all yet-unused-bindings vars)))
+
+  (match-define unused-vars
+    (filter
+      (lambda ([v : Bytes]) (set-member? body-yet-unused-bindings v))
+      vars))
+
+  (tuple2
+    (set-add-all body-yet-unused-bindings shadowed-vars)
+    (append-jl (list->jl unused-vars) body-unused)))

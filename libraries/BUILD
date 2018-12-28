@@ -1171,6 +1171,20 @@ yaspl_library(
     ],
 )
 
+yaspl_library(
+    name = "unused-local-bindings",
+    srcs = ["unused-local-bindings.yaspl"],
+    deps = [
+        ":source-language",
+        "//libraries/data:bytes",
+        "//libraries/data:join-list",
+        "//libraries/data:list",
+        "//libraries/data:maybe",
+        "//libraries/data:set",
+        "//libraries/data:tuples",
+    ],
+)
+
 yaspl_bootstrap_library(
     name = "validator",
     srcs = ["validator.yaspl"],

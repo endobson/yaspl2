@@ -192,6 +192,7 @@ yaspl_library(
         "//libraries:module-signature",
         "//libraries:source-language",
         "//libraries:unused-bindings",
+        "//libraries:unused-local-bindings",
         "//libraries/data:bytes",
         "//libraries/data:either",
         "//libraries/data:indexed-set",
