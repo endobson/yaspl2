@@ -5,7 +5,7 @@ load(":yaspl-transitive-rules.bzl", "transitivify_impl", "transitive_attrs",
 yaspl_lint_provider = provider(fields=["files"])
 
 def _yaspl_library_lint_impl(target, ctx):
-  output = ctx.new_file(ctx.label.name + ".lint")
+  output = ctx.actions.declare_file(ctx.label.name + ".lint")
   src_file = target[yaspl_provider].source_file
   input_signatures = target[yaspl_provider].input_signatures
 
@@ -18,6 +18,7 @@ def _yaspl_library_lint_impl(target, ctx):
     inputs = [src_file] + input_signatures,
     outputs = [output],
     executable = ctx.executable._linter,
+    tools = [ctx.executable._linter],
     arguments = [args],
   )
 

@@ -13,9 +13,9 @@ def _yaspl_library_remove_unused_dependencies_impl(target, ctx):
 
   ctx.actions.run_shell(
      outputs = [output_file],
-     inputs = [target_yaspl_provider.source_file,  ctx.executable._remove_unused_dependencies,
-               ctx.file._module_index]
+     inputs = [target_yaspl_provider.source_file, ctx.file._module_index]
               + deps_module_name_files,
+     tools = [ctx.executable._remove_unused_dependencies],
      command = '%s %s %s %s $@ >%s' %
          (ctx.executable._remove_unused_dependencies.path,
           label,

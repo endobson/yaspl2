@@ -52,7 +52,7 @@ def _src_impl(ctx):
     transitive = [dep[yaspl_src_provider].files for dep in ctx.attr.deps],
   )
   args = ctx.actions.args()
-  args.add(transitive_srcs)
+  args.add_all(transitive_srcs)
 
   ctx.actions.run_shell(
     outputs = [ctx.outputs.file],

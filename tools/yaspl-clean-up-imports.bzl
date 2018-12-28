@@ -14,11 +14,12 @@ def _yaspl_library_clean_up_imports_impl(target, ctx):
 
   output_file = ctx.actions.declare_file(ctx.label.name + ".cleaned_up_imports")
   args = ctx.actions.args()
-  args.add(input_signatures)
+  args.add_all(input_signatures)
 
   ctx.actions.run_shell(
      outputs = [output_file],
-     inputs = [source_file,  ctx.executable._clean_up_imports] + input_signatures,
+     inputs = [source_file] + input_signatures,
+     tools = [ctx.executable._clean_up_imports],
      command = '%s %s $@ >%s' %
          (ctx.executable._clean_up_imports.path, source_file.path, output_file.path),
      arguments = [args],
