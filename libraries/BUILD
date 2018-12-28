@@ -433,7 +433,6 @@ yaspl_bootstrap_library(
         ":type-checked-language",
         ":types",
         "//libraries/data:list",
-        "//libraries/data:tuples",
     ],
 )
 

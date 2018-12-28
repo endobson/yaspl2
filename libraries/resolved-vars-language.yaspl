@@ -9,6 +9,7 @@
       [CaseClause ed:CaseClause]
       [Exports ed:Exports]
       [Expression ed:Expression]
+      [FunctionArg ed:FunctionArg]
       [FunctionDefinition ed:FunctionDefinition]
       Imports
       [Module ed:Module]
@@ -18,6 +19,7 @@
       [ValueExport ed:ValueExport]
     }
     {#:values
+      [function-arg-name ed:function-arg-name]
       [module-definitions ed:module-definitions]
       [module-imports ed:module-imports]
       [module-name ed:module-name]
@@ -34,6 +36,7 @@
       [case-clause ed:case-clause]
       [case-expr ed:case-expr]
       [exports ed:exports]
+      [function-arg ed:function-arg]
       [function-definition ed:function-definition]
       [if-expr ed:if-expr]
       [ignore-pattern ed:ignore-pattern]
@@ -65,11 +68,12 @@
   (yaspl var)
 }
 (export
-  (#:types CaseClause Exports Expression FunctionDefinition Imports Module Pattern PatternExport
+  (#:types CaseClause Exports Expression FunctionDefinition FunctionArg Imports Module Pattern PatternExport
            TypeExport ValueExport)
-  (#:values resolve-vars module-definitions module-imports module-name)
+  (#:values resolve-vars module-definitions module-imports module-name
+            function-arg-name function-arg-type)
   (#:patterns abstraction-pattern annotated-expr app-expr begin-expr boolean-literal
-              bytes-literal bytes-pattern case-clause case-expr exports function-definition
+              bytes-literal bytes-pattern case-clause case-expr exports function-definition function-arg
               global-var-expr if-expr imports int-literal int-pattern lambda-expr let-expr
               local-var-expr module pattern-export type-export value-export
               varargs-app-expr variable-pattern variant-constructor variant-accessor))
@@ -91,7 +95,7 @@
   (define-type FunctionDefinition
     (function-definition [name : Bytes]
                          [type-vars : (List Bytes)]
-                         [args : (List (Tuple2 Var Type))]
+                         [args : (List FunctionArg)]
                          [return-type : Type]
                          [next-var : VarNumber]
                          [body : Expression])
@@ -103,6 +107,10 @@
     (variant-accessor
       [name : Bytes]
       [field-offset : Int]))
+  (define-type FunctionArg
+    (function-arg
+      [name : Var]
+      [type : Type]))
 
   (define-type Expression
     (int-literal [v : Int])
@@ -116,7 +124,7 @@
     (app-expr [tail-position : Boolean] [op : Expression] [args : (List Expression)])
     (varargs-app-expr [tail-position : Boolean] [op : Expression] [args : (List Expression)])
     (let-expr [var : Var] [expr : Expression] [body : Expression])
-    (lambda-expr [args : (List (Tuple2 Var Type))] [type : (Maybe Type)] [body : Expression])
+    (lambda-expr [args : (List FunctionArg)] [type : (Maybe Type)] [body : Expression])
     (case-expr [expr : Expression] [clauses : (List CaseClause)]))
 
   (define-type CaseClause
@@ -211,14 +219,14 @@
   (case f
     [(ed:function-definition name type-vars args return-type body)
      (match-define state (state (initial-var-number)))
-     (match-define arg-names (map parse-arg-name args))
+     (match-define arg-names (map ed:function-arg-name args))
      (match-define (tuple2 env state) (environment-add-locals env arg-names state))
      (match-define (tuple2 body state) (resolve-vars/block body env state))
      (match-define (state next-var) state)
      (function-definition
        name
        type-vars
-       (map (lambda ([t : (Tuple2 Bytes Type)]) (resolve-vars/arg-type t env)) args)
+       (map (lambda ([t : ed:FunctionArg]) (resolve-vars/arg-type t env)) args)
        return-type
        next-var
        body)]
@@ -229,13 +237,13 @@
        (bytes-append (varargs list type-name #"_" variant-name #"_" field-name))
        field-offset)]))
 
-(define (resolve-vars/arg-type [t : (Tuple2 Bytes Type)] [env : Environment])
-  : (Tuple2 Var Type)
+(define (resolve-vars/arg-type [t : ed:FunctionArg] [env : Environment])
+  : FunctionArg
   (case t
-    [(tuple2 arg ty)
+    [(ed:function-arg arg ty)
      (case (dict-ref (environment-local-variables env) arg)
        [(nothing) (panic #"No value found for function arg")]
-       [(just var) (tuple2 var ty)])]))
+       [(just var) (function-arg var ty)])]))
 
 
 (define (resolve-vars/block [block : ed:Block] [env : Environment] [state : State])
@@ -269,13 +277,13 @@
            (tuple2 (global-var-expr v) state)]
           [(nothing)
            (panic #"Unbound variable")])])]
-    [(ed:lambda-expr args+tys return-type body)
-     (match-define args (map parse-arg-name args+tys))
+    [(ed:lambda-expr fun-args return-type body)
+     (match-define args (map ed:function-arg-name fun-args))
      (match-define (tuple2 env state) (environment-add-locals env args state))
      (match-define (tuple2 body state) (resolve-vars/expr body env state))
      (tuple2
        (lambda-expr
-         (map (lambda ([t : (Tuple2 Bytes Type)]) (resolve-vars/arg-type t env)) args+tys)
+         (map (lambda ([t : ed:FunctionArg]) (resolve-vars/arg-type t env)) fun-args)
          return-type
          body)
        state)]
@@ -392,7 +400,3 @@
      (case (environment-add-local env local state)
        [(tuple3 env _ state)
         (environment-add-locals env locals state)])]))
-
-(define (parse-arg-name [arg+ty : (Tuple2 Bytes Type)]) : Bytes
-  (case arg+ty
-    [(tuple2 arg _ty) arg]))

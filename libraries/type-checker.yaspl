@@ -17,6 +17,7 @@
       CaseClause
       Export
       Expression
+      FunctionArg
       FunctionDefinition
       Imports
       Module
@@ -27,6 +28,8 @@
     }
     {#:values
       case-clause-pattern
+      function-arg-name
+      function-arg-type
       function-definition-name
       variant-definition-name
       variant-field-type
@@ -44,6 +47,7 @@
       case-expr
       export
       exports
+      function-arg
       function-definition
       if-expr
       ignore-pattern
@@ -163,8 +167,7 @@
 (define (function-definition->type [def : FunctionDefinition]) : Type
   (case def
     [(function-definition _ type-vars args result-type _)
-     (match-define arg-types
-        (map (lambda ([t : (Tuple2 Bytes Type)]) (case t [(tuple2 _ t) t])) args))
+     (match-define arg-types (map function-arg-type args))
      (fun-type type-vars arg-types result-type)]))
 
 (define (function-definitions->context [defs : (List FunctionDefinition)])
@@ -194,7 +197,7 @@
      (case (context-ref-value context name)
        [(nothing) (just #"Internal Error: Function doesn't have a type")]
        [(just (fun-type _type-vars arg-types result))
-        (case (zip (map (lambda ([t : (Tuple2 Bytes Type)]) (case t [(tuple2 n _) n])) args) arg-types)
+        (case (zip (map function-arg-name args) arg-types)
           [(nothing) (just #"Internal Error: number of arg types doesn't match number of args")]
           [(just merged-args)
            (let ([new-context (context-set-values context merged-args)])
@@ -335,8 +338,7 @@
        [(right actual-type)
         (check-expected actual-type expected-type)])]
     [(lambda-expr named-arg-types maybe-return-type body)
-     (match-define arg-types
-       (map (lambda ([t : (Tuple2 Bytes Type)]) (case t [(tuple2 _ ty) ty])) named-arg-types))
+     (match-define arg-types (map function-arg-type named-arg-types))
      (case
        (ann (Either Bytes (Maybe Type))
          (case maybe-return-type
@@ -355,7 +357,11 @@
        [(right inner-expected-type)
         (case (type-check/expr
                 body
-                (context-set-values context named-arg-types)
+                (context-set-values context
+                  (map (lambda ([arg : FunctionArg])
+                         (case arg
+                           [(function-arg name type) (tuple2 name type)]))
+                       named-arg-types))
                 inner-expected-type)
            [(left v) (left v)]
            [(right return-type)
