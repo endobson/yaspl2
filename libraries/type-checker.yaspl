@@ -192,25 +192,21 @@
           [def : FunctionDefinition]
           [context : Context]) : (Maybe Bytes)
   (match-define (function-definition name _ args result body) def)
-  (match-define context
-    (context-set-values context
-      (map (lambda ([arg : FunctionArg])
-             (case arg
-               [(function-arg name type)
-                (tuple2 name type)]))
-           args)))
-  (case result
-    [(type-constructor mod-name type-name _)
-     (just (bytes-append (varargs list
-                                  #"Function: " name #"\n"
-                                  #"Return type cannot be a type constructor. Got: "
-                                  (mod-name->bytes mod-name) #" " type-name)))]
+  (case (type-check/function-args args context)
+    [(left v) (just v)]
+    [(right context)
+     (case result
+       [(type-constructor mod-name type-name _)
+        (just (bytes-append (varargs list
+                                     #"Function: " name #"\n"
+                                     #"Return type cannot be a type constructor. Got: "
+                                     (mod-name->bytes mod-name) #" " type-name)))]
 
-    [_
-     (case (type-check/block body context (just result))
-       [(left v)
-        (just (bytes-append (varargs list #"Function: " name #"\n" v)))]
-       [(right _) (nothing)])]))
+       [_
+        (case (type-check/block body context (just result))
+          [(left v)
+           (just (bytes-append (varargs list #"Function: " name #"\n" v)))]
+          [(right _) (nothing)])])]))
 
 (define (check-expected [type : Type] [expected : (Maybe Type)]) : (Either Bytes Type)
   (case expected
@@ -333,8 +329,7 @@
        [(left v) (left v)]
        [(right actual-type)
         (check-expected actual-type expected-type)])]
-    [(lambda-expr named-arg-types maybe-return-type body)
-     (match-define arg-types (map function-arg-type named-arg-types))
+    [(lambda-expr args maybe-return-type body)
      (case
        (ann (Either Bytes (Maybe Type))
          (case maybe-return-type
@@ -351,19 +346,15 @@
                   (left #"Lambda can only match monomorphic function type.")])])]))
        [(left v) (left v)]
        [(right inner-expected-type)
-        (case (type-check/block
-                body
-                (context-set-values context
-                  (map (lambda ([arg : FunctionArg])
-                         (case arg
-                           [(function-arg name type) (tuple2 name type)]))
-                       named-arg-types))
-                inner-expected-type)
-           [(left v) (left v)]
-           [(right return-type)
-            (check-expected
-             (fun-type (empty) arg-types return-type)
-             expected-type)])])]
+        (case (type-check/function-args args context)
+          [(left v) (left v)]
+          [(right context)
+           (case (type-check/block body context inner-expected-type)
+             [(left v) (left v)]
+             [(right return-type)
+              (check-expected
+               (fun-type (empty) (map function-arg-type args) return-type)
+               expected-type)])])])]
     [(app-expr _ op args)
      (case (type-check/expr op context (nothing))
        [(left v) (left v)]
@@ -649,6 +640,30 @@
     [(left v) (left v)]
     [(right context)
      (type-check/block body context expected-type)]))
+
+
+(define (type-check/function-args [args : (List FunctionArg)] [context : Context])
+  : (Either Bytes Context)
+  (case (find/maybe
+          (lambda ([arg : FunctionArg])
+            (case arg
+              [(function-arg pattern type)
+               (totality-check-patterns (varargs list pattern))]))
+          args)
+    [(just v) (left v)]
+    [(nothing)
+     (type-check/function-args* args context)]))
+
+(define (type-check/function-args* [args : (List FunctionArg)] [context : Context])
+  : (Either Bytes Context)
+  (case args
+    [(empty) (right context)]
+    [(cons (function-arg pattern arg-type) args)
+     (case (type-check/pattern* pattern context arg-type (empty))
+       [(left v) (left v)]
+       [(right var-types)
+        (type-check/function-args* args (context-set-values context var-types))])]))
+
 
 (define (a b s) (map-state [f : (a s -> (Tuple2 b s))] [l : (List a)] [s : s]) : (Tuple2 (List b) s)
   (case l

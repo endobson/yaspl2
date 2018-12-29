@@ -19,7 +19,6 @@
       [ValueExport ed:ValueExport]
     }
     {#:values
-      [function-arg-name ed:function-arg-name]
       [module-definitions ed:module-definitions]
       [module-imports ed:module-imports]
       [module-name ed:module-name]
@@ -219,17 +218,10 @@
   (case f
     [(ed:function-definition name type-vars args return-type body)
      (match-define state (state (initial-var-number)))
-     (match-define arg-names (map ed:function-arg-name args))
-     (match-define (tuple2 env state) (environment-add-locals env arg-names state))
-     (match-define (tuple2 body state) (resolve-vars/block body env state))
+     (match-define (tuple2 (tuple2 args body) state)
+       (resolve-vars/function-body args body env state))
      (match-define (state next-var) state)
-     (function-definition
-       name
-       type-vars
-       (map (lambda ([t : ed:FunctionArg]) (resolve-vars/arg-type t env)) args)
-       return-type
-       next-var
-       body)]
+     (function-definition name type-vars args return-type next-var body)]
     [(ed:variant-constructor type-name variant-name fields tag)
      (variant-constructor (bytes-append (varargs list type-name #"_" variant-name)) fields tag)]
     [(ed:variant-accessor type-name variant-name field-name field-offset)
@@ -237,13 +229,69 @@
        (bytes-append (varargs list type-name #"_" variant-name #"_" field-name))
        field-offset)]))
 
-(define (resolve-vars/arg-type [t : ed:FunctionArg] [env : Environment])
-  : FunctionArg
-  (case t
-    [(ed:function-arg arg ty)
-     (case (dict-ref (environment-local-variables env) arg)
-       [(nothing) (panic #"No value found for function arg")]
-       [(just var) (function-arg var ty)])]))
+;; TODO optimize this so that we don't add unnecessary patterns
+(define (resolve-vars/function-arg
+          [arg : ed:FunctionArg]
+          [env : Environment]
+          [state : State])
+  : (Tuple3 (Tuple2 FunctionArg (Maybe Pattern)) Environment State)
+  (case arg
+    [(ed:function-arg (ed:variable-pattern v) type)
+     (match-define (tuple3 env var state) (environment-add-local env v state))
+     (tuple3 (tuple2 (function-arg var type) (nothing)) env state)]
+    [(ed:function-arg pattern type)
+     (match-define (tuple2 var-num state) (get-next-index state))
+     (match-define (tuple3 pattern env state)
+       (resolve-vars/pattern pattern env state))
+     (tuple3 (tuple2
+               (function-arg (var #"arg" var-num) type)
+               (just pattern))
+             env
+             state)]))
+
+
+(define (resolve-vars/function-body
+          [args : (List ed:FunctionArg)]
+          [body : ed:Block]
+          [env : Environment]
+          [state : State])
+  : (Tuple2 (Tuple2 (List FunctionArg) Expression) State)
+  (match-define (tuple3 args env state) (resolve-vars/function-args args env state))
+  (match-define (tuple2 body state) (resolve-vars/block body env state))
+  (match-define body
+    (foldl
+      (lambda ([arg : (Tuple2 FunctionArg (Maybe Pattern))] [body : Expression])
+        (case arg
+          [(tuple2 (function-arg var type) (nothing))
+           body]
+          [(tuple2 (function-arg var type) (just pattern))
+           (case-expr (local-var-expr var)
+                      (varargs list (case-clause pattern body)))]))
+      args
+      body))
+  (tuple2
+    (tuple2
+      (map
+        (lambda ([arg : (Tuple2 FunctionArg (Maybe Pattern))])
+          (case arg [(tuple2 fun-arg _) fun-arg]))
+        args)
+      body)
+    state))
+
+(define (resolve-vars/function-args
+          [args : (List ed:FunctionArg)]
+          [env : Environment]
+          [state : State])
+  : (Tuple3 (List (Tuple2 FunctionArg (Maybe Pattern))) Environment State)
+  (case args
+    [(empty)
+     (tuple3 (empty) env state)]
+    [(cons arg args)
+     (match-define (tuple3 arg env state) (resolve-vars/function-arg arg env state))
+     (match-define (tuple3 args env state) (resolve-vars/function-args args env state))
+     (tuple3 (cons arg args) env state)]))
+
+
 
 
 (define (resolve-vars/block [block : ed:Block] [env : Environment] [state : State])
@@ -277,16 +325,10 @@
            (tuple2 (global-var-expr v) state)]
           [(nothing)
            (panic #"Unbound variable")])])]
-    [(ed:lambda-expr fun-args return-type body)
-     (match-define args (map ed:function-arg-name fun-args))
-     (match-define (tuple2 env state) (environment-add-locals env args state))
-     (match-define (tuple2 body state) (resolve-vars/block body env state))
-     (tuple2
-       (lambda-expr
-         (map (lambda ([t : ed:FunctionArg]) (resolve-vars/arg-type t env)) fun-args)
-         return-type
-         body)
-       state)]
+    [(ed:lambda-expr args return-type body)
+     (match-define (tuple2 (tuple2 args body) state)
+       (resolve-vars/function-body args body env state))
+     (tuple2 (lambda-expr args return-type body) state)]
     ;; Structural cases
     [(ed:int-literal v)
      (tuple2 (int-literal v) state)]
@@ -391,12 +433,3 @@
     (environment (dict-set locals local v) globals name)
     v
     state))
-
-(define (environment-add-locals [env : Environment] [locals : (List Bytes)] [state : State])
-  : (Tuple2 Environment State)
-  (case locals
-    [(empty) (tuple2 env state)]
-    [(cons local locals)
-     (case (environment-add-local env local state)
-       [(tuple3 env _ state)
-        (environment-add-locals env locals state)])]))
