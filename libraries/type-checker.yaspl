@@ -28,7 +28,6 @@
     }
     {#:values
       case-clause-pattern
-      function-arg-name
       function-arg-type
       function-definition-name
       variant-definition-name
@@ -192,29 +191,26 @@
 (define (type-check/definition
           [def : FunctionDefinition]
           [context : Context]) : (Maybe Bytes)
-  (case def
-    [(function-definition name _ args _ body)
-     (case (context-ref-value context name)
-       [(nothing) (just #"Internal Error: Function doesn't have a type")]
-       [(just (fun-type _type-vars arg-types result))
-        (case (zip (map function-arg-name args) arg-types)
-          [(nothing) (just #"Internal Error: number of arg types doesn't match number of args")]
-          [(just merged-args)
-           (let ([new-context (context-set-values context merged-args)])
-             (case result
-               [(type-constructor mod-name type-name _)
-                (just (bytes-append (varargs list
-                                             #"Function: " name #"\n"
-                                             #"Return type cannot be a type constructor. Got: "
-                                             (mod-name->bytes mod-name) #" " type-name)))]
+  (match-define (function-definition name _ args result body) def)
+  (match-define context
+    (context-set-values context
+      (map (lambda ([arg : FunctionArg])
+             (case arg
+               [(function-arg name type)
+                (tuple2 name type)]))
+           args)))
+  (case result
+    [(type-constructor mod-name type-name _)
+     (just (bytes-append (varargs list
+                                  #"Function: " name #"\n"
+                                  #"Return type cannot be a type constructor. Got: "
+                                  (mod-name->bytes mod-name) #" " type-name)))]
 
-               [_
-                (case (type-check/block body new-context (just result))
-                  [(left v)
-                   (just (bytes-append (varargs list #"Function: " name #"\n" v)))]
-                  [(right _) (nothing)])]))])]
-       [(just _)
-        (just #"Internal Error: Function doesn't have a function type")])]))
+    [_
+     (case (type-check/block body context (just result))
+       [(left v)
+        (just (bytes-append (varargs list #"Function: " name #"\n" v)))]
+       [(right _) (nothing)])]))
 
 (define (check-expected [type : Type] [expected : (Maybe Type)]) : (Either Bytes Type)
   (case expected
