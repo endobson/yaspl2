@@ -37,11 +37,8 @@
           [env : (Set Bytes)]
           [acc : (Set Bytes)]) : (Set Bytes)
   (match-define (function-definition _ _ args _ body) def)
-  (free-variables/block body (set-add-all env (map arg-name args)) acc))
+  (free-variables/block body (add-function-args-bindings args env) acc))
 
-(define (arg-name [t : (Tuple2 Bytes PreType)]) : Bytes
-  (case t
-    [(tuple2 name _) name]))
 
 (define (free-variables/function-definitions
           [defs : (List FunctionDefinition)]
@@ -91,8 +88,8 @@
      (free-variables/block body (set-add env name) (free-variables/expr expr env acc))]
     [(case-expr expr clauses)
      (free-variables/clauses clauses env (free-variables/expr expr env acc))]
-    [(lambda-expr args+tys _ body)
-     (free-variables/block body (set-add-all env (map extract-arg args+tys)) acc)]
+    [(lambda-expr args _ body)
+     (free-variables/block body (add-function-args-bindings args env) acc)]
     [(var-expr v)
      (if (set-member? env v)
          acc
@@ -115,6 +112,18 @@
     [(empty) acc]
     [(cons (case-clause pattern body) clauses)
      (free-variables/clauses clauses env (free-variables/block body (add-pattern-bindings pattern env) acc))]))
+
+(define (add-function-args-bindings [args : (List FunctionArg)] [env : (Set Bytes)])
+  : (Set Bytes)
+  (case args
+    [(empty) env]
+    [(cons arg args) (add-function-args-bindings args (add-function-arg-bindings arg env))]))
+
+(define (add-function-arg-bindings [arg : FunctionArg] [env : (Set Bytes)])
+  : (Set Bytes)
+  (case arg
+    [(function-arg pattern _type)
+     (set-add env pattern)]))
 
 (define (add-pattern-bindings [p : Pattern] [env : (Set Bytes)]) : (Set Bytes)
   (case p
@@ -157,7 +166,7 @@
   (match-define env (set-add-all env type-vars))
   (free-types/block body env
     (free-types/types
-      (map (lambda ([t : (Tuple2 Bytes PreType)]) (case t [(tuple2 _ t) t])) args)
+      (map function-arg-pre-type args)
       env
       (free-types/type result-type env acc))))
 
@@ -210,11 +219,11 @@
        (free-types/expr expr env acc))]
     [(annotated-expr type expr)
      (free-types/type type env (free-types/expr expr env acc))]
-    [(lambda-expr args+tys return body)
+    [(lambda-expr args return body)
      (free-types/types
        (case return
-         [(nothing) (map extract-ty args+tys)]
-         [(just return-ty) (cons return-ty (map extract-ty args+tys))])
+         [(nothing) (map function-arg-pre-type args)]
+         [(just return-ty) (cons return-ty (map function-arg-pre-type args))])
        env
        (free-types/block body env acc))]))
 
@@ -293,11 +302,31 @@
      (free-patterns/function-definitions defs env
        (free-patterns/function-definition def env acc))]))
 
+
 (define (free-patterns/function-definition
           [def : FunctionDefinition]
           [env : (Set Bytes)]
           [acc : (Set Bytes)]) : (Set Bytes)
    (free-patterns/block (function-definition-body def) env acc))
+
+(define (free-patterns/function-args
+          [args : (List FunctionArg)]
+          [env : (Set Bytes)]
+          [acc : (Set Bytes)]) : (Set Bytes)
+  (case args
+    [(empty) acc]
+    [(cons arg args)
+     (free-patterns/function-args args env
+       (free-patterns/function-arg arg env acc))]))
+
+(define (free-patterns/function-arg
+          [arg : FunctionArg]
+          [env : (Set Bytes)]
+          [acc : (Set Bytes)]) : (Set Bytes)
+  (case arg
+    [(function-arg pattern type)
+     (free-patterns/pattern (variable-pattern pattern) env acc)]))
+
 
 (define (free-patterns [expr : Expression] [env : (Set Bytes)] [acc : (Set Bytes)])
   : (Set Bytes)
