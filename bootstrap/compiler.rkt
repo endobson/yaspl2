@@ -234,13 +234,13 @@
         (define temp (generate-temporary name))
         `(,#'let ([,temp ,compiled-expr])
             ,(compile-expr pat-env (hash-set env name temp) body))])]
-    [(lambda& (list (list arg-names _) ...) _ body)
+    [(lambda& (list (list arg-names _) ...) _ (block& defs body))
      (define ids (generate-temporaries arg-names))
      (define new-env
        (for/fold ([env env]) ([name (in-list arg-names)] [id (in-list ids)])
          (hash-set env name id)))
 
-     `(,#'lambda (,@ids) ,(compile-expr pat-env new-env body))]
+     `(,#'lambda (,@ids) ,(compile-block pat-env new-env defs body))]
     [(case& expr clauses)
      (define form
        (for/fold ([form #'(error 'end-of-case)]) ([clause (in-list (reverse clauses))])
