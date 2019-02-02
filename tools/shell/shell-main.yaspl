@@ -61,7 +61,6 @@
         (logical-shift-left group 8)
         num))))
 
-
 (define (parse-termios-bytes [bytes : Bytes]) : Termios
   (termios
     (subbytes bytes 0 8)
@@ -85,7 +84,6 @@
       (bytes-copy! output-speed 0 8 bytes 64)
       bytes)))
 
-
 (define (read-termios [terminal : InputPort]) : Termios
   (let ([bytes (make-bytes 72)])
     (begin
@@ -95,19 +93,11 @@
 (define (write-termios [termios : Termios] [terminal : InputPort]) : Void
   (ioctl terminal (ioctl-number #x80000000 116 20 72) (serialize-termios termios)))
 
-
-
-(define (main-loop
-          [executed-commands : (List Bytes)]
-          [stdin : InputPort]
-          [stdout : OutputPort])
+(define (main-loop [executed-commands : (List Bytes)] [stdin : InputPort] [stdout : OutputPort])
   : (Maybe Bytes)
   (begin
     (write-all-bytes #"> " stdout)
-    (case (edit-loop
-            (edit-line-state executed-commands (empty) (empty) (empty))
-            (input-state-empty)
-            stdin stdout)
+    (case (edit-loop (edit-line-state executed-commands (empty) (empty) (empty)) stdin stdout)
       [(left error) (just error)]
       [(right (nothing)) (nothing)]
       [(right (just #""))
@@ -117,25 +107,32 @@
          (write-line command stdout)
          (main-loop (cons command executed-commands) stdin stdout))])))
 
-(define (edit-loop [line-state : EditLineState]
-                   [input-state : InputState]
-                   [stdin : InputPort] [stdout : OutputPort]) : (Either Bytes (Maybe Bytes))
-  ;; TODO handle more than 1 byte at a time
+(define (edit-loop [line-state : EditLineState] [stdin : InputPort] [stdout : OutputPort])
+  : (Either Bytes (Maybe Bytes))
+  (case (input-loop (input-state-empty) stdin)
+    [(left v) (left v)]
+    [(right action)
+     (match-define (tuple2 output action-result) (handle-input-action action line-state))
+     (begin
+       (write-all-bytes output stdout)
+       (case action-result
+         [(continue-editing-result line-state)
+          (edit-loop line-state stdin stdout)]
+         [(command-result command) (right (just command))]
+         [(exit-result) (right (nothing))]))]))
+
+(define (input-loop [input-state : InputState] [stdin : InputPort])
+  : (Either Bytes InputAction)
   (let ([buffer (make-bytes 1)])
     (let ([amount-read (read-bytes buffer stdin 0 (bytes-length buffer))])
       (if (not (= amount-read 1))
-          (panic #"Unexpected read amount")
+          (left #"Unexpected read amount")
           (case (handle-input-byte (u8->s64 (bytes-ref buffer 0)) input-state)
             [(left v) (left v)]
-            [(right (tuple2 input-state action))
-             (match-define (tuple2 output action-result) (handle-input-action action line-state))
-             (begin
-               (write-all-bytes output stdout)
-               (case action-result
-                 [(continue-editing-result line-state)
-                  (edit-loop line-state input-state stdin stdout)]
-                 [(command-result command) (right (just command))]
-                 [(exit-result) (right (nothing))]))])))))
+            [(right (left input-state))
+             (input-loop input-state stdin)]
+            [(right (right action))
+             (right action)])))))
 
 (define (list->bytes [l : (List LiftedU8)]) : Bytes
   (list->bytes-helper (make-bytes (length l)) 0 l))
@@ -153,40 +150,40 @@
 
 
 (define (handle-input-byte [byte : Int] [state : InputState])
-  : (Either Bytes (Tuple2 InputState InputAction))
+  : (Either Bytes (Either InputState InputAction))
   (case state
     [(input-state-empty)
      (case byte
        ;; Newline
-       [10 (right (tuple2 (input-state-empty) (finish-command-action)))]
+       [10 (right (right (finish-command-action)))]
        ;; Control-D
-       [4 (right (tuple2 (input-state-empty) (exit-action)))]
+       [4 (right (right (exit-action)))]
        ;; Control-P
-       [16 (right (tuple2 (input-state-empty) (previous-command-action)))]
+       [16 (right (right (previous-command-action)))]
        ;; Control-N
-       [14 (right (tuple2 (input-state-empty) (next-command-action)))]
+       [14 (right (right (next-command-action)))]
        ;; Backspace
-       [127 (right (tuple2 (input-state-empty) (backspace-action)))]
+       [127 (right (right (backspace-action)))]
        ;; ESC
-       [27 (right (tuple2 (input-state-esc) (no-action)))]
+       [27 (right (left (input-state-esc)))]
        ;; Anything else
-       [byte (right (tuple2 (input-state-empty) (print-action byte)))])]
+       [byte (right (right (print-action byte)))])]
     [(input-state-esc)
      (case byte
        ;; Bracket
-       [91 (right (tuple2 (input-state-esc-bracket) (no-action)))]
+       [91 (right (left (input-state-esc-bracket)))]
        ;; Anything else
        [_ (left #"Invalid start of escape sequence")])]
     [(input-state-esc-bracket)
      (case byte
        ;; Up arrow
-       [65 (right (tuple2 (input-state-empty) (previous-command-action)))]
+       [65 (right (right (previous-command-action)))]
        ;; Down arrow
-       [66 (right (tuple2 (input-state-empty) (next-command-action)))]
+       [66 (right (right (next-command-action)))]
        ;; Right arrow
-       [67 (right (tuple2 (input-state-empty) (move-cursor-right-action)))]
+       [67 (right (right (move-cursor-right-action)))]
        ;; Left arrow
-       [68 (right (tuple2 (input-state-empty) (move-cursor-left-action)))]
+       [68 (right (right (move-cursor-left-action)))]
        ;; Anything else
        [_ (left #"Unknown escape sequence")])]))
 
