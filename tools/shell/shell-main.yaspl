@@ -104,37 +104,38 @@
   : (Maybe Bytes)
   (begin
     (write-all-bytes #"> " stdout)
-    (edit-loop executed-commands
-               (edit-line-state executed-commands (empty) (empty) (empty))
-               (input-state-empty)
-               stdin stdout)))
+    (case (edit-loop
+            (edit-line-state executed-commands (empty) (empty) (empty))
+            (input-state-empty)
+            stdin stdout)
+      [(left error) (just error)]
+      [(right (nothing)) (nothing)]
+      [(right (just #""))
+       (main-loop executed-commands stdin stdout)]
+      [(right (just command))
+       (begin
+         (write-line command stdout)
+         (main-loop (cons command executed-commands) stdin stdout))])))
 
-(define (edit-loop [executed-commands : (List Bytes)]
-                   [line-state : EditLineState]
+(define (edit-loop [line-state : EditLineState]
                    [input-state : InputState]
-                   [stdin : InputPort] [stdout : OutputPort]) : (Maybe Bytes)
+                   [stdin : InputPort] [stdout : OutputPort]) : (Either Bytes (Maybe Bytes))
   ;; TODO handle more than 1 byte at a time
   (let ([buffer (make-bytes 1)])
     (let ([amount-read (read-bytes buffer stdin 0 (bytes-length buffer))])
       (if (not (= amount-read 1))
           (panic #"Unexpected read amount")
           (case (handle-input-byte (u8->s64 (bytes-ref buffer 0)) input-state)
-            [(left v) (just v)]
+            [(left v) (left v)]
             [(right (tuple2 input-state action))
              (match-define (tuple2 output action-result) (handle-input-action action line-state))
              (begin
                (write-all-bytes output stdout)
                (case action-result
                  [(continue-editing-result line-state)
-                  (edit-loop executed-commands line-state input-state stdin stdout)]
-                 [(command-result #"")
-                  (main-loop executed-commands stdin stdout)]
-                 [(command-result command)
-                  (begin
-                    (write-line command stdout)
-                    (main-loop (cons command executed-commands) stdin stdout))]
-                 [(exit-result)
-                  (nothing)]))])))))
+                  (edit-loop line-state input-state stdin stdout)]
+                 [(command-result command) (right (just command))]
+                 [(exit-result) (right (nothing))]))])))))
 
 (define (list->bytes [l : (List LiftedU8)]) : Bytes
   (list->bytes-helper (make-bytes (length l)) 0 l))
