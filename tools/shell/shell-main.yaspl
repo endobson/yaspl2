@@ -23,18 +23,14 @@
 
   (define-type EditLineState
     (edit-line-state
+      [current-prev-commands : (List Bytes)]
       [before-bytes : (List LiftedU8)]
-      [after-chars : (List LiftedU8)]))
+      [after-chars : (List LiftedU8)]
+      [current-next-commands : (List Bytes)]))
   (define-type InputState
     (input-state-empty)
     (input-state-esc)
     (input-state-esc-bracket))
-
-  (define-type HistoryState
-    (history-state
-      [executed-commands : (List Bytes)]
-      [current-prev-commands : (List Bytes)]
-      [current-next-commands : (List Bytes)]))
 
   (define-type InputAction
     (print-action [val : Byte])
@@ -48,8 +44,7 @@
     (backspace-action))
 
   (define-type ActionResult
-    (continue-editing-result [edit-line-state : EditLineState]
-                             [history-state : HistoryState])
+    (continue-editing-result [edit-line-state : EditLineState])
     (command-result [command : Bytes])
     (exit-result)))
 
@@ -109,12 +104,13 @@
   : (Maybe Bytes)
   (begin
     (write-all-bytes #"> " stdout)
-    (edit-loop (history-state executed-commands executed-commands (empty))
-               (edit-line-state (empty) (empty))
+    (edit-loop executed-commands
+               (edit-line-state executed-commands (empty) (empty) (empty))
                (input-state-empty)
                stdin stdout)))
 
-(define (edit-loop [hist-state : HistoryState] [line-state : EditLineState]
+(define (edit-loop [executed-commands : (List Bytes)]
+                   [line-state : EditLineState]
                    [input-state : InputState]
                    [stdin : InputPort] [stdout : OutputPort]) : (Maybe Bytes)
   ;; TODO handle more than 1 byte at a time
@@ -125,14 +121,18 @@
           (case (handle-input-byte (u8->s64 (bytes-ref buffer 0)) input-state)
             [(left v) (just v)]
             [(right (tuple2 input-state action))
-             (match-define (tuple2 output action-result) (handle-input-action action hist-state line-state))
+             (match-define (tuple2 output action-result) (handle-input-action action line-state))
              (begin
                (write-all-bytes output stdout)
                (case action-result
-                 [(continue-editing-result line-state hist-state)
-                  (edit-loop hist-state line-state input-state stdin stdout)]
+                 [(continue-editing-result line-state)
+                  (edit-loop executed-commands line-state input-state stdin stdout)]
+                 [(command-result #"")
+                  (main-loop executed-commands stdin stdout)]
                  [(command-result command)
-                  (finish-iteration command (history-state-executed-commands hist-state) stdin stdout)]
+                  (begin
+                    (write-line command stdout)
+                    (main-loop (cons command executed-commands) stdin stdout))]
                  [(exit-result)
                   (nothing)]))])))))
 
@@ -150,17 +150,6 @@
 (define (bytes->list [b : Bytes]) : (List LiftedU8)
   (bytes-map b lifted-u8))
 
-
-
-(define (finish-iteration [bytes : Bytes] [executed-commands : (List Bytes)]
-                          [stdin : InputPort] [stdout : OutputPort]) : (Maybe Bytes)
-  (case bytes
-    [#""
-     (main-loop executed-commands stdin stdout)]
-    [_
-     (begin
-       (write-line bytes stdout)
-       (main-loop (cons bytes executed-commands) stdin stdout))]))
 
 (define (handle-input-byte [byte : Int] [state : InputState])
   : (Either Bytes (Tuple2 InputState InputAction))
@@ -202,20 +191,19 @@
 
 (define (handle-input-action
           [action : InputAction]
-          [hist-state : HistoryState]
           [line-state : EditLineState])
   : (Tuple2 Bytes ActionResult)
-  (match-define (edit-line-state before after) line-state)
   (case action
-    [(no-action) (tuple2 #"" (continue-editing-result line-state hist-state))]
+    [(no-action) (tuple2 #"" (continue-editing-result line-state))]
     [(finish-command-action)
+     (match-define (edit-line-state _ before after _) line-state)
      (tuple2 #"\n" (command-result (list->bytes (append (reverse before) after))))]
     [(exit-action) (tuple2 #"\n" (exit-result))]
     [(previous-command-action)
-     (case hist-state
-       [(history-state _ (empty) _)
-        (tuple2 #"" (continue-editing-result line-state hist-state))]
-       [(history-state exec-commands (cons prev-command prev-commands) next-commands)
+     (case line-state
+       [(edit-line-state (empty) _ _ _)
+        (tuple2 #"" (continue-editing-result line-state))]
+       [(edit-line-state (cons prev-command prev-commands) before after next-commands)
         (match-define current-command
           (bytes-append
             (varargs list (list->bytes (reverse before)) (list->bytes after))))
@@ -230,14 +218,16 @@
               prev-command)))
         (tuple2 output
                 (continue-editing-result
-                  (edit-line-state (reverse (bytes->list prev-command)) (empty))
-                  (history-state exec-commands prev-commands
-                                 (cons current-command next-commands))))])]
+                  (edit-line-state
+                    prev-commands
+                    (reverse (bytes->list prev-command))
+                    (empty)
+                    (cons current-command next-commands))))])]
     [(next-command-action)
-     (case hist-state
-       [(history-state _ _ (empty))
-        (tuple2 #"" (continue-editing-result line-state hist-state))]
-       [(history-state exec-commands prev-commands (cons next-command next-commands))
+     (case line-state
+       [(edit-line-state _ _ _ (empty))
+        (tuple2 #"" (continue-editing-result line-state))]
+       [(edit-line-state prev-commands before after (cons next-command next-commands))
         (match-define current-command
           (bytes-append
             (varargs list (list->bytes (reverse before)) (list->bytes after))))
@@ -252,14 +242,16 @@
               next-command)))
         (tuple2 output
                 (continue-editing-result
-                  (edit-line-state (reverse (bytes->list next-command)) (empty))
-                  (history-state exec-commands (cons current-command prev-commands)
-                                               next-commands)))])]
+                  (edit-line-state
+                    (cons current-command prev-commands)
+                    (reverse (bytes->list next-command))
+                    (empty)
+                    next-commands)))])]
     [(backspace-action)
-     (case before
-       [(empty)
-        (tuple2 #"\x07" (continue-editing-result line-state hist-state))]
-       [(cons _ before)
+     (case line-state
+       [(edit-line-state _ (empty) _ _)
+        (tuple2 #"\x07" (continue-editing-result line-state))]
+       [(edit-line-state prev-commands (cons _ before) after next-commands)
         (tuple2
           (bytes-append
             (varargs list
@@ -268,30 +260,35 @@
               #" "
               (list->bytes (map (lambda ([_ : LiftedU8]) (lifted-u8 (u8 8))) after))
               #"\x08"))
-          (continue-editing-result (edit-line-state before after) hist-state))])]
+          (continue-editing-result (edit-line-state prev-commands before after next-commands)))])]
     [(print-action val)
+     (match-define (edit-line-state prev-commands before after next-commands) line-state)
      (tuple2
        (bytes-append
          (varargs list
            (bytes/1 (u8 val))
            (list->bytes after)
            (list->bytes (map (lambda ([_ : LiftedU8]) (lifted-u8 (u8 8))) after))))
-       (continue-editing-result (edit-line-state (cons (lifted-u8 (u8 val)) before) after) hist-state))]
+       (continue-editing-result
+         (edit-line-state prev-commands (cons (lifted-u8 (u8 val)) before) after next-commands)))]
     [(move-cursor-right-action)
-     (case after
-       [(empty)
-        (tuple2 #"\x07" (continue-editing-result line-state hist-state))]
-       [(cons char after)
-        (tuple2 #"\x1b[C" (continue-editing-result (edit-line-state (cons char before) after)
-                                                hist-state))])]
+     (case line-state
+       [(edit-line-state _ _ (empty) _)
+        (tuple2 #"\x07" (continue-editing-result line-state))]
+       [(edit-line-state prev-commands before (cons char after) next-commands)
+        (tuple2
+          #"\x1b[C"
+          (continue-editing-result
+            (edit-line-state prev-commands (cons char before) after next-commands)))])]
     [(move-cursor-left-action)
-     (case before
-       [(empty)
-        (tuple2 #"\x07" (continue-editing-result line-state hist-state))]
-       [(cons char before)
-        (tuple2 #"\x1b[D" (continue-editing-result (edit-line-state before (cons char after))
-                                                   hist-state))])]))
-
+     (case line-state
+       [(edit-line-state _ (empty) _ _)
+        (tuple2 #"\x07" (continue-editing-result line-state))]
+       [(edit-line-state prev-commands (cons char before) after next-commands)
+        (tuple2
+          #"\x1b[D"
+          (continue-editing-result
+            (edit-line-state prev-commands before (cons char after) next-commands)))])]))
 
 (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Int
   (begin
