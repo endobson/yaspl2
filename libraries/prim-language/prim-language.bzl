@@ -39,7 +39,7 @@ def _bin_impl(ctx):
     ]
   )
 
-  return struct()
+  return []
 
 prim_binary = rule(
   implementation = _bin_impl,
@@ -85,7 +85,7 @@ def _lib_impl(ctx):
     ]
   )
 
-  return struct()
+  return []
 
 prim_library = rule(
   implementation = _lib_impl,
@@ -139,9 +139,9 @@ def _binary_test_impl(ctx):
       "exit $PASSED\n",
     is_executable = True)
 
-  return struct(
+  return [DefaultInfo(
     runfiles=ctx.runfiles(files=[ctx.executable.binary]),
-  )
+  )]
 
 
 binary_test = rule(
