@@ -8,6 +8,7 @@ binaries_to_prebuild = {
     "linker": "//bootstrap:bootstrap_linker",
     "prim_language_library_compiler": "//bootstrap:bootstrap_prim_language_library_compiler",
     "aspect-missing-dependencies": "//tools:aspect-missing-dependencies",
+    "module-index-validator": "//tools:module-index-validator",
 }
 
 [

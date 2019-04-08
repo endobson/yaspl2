@@ -33,6 +33,12 @@ yaspl_module_index_rule = rule(
   implementation = _yaspl_module_index_rule_impl,
   attrs = {
     "deps": attr.label_list(aspects=[yaspl_module_index]),
+    "_validator": attr.label(
+       default=Label("//prebuilt:module-index-validator"),
+       executable=True,
+       allow_files=True,
+       cfg="host",
+    ),
   },
   outputs = {
     "combined": "%{name}.module_index"

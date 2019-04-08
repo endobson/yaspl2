@@ -219,6 +219,17 @@ yaspl_library(
     ],
 )
 
+yaspl_binary(
+    name = "module-index-validator",
+    srcs = ["module-index-validator-main.yaspl"],
+    deps = [
+        ":command-line",
+        "//libraries/data:either",
+        "//libraries/data:lifted-primitives",
+        "//libraries/data:list",
+    ],
+)
+
 test_suite(
     name = "package_tests",
     testonly = 0,
@@ -234,6 +245,7 @@ filegroup(
         ":aspect-remove-unused-dependencies",
         ":intermediate-html-printer",
         ":ir-printer",
+        ":module-index-validator",
         ":rewrite-imports",
     ],
 )

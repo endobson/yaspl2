@@ -31,10 +31,21 @@ def concat_files_impl(ctx, p):
   args = ctx.actions.args()
   file_parts = depset(transitive=[d[p].files for d in ctx.attr.deps])
   args.add_all(file_parts)
+
+  if hasattr(ctx.executable, "_validator"):
+    inputs = file_parts + [ctx.executable._validator]
+    command = "cat >%s $@ && %s %s" % (
+        ctx.outputs.combined.path,
+        ctx.executable._validator.path,
+        ctx.outputs.combined.path)
+  else:
+    inputs = file_parts
+    command = "cat >%s $@" % ctx.outputs.combined.path
+
   ctx.actions.run_shell(
      outputs = [ctx.outputs.combined],
-     inputs = file_parts,
-     command = "cat >%s $@" % ctx.outputs.combined.path,
+     inputs = inputs,
+     command = command,
      arguments = [args]
   )
   return []
