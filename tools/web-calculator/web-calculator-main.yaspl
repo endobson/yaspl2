@@ -1,0 +1,80 @@
+#:module (tools web-calculator web-calculator-main)
+#:import {
+  (data lifted-primitives)
+  (either)
+  (http-server)
+  (io)
+  (ip)
+  (list)
+  (maybe)
+  (bytes)
+  (join-list)
+  (numbers)
+  (prim)
+  (tcp)
+  (formats html)
+  (formats xml)
+  (yaspl top-level-objects-to-x86-64)
+}
+(export
+  (#:types)
+  (#:values)
+  (#:patterns))
+(types)
+
+(define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Int
+  (case (array->list args)
+    [(empty)
+     (begin
+       (write-line #"No executable specified???" stderr)
+       1)]
+    [(cons _ (empty))
+     (begin
+       (write-line #"No ip address supplied." stderr)
+       1)]
+    [(cons _ (cons _ (empty)))
+     (begin
+       (write-line #"No port supplied" stderr)
+       1)]
+    [(cons _ (cons _ (cons _ (cons _ _))))
+     (begin
+       (write-line #"Too many arguments" stderr)
+       1)]
+    [(cons _ (cons ip-addr (cons port (empty))))
+     (case (bytes->ipv4-address ip-addr)
+       [(nothing)
+        (begin
+          (write-line #"Unparsable ip address" stderr)
+          1)]
+       [(just ip-addr)
+        (case (decimal-bytes->integer port)
+          [(nothing)
+           (begin
+             (write-line #"Unparsable port number" stderr)
+             1)]
+          [(just (lifted-int port))
+           (begin
+             (run-http-server (tcp-address ip-addr port) (make-request-handler))
+             (write-line #"Http server stopped running." stderr)
+             1)])])]))
+
+(define (make-request-handler) : (HttpRequest -> HttpResponse)
+  (lambda ([request : HttpRequest])
+    (case request
+      [(http-request path _headers)
+       (if (bytes=? path #"/")
+           (serve-index-response)
+           (not-found))])))
+
+(define (not-found) : HttpResponse
+  (http-response 404 #"Not Found" #"text/plain" #"Not Found"))
+(define (xhtml-ok-response [node : Node]) : HttpResponse
+  (http-response 200 #"OK" #"application/xhtml+xml" (document->xml-bytes node)))
+
+(define (serve-index-response) : HttpResponse
+  (xhtml-ok-response
+    (html
+      (head (empty))
+      (body
+        (varargs list
+           (div (link (single-jl #"/") (text-node/escape (single-jl #"self")))))))))

@@ -15,6 +15,7 @@ ALL_PACKAGES = [
     "//libraries/prim-language/examples",
     "//tools",
     "//tools/shell",
+    "//tools/web-calculator",
     "//web-assembly",
 ]
 
