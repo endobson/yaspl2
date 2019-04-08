@@ -63,11 +63,11 @@ yaspl_binary(
     name = "aspect-missing-dependencies",
     srcs = ["aspect-missing-dependencies-main.yaspl"],
     deps = [
+        ":module-index-parser",
         "//libraries:io",
         "//libraries:module-name",
         "//libraries:prim-types",
         "//libraries:sexp-parser",
-        "//libraries:sexp-printer",
         "//libraries:source-language",
         "//libraries/data:bytes",
         "//libraries/data:dict",
@@ -224,9 +224,26 @@ yaspl_binary(
     srcs = ["module-index-validator-main.yaspl"],
     deps = [
         ":command-line",
+        ":module-index-parser",
         "//libraries/data:either",
         "//libraries/data:lifted-primitives",
         "//libraries/data:list",
+    ],
+)
+
+yaspl_library(
+    name = "module-index-parser",
+    srcs = ["module-index-parser.yaspl"],
+    deps = [
+        "//libraries:io",
+        "//libraries:module-name",
+        "//libraries:sexp-parser",
+        "//libraries:sexp-printer",
+        "//libraries/data:bytes",
+        "//libraries/data:dict",
+        "//libraries/data:either",
+        "//libraries/data:list",
+        "//libraries/data:maybe",
     ],
 )
 
