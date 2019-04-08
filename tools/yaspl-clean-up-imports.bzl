@@ -1,6 +1,6 @@
 load("//libraries:yaspl.bzl", "yaspl_provider")
 load(":yaspl-transitive-rules.bzl", "transitivify_impl", "transitive_attrs",
-     "concat_files_impl", "concat_attrs")
+     "concat_files_impl")
 
 yaspl_clean_up_imports_provider = provider(fields=["files"])
 
@@ -58,7 +58,9 @@ def _yaspl_clean_up_imports_rule_impl(ctx):
 
 yaspl_clean_up_imports_rule = rule(
   implementation = _yaspl_clean_up_imports_rule_impl,
-  attrs = concat_attrs(yaspl_clean_up_imports),
+  attrs = {
+    "deps": attr.label_list(aspects=[yaspl_clean_up_imports]),
+  },
   outputs = {
     "combined": "%{name}.clean_up_imports"
   },

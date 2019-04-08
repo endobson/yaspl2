@@ -1,6 +1,6 @@
 load("//libraries:yaspl.bzl", "yaspl_provider")
 load(":yaspl-transitive-rules.bzl", "transitivify_impl", "transitive_attrs",
-     "concat_files_impl", "concat_attrs")
+     "concat_files_impl")
 
 yaspl_lint_provider = provider(fields=["files"])
 
@@ -45,7 +45,9 @@ def _yaspl_lint_rule_impl(ctx):
 
 yaspl_lint_rule = rule(
   implementation = _yaspl_lint_rule_impl,
-  attrs = concat_attrs(yaspl_lint),
+  attrs = {
+    "deps": attr.label_list(aspects=[yaspl_lint]),
+  },
   outputs = {
     "combined": "%{name}.lint"
   },

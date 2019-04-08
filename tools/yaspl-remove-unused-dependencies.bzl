@@ -1,6 +1,6 @@
 load("//libraries:yaspl.bzl", "yaspl_provider")
 load(":yaspl-transitive-rules.bzl", "transitivify_impl", "transitive_attrs",
-     "concat_files_impl", "concat_attrs")
+     "concat_files_impl")
 
 yaspl_remove_unused_dependencies_provider = provider(fields=["files"])
 
@@ -53,7 +53,9 @@ def _yaspl_remove_unused_dependencies_rule_impl(ctx):
 
 yaspl_remove_unused_dependencies_rule = rule(
   implementation = _yaspl_remove_unused_dependencies_rule_impl,
-  attrs = concat_attrs(yaspl_remove_unused_dependencies),
+  attrs = {
+    "deps": attr.label_list(aspects=[yaspl_remove_unused_dependencies]),
+  },
   outputs = {
     "combined": "%{name}.remove_unused_dependencies"
   },

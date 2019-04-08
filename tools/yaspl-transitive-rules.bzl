@@ -38,8 +38,3 @@ def concat_files_impl(ctx, p):
      arguments = [args]
   )
   return []
-
-def concat_attrs(aspect):
-  return {
-    "deps": attr.label_list(aspects=[aspect]),
-  }

@@ -1,6 +1,6 @@
 load("//libraries:yaspl.bzl", "yaspl_provider")
 load(":yaspl-transitive-rules.bzl", "transitivify_impl", "transitive_attrs",
-     "concat_files_impl", "concat_attrs")
+     "concat_files_impl")
 
 yaspl_module_index_provider = provider(fields=["files"])
 
@@ -31,7 +31,9 @@ def _yaspl_module_index_rule_impl(ctx):
 
 yaspl_module_index_rule = rule(
   implementation = _yaspl_module_index_rule_impl,
-  attrs = concat_attrs(yaspl_module_index),
+  attrs = {
+    "deps": attr.label_list(aspects=[yaspl_module_index]),
+  },
   outputs = {
     "combined": "%{name}.module_index"
   },

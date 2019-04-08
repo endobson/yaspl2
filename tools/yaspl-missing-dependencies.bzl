@@ -1,6 +1,6 @@
 load("//libraries:yaspl.bzl", "yaspl_provider")
 load(":yaspl-transitive-rules.bzl", "transitivify_impl", "transitive_attrs",
-     "concat_files_impl", "concat_attrs")
+     "concat_files_impl")
 
 yaspl_missing_dependencies_provider = provider(fields=["files"])
 
@@ -53,7 +53,9 @@ def _yaspl_missing_dependencies_rule_impl(ctx):
 
 yaspl_missing_dependencies_rule = rule(
   implementation = _yaspl_missing_dependencies_rule_impl,
-  attrs = concat_attrs(yaspl_missing_dependencies),
+  attrs = {
+    "deps": attr.label_list(aspects=[yaspl_missing_dependencies]),
+  },
   outputs = {
     "combined": "%{name}.missing_dependencies"
   },
