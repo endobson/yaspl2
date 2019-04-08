@@ -86,7 +86,6 @@ yaspl_binary(
         "//libraries:io",
         "//libraries:module-name",
         "//libraries:sexp-parser",
-        "//libraries:sexp-printer",
         "//libraries:source-language",
         "//libraries/data:bytes",
         "//libraries/data:dict",
