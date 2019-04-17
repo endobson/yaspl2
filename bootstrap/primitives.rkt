@@ -219,5 +219,9 @@
 
   [(a) (box [v : (type-var a)]) : (Box a) (box v)]
   [(a) (unbox [b : (Box a)]) : (type-var a) (unbox b)]
-  [(a) (set-box! [b : (Box a)] [v : (type-var a)]) : Void (set-box! b v)])
+  [(a) (set-box! [b : (Box a)] [v : (type-var a)]) : Void (set-box! b v)]
 
+  [(current-system-abi-int) : Int
+   (case (system-type 'os)
+     [(macosx) 1]
+     [(unix) 2])])
