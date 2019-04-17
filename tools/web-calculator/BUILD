@@ -30,18 +30,22 @@ yaspl_binary(
 
 container_image(
     name = "web-calculator-image",
+    entrypoint = [
+        "/web-calculator",
+        "0.0.0.0",
+        "8080",
+    ],
     files = [
         ":web-calculator",
     ],
-    entrypoint = ["/web-calculator", "0.0.0.0", "8080"],
 )
 
 container_push(
-   name = "web-calculator-push",
-   image = ":web-calculator-image",
-   format = "Docker",
-   registry = "gcr.io",
-   repository = "crucial-bloom-404/web-calculator",
+    name = "web-calculator-push",
+    format = "Docker",
+    image = ":web-calculator-image",
+    registry = "gcr.io",
+    repository = "crucial-bloom-404/web-calculator",
 )
 
 test_suite(
