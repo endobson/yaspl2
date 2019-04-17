@@ -2,6 +2,7 @@ load("//libraries:yaspl.bzl", "yaspl_binary")
 load(
     "@io_bazel_rules_docker//container:container.bzl",
     "container_image",
+    "container_push",
 )
 
 package(
@@ -32,6 +33,15 @@ container_image(
     files = [
         ":web-calculator",
     ],
+    entrypoint = ["/web-calculator", "0.0.0.0", "8080"],
+)
+
+container_push(
+   name = "web-calculator-push",
+   image = ":web-calculator-image",
+   format = "Docker",
+   registry = "gcr.io",
+   repository = "crucial-bloom-404/web-calculator",
 )
 
 test_suite(
