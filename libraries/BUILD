@@ -966,6 +966,7 @@ yaspl_library(
     srcs = ["tcp.yaspl"],
     deps = [
         ":ip",
+        ":machine-code",
     ],
 )
 

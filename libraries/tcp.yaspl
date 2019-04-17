@@ -1,6 +1,7 @@
 #:module (tcp)
 #:import {
   (ip)
+  (machine-code)
   (prim)
 }
 (export
@@ -18,9 +19,17 @@
     (case address
       [(tcp-address ip-addr port)
        (begin
-         (bytes-set! bytes 0 (u8 0))
-         (bytes-set! bytes 1 (u8 2)) ;; Family: AF_INET
-         ;; Port 1026
+         (case (current-system-abi)
+           [(osx-abi)
+            ;; OSX is an 1-byte length, followed by a 1-byte family
+            (begin
+              (bytes-set! bytes 0 (u8 0))
+              (bytes-set! bytes 1 (u8 2)))] ;; Family: AF_INET
+           [(linux-abi)
+            (begin
+              (bytes-set! bytes 0 (u8 2)) ;; Family: AF_INET
+              (bytes-set! bytes 1 (u8 0)))])
+         ;; Port split over two bytes
          (bytes-set! bytes 2 (u8 (quotient port 256)))
          (bytes-set! bytes 3 (u8 (remainder port 256)))
          ;; IP addr = 0.0.0.0
@@ -44,12 +53,19 @@
     (bind sock sock-addr (bytes-length sock-addr))))
 
 (define (tcp-socket-set-reuse-address [sock : Socket] [v : Boolean]) : Void
+  (match-define abi (current-system-abi))
+  (match-define reuse-addr
+    (case abi
+      [(osx-abi) 4]
+      [(linux-abi) 2]))
+  (match-define socket-layer
+    (case abi
+      [(osx-abi) 65535]
+      [(linux-abi) 1]))
   (let ([buf (make-bytes 4)])
-    (let ([reuse-addr 4])
-      (let ([socket-layer 65535])
-        (begin
-          (bytes-set! buf 0 (u8 (if v 255 0)))
-          (setsockopt sock socket-layer reuse-addr buf (bytes-length buf)))))))
+    (begin
+      (bytes-set! buf 0 (u8 (if v 255 0)))
+      (setsockopt sock socket-layer reuse-addr buf (bytes-length buf)))))
 
 (define (tcp-socket-accept [sock : Socket]) : AcceptedSocket
   (let ([sock-addr (make-bytes 16)])
