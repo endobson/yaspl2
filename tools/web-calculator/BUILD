@@ -28,6 +28,19 @@ yaspl_binary(
     ],
 )
 
+yaspl_binary(
+    name = "wasm-generator",
+    srcs = ["wasm-generator-main.yaspl"],
+    deps = [
+        "//libraries:io",
+        "//libraries:sexp-parser",
+        "//libraries/data:either",
+        "//libraries/data:list",
+        "//libraries/data:source-location",
+        "//libraries/formats:web-assembly",
+    ],
+)
+
 container_image(
     name = "web-calculator-image",
     entrypoint = [
@@ -56,6 +69,7 @@ test_suite(
 filegroup(
     name = "package_binaries",
     srcs = [
+        ":wasm-generator",
         ":web-calculator",
     ],
 )

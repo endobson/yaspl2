@@ -1,0 +1,66 @@
+#:module (tools web-calculator wasm-generator-main)
+#:import {
+  (data source-location)
+  (either)
+  (formats web-assembly)
+  (io)
+  (list)
+  (prim)
+  (sexp-parser)
+}
+(export
+  (#:types)
+  (#:values)
+  (#:patterns))
+(types
+  (define-type CalcExpression
+    (int-literal [v : Int])
+    (plus-expr [l : CalcExpression] [r : CalcExpression])))
+
+(define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Int
+  (case (parse-single-sexp (sourced-bytes (unnamed-source) (read-all-bytes stdin)))
+    [(left v)
+     (begin
+       (write-line v stderr)
+       1)]
+    [(right sexp)
+     (case (parse-calc-expression sexp)
+       [(left v)
+        (begin
+          (write-line v stderr)
+          1)]
+       [(right v)
+        (begin
+          (write-all-bytes (module->binary-bytes (calc->wasm-module v)) stdout)
+          0)])]))
+
+(define (parse-calc-expression [sexp : Sexp]) : (Either Bytes CalcExpression)
+  (case sexp
+    [(number-sexp n) (right (int-literal n))]
+    [(node (cons (symbol-sexp #"+") (cons l (cons r (empty)))))
+     (case (parse-calc-expression l)
+       [(left v) (left v)]
+       [(right l)
+        (case (parse-calc-expression r)
+          [(left v) (left v)]
+          [(right r)
+           (right (plus-expr l r))])])]
+    [_ (left #"Unparseable expression")]))
+
+(define (calc->wasm-module [c : CalcExpression]) : Module
+  (module
+    (varargs list
+      (function-type (empty) (varargs list (i32))))
+    (varargs list
+      (function 0 (empty) (calc->wasm-instructions c)))
+    (varargs list (export #"calc" (function-export 0)))))
+
+(define (calc->wasm-instructions [c : CalcExpression]) : (List Instruction)
+  (reverse (calc->wasm-instructions* c (empty))))
+
+(define (calc->wasm-instructions* [c : CalcExpression] [acc : (List Instruction)]) : (List Instruction)
+  (case c
+    [(int-literal v)
+     (cons (const-i32-inst v) acc)]
+    [(plus-expr l r)
+     (cons (add-i32-inst) (calc->wasm-instructions* r (calc->wasm-instructions* l acc)))]))
