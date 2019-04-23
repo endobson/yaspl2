@@ -4,6 +4,7 @@
   (data lifted-primitives)
   (formats html)
   (formats xml)
+  (formats web-assembly)
   (http-server)
   (io)
   (ip)
@@ -62,17 +63,53 @@
       [(http-request path _headers)
        (if (bytes=? path #"/")
            (serve-index-response)
-           (not-found))])))
+           (if (bytes=? path #"/calc.wasm")
+               (serve-wasm-response)
+               (not-found)))])))
 
 (define (not-found) : HttpResponse
   (http-response 404 #"Not Found" #"text/plain" #"Not Found"))
 (define (xhtml-ok-response [node : Node]) : HttpResponse
   (http-response 200 #"OK" #"application/xhtml+xml" (document->xml-bytes node)))
+(define (wasm-ok-response [mod : Module]) : HttpResponse
+  (http-response 200 #"OK" #"application/wasm" (module->binary-bytes mod)))
 
 (define (serve-index-response) : HttpResponse
   (xhtml-ok-response
     (html
-      (head (empty))
+      (head
+        (varargs list
+          (element-node #"script"
+            (varargs list (attribute/escape #"type" (single-jl #"text/javascript")))
+            (varargs list (text-node/escape (script-body))))))
       (body
         (varargs list
            (div (link (single-jl #"/") (text-node/escape (single-jl #"self")))))))))
+
+(define (script-body) : (JoinList Bytes)
+  (list->jl
+    (interleave
+      (varargs list
+        #"var mod;"
+        #"var instance;"
+        #"fetch(\"calc.wasm\", {cache: \"no-cache\"})"
+        #".then(response => WebAssembly.instantiateStreaming(response))"
+        #".then(res => {"
+        #"    mod = res.module"
+        #"    instance = res.instance"
+        #"    let result = instance.exports.calc()"
+        #"    document.body.appendChild(new Text(\"Result: \" + result))"
+        #"}).catch(error => {"
+        #"  document.body.appendChild(new Text(error))"
+        #"})")
+      #"\n")))
+
+
+(define (serve-wasm-response) : HttpResponse
+  (wasm-ok-response
+    (module
+      (varargs list
+        (function-type (empty) (varargs list (i32))))
+      (varargs list
+        (function 0 (empty) (varargs list (const-i32-inst 100))))
+      (varargs list (export #"calc" (function-export 0))))))

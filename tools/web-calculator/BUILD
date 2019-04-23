@@ -24,6 +24,7 @@ yaspl_binary(
         "//libraries/data:maybe",
         "//libraries/data:numbers",
         "//libraries/formats:html",
+        "//libraries/formats:web-assembly",
         "//libraries/formats:xml",
     ],
 )
