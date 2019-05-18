@@ -18,6 +18,7 @@ ALL_PACKAGES = [
     "//tools",
     "//tools/shell",
     "//tools/web-calculator",
+    "//tools/doc-server",
     "//web-assembly",
 ]
 

@@ -1,0 +1,117 @@
+#:module (tools doc-server doc-server-main)
+#:import {
+  (bytes)
+  (code-http-server assembly)
+  (code-http-server register)
+  (compiler)
+  (data lifted-primitives)
+  (either)
+  (formats html)
+  (formats xml)
+  (http-server)
+  (io)
+  (ip)
+  (join-list)
+  (list)
+  (maybe)
+  (numbers)
+  (prim)
+  (protocols http http-response)
+  (protocols http http-responses)
+  (tcp)
+  (yaspl top-level-objects)
+  (yaspl top-level-objects-to-x86-64)
+  (yaspl x86-64-assembly)
+}
+(export
+  (#:types)
+  (#:values)
+  (#:patterns))
+(types)
+
+(define (serve-index-response) : HttpResponse
+  (xhtml-ok-response
+    (html
+      (head (empty))
+      (body
+        (varargs list
+           (div (link (single-jl #"/register/") (text-node/escape (single-jl #"register"))))
+           (div (link (single-jl #"/register-graphic/") (text-node/escape (single-jl #"register-graphic"))))
+           (div (link (single-jl #"/assembly/") (text-node/escape (single-jl #"assembly")))))))))
+
+(define (make-request-handler
+          [objects : (List TopLevelObject)]
+          [fragments : AssemblyFragments]) : (HttpRequest -> HttpResponse)
+  (lambda ([request : HttpRequest])
+    (case request
+      [(http-request path _headers)
+       (if (bytes=? path #"/")
+           (serve-index-response)
+           (if (starts-with? path #"/assembly/")
+               (let ([name (subbytes path 10 (bytes-length path))])
+                 (serve-assembly-response fragments name))
+               (if (starts-with? path #"/register/")
+                   (let ([name (subbytes path 10 (bytes-length path))])
+                     (serve-register-response objects name))
+                   (if (starts-with? path #"/register-graphic/")
+                       (let ([name (subbytes path 18 (bytes-length path))])
+                         (serve-register-graphic-response objects name))
+                       (not-found)))))])))
+
+(define (extract-top-level-objects [module-files-file : Bytes])
+  : (Either Bytes (List TopLevelObject))
+  (match-define lines (bytes-split (call-with-input-file module-files-file read-all-bytes) #"\n"))
+  ;; Remove trailing blank line
+  (match-define file-names (filter (lambda ([line : Bytes]) (> (bytes-length line) 0)) lines))
+  (case (parse-module-files file-names)
+    [(left v)
+     (left v)]
+    [(right modules)
+     (compile-modules modules)]))
+
+(define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Int
+  (case (array->list args)
+    [(empty)
+     (begin
+       (write-line #"No executable specified???" stderr)
+       1)]
+    [(cons _ (empty))
+     (begin
+       (write-line #"No ip address supplied." stderr)
+       1)]
+    [(cons _ (cons _ (empty)))
+     (begin
+       (write-line #"No port supplied" stderr)
+       1)]
+    [(cons _ (cons _ (cons _ (empty))))
+     (begin
+       (write-line #"No module files file supplied" stderr)
+       1)]
+    [(cons _ (cons _ (cons _ (cons _ (cons _ _)))))
+     (begin
+       (write-line #"Too many arguments supplied" stderr)
+       1)]
+    [(cons _ (cons ip-addr (cons port (cons module-names-file (empty)))))
+     (case (bytes->ipv4-address ip-addr)
+       [(just ip-addr)
+        (case (decimal-bytes->integer port)
+          [(just (lifted-int port))
+           (let ([address (tcp-address ip-addr port)])
+             (case (extract-top-level-objects module-names-file)
+               [(left v)
+                (begin
+                  (write-line v stderr)
+                  1)]
+               [(right objects)
+                (begin
+                  (run-http-server address (make-request-handler objects (convert-objects objects)))
+                  (write-line #"Http server stopped running." stderr)
+                  1)]))]
+          [(nothing)
+           (begin
+             (write-line #"Unparsable port number" stderr)
+             1)])]
+       [(nothing)
+        (begin
+          (write-line #"Unparsable ip address" stderr)
+          1)])]))
