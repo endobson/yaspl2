@@ -358,22 +358,53 @@
 
 (define (parse-function-definition [sexp : Sexp]) : (Either Bytes FunctionDefinition)
   (case sexp
-    [(node (cons (symbol-sexp #"define")
-                 (cons (bracket-node type-vars)
-                       (cons (node (cons (symbol-sexp function-name) args))
-                             (cons (symbol-sexp #":")
-                                   (cons result-type body))))))
+    [(node parts)
+     (case parts
+       [(cons (symbol-sexp #"define") parts)
+        (match-define (tuple2 type-vars parts) : (Tuple2 (List Sexp) (List Sexp))
+          (case parts
+            [(cons (bracket-node type-vars) parts)
+             (tuple2 type-vars parts)]
+            [parts
+             (tuple2 (empty) parts)]))
+        (case parts
+          [(cons (node name+args) parts)
+           (case name+args
+             [(empty)
+              (left #"Invalid function definition: empty name and args.")]
+             [(cons (symbol-sexp function-name) args)
+              (parse-function-definition* function-name type-vars args parts)]
+             [_
+              (left #"Invalid function definition: name is not a symbol")])]
+          [_
+           (left #"Invalid function definition: couldn't parse name and args.") ])]
+       [_
+        (left #"Invalid function definition: doesn't start with define.")])]
+    [_
+     (left #"Invalid function definition: not a node")]))
+(define (parse-function-definition*
+          [function-name : Bytes]
+          [type-vars : (List Sexp)]
+          [args : (List Sexp)]
+          [parts : (List Sexp)]) : (Either Bytes FunctionDefinition)
+  (match-define error
+    (lambda ([message : Bytes]) : (Either Bytes FunctionDefinition)
+      (left (bytes-append (varargs list #"Invalid function definition '" function-name #"': "
+                                   message)))))
+
+  (case (extract-rights (map parse-type-var-symbol type-vars))
+    [(left v) (error v)]
+    [(right type-vars)
      (case (extract-rights (map parse-arg args))
-       [(left v) (left v)]
+       [(left v) (error v)]
        [(right parsed-args)
-        (case (extract-rights (map parse-type-var-symbol type-vars))
-          [(left v) (left v)]
-          [(right type-vars)
+        (case parts
+          [(cons (symbol-sexp #":") (cons result-type body))
            (case (parse-pre-type result-type)
-             [(left v) (left v)]
+             [(left v) (error v)]
              [(right result-type)
               (case (parse-block #t body)
-                [(left v) (left v)]
+                [(left v) (error v)]
                 [(right body)
                  (right
                    (function-definition
@@ -381,28 +412,9 @@
                      type-vars
                      parsed-args
                      result-type
-                     body))])])])])]
-    [(node (cons (symbol-sexp #"define")
-                 (cons (node (cons (symbol-sexp function-name) args))
-                       (cons (symbol-sexp #":")
-                             (cons result-type body)))))
-     (case (extract-rights (map parse-arg args))
-       [(left v) (left v)]
-       [(right parsed-args)
-        (case (parse-pre-type result-type)
-          [(left v) (left v)]
-          [(right result-type)
-           (case (parse-block #t body)
-             [(left v) (left v)]
-             [(right body)
-              (right
-                (function-definition
-                  function-name
-                  (empty)
-                  parsed-args
-                  result-type
-                  body))])])])]
-    [_ (left #"Not a valid function definition")]))
+                     body))])])]
+          [_
+           (error #"Couldn't parse result type")])])]))
 
 (define (parse-arg [sexp : Sexp]) : (Either Bytes FunctionArg)
   (case sexp
