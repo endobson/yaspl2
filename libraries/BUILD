@@ -412,6 +412,7 @@ yaspl_bootstrap_library(
         ":source-language",
         ":source-to-intermediate-language",
         ":validator",
+        "//libraries/data:bytes",
         "//libraries/data:either",
         "//libraries/data:indexed-set",
         "//libraries/data:list",
