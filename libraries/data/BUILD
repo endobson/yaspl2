@@ -81,6 +81,7 @@ yaspl_bootstrap_library(
     name = "dict",
     srcs = ["dict.yaspl"],
     deps = [
+        ":either",
         ":lifted-primitives",
         ":list",
         ":maybe",
@@ -126,6 +127,7 @@ yaspl_bootstrap_library(
     srcs = ["indexed-set.yaspl"],
     deps = [
         ":dict",
+        ":either",
         ":list",
         ":maybe",
         ":ordering",
