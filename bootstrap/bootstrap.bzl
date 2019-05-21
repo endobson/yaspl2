@@ -87,7 +87,8 @@ def bootstrap_binary(name, source_files):
             "-static " +
             "-no_uuid " +
             "-sectcreate __DATA __data /dev/null " +
-            "$(location %s) -o $(location %s)" % (object_name, name),
+            "$(location %s) -o $(location %s) " % (object_name, name) +
+            "&& strip -x $(location %s)" % name,
         "//conditions:host_and_target_linux_x86_64":
             "ld $(location %s) -o $(location %s)" % (object_name, name),
        }),
