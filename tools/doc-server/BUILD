@@ -41,7 +41,7 @@ yaspl_binary(
 yaspl_source_files_rule(
     name = "source_files",
     deps = [
-        "//libraries/data:maybe",
+        "//libraries/data:dict",
     ],
 )
 
