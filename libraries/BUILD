@@ -118,6 +118,8 @@ yaspl_binary(
         "//libraries/prim-language:block-number",
         "//libraries/prim-language:print-register-language",
         "//libraries/prim-language:register-language",
+        "//libraries/protocols/http:http-response",
+        "//libraries/protocols/http:http-responses",
         "//libraries/yaspl:top-level-objects",
         "//libraries/yaspl:top-level-objects-to-x86-64",
         "//libraries/yaspl:x86-64-assembly",
@@ -258,6 +260,7 @@ yaspl_library(
         "//libraries/data:maybe",
         "//libraries/data:numbers",
         "//libraries/data:regexp",
+        "//libraries/protocols/http:http-response",
     ],
 )
 

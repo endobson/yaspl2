@@ -32,6 +32,8 @@ yaspl_binary(
         "//libraries/data:list",
         "//libraries/data:maybe",
         "//libraries/data:numbers",
+        "//libraries/protocols/http:http-response",
+        "//libraries/protocols/http:http-responses",
     ],
 )
 

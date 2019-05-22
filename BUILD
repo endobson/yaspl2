@@ -11,6 +11,7 @@ ALL_PACKAGES = [
     "//libraries",
     "//libraries/algorithms",
     "//libraries/data",
+    "//libraries/protocols/http",
     "//libraries/prim-language",
     "//libraries/prim-language/examples",
     "//tools",

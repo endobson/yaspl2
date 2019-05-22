@@ -25,7 +25,8 @@ yaspl_binary(
         "//libraries/data:numbers",
         "//libraries/formats:html",
         "//libraries/formats:web-assembly",
-        "//libraries/formats:xml",
+        "//libraries/protocols/http:http-response",
+        "//libraries/protocols/http:http-responses",
     ],
 )
 
