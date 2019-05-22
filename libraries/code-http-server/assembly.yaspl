@@ -1,0 +1,91 @@
+#:module (code-http-server assembly)
+#:import {
+  (bytes)
+  (either)
+  (formats html)
+  (formats xml)
+  (join-list)
+  (list)
+  (maybe)
+  (prim)
+  (protocols http http-response)
+  (protocols http http-responses)
+  (yaspl x86-64-assembly)
+  (yaspl x86-64-assembly-printer)
+}
+(export
+  (#:types)
+  (#:values serve-assembly-response)
+  (#:patterns))
+(types)
+
+(define (serve-assembly-response
+          [fragments : AssemblyFragments]
+          [name : Bytes]) : HttpResponse
+  (if (= (bytes-length name) 0)
+      (xhtml-ok-response
+        (html
+          (head (empty))
+          (body
+            (case fragments
+              [(assembly-fragments text const)
+               (append
+                 (map text-fragment->node text)
+                 (map const-fragment->node const))]))))
+      (case (find-fragment name fragments)
+        [(nothing) (not-found)]
+        [(just fragment)
+         (xhtml-ok-response
+           (html
+             (head (empty))
+             (body
+               (cons
+                 (pre (code (text-node/escape
+                              (assembly-commands->bytes
+                                (osx-assembly-style)
+                                (jl->list
+                                  (case fragment
+                                    [(left text) (text-fragment->commands text)]
+                                    [(right const) (const-fragment->commands const)]))))))
+                 (empty)))))])))
+
+(define (text-fragment->node [fragment : TextFragment]) : Node
+  (case fragment
+    [(function-fragment name _)
+     (div (link (single-jl name) (text-node/escape (single-jl name))))]))
+
+(define (const-fragment->node [fragment : ConstFragment]) : Node
+  (case fragment
+    [(address-fragment name _)
+     (div (link (single-jl name) (text-node/escape (single-jl name))))]
+    [(bytes-fragment name _)
+     (div (link (single-jl name) (text-node/escape (single-jl name))))]))
+
+(define (find-fragment [name : Bytes] [fragments : AssemblyFragments])
+  : (Maybe (Either TextFragment ConstFragment))
+  (case fragments
+    [(assembly-fragments text const)
+     (case (find-text-fragment name text)
+       [(just v) (just (left v))]
+       [(nothing)
+        (case (find-const-fragment name const)
+          [(just v) (just (right v))]
+          [(nothing) (nothing)])])]))
+
+(define (find-text-fragment [name : Bytes] [fragments : (List TextFragment)]) : (Maybe TextFragment)
+  (findf
+    (lambda ([frag : TextFragment])
+      (case frag
+        [(function-fragment name2 _)
+         (bytes=? name name2)]))
+    fragments))
+
+(define (find-const-fragment [name : Bytes] [fragments : (List ConstFragment)]) : (Maybe ConstFragment)
+  (findf
+    (lambda ([frag : ConstFragment])
+      (case frag
+        [(address-fragment name2 _)
+         (bytes=? name name2)]
+        [(bytes-fragment name2 _)
+         (bytes=? name name2)]))
+    fragments))

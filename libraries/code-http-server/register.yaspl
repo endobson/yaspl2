@@ -1,0 +1,248 @@
+#:module (code-http-server register)
+#:import {
+  (block-number)
+  (bytes)
+  (data indexed-set)
+  (data lifted-primitives)
+  (depth-first-search)
+  (dict)
+  (formats html)
+  (formats svg)
+  (formats xml)
+  (join-list)
+  (list)
+  (maybe)
+  (numbers)
+  (panic)
+  (prim)
+  (print-register-language)
+  (protocols http http-response)
+  (protocols http http-responses)
+  {(register-language)
+    {#:types
+      [BasicBlock r:BasicBlock]
+      FunctionDefinition
+      Terminal
+    }
+    {#:values
+      [basic-block-terminal r:basic-block-terminal]
+    }
+    {#:patterns
+      [basic-block r:basic-block]
+      closure-convention
+      [cond-jump r:cond-jump]
+      function-definition
+      [halt r:halt]
+      [jump r:jump]
+      [jump-target r:jump-target]
+      plain-function-convention
+      [return r:return]
+      [tail-call r:tail-call]
+    }
+  }
+  (tuples)
+  (yaspl top-level-objects)
+}
+(export
+  (#:types)
+  (#:values serve-register-response serve-register-graphic-response)
+  (#:patterns))
+(types
+  (define-type GraphicBlock
+    (graphic-block [width : Int] [height : Int] [content : Node])))
+
+(define (serve-register-response
+          [objects : (List TopLevelObject)]
+          [name : Bytes]) : HttpResponse
+  (if (= (bytes-length name) 0)
+      (xhtml-ok-response
+        (html
+          (head (empty))
+          (body (filter-map top-level-object->node objects))))
+      (case (find-function name objects)
+        [(nothing) (not-found)]
+        [(just function)
+         (xhtml-ok-response
+           (html
+             (head (empty))
+             (body
+               (cons
+                 (pre (code (text-node/escape (single-jl (print-function function)))))
+                 (empty)))))])))
+
+(define (serve-register-graphic-response
+          [objects : (List TopLevelObject)]
+          [name : Bytes]) : HttpResponse
+  (if (= (bytes-length name) 0)
+      (xhtml-ok-response
+        (html
+          (head (empty))
+          (body (filter-map top-level-object->node objects))))
+      (case (find-function name objects)
+        [(nothing) (not-found)]
+        [(just (function-definition _ calling-convention basic-blocks _ _))
+         (match-define initial-block-number
+           (case calling-convention
+             [(plain-function-convention _ block) block]
+             [(closure-convention _ block _) block]))
+         (match-define (tuple3 (lifted-int width) (lifted-int height) nodes)
+           (layout-blocks (layer-blocks initial-block-number basic-blocks)))
+         (svg-ok-response
+           (svg width height nodes))])))
+
+(define (find-function [name : Bytes] [objects : (List TopLevelObject)])
+  : (Maybe FunctionDefinition)
+  (case objects
+    [(empty) (nothing)]
+    [(cons (register-function-tlo func) objects)
+     (case func
+       [(function-definition func-name _ _ _ _)
+        (if (bytes=? name func-name)
+            (just func)
+            (find-function name objects))])]
+    [(cons _ objects)
+     (find-function name objects)]))
+
+(define (top-level-object->node [object : TopLevelObject]) : (Maybe Node)
+  (case object
+    [(register-function-tlo (function-definition name _ _ _ _))
+     (just (div (link (single-jl name) (text-node/escape (single-jl name)))))]
+    [(bytes-tlo _ _)
+     (nothing)]
+    [(trivial-variant-tlo _ _)
+     (nothing)]
+    [(trivial-closure-tlo _ _)
+     (nothing)]))
+
+(define (layer-blocks [initial-block : BlockNumber]
+                      [blocks : (IndexedSet r:BasicBlock BlockNumber)]) : (List (List r:BasicBlock))
+  (let ([succ
+          (lambda ([index : BlockNumber]) : (List BlockNumber)
+            (case (indexed-set-ref blocks index)
+              [(nothing) (panic #"Bad index")]
+              [(just block) (terminal->successors (r:basic-block-terminal block))]))])
+    (let ([ordered-indices (depth-first-search succ (varargs list initial-block) block-number-cmp)])
+      (let ([depths (compute-depths succ ordered-indices
+                                    (dict-add (make-dict block-number-cmp)
+                                              initial-block
+                                              (lifted-int 0)))])
+        (let ([max-depth (max* 0 (dict-values depths))])
+          (let ([blocks-by-depth (make-blocks-by-depth depths blocks)])
+            (let ([ref (lambda ([depth : Int]) : (List r:BasicBlock)
+                         (case (dict-ref blocks-by-depth (lifted-int depth))
+                           [(nothing) (panic #"Bad index")]
+                           [(just blocks) blocks]))])
+              (build-list (+ max-depth 1) ref))))))))
+
+(define (terminal->successors [term : Terminal]) : (List BlockNumber)
+  (case term
+    [(r:return _) (empty)]
+    [(r:halt) (empty)]
+    [(r:cond-jump _cond (r:jump-target t _t-args) (r:jump-target f _f-args))
+     (varargs list t f)]
+    [(r:tail-call _ _) (empty)]
+    [(r:jump (r:jump-target i _args)) (varargs list i)]))
+
+(define (max* [v : Int] [vs : (List LiftedInt)]) : Int
+  (case vs
+    [(empty) v]
+    [(cons (lifted-int v2) vs) (max* (max v v2) vs)]))
+
+(define (make-blocks-by-depth
+          [depths : (Dict BlockNumber LiftedInt)]
+          [blocks : (IndexedSet r:BasicBlock BlockNumber)])
+  : (Dict LiftedInt (List r:BasicBlock))
+  (foldl
+    (lambda ([entry : (Tuple2 BlockNumber LiftedInt)] [acc : (Dict LiftedInt (List r:BasicBlock))])
+      : (Dict LiftedInt (List r:BasicBlock))
+      (case entry
+        [(tuple2 index depth)
+         (case (indexed-set-ref blocks index)
+           [(nothing) (panic #"Bad index")]
+           [(just block)
+            (dict-update
+              acc
+              depth
+              (lambda ([blocks : (List r:BasicBlock)]) (cons block blocks))
+              (empty))])]))
+    (dict-map depths (lambda ([key : BlockNumber] [value : LiftedInt]) (tuple2 key value)))
+    (ann (Dict LiftedInt (List r:BasicBlock)) (make-dict lifted-int-cmp))))
+
+
+(define (compute-depths [succ : (BlockNumber -> (List BlockNumber))] [vs : (List BlockNumber)]
+                        [acc : (Dict BlockNumber LiftedInt)]) : (Dict BlockNumber LiftedInt)
+  (case vs
+    [(empty) (make-dict block-number-cmp)]
+    [(cons v vs)
+     (let ([cur-height
+            (case (dict-ref acc v)
+              [(nothing) (panic/int #"Bad index")]
+              [(just (lifted-int v)) v])])
+       (dict-add
+         (compute-depths
+           succ
+           vs
+           (foldl (lambda ([v : BlockNumber] [acc : (Dict BlockNumber LiftedInt)])
+                    (dict-update acc v
+                                 (lambda ([old-height : LiftedInt])
+                                   (case old-height
+                                     [(lifted-int old-height)
+                                      (lifted-int (max old-height (+ 1 cur-height)))]))
+                                 (lifted-int 0)))
+                  (succ v)
+                  acc))
+         v
+         (lifted-int cur-height)))]))
+
+(define (layout-blocks [blocks : (List (List r:BasicBlock))])
+  : (Tuple3 LiftedInt LiftedInt (List Node))
+  (foldl
+    (lambda ([blocks : (List r:BasicBlock)] [acc : (Tuple3 LiftedInt LiftedInt (List Node))])
+      (case acc
+        [(tuple3 (lifted-int max-width) (lifted-int y-offset) nodes)
+         (case
+           (foldl
+             (lambda ([block : r:BasicBlock] [acc : (Tuple3 LiftedInt LiftedInt (List Node))])
+               (case acc
+                 [(tuple3 (lifted-int x-offset) (lifted-int max-height) nodes)
+                  (case (block->graphic-block block)
+                    [(graphic-block width height html)
+                     (tuple3
+                       (lifted-int (+ (+ x-offset width) 20))
+                       (lifted-int (max max-height height))
+                       (cons
+                         (rect x-offset y-offset width height
+                               (varargs list (fill #"none") (stroke #"black")))
+                         (cons
+                           (foreign-object x-offset y-offset width height (empty) (varargs list html))
+                           nodes)))])]))
+             blocks
+             (tuple3 (lifted-int 10) (lifted-int 0) nodes))
+           [(tuple3 (lifted-int x-offset) (lifted-int height) nodes)
+            (tuple3
+              (lifted-int (max max-width x-offset))
+              (lifted-int (+ y-offset (+ height 20)))
+              nodes)])]))
+    blocks
+    (tuple3 (lifted-int 0) (lifted-int 10) (ann (List Node) (empty)))))
+
+(define (block->node [block : r:BasicBlock]) : Node
+  (pre*
+    (varargs list
+      (attribute/escape #"style" (single-jl #"margin: 0px 0px")))
+    (code (text-node/escape (print-basic-block block)))))
+
+(define (block->graphic-block [block : r:BasicBlock]) : GraphicBlock
+  (graphic-block
+    (+ 15 (* 8 (basic-block-width block)))
+    (+ 2 (* 15 (basic-block-size block)))
+    (html-body (varargs list (block->node block)))))
+
+(define (basic-block-size [block : r:BasicBlock]) : Int
+  (case block
+    [(r:basic-block _ _ instructions _)
+     (+ 2 (length instructions))]))
+
+(define (basic-block-width [block : r:BasicBlock]) : Int
+  ;; TODO make this a better estimate
+  50)

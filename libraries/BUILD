@@ -1,6 +1,5 @@
 load(
     ":yaspl.bzl",
-    "yaspl_binary",
     "yaspl_bootstrap_binary",
     "yaspl_bootstrap_library",
     "yaspl_library",
@@ -88,42 +87,6 @@ yaspl_bootstrap_binary(
         "//libraries/yaspl:top-level-objects-to-x86-64",
         "//libraries/yaspl:x86-64-assembly",
         "//libraries/yaspl:x86-64-runtime",
-    ],
-)
-
-yaspl_binary(
-    name = "code-http-server",
-    srcs = ["code-http-server.yaspl"],
-    deps = [
-        ":compiler_lib",
-        ":http-server",
-        ":io",
-        ":ip",
-        ":panic",
-        ":tcp",
-        "//libraries/algorithms:depth-first-search",
-        "//libraries/data:bytes",
-        "//libraries/data:dict",
-        "//libraries/data:either",
-        "//libraries/data:indexed-set",
-        "//libraries/data:join-list",
-        "//libraries/data:lifted-primitives",
-        "//libraries/data:list",
-        "//libraries/data:maybe",
-        "//libraries/data:numbers",
-        "//libraries/data:tuples",
-        "//libraries/formats:html",
-        "//libraries/formats:svg",
-        "//libraries/formats:xml",
-        "//libraries/prim-language:block-number",
-        "//libraries/prim-language:print-register-language",
-        "//libraries/prim-language:register-language",
-        "//libraries/protocols/http:http-response",
-        "//libraries/protocols/http:http-responses",
-        "//libraries/yaspl:top-level-objects",
-        "//libraries/yaspl:top-level-objects-to-x86-64",
-        "//libraries/yaspl:x86-64-assembly",
-        "//libraries/yaspl:x86-64-assembly-printer",
     ],
 )
 
@@ -1232,7 +1195,6 @@ test_suite(
 filegroup(
     name = "package_binaries",
     srcs = [
-        ":code-http-server",
         ":compiler",
         ":library-compiler",
         ":linker",
