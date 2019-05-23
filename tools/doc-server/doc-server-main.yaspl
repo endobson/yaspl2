@@ -35,11 +35,13 @@
       (head (empty))
       (body
         (varargs list
+           (div (link (single-jl #"/files/") (text-node/escape (single-jl #"files"))))
            (div (link (single-jl #"/register/") (text-node/escape (single-jl #"register"))))
            (div (link (single-jl #"/register-graphic/") (text-node/escape (single-jl #"register-graphic"))))
            (div (link (single-jl #"/assembly/") (text-node/escape (single-jl #"assembly")))))))))
 
 (define (make-request-handler
+          [file-names : (List Bytes)]
           [objects : (List TopLevelObject)]
           [fragments : AssemblyFragments]) : (HttpRequest -> HttpResponse)
   (lambda ([request : HttpRequest])
@@ -56,14 +58,26 @@
                    (if (starts-with? path #"/register-graphic/")
                        (let ([name (subbytes path 18 (bytes-length path))])
                          (serve-register-graphic-response objects name))
-                       (not-found)))))])))
+                       (if (starts-with? path #"/files/")
+                           (let ([name (subbytes path 7 (bytes-length path))])
+                             (serve-files-response file-names name))
+                           (not-found))))))])))
 
-(define (extract-top-level-objects [module-files-file : Bytes])
+(define (serve-files-response [files : (List Bytes)] [name : Bytes])
+  : HttpResponse
+  (xhtml-ok-response
+    (html
+      (head (empty))
+      (body
+        (map
+          (lambda ([file-name : Bytes])
+           (div (link (varargs join-list #"/files/" file-name)
+                      (text-node/escape (single-jl file-name)))))
+          files)))))
+
+(define (extract-top-level-objects [module-file-names : (List Bytes)])
   : (Either Bytes (List TopLevelObject))
-  (match-define lines (bytes-split (call-with-input-file module-files-file read-all-bytes) #"\n"))
-  ;; Remove trailing blank line
-  (match-define file-names (filter (lambda ([line : Bytes]) (> (bytes-length line) 0)) lines))
-  (case (parse-module-files file-names)
+  (case (parse-module-files module-file-names)
     [(left v)
      (left v)]
     [(right modules)
@@ -97,16 +111,22 @@
         (case (decimal-bytes->integer port)
           [(just (lifted-int port))
            (let ([address (tcp-address ip-addr port)])
-             (case (extract-top-level-objects module-names-file)
-               [(left v)
-                (begin
-                  (write-line v stderr)
-                  1)]
-               [(right objects)
-                (begin
-                  (run-http-server address (make-request-handler objects (convert-objects objects)))
-                  (write-line #"Http server stopped running." stderr)
-                  1)]))]
+             ;; Remember to remove trailing blank line
+             (let ([module-file-names
+                    (filter (lambda ([line : Bytes]) (> (bytes-length line) 0))
+                            (bytes-split (call-with-input-file module-names-file read-all-bytes)
+                                         #"\n"))])
+               (case (extract-top-level-objects module-file-names)
+                 [(left v)
+                  (begin
+                    (write-line v stderr)
+                    1)]
+                 [(right objects)
+                  (begin
+                    (run-http-server address (make-request-handler module-file-names
+                                                                   objects (convert-objects objects)))
+                    (write-line #"Http server stopped running." stderr)
+                    1)])))]
           [(nothing)
            (begin
              (write-line #"Unparsable port number" stderr)
