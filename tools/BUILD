@@ -1,5 +1,4 @@
 load("//libraries:yaspl.bzl", "yaspl_binary", "yaspl_library")
-load("@minimal_racket//:racket.bzl", "racket_binary", "racket_library")
 
 package(
     default_visibility = ["//visibility:public"],
@@ -117,17 +116,6 @@ yaspl_library(
         "//libraries/data:either",
         "//libraries/data:list",
     ],
-)
-
-racket_library(
-    name = "fs-event-main",
-    srcs = ["fs-event-main.rkt"],
-)
-
-racket_binary(
-    name = "fs-event",
-    main_module = ":fs-event-main.rkt",
-    deps = [":fs-event-main"],
 )
 
 yaspl_binary(
