@@ -3,6 +3,7 @@ load("//tools:yaspl-missing-dependencies.bzl", "yaspl_missing_dependencies_rule"
 load("//tools:yaspl-remove-unused-dependencies.bzl", "yaspl_remove_unused_dependencies_rule")
 load("//tools:yaspl-lint.bzl", "yaspl_lint_rule")
 load("//tools:yaspl-clean-up-imports.bzl", "yaspl_clean_up_imports_rule")
+load("//tools:yaspl-validate-ir.bzl", "yaspl_validate_ir_rule")
 
 exports_files(["racket.bzl"])
 
@@ -68,6 +69,14 @@ yaspl_lint_rule(
 
 yaspl_clean_up_imports_rule(
     name = "clean_up_imports",
+    deps = [
+        ":all_binaries",
+        ":all_tests",
+    ],
+)
+
+yaspl_validate_ir_rule(
+    name = "validate_ir",
     deps = [
         ":all_binaries",
         ":all_tests",

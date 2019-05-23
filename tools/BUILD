@@ -48,6 +48,23 @@ yaspl_binary(
 )
 
 yaspl_binary(
+    name = "aspect-ir-validator",
+    srcs = ["aspect-ir-validator-main.yaspl"],
+    deps = [
+        ":command-line",
+        ":compile-module-args",
+        "//libraries:compiler_lib",
+        "//libraries/data:either",
+        "//libraries/data:lifted-primitives",
+        "//libraries/data:list",
+        "//libraries/data:tuples",
+        "//libraries/yaspl:top-level-objects",
+        "//libraries/yaspl:top-level-objects-to-x86-64",
+        "//libraries/yaspl:x86-64-assembly",
+    ],
+)
+
+yaspl_binary(
     name = "aspect-linter",
     srcs = ["aspect-linter-main.yaspl"],
     deps = [
@@ -110,7 +127,6 @@ yaspl_library(
     srcs = ["compile-module-args.yaspl"],
     deps = [
         "//libraries:compiler_lib",
-        "//libraries:io",
         "//libraries:module-signature",
         "//libraries:source-language",
         "//libraries/data:either",
@@ -246,6 +262,7 @@ filegroup(
     srcs = [
         ":aspect-analysis",
         ":aspect-clean-up-imports",
+        ":aspect-ir-validator",
         ":aspect-linter",
         ":aspect-missing-dependencies",
         ":aspect-remove-unused-dependencies",
