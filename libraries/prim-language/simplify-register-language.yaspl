@@ -392,22 +392,16 @@
           [calling-convention : CallingConvention]
           [blocks : (IndexedSet BasicBlock BlockNumber)])
   : (IndexedSet BasicBlock BlockNumber)
-  (case calling-convention
-    [(closure-convention _ entry-block _)
-     (match-define referenced-block-numbers
-       (find-referenced-blocks (varargs list entry-block) blocks (make-set block-number-cmp)))
-     (indexed-set-filter
-       blocks
-       (lambda ([b : BasicBlock])
-         (set-member? referenced-block-numbers (basic-block-number b))))]
-    [(plain-function-convention _ entry-block)
-     (match-define referenced-block-numbers
-       (find-referenced-blocks (varargs list entry-block) blocks (make-set block-number-cmp)))
-     (indexed-set-filter
-       blocks
-       (lambda ([b : BasicBlock])
-         (set-member? referenced-block-numbers (basic-block-number b))))]))
-
+  (match-define entry-block
+    (case calling-convention
+      [(closure-convention _ entry-block _) entry-block]
+      [(plain-function-convention _ entry-block) entry-block]))
+  (match-define reachable-block-numbers
+    (find-reachable-blocks entry-block blocks))
+  (indexed-set-filter
+    blocks
+    (lambda ([b : BasicBlock])
+      (set-member? reachable-block-numbers (basic-block-number b)))))
 
 (define (terminal->next-blocks [t : Terminal]) : (List BlockNumber)
   (case t
@@ -420,7 +414,14 @@
     [(jump (jump-target num _))
      (varargs list num)]))
 
-(define (find-referenced-blocks
+
+(define (find-reachable-blocks
+          [entry : BlockNumber]
+          [blocks : (IndexedSet BasicBlock BlockNumber)])
+  : (Set BlockNumber)
+  (find-reachable-blocks* (varargs list entry) blocks (make-set block-number-cmp)))
+
+(define (find-reachable-blocks*
           [to-visit : (List BlockNumber)]
           [blocks : (IndexedSet BasicBlock BlockNumber)]
           [visited : (Set BlockNumber)])
@@ -429,10 +430,10 @@
     [(empty) visited]
     [(cons num to-visit)
      (if (set-member? visited num)
-         (find-referenced-blocks to-visit blocks visited)
+         (find-reachable-blocks* to-visit blocks visited)
          (case (indexed-set-ref blocks num)
            [(nothing) (panic #"Bad block num")]
            [(just (basic-block _ _ _ term))
-            (find-referenced-blocks (append (terminal->next-blocks term) to-visit)
+            (find-reachable-blocks* (append (terminal->next-blocks term) to-visit)
                                     blocks
                                     (set-add visited num))]))]))
