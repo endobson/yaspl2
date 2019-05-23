@@ -122,6 +122,7 @@ yaspl_binary(
     name = "intermediate-html-printer",
     srcs = ["intermediate-html-printer-main.yaspl"],
     deps = [
+        ":command-line",
         ":compile-module-args",
         "//libraries:io",
         "//libraries:module-name",

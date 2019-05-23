@@ -26,6 +26,7 @@
       source->intermediate
     }
   }
+  (tools command-line)
   (tools compile-module-args)
   (validator)
   (yaspl debug intermediate-to-html)
@@ -42,31 +43,30 @@
       (make-indexed-set module-signature-name mod-name-cmp)
       (prim-signature))))
 
+(define (run [args : CompileModuleArgs] [stdin : InputPort]) : (Either Bytes Node)
+  (match-define (compile-module-args output-path main-module signatures) args)
+  (match-define signatures (index-sigs signatures))
+  (case (resolve-imports main-module signatures)
+    [(left v) (left (import-resolution-errors->bytes v))]
+    [(right res-mod)
+     (case (validate-module res-mod signatures)
+       [(just v) (left (module-errors->bytes v))]
+       [(nothing)
+        (case (resolve-types res-mod)
+          [(left v) (left v)]
+          [(right res-mod)
+           (case (source->intermediate res-mod)
+             [(left v) (left v)]
+             [(right intermediate)
+              (right (intermediate-to-html intermediate))])])])]))
+
+(define (get-output [args : CompileModuleArgs]) : OutputLocation
+  (output-to-file (compile-module-args-output-path args)))
+
+(define (write-output [node : Node] [output : OutputPort]) : Void
+  (write-all-bytes (document->xml-bytes node) output))
 
 (define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Int
-  (case (parse-compile-module-args (array->list args))
-    [(left v) (handle-failure-result v stderr)]
-    [(right (compile-module-args output-path main-module signatures))
-     (match-define signatures (index-sigs signatures))
-     (case (resolve-imports main-module signatures)
-       [(left v)
-        (handle-failure-result (import-resolution-errors->bytes v) stderr)]
-       [(right res-mod)
-        (case (validate-module res-mod signatures)
-          [(just v)
-           (handle-failure-result (module-errors->bytes v) stderr)]
-          [(nothing)
-           (case (resolve-types res-mod)
-             [(left v)
-              (handle-failure-result v stderr)]
-             [(right res-mod)
-              (case (source->intermediate res-mod)
-                [(left v) (handle-failure-result v stderr)]
-                [(right intermediate)
-                 (match-define html (intermediate-to-html intermediate))
-                 (begin
-                   (call-with-output-file/void
-                     output-path
-                     (lambda ([port : OutputPort])
-                       (write-all-bytes (document->xml-bytes html) port)))
-                   0)])])])])]))
+  (run-command-line-tool args stdin stdout stderr
+    (ann (CommandLineTool CompileModuleArgs Node)
+         (command-line-tool parse-compile-module-args run get-output write-output))))
