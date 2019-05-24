@@ -45,3 +45,21 @@ yaspl_clean_up_imports_rule(
         "//:all_tests",
     ],
 )
+
+sh_test(
+    name = "validate-ir-test",
+    srcs = ["validate-ir-test.sh"],
+    data = [":validate_ir.validate_ir"],
+)
+
+yaspl_validate_ir_rule(
+    name = "validate_ir",
+    deps = [
+        "//:all_binaries",
+        "//:all_tests",
+    ],
+)
+
+test_suite(
+    name = "tests",
+)

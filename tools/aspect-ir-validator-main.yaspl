@@ -1,43 +1,84 @@
 #:module (tools aspect-ir-validator-main)
 #:import {
+  (block-number)
+  (bytes)
   (compiler)
-  (data lifted-primitives)
+  (data indexed-set)
   (either)
+  (io)
   (list)
+  (maybe)
+  (module-name)
   (prim)
+  (register-language)
+  (set)
+  (simplify-register-language)
+  {(source-language)
+    {#:values
+      module-name
+    }
+  }
   (tools command-line)
   (tools compile-module-args)
   (tuples)
   (yaspl top-level-objects)
-  (yaspl top-level-objects-to-x86-64)
-  (yaspl x86-64-assembly)
 }
 (export)
-(types)
+(types
+  (define-type ModuleAnalysis
+    (module-analysis [name : ModName] [tlo-analyses : (IndexedSet TopLevelObjectAnalysis Bytes)]))
+  (define-type TopLevelObjectAnalysis
+    (tlo-analysis [name : Bytes] [errors : (List AnalysisError)]))
+  (define-type AnalysisError
+    (unreachable-blocks-analysis-error [blocks : (Set BlockNumber)])))
 
 (define (get-output [args : CompileModuleArgs]) : OutputLocation
   (output-to-file (compile-module-args-output-path args)))
 
-(define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Int
-  (run-command-line-tool args stdin stdout stderr
-    (ann (CommandLineTool CompileModuleArgs LiftedInt)
-         (command-line-tool parse-compile-module-args run get-output write-validate-ir-results))))
-
-(define (run [args : CompileModuleArgs] [stdin : InputPort]) : (Either Bytes LiftedInt)
+(define (run [args : CompileModuleArgs] [stdin : InputPort]) : (Either Bytes ModuleAnalysis)
   (match-define (compile-module-args _output-path main-module signatures) args)
   (case (compile-main-module main-module signatures)
     [(left v) (left v)]
     [(right (tuple2 objects _))
-     (match-define (assembly-fragments _text-fragments _) (convert-objects objects))
-     (begin
-       (for-each
-         (lambda ([o : TopLevelObject]) : Void
-           (case o
-             [(register-function-tlo _fun)
-              (void)]
-             [_ (void)]))
-         objects)
-       (right (lifted-int 0)))]))
+     (match-define analyses
+       (filter-map
+         (lambda ([tlo : TopLevelObject]) : (Maybe TopLevelObjectAnalysis)
+           (case tlo
+             [(register-function-tlo (function-definition name conv blocks _ _))
+              (match-define reachable
+                (find-reachable-blocks (calling-convention-entry-block conv) blocks))
+              (match-define unreachable
+                (set-difference (indexed-set->keys blocks) reachable))
+              (just
+                (tlo-analysis name
+                  (if (set-empty? unreachable)
+                      (empty)
+                      (varargs list (unreachable-blocks-analysis-error unreachable)))))]
+             [_ (nothing)]))
+         objects))
+     (right
+       (module-analysis
+         (module-name main-module)
+         (indexed-set-add-all
+           (make-indexed-set tlo-analysis-name bytes-cmp)
+           analyses)))]))
 
-(define (write-validate-ir-results [v : LiftedInt] [output-port : OutputPort]) : Void
-  (void))
+(define (write-module-analysis [v : ModuleAnalysis] [output-port : OutputPort]) : Void
+  (match-define (module-analysis mod-name tlos) v)
+  (for-each
+    (lambda ([(tlo-analysis tlo-name errors) : TopLevelObjectAnalysis])
+      (for-each
+        (lambda ([error : AnalysisError])
+          (case error
+            [(unreachable-blocks-analysis-error _)
+             (write-line
+               (bytes-append (varargs list #"Unreachable blocks in " tlo-name #" in module "
+                                      (mod-name->bytes mod-name)))
+               output-port)]))
+        errors))
+    (indexed-set->list tlos)))
+
+(define (main [args : (Array Bytes)] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Int
+  (run-command-line-tool args stdin stdout stderr
+    (ann (CommandLineTool CompileModuleArgs ModuleAnalysis)
+         (command-line-tool parse-compile-module-args run get-output write-module-analysis))))
