@@ -2,8 +2,6 @@ package(
     default_visibility = ["//visibility:public"],
 )
 
-exports_files(["racket.bzl"])
-
 ALL_PACKAGES = [
     "//examples",
     "//libraries",
