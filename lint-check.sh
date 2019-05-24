@@ -1,2 +1,2 @@
 #!/bin/bash
-bazel build //:lint.lint && cat `bazel info bazel-bin`/lint.lint
+bazel build //meta:lint.lint && cat `bazel info bazel-bin`/meta/lint.lint
