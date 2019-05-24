@@ -1,3 +1,3 @@
 #!/bin/bash
-bazel build //:missing_dependencies && \
-buildozer -f `bazel info bazel-bin`/missing_dependencies.missing_dependencies
+bazel build //meta:missing_dependencies && \
+buildozer -f `bazel info bazel-bin`/meta/missing_dependencies.missing_dependencies

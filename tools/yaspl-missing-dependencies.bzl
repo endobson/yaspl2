@@ -42,7 +42,7 @@ yaspl_missing_dependencies = aspect(
        cfg="host",
     ),
     "_module_index": attr.label(
-       default=Label("//:module_index"),
+       default=Label("//meta:module_index"),
        allow_single_file=True,
     ),
   }
