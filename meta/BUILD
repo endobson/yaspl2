@@ -5,7 +5,6 @@ load("//tools:yaspl-lint.bzl", "yaspl_lint_rule")
 load("//tools:yaspl-clean-up-imports.bzl", "yaspl_clean_up_imports_rule")
 load("//tools:yaspl-validate-ir.bzl", "yaspl_validate_ir_rule")
 
-
 yaspl_module_index_rule(
     name = "module_index",
     visibility = ["//visibility:public"],
