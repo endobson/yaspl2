@@ -12,12 +12,13 @@
 }
 (export
   (#:types)
-  (#:values yaspl-runtime)
+  (#:values yaspl-runtime prim-function-fragments)
   (#:patterns))
 (types)
 
 (define (yaspl-runtime [main-function-name : TopLevelName] [abi : SystemAbi]) : AssemblyFragments
-  (match-define (tuple2 text-fragments const-fragments) (unzip (prim-function-fragments abi)))
+  (match-define (tuple2 text-fragments const-fragments)
+    (unzip (append (prim-function-fragments abi) (prim-subroutine-fragments abi))))
   (assembly-fragments
     (append (start-function-fragments main-function-name abi) text-fragments)
     const-fragments))
@@ -695,8 +696,32 @@
         (addq (imm64/s32 16) (r64m-reg (rdi)))
         (ud2)))
 
-    ;; These are not native functions, but just native subroutines
-    ;; They do not follow standard calling conventions
+    ;; fill-stack
+    (prim-assembly-function #"fill_stack"
+      (varargs join-list
+        (pushq (r64mi-reg (rbp)))
+        (movq (r64mi-reg (rsp)) (r64m-reg (rbp)))
+        (movq (r64mi-reg (rbp)) (r64m-reg (rdx)))
+        (call #"yprim_fill_stack_inner")
+        (popq (r64m-reg (rbp)))
+        (ret)))
+
+    ;; current-system-abi-int
+    (prim-assembly-function #"current_system_abi_int"
+      (varargs join-list
+        (movq
+          (imm64/s32
+            (case abi
+              [(osx-abi) #x01]
+              [(linux-abi) #x02]))
+          (r64m-reg (rax)))
+        (ret)))))
+
+;; These are not native functions, but just native subroutines
+;; They do not follow standard calling conventions
+(define (prim-subroutine-fragments [abi : SystemAbi])
+  : (List (Tuple2 TextFragment ConstFragment))
+  (varargs list
     (tuple2
       (function-fragment
         #"yprim_heap_allocate"
@@ -725,38 +750,9 @@
     ;; variant-panic
     (prim-assembly-function #"variant_panic"
       (varargs join-list
-        (ud2)))
-
-    ;; fill-stack
-    (prim-assembly-function #"fill_stack"
-      (varargs join-list
-        (pushq (r64mi-reg (rbp)))
-        (movq (r64mi-reg (rsp)) (r64m-reg (rbp)))
-        (movq (r64mi-reg (rbp)) (r64m-reg (rdx)))
-        (call #"yprim_fill_stack_inner")
-        (popq (r64m-reg (rbp)))
-        (ret)))
+        (ud2)))))
 
 
-    ;; thread_bootstrap
-    (prim-assembly-function #"thread_bootstrap"
-      (varargs join-list
-        (pushq (r64mi-reg (rax)))
-        (movq (r64mi-reg (rax)) (r64m-reg (r11)))
-        (call/indirect (r64m-mem (mem (rax) 0)))
-        ;; Closure is still on the stack
-        (ud2)))
-
-    ;; current-system-abi-int
-    (prim-assembly-function #"current_system_abi_int"
-      (varargs join-list
-        (movq
-          (imm64/s32
-            (case abi
-              [(osx-abi) #x01]
-              [(linux-abi) #x02]))
-          (r64m-reg (rax)))
-        (ret)))))
 
 (define (prim-assembly-function
           [name : Bytes]

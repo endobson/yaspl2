@@ -1,4 +1,4 @@
-load("//libraries:yaspl.bzl", "yaspl_bootstrap_library", "yaspl_toolchain")
+load("//libraries:yaspl.bzl", "yaspl_bootstrap_library", "yaspl_test", "yaspl_toolchain")
 
 package(
     default_visibility = ["//visibility:public"],
@@ -169,6 +169,22 @@ yaspl_bootstrap_library(
     ],
 )
 
+yaspl_test(
+    name = "x86-64-runtime-test",
+    srcs = ["x86-64-runtime-test.yaspl"],
+    deps = [
+        ":x86-64-assembly",
+        ":x86-64-runtime",
+        "//libraries:machine-code",
+        "//libraries:yunit",
+        "//libraries/data:bytes",
+        "//libraries/data:join-list",
+        "//libraries/data:list",
+        "//libraries/data:maybe",
+        "//libraries/data:tuples",
+    ],
+)
+
 yaspl_bootstrap_library(
     name = "x86-64-instruction-assembler",
     srcs = ["x86-64-instruction-assembler.yaspl"],
@@ -180,4 +196,14 @@ yaspl_bootstrap_library(
         "//libraries/data:maybe",
         "//libraries/data:tuples",
     ],
+)
+
+test_suite(
+    name = "package_tests",
+    testonly = 0,
+)
+
+filegroup(
+    name = "package_binaries",
+    srcs = [],
 )
