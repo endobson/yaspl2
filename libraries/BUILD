@@ -172,6 +172,8 @@ yaspl_test(
     deps = [
         ":io",
         ":stack-trace",
+        "//libraries/data:bytes",
+        "//libraries/data:list",
         "//libraries/data:tuples",
     ],
 )
