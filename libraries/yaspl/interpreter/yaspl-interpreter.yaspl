@@ -47,8 +47,7 @@
       [functions : (Dict TopLevelName FunctionDefinition)]
       [stack : (List StackFrame)]
       [eval-context : (List EvalContextFrame)]
-      [environment : (Dict Var Value)]
-      [operand : (Either Expression Value)]))
+      [operand : Operand]))
 
   (define-type FunctionDefinition
     (function-definition [args : (List FunctionArg)] [body : Expression]))
@@ -70,6 +69,9 @@
                     [default : DefaultCaseClause])
     (bytes-case-frame [env : (Dict Var Value)] [clause : BytesCaseClause]
                       [default : DefaultCaseClause]))
+  (define-type Operand
+    (expr-operand [e : Expression] [env : (Dict Var Value)])
+    (value-operand [v : Value]))
   (define-type Value
     (int-value [v : Int])
     (bytes-value [v : Bytes])
@@ -83,18 +85,21 @@
 
 (define (make-yaspl-interpreter) : YasplInterpreter
   (yaspl-interpreter (make-dict top-level-name-cmp) (empty) (empty)
-                     (make-dict var-cmp) (right (int-value 0))))
+                     (value-operand (int-value 0))))
 
 (define (yaspl-interpreter-step [int : YasplInterpreter]) : StepResult
-  (match-define (yaspl-interpreter functions stack ctx env op) int)
+  (match-define (yaspl-interpreter functions stack ctx op) int)
   (match-define return-value
     (lambda ([v : Value])
-      (step-success (yaspl-interpreter functions stack ctx env (right v)))))
+      (step-success (yaspl-interpreter functions stack ctx (value-operand v)))))
   (match-define step-down
-    (lambda ([e : Expression] [c : EvalContextFrame])
-      (step-success (yaspl-interpreter functions stack (cons c ctx) env (left e)))))
+    (lambda ([e : Expression] [env : (Dict Var Value)] [c : EvalContextFrame])
+      (step-success (yaspl-interpreter functions stack (cons c ctx) (expr-operand e env)))))
   (case op
-    [(left e)
+    [(expr-operand e env)
+     (match-define step-down*
+       (lambda ([e : Expression] [c : EvalContextFrame])
+         (step-down e env c)))
      (case e
        [(int-literal v)
         (return-value (int-value v))]
@@ -115,21 +120,21 @@
           [(just (function-definition args body))
            (return-value (closure-value (make-dict var-cmp) args body))])]
        [(if-expr cond true false)
-        (step-down cond (conditional-frame env true false))]
+        (step-down* cond (conditional-frame env true false))]
        [(app-expr tail op args)
-        (step-down op (app-op-frame tail env args))]
+        (step-down* op (app-op-frame tail env args))]
        [(varargs-app-expr tail op args)
-        (step-down op (varargs-app-op-frame tail env args))]
+        (step-down* op (varargs-app-op-frame tail env args))]
        [(let-expr var expr body)
-        (step-down expr (bind-frame var env body))]
+        (step-down* expr (bind-frame var env body))]
        [(lambda-expr args _type body)
         (return-value (closure-value env args body))]
        [(variant-case-expr expr clauses default)
-        (step-down expr (variant-case-frame env clauses default))]
+        (step-down* expr (variant-case-frame env clauses default))]
        [(int-case-expr expr clause default)
-        (step-down expr (int-case-frame env clause default))]
+        (step-down* expr (int-case-frame env clause default))]
        [(bytes-case-expr expr clause default)
-        (step-down expr (bytes-case-frame env clause default))]
+        (step-down* expr (bytes-case-frame env clause default))]
        [(halt-expr)
         (step-failure #"Halt" int)]
        [(join-point-expr _var _expr _body)
@@ -138,5 +143,5 @@
         (step-failure #"NYI" int)]
        [(begin-expr _exprs _last-expr)
         (step-failure #"NYI" int)])]
-    [(right _v)
+    [(value-operand _v)
      (step-failure #"NYI" int) ]))
