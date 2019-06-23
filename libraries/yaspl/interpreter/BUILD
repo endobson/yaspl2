@@ -7,6 +7,15 @@ package(
 yaspl_bootstrap_library(
     name = "yaspl-interpreter",
     srcs = ["yaspl-interpreter.yaspl"],
+    deps = [
+        "//libraries:expanded-patterns-language",
+        "//libraries:top-level-name",
+        "//libraries/data:dict",
+        "//libraries/data:either",
+        "//libraries/data:list",
+        "//libraries/data:maybe",
+        "//libraries/yaspl:var",
+    ],
 )
 
 yaspl_test(

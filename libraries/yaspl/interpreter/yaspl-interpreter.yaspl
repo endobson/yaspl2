@@ -1,6 +1,41 @@
 #:module (yaspl interpreter yaspl-interpreter)
 #:import {
+  (dict)
+  (either)
+  {(expanded-patterns-language)
+    {#:types
+      BytesCaseClause
+      DefaultCaseClause
+      Expression
+      FunctionArg
+      IntCaseClause
+      VariantCaseClause
+    }
+    {#:patterns
+      app-expr
+      begin-expr
+      boolean-literal
+      bytes-case-expr
+      bytes-literal
+      global-var-expr
+      halt-expr
+      if-expr
+      int-case-expr
+      int-literal
+      join-expr
+      join-point-expr
+      lambda-expr
+      let-expr
+      local-var-expr
+      varargs-app-expr
+      variant-case-expr
+    }
+  }
+  (list)
+  (maybe)
   (prim)
+  (top-level-name)
+  (yaspl var)
 }
 (export
   (#:types)
@@ -8,7 +43,38 @@
   (#:patterns step-success step-failure))
 (types
   (define-type YasplInterpreter
-    (yaspl-interpreter))
+    (yaspl-interpreter
+      [functions : (Dict TopLevelName FunctionDefinition)]
+      [stack : (List StackFrame)]
+      [eval-context : (List EvalContextFrame)]
+      [environment : (Dict Var Value)]
+      [operand : (Either Expression Value)]))
+
+  (define-type FunctionDefinition
+    (function-definition [args : (List FunctionArg)] [body : Expression]))
+
+  (define-type StackFrame
+    (stack-frame))
+  (define-type EvalContextFrame
+    (conditional-frame [env : (Dict Var Value)] [t : Expression] [f : Expression])
+    (app-op-frame [tail-position : Boolean] [env : (Dict Var Value)] [args : (List Expression)])
+    (app-args-frame [tail-position : Boolean] [env : (Dict Var Value)]
+                    [op-v : Value] [args-v : (List Value)] [args : (List Expression)])
+    (varargs-app-op-frame [tail-position : Boolean] [env : (Dict Var Value)] [args : (List Expression)])
+    (varargs-app-args-frame [tail-position : Boolean] [env : (Dict Var Value)]
+                            [op-v : Value] [args-v : (List Value)] [args : (List Expression)])
+    (bind-frame [v : Var] [env : (Dict Var Value)] [expr : Expression])
+    (variant-case-frame [env : (Dict Var Value)] [clauses : (List VariantCaseClause)]
+                        [default : (Maybe DefaultCaseClause)])
+    (int-case-frame [env : (Dict Var Value)] [clause : IntCaseClause]
+                    [default : DefaultCaseClause])
+    (bytes-case-frame [env : (Dict Var Value)] [clause : BytesCaseClause]
+                      [default : DefaultCaseClause]))
+  (define-type Value
+    (int-value [v : Int])
+    (bytes-value [v : Bytes])
+    (boolean-value [v : Boolean])
+    (closure-value [env : (Dict Var Value)] [args : (List FunctionArg)] [body : Expression]))
   (define-type StepResult
     (step-success [int : YasplInterpreter])
     (step-failure
@@ -16,7 +82,61 @@
       [int : YasplInterpreter])))
 
 (define (make-yaspl-interpreter) : YasplInterpreter
-  (yaspl-interpreter))
+  (yaspl-interpreter (make-dict top-level-name-cmp) (empty) (empty)
+                     (make-dict var-cmp) (right (int-value 0))))
 
 (define (yaspl-interpreter-step [int : YasplInterpreter]) : StepResult
-  (step-success int))
+  (match-define (yaspl-interpreter functions stack ctx env op) int)
+  (match-define return-value
+    (lambda ([v : Value])
+      (step-success (yaspl-interpreter functions stack ctx env (right v)))))
+  (match-define step-down
+    (lambda ([e : Expression] [c : EvalContextFrame])
+      (step-success (yaspl-interpreter functions stack (cons c ctx) env (left e)))))
+  (case op
+    [(left e)
+     (case e
+       [(int-literal v)
+        (return-value (int-value v))]
+       [(bytes-literal v)
+        (return-value (bytes-value v))]
+       [(boolean-literal v)
+        (return-value (boolean-value v))]
+       [(local-var-expr v)
+        (case (dict-ref env v)
+          [(nothing)
+           (step-failure #"Unbound variable" int)]
+          [(just v)
+           (return-value v)])]
+       [(global-var-expr v)
+        (case (dict-ref functions v)
+          [(nothing)
+           (step-failure #"Unbound global variable" int)]
+          [(just (function-definition args body))
+           (return-value (closure-value (make-dict var-cmp) args body))])]
+       [(if-expr cond true false)
+        (step-down cond (conditional-frame env true false))]
+       [(app-expr tail op args)
+        (step-down op (app-op-frame tail env args))]
+       [(varargs-app-expr tail op args)
+        (step-down op (varargs-app-op-frame tail env args))]
+       [(let-expr var expr body)
+        (step-down expr (bind-frame var env body))]
+       [(lambda-expr args _type body)
+        (return-value (closure-value env args body))]
+       [(variant-case-expr expr clauses default)
+        (step-down expr (variant-case-frame env clauses default))]
+       [(int-case-expr expr clause default)
+        (step-down expr (int-case-frame env clause default))]
+       [(bytes-case-expr expr clause default)
+        (step-down expr (bytes-case-frame env clause default))]
+       [(halt-expr)
+        (step-failure #"Halt" int)]
+       [(join-point-expr _var _expr _body)
+        (step-failure #"NYI" int)]
+       [(join-expr _var)
+        (step-failure #"NYI" int)]
+       [(begin-expr _exprs _last-expr)
+        (step-failure #"NYI" int)])]
+    [(right _v)
+     (step-failure #"NYI" int) ]))
