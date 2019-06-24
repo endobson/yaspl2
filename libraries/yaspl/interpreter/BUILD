@@ -10,8 +10,8 @@ yaspl_bootstrap_library(
     deps = [
         "//libraries:expanded-patterns-language",
         "//libraries:top-level-name",
+        "//libraries/data:bytes",
         "//libraries/data:dict",
-        "//libraries/data:either",
         "//libraries/data:list",
         "//libraries/data:maybe",
         "//libraries/yaspl:var",

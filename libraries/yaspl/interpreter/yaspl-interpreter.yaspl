@@ -1,7 +1,7 @@
 #:module (yaspl interpreter yaspl-interpreter)
 #:import {
+  (bytes)
   (dict)
-  (either)
   {(expanded-patterns-language)
     {#:types
       BytesCaseClause
@@ -15,11 +15,14 @@
       app-expr
       begin-expr
       boolean-literal
+      bytes-case-clause
       bytes-case-expr
       bytes-literal
+      default-case-clause
       global-var-expr
       halt-expr
       if-expr
+      int-case-clause
       int-case-expr
       int-literal
       join-expr
@@ -55,22 +58,35 @@
   (define-type StackFrame
     (stack-frame))
   (define-type EvalContextFrame
-    (conditional-frame [env : (Dict Var Value)] [t : Expression] [f : Expression])
-    (app-op-frame [tail-position : Boolean] [env : (Dict Var Value)] [args : (List Expression)])
-    (app-args-frame [tail-position : Boolean] [env : (Dict Var Value)]
+    (conditional-frame [env : Environment] [t : Expression] [f : Expression])
+    (app-op-frame [tail-position : Boolean] [env : Environment] [args : (List Expression)])
+    (app-args-frame [tail-position : Boolean] [env : Environment]
                     [op-v : Value] [args-v : (List Value)] [args : (List Expression)])
-    (varargs-app-op-frame [tail-position : Boolean] [env : (Dict Var Value)] [args : (List Expression)])
-    (varargs-app-args-frame [tail-position : Boolean] [env : (Dict Var Value)]
+    (varargs-app-op-frame [tail-position : Boolean] [env : Environment] [args : (List Expression)])
+    (varargs-app-args-frame [tail-position : Boolean] [env : Environment]
                             [op-v : Value] [args-v : (List Value)] [args : (List Expression)])
-    (bind-frame [v : Var] [env : (Dict Var Value)] [expr : Expression])
-    (variant-case-frame [env : (Dict Var Value)] [clauses : (List VariantCaseClause)]
+    (bind-frame [v : Var] [env : Environment] [expr : Expression])
+    (variant-case-frame [env : Environment] [clauses : (List VariantCaseClause)]
                         [default : (Maybe DefaultCaseClause)])
-    (int-case-frame [env : (Dict Var Value)] [clause : IntCaseClause]
+    (int-case-frame [env : Environment] [clause : IntCaseClause]
                     [default : DefaultCaseClause])
-    (bytes-case-frame [env : (Dict Var Value)] [clause : BytesCaseClause]
-                      [default : DefaultCaseClause]))
+    (bytes-case-frame [env : Environment] [clause : BytesCaseClause]
+                      [default : DefaultCaseClause])
+    (begin-exprs-frame [exprs : (List Expression)] [last-expr : Expression] [env : Environment]))
+  (define-type Environment
+    (environment
+      [locals : (Dict Var Value)]
+      [join-points : (Dict Var JoinPoint)]))
+
+  (define-type JoinPoint
+    (join-point
+      [eval-context : (List EvalContextFrame)]
+      [env : Environment]
+      [expr : Expression]))
+
   (define-type Operand
-    (expr-operand [e : Expression] [env : (Dict Var Value)])
+    (expr-operand [e : Expression] [env : Environment])
+    (begin-exprs-operand [es : (List Expression)] [last-expr : Expression] [env : Environment])
     (value-operand [v : Value]))
   (define-type Value
     (int-value [v : Int])
@@ -93,8 +109,11 @@
     (lambda ([v : Value])
       (step-success (yaspl-interpreter functions stack ctx (value-operand v)))))
   (match-define step-down
-    (lambda ([e : Expression] [env : (Dict Var Value)] [c : EvalContextFrame])
+    (lambda ([e : Expression] [env : Environment] [c : EvalContextFrame])
       (step-success (yaspl-interpreter functions stack (cons c ctx) (expr-operand e env)))))
+  (match-define step-to
+    (lambda ([e : Operand])
+      (step-success (yaspl-interpreter functions stack ctx e))))
   (case op
     [(expr-operand e env)
      (match-define step-down*
@@ -108,7 +127,7 @@
        [(boolean-literal v)
         (return-value (boolean-value v))]
        [(local-var-expr v)
-        (case (dict-ref env v)
+        (case (dict-ref (environment-locals env) v)
           [(nothing)
            (step-failure #"Unbound variable" int)]
           [(just v)
@@ -128,7 +147,7 @@
        [(let-expr var expr body)
         (step-down* expr (bind-frame var env body))]
        [(lambda-expr args _type body)
-        (return-value (closure-value env args body))]
+        (return-value (closure-value (environment-locals env) args body))]
        [(variant-case-expr expr clauses default)
         (step-down* expr (variant-case-frame env clauses default))]
        [(int-case-expr expr clause default)
@@ -137,11 +156,65 @@
         (step-down* expr (bytes-case-frame env clause default))]
        [(halt-expr)
         (step-failure #"Halt" int)]
-       [(join-point-expr _var _expr _body)
-        (step-failure #"NYI" int)]
-       [(join-expr _var)
-        (step-failure #"NYI" int)]
-       [(begin-expr _exprs _last-expr)
-        (step-failure #"NYI" int)])]
-    [(value-operand _v)
-     (step-failure #"NYI" int) ]))
+       [(join-point-expr var expr body)
+        (step-to (expr-operand body (environment-add-join-point env var (join-point ctx env expr))))]
+       [(join-expr var)
+        (case (dict-ref (environment-join-points env) var)
+          [(nothing)
+           (step-failure #"Unbound join point" int)]
+          [(just (join-point ctx env e))
+           (step-success (yaspl-interpreter functions stack ctx (expr-operand e env)))])]
+       [(begin-expr exprs last-expr)
+        (step-to (begin-exprs-operand exprs last-expr env))])]
+    [(begin-exprs-operand exprs expr env)
+     (case exprs
+       [(empty) (step-to (expr-operand expr env))]
+       [(cons first-expr exprs)
+        (step-down first-expr env (begin-exprs-frame exprs expr env))])]
+    [(value-operand v)
+     (case ctx
+       [(empty)
+        (case stack
+          [(empty)
+           (step-failure #"NYI" int)]
+          [(cons (stack-frame) _stack)
+           (step-failure #"NYI" int)])]
+       [(cons frame ctx)
+        (match-define step-to
+          (lambda ([e : Operand])
+            (step-success (yaspl-interpreter functions stack ctx e))))
+        (case frame
+          [(conditional-frame env t f)
+           (case v
+             [(boolean-value v)
+              (step-to (expr-operand (if v t f) env))]
+             [_
+              (step-failure #"Got non-boolean in conditional" int)])]
+          [(int-case-frame env (int-case-clause expected expr) (default-case-clause default-expr))
+           (case v
+             [(int-value v)
+              (step-to (expr-operand (if (= v expected) expr default-expr) env))]
+             [_
+              (step-failure #"Got non-int in int-case" int)])]
+          [(bytes-case-frame env (bytes-case-clause expected expr) (default-case-clause default-expr))
+           (case v
+             [(bytes-value v)
+              (step-to (expr-operand (if (bytes=? v expected) expr default-expr) env))]
+             [_
+              (step-failure #"Got non-bytes in bytes-case" int)])]
+          [(bind-frame var env body)
+           (step-to (expr-operand body (environment-add-local env var v)))]
+          [(begin-exprs-frame exprs last-expr env)
+           (step-to (begin-exprs-operand exprs last-expr env))]
+          [_
+           (step-failure #"NYI" int)])])]))
+
+
+(define (environment-add-join-point [env : Environment] [v : Var] [join-point : JoinPoint])
+  : Environment
+  (match-define (environment locals joins) env)
+  (environment locals (dict-add joins v join-point)))
+(define (environment-add-local [env : Environment] [var : Var] [value : Value])
+  : Environment
+  (match-define (environment locals joins) env)
+  (environment (dict-add locals var value) joins))
