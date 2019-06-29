@@ -997,6 +997,7 @@ yaspl_test(
         "//libraries/data:bytes",
         "//libraries/data:list",
         "//libraries/data:maybe",
+        "//libraries/data:source-location",
     ],
 )
 
