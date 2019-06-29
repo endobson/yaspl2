@@ -543,6 +543,7 @@ yaspl_bootstrap_library(
     srcs = ["module-name.yaspl"],
     deps = [
         ":sexp-parser",
+        ":sexp-printer",
         "//libraries/data:bytes",
         "//libraries/data:list",
         "//libraries/data:maybe",
@@ -945,6 +946,7 @@ yaspl_bootstrap_library(
     deps = [
         ":module-name",
         ":sexp-parser",
+        ":sexp-printer",
         "//libraries/data:bytes",
         "//libraries/data:list",
         "//libraries/data:maybe",
@@ -987,6 +989,8 @@ yaspl_test(
     srcs = ["types-test.yaspl"],
     deps = [
         ":module-name",
+        ":sexp-parser",
+        ":sexp-printer",
         ":types",
         ":types-test-utils",
         ":yunit",
@@ -1079,7 +1083,6 @@ yaspl_bootstrap_library(
     srcs = ["type-unification.yaspl"],
     deps = [
         ":module-name",
-        ":sexp-parser",
         ":sexp-printer",
         ":types",
         "//libraries/data:bytes",
