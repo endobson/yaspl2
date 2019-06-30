@@ -37,7 +37,7 @@
 
   (define-type SexpResult
     (sexp-result [v : Sexp] [lexer : Lexer])
-    (sexp-result-error [v : Bytes])))
+    (sexp-result-error [v : Bytes] [source : SourceSpan])))
 
 (define (parse-sexps [sbytes : SourcedBytes]) : (Either Bytes (List Sexp))
   (parse-sexps/acc (make-lexer sbytes) (empty)))
@@ -48,14 +48,14 @@
       [(nothing) (right (reverse acc))]
       [(just (sexp-result v lexer))
        (parse-sexps/acc lexer (cons v acc))]
-      [(just (sexp-result-error bytes)) (left bytes)])))
+      [(just (sexp-result-error bytes _)) (left bytes)])))
 
 (define (parse-single-sexp [sbytes : SourcedBytes]) : (Either Bytes Sexp)
   (let ([lexer (make-lexer sbytes)])
     (let ([val (loop lexer)])
       (case val
         [(nothing) (left #"End of input")]
-        [(just (sexp-result-error bytes)) (left bytes)]
+        [(just (sexp-result-error bytes _)) (left bytes)]
         [(just (sexp-result v lexer))
           (case (run-lexer lexer)
             [(lex-result _v _lexer) (left #"Leftovers")]
@@ -69,8 +69,8 @@
   (let ([val (run-lexer lexer)])
     (case val
       [(end-of-input _) (nothing)]
-      [(bad-input v _)
-       (just (sexp-result-error (bytes-append (varargs list #"Unable to lex input: " v))))]
+      [(bad-input v loc)
+       (just (sexp-result-error (bytes-append (varargs list #"Unable to lex input: " v)) loc))]
       [(lex-result (source-span-annotated source v) lexer)
        (case v
          [(decimal-number-lexeme bytes)
@@ -91,17 +91,18 @@
          [(left-bracket-lexeme) (just (node-loop (empty) source (bracket) lexer))]
          [(left-brace-lexeme) (just (node-loop (empty) source (brace) lexer))]
          [(comment-lexeme) (loop lexer)]
-         [(right-bracket-lexeme) (just (sexp-result-error #"Unexpected ]."))]
-         [(right-brace-lexeme) (just (sexp-result-error #"Unexpected }."))]
-         [(right-paren-lexeme) (just (sexp-result-error #"Unexpected )."))])])))
+         [(right-bracket-lexeme) (just (sexp-result-error #"Unexpected ]." source))]
+         [(right-brace-lexeme) (just (sexp-result-error #"Unexpected }." source))]
+         [(right-paren-lexeme) (just (sexp-result-error #"Unexpected )." source))])])))
 
 (define (node-loop [vals : (List Sexp)] [source-start : SourceSpan]
                    [paren-style : ParenStyle] [lexer : Lexer])
   : SexpResult
   (let ([val (run-lexer lexer)])
     (case val
-      [(end-of-input _) (sexp-result-error #"Unexpected end of input.")]
-      [(bad-input v _) (sexp-result-error (bytes-append (varargs list #"Unable to lex input: " v)))]
+      [(end-of-input source) (sexp-result-error #"Unexpected end of input." source)]
+      [(bad-input v source) (sexp-result-error (bytes-append (varargs list #"Unable to lex input: " v))
+                                               source)]
       [(lex-result (source-span-annotated source v) lexer)
         (case v
           [(comment-lexeme)
@@ -128,32 +129,32 @@
             (case (node-loop (empty) source (paren) lexer)
               [(sexp-result v lexer)
                (node-loop (cons v vals) source-start paren-style lexer)]
-              [(sexp-result-error v) (sexp-result-error v)])]
+              [(sexp-result-error v loc) (sexp-result-error v loc)])]
           [(left-bracket-lexeme)
             (case (node-loop (empty) source (bracket) lexer)
               [(sexp-result v lexer)
                (node-loop (cons v vals) source-start paren-style lexer)]
-              [(sexp-result-error v) (sexp-result-error v)])]
+              [(sexp-result-error v loc) (sexp-result-error v loc)])]
           [(left-brace-lexeme)
             (case (node-loop (empty) source (brace) lexer)
               [(sexp-result v lexer)
                (node-loop (cons v vals) source-start paren-style lexer)]
-              [(sexp-result-error v) (sexp-result-error v)])]
+              [(sexp-result-error v loc) (sexp-result-error v loc)])]
           [(right-bracket-lexeme)
            (case paren-style
              [(bracket)
               (sexp-result (bracket-node (reverse vals) (full-span source-start source)) lexer)]
-             [_ (sexp-result-error #"Unexpected ].")])]
+             [_ (sexp-result-error #"Unexpected ]." source)])]
           [(right-brace-lexeme)
            (case paren-style
              [(brace)
               (sexp-result (brace-node (reverse vals) (full-span source-start source)) lexer)]
-             [_ (sexp-result-error #"Unexpected }.")])]
+             [_ (sexp-result-error #"Unexpected }." source)])]
           [(right-paren-lexeme)
            (case paren-style
              [(paren)
               (sexp-result (node (reverse vals) (full-span source-start source)) lexer)]
-             [_ (sexp-result-error #"Unexpected ).")])])])))
+             [_ (sexp-result-error #"Unexpected )." source)])])])))
 
 (define (full-span [s1 : SourceSpan] [s2 : SourceSpan]) : SourceSpan
   (match-define (source-span source1 start-line start-column _ _) s1)
