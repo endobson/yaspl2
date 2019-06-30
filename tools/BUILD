@@ -87,6 +87,7 @@ yaspl_binary(
     srcs = ["aspect-missing-dependencies-main.yaspl"],
     deps = [
         ":module-index-parser",
+        "//libraries:compiler_lib",
         "//libraries:io",
         "//libraries:module-name",
         "//libraries:prim-types",
@@ -106,6 +107,7 @@ yaspl_binary(
     srcs = ["aspect-remove-unused-dependencies-main.yaspl"],
     deps = [
         ":module-index-parser",
+        "//libraries:compiler_lib",
         "//libraries:io",
         "//libraries:module-name",
         "//libraries:sexp-parser",
