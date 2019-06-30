@@ -257,6 +257,7 @@ yaspl_library(
         "//libraries/data:either",
         "//libraries/data:list",
         "//libraries/data:maybe",
+        "//libraries/data:source-location",
     ],
 )
 

@@ -46,13 +46,22 @@
   (define-type SexpError
     (sexp-error [v : Bytes] [source : SourceSpan])))
 
-(define (parse-sexps [sbytes : SourcedBytes]) : (Either SexpError (List Sexp))
+(define (parse-sexps [sbytes : SourcedBytes]) : (Either SexpError (SourceSpanAnnotated (List Sexp)))
   (parse-sexps/acc (make-lexer sbytes) (empty)))
 
-(define (parse-sexps/acc [lexer : Lexer] [acc : (List Sexp)]) : (Either SexpError (List Sexp))
+(define (parse-sexps/acc [lexer : Lexer] [acc : (List Sexp)])
+  : (Either SexpError (SourceSpanAnnotated (List Sexp)))
   (let ([val (loop lexer)])
     (case val
-      [(sexp-result-eof _) (right (reverse acc))]
+      [(sexp-result-eof eof-loc)
+       (let ([sexps (reverse acc)])
+         (right
+           (source-span-annotated
+             (case sexps
+               [(empty) eof-loc]
+               [(cons s _)
+                (full-span (sexp-source-span s) eof-loc)])
+             sexps)))]
       [(sexp-result v lexer)
        (parse-sexps/acc lexer (cons v acc))]
       [(sexp-result-error e) (left e)])))
@@ -118,7 +127,7 @@
   : InnerSexpResult
   (let ([val (run-lexer lexer)])
     (case val
-      [(end-of-input source)
+      [(end-of-input _)
        (inner-sexp-result-error
          (sexp-error
            (case paren-style
@@ -183,6 +192,17 @@
              [(paren)
               (inner-sexp-result (node (reverse vals) (full-span source-start source)) lexer)]
              [_ (inner-sexp-result-error (sexp-error #"Unexpected )." source))])])])))
+
+(define (sexp-source-span [v : Sexp]) : SourceSpan
+  (case v
+    [(node _ source) source]
+    [(bracket-node _ source) source]
+    [(brace-node _ source) source]
+    [(symbol-sexp _ source) source]
+    [(bytes-sexp _ source) source]
+    [(keyword-sexp _ source) source]
+    [(boolean-sexp _ source) source]
+    [(number-sexp _ source) source]))
 
 (define (full-span [s1 : SourceSpan] [s2 : SourceSpan]) : SourceSpan
   (match-define (source-span source1 start-line start-column _ _) s1)
