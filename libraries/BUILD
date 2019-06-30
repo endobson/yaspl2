@@ -337,9 +337,11 @@ yaspl_test(
     deps = [
         ":lexer",
         ":yunit",
+        "//libraries/data:bytes",
         "//libraries/data:list",
         "//libraries/data:maybe",
         "//libraries/data:source-location",
+        "//libraries/data:tuples",
     ],
 )
 
