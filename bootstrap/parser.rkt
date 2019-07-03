@@ -134,8 +134,8 @@
      (begin& (parse first-expr) (map parse exprs))]
     [(list 'varargs first-expr exprs ...)
      (varargs-app& (parse first-expr) (map parse exprs))]
-    [`(let ([,(? symbol? name) ,expr]) ,body)
-     (let& name (parse expr) (parse body))]
+    [`(let ([,(? symbol? name) ,expr]) . ,body)
+     (let& name (parse expr) (parse-block body))]
     [`(case ,expr . ,(list (cons patterns bodies) ...))
      (case& (parse expr)
             (for/list ([pattern (in-list patterns)]

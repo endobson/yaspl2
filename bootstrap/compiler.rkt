@@ -225,7 +225,7 @@
      `(,#'begin ,@(map (λ (e) (compile-expr pat-env env e)) (cons first-expr exprs)))]
     [(ann& _ expr)
      (compile-expr pat-env env expr)]
-    [(let& name expr body)
+    [(let& name expr (block& defs body))
      (define compiled-expr (compile-expr pat-env env expr))
      (cond
        [(identifier? compiled-expr)
@@ -233,7 +233,7 @@
        [else
         (define temp (generate-temporary name))
         `(,#'let ([,temp ,compiled-expr])
-            ,(compile-expr pat-env (hash-set env name temp) body))])]
+            ,(compile-block pat-env (hash-set env name temp) defs body))])]
     [(lambda& (list (list arg-names _) ...) _ (block& defs body))
      (define ids (generate-temporaries arg-names))
      (define new-env

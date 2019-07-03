@@ -56,9 +56,9 @@
        (for-each recur (cons op exprs))]
       [(varargs-app& op exprs)
        (for-each recur (cons op exprs))]
-      [(let& name expr body)
+      [(let& name expr (block& defs body))
        (recur expr)
-       ((recur/env (set-add env name)) body)]
+       (recur/block (set-add env name) defs body)]
       [(ann& _ expr)
        (recur expr)]
       [(lambda& (list (list args _) ...) _ (block& defs body))
@@ -646,10 +646,10 @@
                    body-type))
                (for ([arg (in-list args)])
                  (type-check arg (substitute body-substitution element-ty))))])])]
-    [(let& name expr body)
+    [(let& name expr (block& defs body))
      (let* ([expr-type (type-infer expr)]
             [type-env (binding-env-value-set env name expr-type)])
-       ((type-check/env type-env) body type))]
+       (type-check/block type-env defs body type))]
     [(ann& pre-type expr)
      (define type ((parse-type/env (binding-env-types env)) pre-type))
      (type-check expr type)
