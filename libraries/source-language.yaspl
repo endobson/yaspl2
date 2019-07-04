@@ -12,7 +12,8 @@
 }
 (export
   (#:types Module Imports Import Exports Export TypeDefinition VariantDefinition VariantField PreType
-           FunctionDefinition FunctionArg Expression CaseClause Pattern Block BlockDefinition)
+           FunctionDefinition FunctionArg Expression CaseClause Pattern Block BlockDefinition
+           SourceParseError)
   (#:values module-name module-types module-definitions parse-module function-definition-name
             function-arg-pattern function-arg-pre-type
             exports-values type-definition-variants var-pre-type fun-pre-type export variant-field-type
@@ -28,7 +29,8 @@
               bytes-pattern int-pattern variable-pattern ignore-pattern abstraction-pattern
               function-definition function-arg variant-definition type-definition variant-field export
               exports import partial-imports block match-def
-              var-pre-type fun-pre-type type-app-pre-type full-imports))
+              var-pre-type fun-pre-type type-app-pre-type full-imports
+              source-parse-error))
 (types
   (define-type Module
     (module [name : ModName]
@@ -99,18 +101,19 @@
     (int-pattern [v : Int])
     (variable-pattern [v : Bytes])
     (ignore-pattern)
-    (abstraction-pattern [name : Bytes] [patterns : (List Pattern)])))
+    (abstraction-pattern [name : Bytes] [patterns : (List Pattern)]))
 
-(define [a] (right/bytes [v : a]) : (Either Bytes a)
+  (define-type SourceParseError
+    (source-parse-error [v : Bytes] [source : SourceSpan])))
+
+(define [a] (right/source-parse-error [v : a]) : (Either SourceParseError a)
   (right v))
-(define (nothing/pre-type) : (Maybe PreType)
-  (nothing))
 
 (define [a b r]
   (either-app2
     [f : (a b -> r)]
-    [e1 : (Either Bytes a)]
-    [e2 : (Either Bytes b)]) : (Either Bytes r)
+    [e1 : (Either SourceParseError a)]
+    [e2 : (Either SourceParseError b)]) : (Either SourceParseError r)
   (case e1
     [(left v) (left v)]
     [(right v1)
@@ -122,9 +125,9 @@
 (define [a b c r]
   (either-app3
     [f : (a b c -> r)]
-    [e1 : (Either Bytes a)]
-    [e2 : (Either Bytes b)]
-    [e3 : (Either Bytes c)]) : (Either Bytes r)
+    [e1 : (Either SourceParseError a)]
+    [e2 : (Either SourceParseError b)]
+    [e3 : (Either SourceParseError c)]) : (Either SourceParseError r)
   (case e1
     [(left v) (left v)]
     [(right v1)
@@ -136,36 +139,35 @@
           [(right v3)
            (right (f v1 v2 v3))])])]))
 
-(define (parse-imports [sexps : (List Sexp)]) : (Either Bytes (List Imports))
+(define (parse-imports [sexps : (List Sexp)]) : (Either SourceParseError (List Imports))
   (case sexps
     [(empty)
      (right (empty))]
-    [(cons (brace-node (cons (node module-name _) import-elems) _) next-imports)
-     (case (parse-module-name module-name)
+    [(cons (brace-node (cons (node module-name module-name-src) import-elems) _) next-imports)
+     (case (parse-module-name (source-span-annotated module-name-src module-name))
        [(left v) (left v)]
        [(right module-name)
         (case (parse-import-elems module-name import-elems)
           [(left v) (left v)]
           [(right imports)
            (case (parse-imports next-imports)
-             [(left err) (left err)]
+             [(left v) (left v)]
              [(right importss) (right (cons imports importss))])])])]
-    [(cons (node module-name _) next-imports)
-     (case (parse-module-name module-name)
+    [(cons (node module-name module-name-src) next-imports)
+     (case (parse-module-name (source-span-annotated module-name-src module-name))
        [(left v) (left v)]
        [(right module-name)
         (case (parse-imports next-imports)
           [(left err) (left err)]
           [(right importss) (right (cons (full-imports module-name) importss))])])]
-    [_
-     (left #"Bad import form")]))
+    [(cons sexp _)
+     (left (source-parse-error #"Bad import form" (sexp-source-span sexp)))]))
 
-
-(define (parse-partial-import-items [sexps : (List Sexp)]) : (Either Bytes (List Import))
+(define (parse-partial-import-items [sexps : (List Sexp)]) : (Either SourceParseError (List Import))
   (parse-partial-import-items* sexps (empty)))
 
 (define (parse-partial-import-items* [sexps : (List Sexp)] [acc : (List Import)])
-  : (Either Bytes (List Import))
+  : (Either SourceParseError (List Import))
   (case sexps
     [(empty)
      (right (reverse acc))]
@@ -175,11 +177,11 @@
                          _)
            sexps)
      (parse-partial-import-items* sexps (cons (import exported-name local-name) acc))]
-    [_
-     (left #"Bad input, invalid partial import item")]))
+    [(cons sexp _)
+     (left (source-parse-error #"Bad input, invalid partial import item" (sexp-source-span sexp)))]))
 
 (define (parse-partial-imports-section [section : Bytes] [sexps : (List Sexp)])
-  : (Either Bytes (Tuple2 (List Import) (List Sexp)))
+  : (Either SourceParseError (Tuple2 (List Import) (List Sexp)))
   (case sexps
     [(cons (brace-node (cons (keyword-sexp actual-section _) inner-sexps) _) next-sexps)
      (if (bytes=? actual-section section)
@@ -192,7 +194,7 @@
     [_
      (right (tuple2 (empty) sexps))]))
 
-(define (parse-import-elems [mod-name : ModName] [sexps : (List Sexp)]) : (Either Bytes Imports)
+(define (parse-import-elems [mod-name : ModName] [sexps : (List Sexp)]) : (Either SourceParseError Imports)
   (case (parse-partial-imports-section #"types" sexps)
     [(left v)
      (left v)]
@@ -208,11 +210,11 @@
            (case sexps
              [(empty)
               (right (partial-imports mod-name types values patterns))]
-             [_
-              (left #"Not a valid imports clause")])])])]))
+             [(cons sexp _)
+              (left (source-parse-error #"Not a valid imports clause" (sexp-source-span sexp)))])])])]))
 
 
-(define (parse-exports/top [sexp : Sexp]) : (Either Bytes Exports)
+(define (parse-exports/top [sexp : Sexp]) : (Either SourceParseError Exports)
   (case sexp
     [(node (cons (symbol-sexp #"export" _) (empty)) _)
      (right (exports (empty) (empty) (empty)))]
@@ -238,21 +240,21 @@
                          (map convert value-names)
                          (map convert pattern-names))))])])])]
 
-    [_ (left #"Bad exports")]))
+    [_ (left (source-parse-error #"Bad exports" (sexp-source-span sexp)))]))
 
-(define (parse-exported-symbol [sexp : Sexp]) : (Either Bytes Bytes)
+(define (parse-exported-symbol [sexp : Sexp]) : (Either SourceParseError Bytes)
   (case sexp
     [(symbol-sexp bytes _) (right bytes)]
-    [_ (left #"Not a valid export")]))
+    [_ (left (source-parse-error #"Not a valid export" (sexp-source-span sexp)))]))
 
 
-(define (parse-types/top [sexp : Sexp]) : (Either Bytes (List TypeDefinition))
+(define (parse-types/top [sexp : Sexp]) : (Either SourceParseError (List TypeDefinition))
   (case sexp
     [(node (cons (symbol-sexp #"types" _) type-definitions) _)
      (extract-rights (map parse-type-definition type-definitions))]
-    [_ (left #"Bad types")]))
+    [_ (left (source-parse-error #"Bad types" (sexp-source-span sexp)))]))
 
-(define (parse-type-definition [sexp : Sexp]) : (Either Bytes TypeDefinition)
+(define (parse-type-definition [sexp : Sexp]) : (Either SourceParseError TypeDefinition)
   (case sexp
     [(node (cons (symbol-sexp #"define-type" _) (cons type-name/vars variants)) _)
      (case (extract-type-name type-name/vars)
@@ -265,18 +267,19 @@
              [(left v) (left v)]
              [(right variants)
               (right (type-definition type-name type-vars variants))])])])]
-    [_ (left #"Bad type definition: expecting (define-type ...)")]))
+    [_ (left (source-parse-error #"Bad type definition: expecting (define-type ...)"
+                                 (sexp-source-span sexp)))]))
 
-(define (parse-variant [sexp : Sexp]) : (Either Bytes VariantDefinition)
+(define (parse-variant [sexp : Sexp]) : (Either SourceParseError VariantDefinition)
   (case sexp
     [(node (cons (symbol-sexp variant-name _) fields) _)
      (case (extract-rights (map parse-variant-field fields))
        [(left v) (left v)]
        [(right fields)
         (right (variant-definition variant-name fields))])]
-    [_ (left #"Bad variant definition")]))
+    [_ (left (source-parse-error #"Bad variant definition" (sexp-source-span sexp)))]))
 
-(define (parse-variant-field [sexp : Sexp]) : (Either Bytes VariantField)
+(define (parse-variant-field [sexp : Sexp]) : (Either SourceParseError VariantField)
   (case sexp
     [(bracket-node
        (cons (symbol-sexp field-name _) (cons (symbol-sexp #":" _) (cons type (empty))))
@@ -285,17 +288,17 @@
        [(left v) (left v)]
        [(right type)
         (right (variant-field field-name type))])]
-    [_ (left #"Bad variant field")]))
+    [_ (left (source-parse-error #"Bad variant field" (sexp-source-span sexp)))]))
 
-(define (extract-type-name [sexp : Sexp]) : (Either Bytes Bytes)
+(define (extract-type-name [sexp : Sexp]) : (Either SourceParseError Bytes)
   (case sexp
     [(symbol-sexp type-name _)
      (right type-name)]
     [(node (cons (symbol-sexp type-name _) _) _)
      (right type-name)]
-    [_ (left #"Bad type-name/vars")]))
+    [_ (left (source-parse-error #"Bad type-name/vars" (sexp-source-span sexp)))]))
 
-(define (extract-type-vars [sexp : Sexp]) : (Either Bytes (Maybe (List Bytes)))
+(define (extract-type-vars [sexp : Sexp]) : (Either SourceParseError (Maybe (List Bytes)))
   (case sexp
     [(symbol-sexp _ _)
      (right (nothing))]
@@ -304,15 +307,15 @@
        [(left v) (left v)]
        [(right type-vars)
         (right (just type-vars))])]
-    [_ (left #"Bad type-name/vars")]))
+    [_ (left (source-parse-error #"Bad type-name/vars" (sexp-source-span sexp)))]))
 
-(define (parse-type-var-symbol [sexp : Sexp]) : (Either Bytes Bytes)
+(define (parse-type-var-symbol [sexp : Sexp]) : (Either SourceParseError Bytes)
   (case sexp
     [(symbol-sexp bytes _) (right bytes)]
-    [_ (left #"Not a valid type variable")]))
+    [_ (left (source-parse-error #"Not a valid type variable" (sexp-source-span sexp)))]))
 
 
-(define (parse-pre-type [sexp : Sexp]) : (Either Bytes PreType)
+(define (parse-pre-type [sexp : Sexp]) : (Either SourceParseError PreType)
   (case sexp
     [(symbol-sexp v _) (right (var-pre-type v))]
     ;; TODO Make function parsing better
@@ -359,11 +362,11 @@
        [(left v) (left v)]
        [(right args)
         (right (type-app-pre-type constructor args))])]
-    [_ (left #"Not a valid Type")]))
+    [_ (left (source-parse-error #"Not a valid Type" (sexp-source-span sexp)))]))
 
-(define (parse-function-definition [sexp : Sexp]) : (Either Bytes FunctionDefinition)
+(define (parse-function-definition [sexp : Sexp]) : (Either SourceParseError FunctionDefinition)
   (case sexp
-    [(node parts _)
+    [(node parts parts-src)
      (case parts
        [(cons (symbol-sexp #"define" _) parts)
         (match-define (tuple2 type-vars parts) : (Tuple2 (List Sexp) (List Sexp))
@@ -373,29 +376,44 @@
             [parts
              (tuple2 (empty) parts)]))
         (case parts
-          [(cons (node name+args _) parts)
+          [(cons (node name+args name+args-src) parts)
            (case name+args
              [(empty)
-              (left #"Invalid function definition: empty name and args.")]
+              (left (source-parse-error #"Invalid function definition: empty name and args."
+                                        name+args-src))]
              [(cons (symbol-sexp function-name _) args)
-              (parse-function-definition* function-name type-vars args parts)]
-             [_
-              (left #"Invalid function definition: name is not a symbol")])]
-          [_
-           (left #"Invalid function definition: couldn't parse name and args.") ])]
-       [_
-        (left #"Invalid function definition: doesn't start with define.")])]
+              (parse-function-definition* function-name type-vars args parts parts-src)]
+             [(cons name _args)
+              (left (source-parse-error #"Invalid function definition: name is not a symbol"
+                                        (sexp-source-span name)))])]
+          [(cons name+args _)
+           (left (source-parse-error #"Invalid function definition: couldn't parse name and args."
+                                     (sexp-source-span name+args)))]
+          [(empty)
+           (left (source-parse-error #"Invalid function definition: missing name and args."
+                                     parts-src))])]
+       [(empty)
+        (left (source-parse-error #"Invalid function definition: no parts" parts-src))]
+       [(cons bad-define _)
+        (left (source-parse-error #"Invalid function definition: doesn't start with define."
+                                  (sexp-source-span bad-define)))])]
     [_
-     (left #"Invalid function definition: not a node")]))
+     (left (source-parse-error #"Invalid function definition: not a node" (sexp-source-span sexp)))]))
 (define (parse-function-definition*
           [function-name : Bytes]
           [type-vars : (List Sexp)]
           [args : (List Sexp)]
-          [parts : (List Sexp)]) : (Either Bytes FunctionDefinition)
+          [parts : (List Sexp)]
+          [full-src : SourceSpan]) : (Either SourceParseError FunctionDefinition)
   (match-define error
-    (lambda ([message : Bytes]) : (Either Bytes FunctionDefinition)
-      (left (bytes-append (varargs list #"Invalid function definition '" function-name #"': "
-                                   message)))))
+    (lambda ([v : SourceParseError]) : (Either SourceParseError FunctionDefinition)
+      (case v
+        [(source-parse-error message loc)
+         (left
+           (source-parse-error
+             (bytes-append (varargs list #"Invalid function definition '" function-name #"': "
+                                    message))
+             loc))])))
 
   (case (extract-rights (map parse-type-var-symbol type-vars))
     [(left v) (error v)]
@@ -404,11 +422,11 @@
        [(left v) (error v)]
        [(right parsed-args)
         (case parts
-          [(cons (symbol-sexp #":" _) (cons result-type body))
+          [(cons (symbol-sexp #":" _) (cons result-type (cons body body*)))
            (case (parse-pre-type result-type)
              [(left v) (error v)]
              [(right result-type)
-              (case (parse-block #t body)
+              (case (parse-block #t body body*)
                 [(left v) (error v)]
                 [(right body)
                  (right
@@ -419,9 +437,9 @@
                      result-type
                      body))])])]
           [_
-           (error #"Couldn't parse result type")])])]))
+           (error (source-parse-error #"Couldn't parse result type" full-src))])])]))
 
-(define (parse-arg [sexp : Sexp]) : (Either Bytes FunctionArg)
+(define (parse-arg [sexp : Sexp]) : (Either SourceParseError FunctionArg)
   (case sexp
     [(bracket-node (cons pattern (cons (symbol-sexp #":" _) (cons type (empty)))) _)
      (case (parse-pattern pattern)
@@ -431,29 +449,34 @@
           [(left v) (left v)]
           [(right pre-type)
            (right (function-arg pattern pre-type))])])]
-    [_ (left #"Not a valid argument")]))
+    [_ (left (source-parse-error #"Not a valid argument" (sexp-source-span sexp)))]))
 
-(define (parse-block [tail-position : Boolean] [sexps : (List Sexp)]) : (Either Bytes Block)
-  (parse-block* tail-position sexps (empty)))
 
-(define (parse-block* [tail-position : Boolean] [sexps : (List Sexp)] [rev-defs : (List BlockDefinition)])
-  : (Either Bytes Block)
+(define (parse-block [tail-position : Boolean] [sexp : Sexp] [sexps : (List Sexp)])
+  : (Either SourceParseError Block)
+  (parse-block* tail-position sexp sexps (empty)))
+
+(define (parse-block* [tail-position : Boolean]
+                      [sexp : Sexp]
+                      [sexps : (List Sexp)]
+                      [rev-defs : (List BlockDefinition)])
+  : (Either SourceParseError Block)
   (case sexps
-    [(empty) (left #"Block must have at least one form")]
-    [(cons expr (empty))
-     (case (parse-expression tail-position expr)
+    [(empty)
+     (case (parse-expression tail-position sexp)
        [(left v) (left v)]
        [(right expr)
         (right (block (reverse rev-defs) expr))])]
-    [(cons def sexps)
-     (case (parse-block-definition def)
+    [(cons next-sexp sexps)
+     (case (parse-block-definition sexp)
        [(left v) (left v)]
        [(right def)
-        (parse-block* tail-position sexps (cons def rev-defs))])]))
+        (parse-block* tail-position next-sexp sexps (cons def rev-defs))])]))
 
-(define (parse-block-definition [sexp : Sexp]) : (Either Bytes BlockDefinition)
+
+(define (parse-block-definition [sexp : Sexp]) : (Either SourceParseError BlockDefinition)
   (case sexp
-    [(node (cons (symbol-sexp #"match-define" _) match-sexps) _)
+    [(node (cons (symbol-sexp #"match-define" _) match-sexps) src)
      (case match-sexps
        [(cons pattern-sexp (cons expr-sexp (empty)))
         (case (parse-pattern pattern-sexp)
@@ -475,16 +498,16 @@
                 [(right expr)
                  (right (match-def pattern (just type) expr))])])])]
        [_
-        (left #"Match-define: couldn't be parsed")])]
-    [_ (left #"Not a valid block definition")]))
+        (left (source-parse-error #"Match-define: couldn't be parsed" src))])]
+    [_ (left (source-parse-error #"Not a valid block definition" (sexp-source-span sexp)))]))
 
-(define (parse-expression [tail-position : Boolean] [sexp : Sexp]) : (Either Bytes Expression)
+(define (parse-expression [tail-position : Boolean] [sexp : Sexp]) : (Either SourceParseError Expression)
   (case sexp
     [(number-sexp v _) (right (int-literal v))]
     [(bytes-sexp v _) (right (bytes-literal v))]
     [(boolean-sexp v _) (right (boolean-literal v))]
     [(symbol-sexp v _) (right (var-expr v))]
-    [(node (cons (symbol-sexp #"if" _) exprs) _)
+    [(node (cons (symbol-sexp #"if" _) exprs) src)
      (case exprs
        [(cons cond (cons true (cons false (empty))))
         (either-app3 if-expr
@@ -492,16 +515,16 @@
           (parse-expression tail-position true)
           (parse-expression tail-position false))]
        [_
-        (left #"If: requires exactly three expressions")])]
+        (left (source-parse-error #"If: requires exactly three expressions" src))])]
     [(node (cons (symbol-sexp #"if" _) (cons cond (cons true (cons false (empty))))) _)
      (either-app3 if-expr
        (parse-expression #f cond)
        (parse-expression tail-position true)
        (parse-expression tail-position false))]
-    [(node (cons (symbol-sexp #"begin" _) exprs) _)
+    [(node (cons (symbol-sexp #"begin" _) exprs) src)
      (case (reverse exprs)
        [(empty)
-        (left #"Begin requires at least one expression")]
+        (left (source-parse-error #"Begin requires at least one expression" src))]
        [(cons last-expr exprs)
         (either-app2 begin-expr
           (extract-rights (map (lambda ([s : Sexp]) (parse-expression #f s)) (reverse exprs)))
@@ -514,15 +537,15 @@
           [(left v) (left v)]
           [(right exprs)
            (right (varargs-app-expr tail-position op-expr exprs))])])]
-    [(node (cons (symbol-sexp #"let" _) other-sexps) _)
-     (parse-let-sexps tail-position other-sexps)]
+    [(node (cons (symbol-sexp #"let" _) other-sexps) src)
+     (parse-let-sexps tail-position other-sexps src)]
     [(node (cons (symbol-sexp #"case" _) (cons expr clauses)) _)
      (either-app2 case-expr
        (parse-expression #f expr)
        (extract-rights (map (lambda ([s : Sexp]) (parse-case-clause tail-position s))
                             clauses)))]
-    [(node (cons (symbol-sexp #"lambda" _) lambda-sexps) _)
-     (parse-lambda-sexps lambda-sexps)]
+    [(node (cons (symbol-sexp #"lambda" _) lambda-sexps) src)
+     (parse-lambda-sexps lambda-sexps src)]
 
     [(node (cons (symbol-sexp #"ann" _)
                  (cons pre-type (cons expr (empty)))) _)
@@ -533,8 +556,8 @@
           [(left v) (left v)]
           [(right expr)
            (right (annotated-expr pre-type expr))])])]
-    [(node (cons (symbol-sexp #"match-define" _) _) _)
-     (left #"Definitions are not valid expressions")]
+    [(node (cons (symbol-sexp #"match-define" _) _) src)
+     (left (source-parse-error #"Definitions are not valid expressions" src))]
     [(node (cons op-expr arg-exprs) _)
      (case (parse-expression #f op-expr)
        [(left v) (left v)]
@@ -543,62 +566,64 @@
           [(left v) (left v)]
           [(right arg-exprs)
            (right (app-expr tail-position op-expr arg-exprs))])])]
-    [(node (empty) _)
-     (left #"Application needs an operator")]
-    [(bracket-node _ _)
-     (left #"Bracketed nodes are not valid expressions")]
-    [(brace-node _ _)
-     (left #"Braced nodes are not valid expressions")]
-    [(keyword-sexp _ _)
-     (left #"Keywords are not valid expressions")]))
+    [(node (empty) src)
+     (left (source-parse-error #"Application needs an operator" src))]
+    [(bracket-node _ src)
+     (left (source-parse-error #"Bracketed nodes are not valid expressions" src))]
+    [(brace-node _ src)
+     (left (source-parse-error #"Braced nodes are not valid expressions" src))]
+    [(keyword-sexp _ src)
+     (left (source-parse-error #"Keywords are not valid expressions" src))]))
 
-(define (parse-let-sexps [tail-position : Boolean] [sexps : (List Sexp)]) : (Either Bytes Expression)
+(define (parse-let-sexps [tail-position : Boolean] [sexps : (List Sexp)] [full-src : SourceSpan])
+  : (Either SourceParseError Expression)
   (case sexps
     [(empty)
-     (left #"Let: not enough subparts")]
+     (left (source-parse-error #"Let: not enough subparts" full-src))]
     [(cons _ (empty))
-     (left #"Let: not enough subparts")]
-    [(cons bindings body)
+     (left (source-parse-error #"Let: not enough subparts" full-src))]
+    [(cons bindings (cons body body*))
      (case bindings
-       [(node bindings-list _)
+       [(node bindings-list src)
         (case bindings-list
           [(cons (bracket-node (cons (symbol-sexp name _) (cons expr (empty))) _) (empty))
            (either-app3 let-expr
-             (right/bytes name) (parse-expression #f expr) (parse-block tail-position body))]
+             (right/source-parse-error name) (parse-expression #f expr)
+             (parse-block tail-position body body*))]
           [_
-           (left #"Let bindings: couldn't be parsed")])]
+           (left (source-parse-error #"Let bindings: couldn't be parsed" src))])]
        [_
-        (left #"Let bindings: couldn't be parsed")])]))
+        (left (source-parse-error #"Let bindings: couldn't be parsed" (sexp-source-span bindings)))])]))
 
-(define (parse-lambda-sexps [sexps : (List Sexp)]) : (Either Bytes Expression)
+(define (parse-lambda-sexps [sexps : (List Sexp)] [full-src : SourceSpan]) : (Either SourceParseError Expression)
   (case sexps
     [(cons (node arg+tys _)
            (cons (symbol-sexp #":" _)
-                 (cons type-expr body)))
+                 (cons type-expr (cons body body*))))
      (case (parse-pre-type type-expr)
        [(left v) (left v)]
        [(right pre-type)
         (either-app3 lambda-expr
           (extract-rights (map parse-arg arg+tys))
-          (right/bytes (just pre-type))
-          (parse-block #t body))])]
-    [(cons (node arg+tys _) body)
+          (right/source-parse-error (just pre-type))
+          (parse-block #t body body*))])]
+    [(cons (node arg+tys _) (cons body body*))
      (either-app3 lambda-expr
        (extract-rights (map parse-arg arg+tys))
-       (right/bytes (nothing/pre-type))
-       (parse-block #t body))]
+       (right/source-parse-error (ann (Maybe PreType) (nothing)))
+       (parse-block #t body body*))]
     [_
-     (left #"Lambda: couldn't be parsed")]))
+     (left (source-parse-error #"Lambda: couldn't be parsed" full-src))]))
 
 
 
-(define (parse-case-clause [tail-position : Boolean] [sexp : Sexp]) : (Either Bytes CaseClause)
+(define (parse-case-clause [tail-position : Boolean] [sexp : Sexp]) : (Either SourceParseError CaseClause)
   (case sexp
-    [(bracket-node (cons pattern body) _)
-     (either-app2 case-clause (parse-pattern pattern) (parse-block tail-position body))]
-    [_ (left #"Not a valid case clause")]))
+    [(bracket-node (cons pattern (cons body body*)) _)
+     (either-app2 case-clause (parse-pattern pattern) (parse-block tail-position body body*))]
+    [_ (left (source-parse-error #"Not a valid case clause" (sexp-source-span sexp)))]))
 
-(define (parse-pattern [sexp : Sexp]) : (Either Bytes Pattern)
+(define (parse-pattern [sexp : Sexp]) : (Either SourceParseError Pattern)
   (case sexp
     [(symbol-sexp sym _)
      (right
@@ -609,22 +634,22 @@
     [(number-sexp v _) (right (int-pattern v))]
     [(node (cons (symbol-sexp name _) patterns) _)
      (either-app2 abstraction-pattern
-       (right/bytes name)
+       (right/source-parse-error name)
        (extract-rights (map parse-pattern patterns)))]
-    [_ (left #"Not a valid pattern")]))
+    [_ (left (source-parse-error #"Not a valid pattern" (sexp-source-span sexp)))]))
 
 
-(define (parse-module [bodies : (SourceSpanAnnotated (List Sexp))]) : (Either Bytes Module)
+(define (parse-module [bodies : (SourceSpanAnnotated (List Sexp))]) : (Either SourceParseError Module)
   (match-define (source-span-annotated all-src bodies) bodies)
   (case bodies
     [(cons (keyword-sexp #"module" _)
-           (cons (node module-name-parts _)
+           (cons (node module-name module-name-src)
                   (cons (keyword-sexp #"import" _)
                         (cons (brace-node import-sexps _)
                               (cons exports
                                     (cons types
                                           definitions))))))
-     (case (parse-module-name module-name-parts)
+     (case (parse-module-name (source-span-annotated module-name-src module-name))
        [(left v) (left v)]
        [(right module-name)
         (case (parse-imports import-sexps)
@@ -640,12 +665,14 @@
                    [(left v) (left v)]
                    [(right defs)
                     (right (module module-name imports exports types defs))])])])])])]
-    [_ (left #"Bad module form")]))
+    [_ (left (source-parse-error #"Bad module forms" all-src))]))
 
-(define (parse-module-name [forms : (List Sexp)]) : (Either Bytes ModName)
+(define (parse-module-name [forms : (SourceSpanAnnotated (List Sexp))])
+  : (Either SourceParseError ModName)
+  (match-define (source-span-annotated src forms) forms)
   (case (extract-justs (map parse-symbol forms))
     [(just vs) (right (mod-name vs))]
-    [(nothing) (left #"Bod module name")]))
+    [(nothing) (left (source-parse-error #"Bod module name" src))]))
 
 (define (parse-symbol [form : Sexp]) : (Maybe Bytes)
   (case form
