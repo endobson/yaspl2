@@ -10,14 +10,17 @@
   (source-language)
 }
 (export
-  (#:types)
-  (#:values free-variables/expr
-            free-variables/module free-types/module free-patterns/module
+  (#:types FreeVar)
+  (#:values free-variables/module free-types/module free-patterns/module
             free-variables/function-definition free-types/function-definition
+            free-patterns/function-definition
             free-types/type-definitions
-            free-patterns/function-definition free-variables-by-function-definition)
-  (#:patterns))
-(types)
+            free-variables-by-function-definition
+            free-var-name)
+  (#:patterns free-var))
+(types
+  (define-type FreeVar
+    (free-var [name : Bytes] [source : SourceSpan])))
 
 (define (free-variables-by-function-definition [mod : Module]) : (Dict Bytes (Set Bytes))
   (foldl
@@ -25,17 +28,19 @@
       (dict-add
         acc
         (function-definition-name def)
-        (free-variables/function-definition def (make-set bytes-cmp) (make-set bytes-cmp))))
+        (set-add-all
+          (make-set bytes-cmp)
+          (map free-var-name (free-variables/function-definition def (make-set bytes-cmp) (empty))))))
     (module-definitions mod)
     (ann (Dict Bytes (Set Bytes)) (make-dict bytes-cmp))))
 
-(define (free-variables/module [mod : Module] [env : (Set Bytes)]) : (Set Bytes)
-  (free-variables/function-definitions (module-definitions mod) env (make-set bytes-cmp)))
+(define (free-variables/module [mod : Module] [env : (Set Bytes)]) : (List FreeVar)
+  (free-variables/function-definitions (module-definitions mod) env (empty)))
 
 (define (free-variables/function-definition
           [def : FunctionDefinition]
           [env : (Set Bytes)]
-          [acc : (Set Bytes)]) : (Set Bytes)
+          [acc : (List FreeVar)]) : (List FreeVar)
   (match-define (function-definition _ _ args _ body) def)
   (free-variables/block body (add-function-args-bindings args env) acc))
 
@@ -43,15 +48,15 @@
 (define (free-variables/function-definitions
           [defs : (List FunctionDefinition)]
           [env : (Set Bytes)]
-          [acc : (Set Bytes)]) : (Set Bytes)
+          [acc : (List FreeVar)]) : (List FreeVar)
   (case defs
     [(empty) acc]
     [(cons def defs)
      (free-variables/function-definitions
        defs env (free-variables/function-definition def env acc))]))
 
-(define (free-variables/block [block : Block] [env : (Set Bytes)] [acc : (Set Bytes)])
-  : (Set Bytes)
+(define (free-variables/block [block : Block] [env : (Set Bytes)] [acc : (List FreeVar)])
+  : (List FreeVar)
   (match-define (block defs body) block)
   (free-variables/block* defs body env acc))
 
@@ -59,7 +64,7 @@
           [defs : (List BlockDefinition)]
           [final-expr : Expression]
           [env : (Set Bytes)]
-          [acc : (Set Bytes)]) : (Set Bytes)
+          [acc : (List FreeVar)]) : (List FreeVar)
   (case defs
     [(empty) (free-variables/expr final-expr env acc)]
     [(cons (match-def pattern _ expr) defs)
@@ -68,8 +73,8 @@
        (add-pattern-bindings pattern env)
        (free-variables/expr expr env acc))]))
 
-(define (free-variables/expr [expr : Expression] [env : (Set Bytes)] [acc : (Set Bytes)])
-  : (Set Bytes)
+(define (free-variables/expr [expr : Expression] [env : (Set Bytes)] [acc : (List FreeVar)])
+  : (List FreeVar)
   (case expr
     [(int-literal _) acc]
     [(bytes-literal _) acc]
@@ -90,15 +95,15 @@
      (free-variables/clauses clauses env (free-variables/expr expr env acc))]
     [(lambda-expr args _ body)
      (free-variables/block body (add-function-args-bindings args env) acc)]
-    [(var-expr v _)
+    [(var-expr v src)
      (if (set-member? env v)
          acc
-         (set-add acc v))]))
+         (cons (free-var v src) acc))]))
 
 (define (free-variables/list
           [exprs : (List Expression)]
           [env : (Set Bytes)]
-          [acc : (Set Bytes)]) : (Set Bytes)
+          [acc : (List FreeVar)]) : (List FreeVar)
   (case exprs
     [(empty) acc]
     [(cons expr exprs)
@@ -107,7 +112,7 @@
 (define (free-variables/clauses
           [exprs : (List CaseClause)]
           [env : (Set Bytes)]
-          [acc : (Set Bytes)]) : (Set Bytes)
+          [acc : (List FreeVar)]) : (List FreeVar)
   (case exprs
     [(empty) acc]
     [(cons (case-clause pattern body) clauses)
@@ -135,14 +140,14 @@
     [(cons p ps) (add-pattern-bindings/list ps (add-pattern-bindings p env))]))
 
 (define (free-types/module [mod : Module] [env : (Set Bytes)])
-  : (Set Bytes)
+  : (List FreeVar)
   (free-types/type-definitions (module-types mod) env
-    (free-types/function-definitions (module-definitions mod) env (make-set bytes-cmp))))
+    (free-types/function-definitions (module-definitions mod) env (empty))))
 
 (define (free-types/function-definitions
           [defs : (List FunctionDefinition)]
           [env : (Set Bytes)]
-          [acc : (Set Bytes)]) : (Set Bytes)
+          [acc : (List FreeVar)]) : (List FreeVar)
   (case defs
     [(empty) acc]
     [(cons def defs)
@@ -152,7 +157,7 @@
 (define (free-types/function-definition
           [def : FunctionDefinition]
           [env : (Set Bytes)]
-          [acc : (Set Bytes)]) : (Set Bytes)
+          [acc : (List FreeVar)]) : (List FreeVar)
   (match-define (function-definition _ type-vars args result-type  body) def)
   (match-define env (set-add-all env type-vars))
   (free-types/block body env
@@ -164,7 +169,7 @@
 (define (free-types/type-definitions
           [defs : (List TypeDefinition)]
           [env : (Set Bytes)]
-          [acc : (Set Bytes)]) : (Set Bytes)
+          [acc : (List FreeVar)]) : (List FreeVar)
   (case defs
     [(empty) acc]
     [(cons (type-definition _name vars variants) defs)
@@ -180,7 +185,7 @@
 (define (free-types/variants
           [variants : (List VariantDefinition)]
           [env : (Set Bytes)]
-          [acc : (Set Bytes)]) : (Set Bytes)
+          [acc : (List FreeVar)]) : (List FreeVar)
   (case variants
     [(empty) acc]
     [(cons (variant-definition _name fields) variants)
@@ -188,8 +193,8 @@
        (free-types/types
          (map variant-field-type fields) env acc))]))
 
-(define (free-types/expr [expr : Expression] [env : (Set Bytes)] [acc : (Set Bytes)])
-  : (Set Bytes)
+(define (free-types/expr [expr : Expression] [env : (Set Bytes)] [acc : (List FreeVar)])
+  : (List FreeVar)
   (case expr
     [(int-literal _) acc]
     [(bytes-literal _) acc]
@@ -218,30 +223,31 @@
        env
        (free-types/block body env acc))]))
 
-(define (free-types/exprs [exprs : (List Expression)] [env : (Set Bytes)] [acc : (Set Bytes)])
-  : (Set Bytes)
+(define (free-types/exprs [exprs : (List Expression)] [env : (Set Bytes)] [acc : (List FreeVar)])
+  : (List FreeVar)
   (case exprs
     [(empty) acc]
     [(cons expr exprs)
      (free-types/exprs exprs env (free-types/expr expr env acc))]))
 
-(define (free-types/blocks [blocks : (List Block)] [env : (Set Bytes)] [acc : (Set Bytes)])
-  : (Set Bytes)
+(define (free-types/blocks [blocks : (List Block)] [env : (Set Bytes)] [acc : (List FreeVar)])
+  : (List FreeVar)
   (case blocks
     [(empty) acc]
     [(cons block blocks)
      (free-types/blocks blocks env
        (free-types/block block env acc))]))
 
-(define (free-types/block [b : Block] [env : (Set Bytes)] [acc : (Set Bytes)])
-  : (Set Bytes)
+(define (free-types/block [b : Block] [env : (Set Bytes)] [acc : (List FreeVar)])
+  : (List FreeVar)
   (case b
     [(block defs expr)
      (free-types/expr expr env
        (free-types/block-definitions defs env acc))]))
 
-(define (free-types/block-definitions [defs : (List BlockDefinition)] [env : (Set Bytes)] [acc : (Set Bytes)])
-  : (Set Bytes)
+(define (free-types/block-definitions [defs : (List BlockDefinition)] [env : (Set Bytes)]
+                                      [acc : (List FreeVar)])
+  : (List FreeVar)
   (case defs
     [(empty) acc]
     [(cons (match-def _pattern type expr) defs)
@@ -251,37 +257,37 @@
            [(nothing) acc]
            [(just t) (free-types/type t env acc)])))]))
 
-(define (free-types/types [types : (List PreType)] [env : (Set Bytes)] [acc : (Set Bytes)])
-  : (Set Bytes)
+(define (free-types/types [types : (List PreType)] [env : (Set Bytes)] [acc : (List FreeVar)])
+  : (List FreeVar)
   (case types
     [(empty) acc]
     [(cons type types)
      (free-types/types types env (free-types/type type env acc))]))
 
-(define (free-types/type [type : PreType] [env : (Set Bytes)] [acc : (Set Bytes)])
-  : (Set Bytes)
+(define (free-types/type [type : PreType] [env : (Set Bytes)] [acc : (List FreeVar)])
+  : (List FreeVar)
   (case type
-    [(var-pre-type v _)
+    [(var-pre-type v src)
      (if (set-member? env v)
-           acc
-           (set-add acc v))]
+         acc
+         (cons (free-var v src) acc))]
     [(fun-pre-type type-vars args result _)
      (let ([env (set-add-all env type-vars)])
        (free-types/types args env
           (free-types/type result env acc)))]
-    [(type-app-pre-type (source-span-annotated constructor _) args _)
+    [(type-app-pre-type (source-span-annotated constructor src) args _)
      (let ([acc (free-types/types args env acc)])
        (if (set-member? env constructor)
            acc
-           (set-add acc constructor)))]))
+           (cons (free-var constructor src) acc)))]))
 
-(define (free-patterns/module [mod : Module] [env : (Set Bytes)]) : (Set Bytes)
-  (free-patterns/function-definitions (module-definitions mod) env (make-set bytes-cmp)))
+(define (free-patterns/module [mod : Module] [env : (Set Bytes)]) : (List FreeVar)
+  (free-patterns/function-definitions (module-definitions mod) env (empty)))
 
 (define (free-patterns/function-definitions
           [defs : (List FunctionDefinition)]
           [env : (Set Bytes)]
-          [acc : (Set Bytes)]) : (Set Bytes)
+          [acc : (List FreeVar)]) : (List FreeVar)
   (case defs
     [(empty) acc]
     [(cons def defs)
@@ -292,7 +298,7 @@
 (define (free-patterns/function-definition
           [def : FunctionDefinition]
           [env : (Set Bytes)]
-          [acc : (Set Bytes)]) : (Set Bytes)
+          [acc : (List FreeVar)]) : (List FreeVar)
   (match-define (function-definition _ _ args _ body) def)
   (free-patterns/function-args args env
     (free-patterns/block body env acc)))
@@ -300,15 +306,15 @@
 (define (free-patterns/function-args
           [args : (List FunctionArg)]
           [env : (Set Bytes)]
-          [acc : (Set Bytes)]) : (Set Bytes)
+          [acc : (List FreeVar)]) : (List FreeVar)
   (case args
     [(empty) acc]
     [(cons (function-arg pattern _type) args)
      (free-patterns/function-args args env
        (free-patterns/pattern pattern env acc))]))
 
-(define (free-patterns [expr : Expression] [env : (Set Bytes)] [acc : (Set Bytes)])
-  : (Set Bytes)
+(define (free-patterns [expr : Expression] [env : (Set Bytes)] [acc : (List FreeVar)])
+  : (List FreeVar)
   (case expr
     [(int-literal _) acc]
     [(bytes-literal _) acc]
@@ -331,8 +337,8 @@
     [(lambda-expr _ _ body)
      (free-patterns/block body env acc)]))
 
-(define (free-patterns/block [b : Block] [env : (Set Bytes)] [acc : (Set Bytes)])
-  : (Set Bytes)
+(define (free-patterns/block [b : Block] [env : (Set Bytes)] [acc : (List FreeVar)])
+  : (List FreeVar)
   (case b
     [(block defs expr)
      (free-patterns expr env
@@ -341,8 +347,8 @@
 (define (free-patterns/block-definitions
           [defs : (List BlockDefinition)]
           [env : (Set Bytes)]
-          [acc : (Set Bytes)])
-  : (Set Bytes)
+          [acc : (List FreeVar)])
+  : (List FreeVar)
   (case defs
     [(empty) acc]
     [(cons (match-def pattern _type expr) defs)
@@ -353,7 +359,7 @@
 (define (free-patterns/list
           [exprs : (List Expression)]
           [env : (Set Bytes)]
-          [acc : (Set Bytes)]) : (Set Bytes)
+          [acc : (List FreeVar)]) : (List FreeVar)
   (case exprs
     [(empty) acc]
     [(cons expr exprs)
@@ -362,7 +368,7 @@
 (define (free-patterns/clauses
           [exprs : (List CaseClause)]
           [env : (Set Bytes)]
-          [acc : (Set Bytes)]) : (Set Bytes)
+          [acc : (List FreeVar)]) : (List FreeVar)
   (case exprs
     [(empty) acc]
     [(cons (case-clause pattern body) clauses)
@@ -370,21 +376,21 @@
        (free-patterns/block body env
          (free-patterns/pattern pattern env acc)))]))
 
-(define (free-patterns/pattern [p : Pattern] [env : (Set Bytes)] [acc : (Set Bytes)])
-  : (Set Bytes)
+(define (free-patterns/pattern [p : Pattern] [env : (Set Bytes)] [acc : (List FreeVar)])
+  : (List FreeVar)
   (case p
     [(bytes-pattern _ _) acc]
     [(int-pattern _ _) acc]
     [(ignore-pattern _) acc]
     [(variable-pattern _ _) acc]
-    [(abstraction-pattern (source-span-annotated name _) pats _)
+    [(abstraction-pattern (source-span-annotated name src) pats _)
      (let ([acc (free-patterns/patterns pats env acc)])
        (if (set-member? env name)
            acc
-           (set-add acc name)))]))
+           (cons (free-var name src) acc)))]))
 
-(define (free-patterns/patterns [ps : (List Pattern)] [env : (Set Bytes)] [acc : (Set Bytes)])
-  : (Set Bytes)
+(define (free-patterns/patterns [ps : (List Pattern)] [env : (Set Bytes)] [acc : (List FreeVar)])
+  : (List FreeVar)
   (case ps
     [(empty) acc]
     [(cons p ps) (free-patterns/patterns ps env (free-patterns/pattern p env acc))]))

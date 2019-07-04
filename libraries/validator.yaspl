@@ -2,6 +2,7 @@
 #:import {
   (bytes)
   (data indexed-set)
+  (data source-location)
   (dict)
   (either)
   (free-variables)
@@ -11,6 +12,7 @@
   (module-name)
   (module-signature)
   (multi-set)
+  (numbers)
   (prim)
   {(resolved-imports-language)
     {#:types
@@ -103,9 +105,9 @@
     (function-error [name : Bytes] [error : FunctionError]))
   (define-type FunctionError
     (free-variables
-      [types : (List Bytes)]
-      [values : (List Bytes)]
-      [patterns : (List Bytes)])
+      [types : (List FreeVar)]
+      [values : (List FreeVar)]
+      [patterns : (List FreeVar)])
     (duplicate-bindings
       [names : (List Bytes)])))
 
@@ -216,9 +218,9 @@
   (let ([validate-function-definition/free-variables
           (lambda ([def : FunctionDefinition]) : (Maybe ModuleError)
             (case (tuple3
-                    (set->list (free-types/function-definition def type-env (make-set bytes-cmp)))
-                    (set->list (free-variables/function-definition def value-env (make-set bytes-cmp)))
-                    (set->list (free-patterns/function-definition def pattern-env (make-set bytes-cmp))))
+                    (free-types/function-definition def type-env (empty))
+                    (free-variables/function-definition def value-env (empty))
+                    (free-patterns/function-definition def pattern-env (empty)))
               [(tuple3 (empty) (empty) (empty))
                (nothing)]
               [(tuple3 types values patterns)
@@ -226,9 +228,7 @@
                        (function-definition-name def)
                        (free-variables types values patterns)))]))])
     (append
-      (let ([free-types
-              (set->list (free-types/type-definitions
-                           (module-types mod) type-env (make-set bytes-cmp)))])
+      (let ([free-types (free-types/type-definitions (module-types mod) type-env (empty))])
         (case free-types
           [(empty) (empty)]
           [types
@@ -495,25 +495,36 @@
                 (warn-duplicate-exports #"Value" values)
                 (warn-duplicate-exports #"Pattern" patterns))))))]
     [(function-error function-name (free-variables types values patterns))
-     (let ([warn-free-variables
-             (lambda ([kind : Bytes] [names : (List Bytes)]) : (JoinList Bytes)
-               (case names
-                 [(empty) (empty-jl)]
-                 [_
-                   (append-jl
-                     (varargs join-list #"  " kind #":\n")
-                     (concat-jl (map (lambda ([name : Bytes])
-                                       (varargs join-list #"    " name #"\n"))
-                                     names)))]))])
-        (bytes-append
-          (jl->list
-            (append-jl
-              (varargs join-list
-                #"Free variables in module " (mod-name->bytes mod-name) #" in function " function-name #":\n")
-              (varargs append-jl*
-                (warn-free-variables #"Types" types)
-                (warn-free-variables #"Values" values)
-                (warn-free-variables #"Patterns" patterns))))))]
+     (match-define warn-free-variables
+       (lambda ([kind : Bytes] [names : (List FreeVar)]) : (JoinList Bytes)
+         (case names
+           [(empty) (empty-jl)]
+           [_
+             (append-jl
+               (varargs join-list #"  " kind #":\n")
+               (concat-jl (map (lambda ([v : FreeVar])
+                                 (match-define
+                                   (free-var name (source-span source start-row start-column _ _)) v)
+                                 (match-define source-file
+                                   (case source
+                                     [(unnamed-source) #"<unknown>"]
+                                     [(source-file path) path]))
+                                 (varargs join-list
+                                   #"    " name
+                                   #" [" source-file #":"
+                                   (integer->decimal-bytes start-row) #":"
+                                   (integer->decimal-bytes start-column)
+                                   #"]\n"))
+                               names)))])))
+     (bytes-append
+       (jl->list
+         (append-jl
+           (varargs join-list
+             #"Free variables in module " (mod-name->bytes mod-name) #" in function " function-name #":\n")
+           (varargs append-jl*
+             (warn-free-variables #"Types" types)
+             (warn-free-variables #"Values" values)
+             (warn-free-variables #"Patterns" patterns)))))]
     [(function-error function-name (duplicate-bindings dups))
      (bytes-append
        (append
