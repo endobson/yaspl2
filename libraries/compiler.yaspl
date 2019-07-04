@@ -2,6 +2,7 @@
 #:import {
   (bytes)
   (data indexed-set)
+  (data source-location)
   (either)
   {(intermediate-language)
     {#:types
@@ -23,6 +24,7 @@
       deserialize-module-signature
     }
   }
+  (numbers)
   (prim)
   (prim-implementation)
   {(resolved-imports-language)
@@ -72,7 +74,7 @@
   (#:patterns))
 (types
   (define-type ParserError
-    (parser-error [file-path : Bytes] [message : Bytes])))
+    (parser-error [source : SourceSpan] [message : Bytes])))
 
 (define (compile-main-module
           [main-module : Module]
@@ -156,18 +158,25 @@
 (define (parse-module-file [module-file-path : Bytes])
   : (Either ParserError Module)
   (case (parse-sexps (sourced-bytes-from-file module-file-path))
-    [(left (sexp-error v _))
-     (left (parser-error module-file-path v))]
+    [(left (sexp-error v src))
+     (left (parser-error src v))]
     [(right mod-sexps)
      (case (parse-module mod-sexps)
-       [(left (source-parse-error v _))
-        (left (parser-error module-file-path v))]
+       [(left (source-parse-error v src))
+        (left (parser-error src v))]
        [(right v)
         (right v)])]))
 
 (define (parser-error->bytes [v : ParserError]) : Bytes
-  (match-define (parser-error path msg) v)
-  (bytes-append (varargs list #"Error parsinging module file '" path #"': " msg)))
+  (match-define (parser-error src-span msg) v)
+  (match-define (source-span source start-row start-column _end-row _end-column) src-span)
+  (match-define source-file
+    (case source
+      [(unnamed-source) #"<unknown>"]
+      [(source-file path) path]))
+  (bytes-append (varargs list #"Error parsinging module at " source-file #":"
+                         (integer->decimal-bytes start-row) #":"
+                         (integer->decimal-bytes start-column) #": " msg)))
 
 (define (parse-signature-files [files : (List Bytes)]) : (Either Bytes (List ModuleSignature))
   (case files

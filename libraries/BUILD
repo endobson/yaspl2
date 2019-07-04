@@ -387,6 +387,8 @@ yaspl_bootstrap_library(
         "//libraries/data:indexed-set",
         "//libraries/data:list",
         "//libraries/data:maybe",
+        "//libraries/data:numbers",
+        "//libraries/data:source-location",
         "//libraries/data:tuples",
         "//libraries/yaspl:intermediate-to-register",
         "//libraries/yaspl:optimize-intermediate",
