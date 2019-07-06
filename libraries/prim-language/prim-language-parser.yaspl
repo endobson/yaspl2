@@ -1,6 +1,7 @@
 #:module (prim-language-parser)
 #:import {
   (bytes)
+  (data source-location)
   (dict)
   (either)
   (list)
@@ -16,13 +17,17 @@
 (export
   (#:types)
   (#:values parse-module)
-  (#:patterns))
+  (#:patterns parse-error))
 (types
   (define-type ParseEnvironment
     (parse-environment
-      [types : (Dict Bytes MemoryType)])))
+      [types : (Dict Bytes MemoryType)]))
+  (define-type ParseError
+    (parse-error
+      [message : Bytes]
+      [source : SourceSpan])))
 
-(define (parse-module [sexp : Sexp]) : (Either Bytes Module)
+(define (parse-module [sexp : Sexp]) : (Either ParseError Module)
   (case sexp
     [(node (cons (symbol-sexp #"module" _)
                  (cons (symbol-sexp name _)
@@ -38,7 +43,7 @@
        [(right definitions)
         (right (module name (void) definitions))])]
     [_
-     (left #"Not a valid module form")]))
+     (left (parse-error #"Not a valid module form" (sexp-source-span sexp)))]))
 
 (define (initial-parse-env) : ParseEnvironment
   (parse-environment
@@ -50,7 +55,8 @@
         (tuple2 #"boolean" (value-type (boolean-type)))
         (tuple2 #"undetermined-pointer" (value-type (undetermined-pointer-type)))))))
 
-(define (parse-function-definition [sexp : Sexp] [env : ParseEnvironment]) : (Either Bytes FunctionDefinition)
+(define (parse-function-definition [sexp : Sexp] [env : ParseEnvironment])
+  : (Either ParseError FunctionDefinition)
   (case sexp
     [(node (cons (symbol-sexp #"define" _)
                  (cons (node (cons (symbol-sexp name _) args) _)
@@ -68,18 +74,18 @@
              [(right statements)
               (right (function-definition name args type statements))])])])]
     [_
-     (left #"Not a valid function definition")]))
+     (left (parse-error #"Not a valid function definition" (sexp-source-span sexp)))]))
 
-(define (parse-arg [sexp : Sexp] [env : ParseEnvironment]) : (Either Bytes (Tuple2 Bytes Type))
+(define (parse-arg [sexp : Sexp] [env : ParseEnvironment]) : (Either ParseError (Tuple2 Bytes Type))
   (case sexp
     [(bracket-node (cons (symbol-sexp v _) (cons (symbol-sexp #":" _) (cons type (empty)))) _)
      (case (parse-type type env)
        [(left v) (left v)]
        [(right ty)
         (right (tuple2 v ty))])]
-    [_ (left #"Not a valid arg")]))
+    [_ (left (parse-error #"Not a valid arg" (sexp-source-span sexp)))]))
 
-(define (parse-statement [sexp : Sexp] [env : ParseEnvironment]) : (Either Bytes Statement)
+(define (parse-statement [sexp : Sexp] [env : ParseEnvironment]) : (Either ParseError Statement)
   (match-define parse-statement*
     (lambda ([sexp : Sexp]) (parse-statement sexp env)))
   (case sexp
@@ -136,9 +142,9 @@
           [(right body)
            (right (while cond body))])])]
     [_
-     (left #"Not a valid statement")]))
+     (left (parse-error #"Not a valid statement" (sexp-source-span sexp)))]))
 
-(define (parse-expr [sexp : Sexp] [env : ParseEnvironment]) : (Either Bytes Expr)
+(define (parse-expr [sexp : Sexp] [env : ParseEnvironment]) : (Either ParseError Expr)
   (match-define parse-expr*
     (lambda ([sexp : Sexp]) (parse-expr sexp env)))
   (case sexp
@@ -165,9 +171,9 @@
            (case (parse-expr offset env)
              [(left v) (left v)]
              [(right offset) (right (array-index-expr type pointer offset))])])])]
-    [(node (cons (symbol-sexp #"syscall" _) (cons (symbol-sexp syscall-name _) args)) _)
+    [(node (cons (symbol-sexp #"syscall" _) (cons (symbol-sexp syscall-name name-src) args)) _)
      (case (parse-syscall-name syscall-name)
-       [(left v) (left v)]
+       [(left v) (left (parse-error v name-src))]
        [(right syscall)
         (case (extract-rights (map parse-expr* args))
           [(left v) (left v)]
@@ -186,9 +192,9 @@
           [(left v) (left v)]
           [(right expr)
            (right (cast-expr conversion expr))])])]
-    [(node (cons (symbol-sexp op _) (cons left-expr (cons right-expr (empty)))) _)
+    [(node (cons (symbol-sexp op op-src) (cons left-expr (cons right-expr (empty)))) _)
      (case (parse-bin-op op)
-       [(left v) (left v)]
+       [(left v) (left (parse-error v op-src))]
        [(right op)
         (case (parse-expr left-expr env)
           [(left v) (left v)]
@@ -197,7 +203,7 @@
              [(left v) (left v)]
              [(right right-expr)
               (right (bin-op-expr op left-expr right-expr))])])])]
-    [_ (left #"Not a valid expression")]))
+    [_ (left (parse-error #"Not a valid expression" (sexp-source-span sexp)))]))
 
 (define (parse-syscall-name [name : Bytes]) : (Either Bytes Syscall)
   (case name
@@ -221,7 +227,7 @@
     [#"!=" (right (comparison-bin-op (not-equal-op)))]
     [_ (left (bytes-append (varargs list #"Not a valid bin-op: " op)))]))
 
-(define (parse-conversion [sexp : Sexp] [env : ParseEnvironment]) : (Either Bytes Conversion)
+(define (parse-conversion [sexp : Sexp] [env : ParseEnvironment]) : (Either ParseError Conversion)
   (case sexp
     [(symbol-sexp #"int64->int8" _)
      (right (truncate-unsigned-int64->unsigned-int8))]
@@ -239,9 +245,10 @@
        [(left v) (left v)]
        [(right type)
         (right (unrefine-pointer type))])]
-    [_ (left (bytes-append (varargs list #"Not a valid conversion " (print-sexp* sexp))))]))
+    [_ (left (parse-error (bytes-append (varargs list #"Not a valid conversion " (print-sexp* sexp)))
+                          (sexp-source-span sexp)))]))
 
-(define (parse-memory-type [sexp : Sexp] [env : ParseEnvironment]) : (Either Bytes MemoryType)
+(define (parse-memory-type [sexp : Sexp] [env : ParseEnvironment]) : (Either ParseError MemoryType)
   (case sexp
     [(node (cons (symbol-sexp #"pointer" _) (cons sexp (empty))) _)
      (case (parse-memory-type sexp env)
@@ -251,16 +258,18 @@
      (case (parse-memory-type sexp env)
        [(left v) (left v)]
        [(right t) (right (array-type t))])]
-    [(symbol-sexp sym _)
+    [(symbol-sexp sym src)
      (case (dict-ref (parse-environment-types env) sym)
        [(just t) (right t)]
        [(nothing)
-        (left (bytes-append (varargs list #"Unknown type name: " sym)))])]
-    [_ (left (bytes-append (varargs list #"Not a valid type: " (print-sexp* sexp))))]))
+        (left (parse-error (bytes-append (varargs list #"Unknown type name: " sym))
+                           src))])]
+    [_ (left (parse-error (bytes-append (varargs list #"Not a valid type: " (print-sexp* sexp)))
+                          (sexp-source-span sexp)))]))
 
-(define (parse-type [sexp : Sexp] [env : ParseEnvironment]) : (Either Bytes Type)
+(define (parse-type [sexp : Sexp] [env : ParseEnvironment]) : (Either ParseError Type)
   (case (parse-memory-type sexp env)
     [(left v) (left v)]
     [(right (value-type t)) (right t)]
     [(right _)
-     (left #"Type must be a value type")]))
+     (left (parse-error #"Type must be a value type" (sexp-source-span sexp)))]))
