@@ -77,18 +77,21 @@
     (match-def [pattern : Pattern] [type : (Maybe PreType)] [expr : Expression]))
 
   (define-type Expression
-    (int-literal [v : Int])
-    (bytes-literal [v : Bytes])
-    (boolean-literal [v : Boolean])
+    (int-literal [v : Int] [source : SourceSpan])
+    (bytes-literal [v : Bytes] [source : SourceSpan])
+    (boolean-literal [v : Boolean] [source : SourceSpan])
     (var-expr [v : Bytes] [source : SourceSpan])
-    (annotated-expr [t : PreType] [e : Expression])
-    (if-expr [cond : Expression] [true : Expression] [false : Expression])
-    (begin-expr [exprs : (List Expression)] [last-expr : Expression])
-    (app-expr [tail-position : Boolean] [op : Expression] [args : (List Expression)])
-    (varargs-app-expr [tail-position : Boolean] [op : Expression] [args : (List Expression)])
-    (let-expr [name : Bytes] [expr : Expression] [body : Block])
-    (lambda-expr [args : (List FunctionArg)] [type : (Maybe PreType)] [body : Block])
-    (case-expr [expr : Expression] [clauses : (List CaseClause)]))
+    (annotated-expr [t : PreType] [e : Expression] [source : SourceSpan])
+    (if-expr [cond : Expression] [true : Expression] [false : Expression] [source : SourceSpan])
+    (begin-expr [exprs : (List Expression)] [last-expr : Expression] [source : SourceSpan])
+    (app-expr [tail-position : Boolean] [op : Expression] [args : (List Expression)]
+              [source : SourceSpan])
+    (varargs-app-expr [tail-position : Boolean] [op : Expression] [args : (List Expression)]
+                      [source : SourceSpan])
+    (let-expr [name : Bytes] [expr : Expression] [body : Block] [source : SourceSpan])
+    (lambda-expr [args : (List FunctionArg)] [type : (Maybe PreType)] [body : Block]
+                 [source : SourceSpan])
+    (case-expr [expr : Expression] [clauses : (List CaseClause)] [source : SourceSpan]))
 
   (define-type FunctionArg
     (function-arg
@@ -141,6 +144,27 @@
           [(left v) (left v)]
           [(right v3)
            (right (f v1 v2 v3))])])]))
+
+(define [a b c d r]
+  (either-app4
+    [f : (a b c d -> r)]
+    [e1 : (Either SourceParseError a)]
+    [e2 : (Either SourceParseError b)]
+    [e3 : (Either SourceParseError c)]
+    [e4 : (Either SourceParseError d)]) : (Either SourceParseError r)
+  (case e1
+    [(left v) (left v)]
+    [(right v1)
+     (case e2
+       [(left v) (left v)]
+       [(right v2)
+        (case e3
+          [(left v) (left v)]
+          [(right v3)
+           (case e4
+             [(left v) (left v)]
+             [(right v4)
+              (right (f v1 v2 v3 v4))])])])]))
 
 (define (parse-imports [sexps : (List Sexp)]) : (Either SourceParseError (List Imports))
   (case sexps
@@ -528,17 +552,18 @@
 
 (define (parse-expression [tail-position : Boolean] [sexp : Sexp]) : (Either SourceParseError Expression)
   (case sexp
-    [(number-sexp v _) (right (int-literal v))]
-    [(bytes-sexp v _) (right (bytes-literal v))]
-    [(boolean-sexp v _) (right (boolean-literal v))]
+    [(number-sexp v src) (right (int-literal v src))]
+    [(bytes-sexp v src) (right (bytes-literal v src))]
+    [(boolean-sexp v src) (right (boolean-literal v src))]
     [(symbol-sexp v src) (right (var-expr v src))]
     [(node (cons (symbol-sexp #"if" _) exprs) src)
      (case exprs
        [(cons cond (cons true (cons false (empty))))
-        (either-app3 if-expr
+        (either-app4 if-expr
           (parse-expression #f cond)
           (parse-expression tail-position true)
-          (parse-expression tail-position false))]
+          (parse-expression tail-position false)
+          (right/source-parse-error src))]
        [_
         (left (source-parse-error #"If: requires exactly three expressions" src))])]
     [(node (cons (symbol-sexp #"begin" _) exprs) src)
@@ -546,46 +571,46 @@
        [(empty)
         (left (source-parse-error #"Begin requires at least one expression" src))]
        [(cons last-expr exprs)
-        (either-app2 begin-expr
+        (either-app3 begin-expr
           (extract-rights (map (lambda ([s : Sexp]) (parse-expression #f s)) (reverse exprs)))
-          (parse-expression tail-position last-expr))])]
-    [(node (cons (symbol-sexp #"varargs" _) (cons op-expr exprs)) _)
+          (parse-expression tail-position last-expr)
+          (right/source-parse-error src))])]
+    [(node (cons (symbol-sexp #"varargs" _) (cons op-expr exprs)) src)
      (case (parse-expression #f op-expr)
        [(left v) (left v)]
        [(right op-expr)
         (case (extract-rights (map (lambda ([s : Sexp]) (parse-expression #f s)) exprs))
           [(left v) (left v)]
           [(right exprs)
-           (right (varargs-app-expr tail-position op-expr exprs))])])]
+           (right (varargs-app-expr tail-position op-expr exprs src))])])]
     [(node (cons (symbol-sexp #"let" _) other-sexps) src)
      (parse-let-sexps tail-position other-sexps src)]
-    [(node (cons (symbol-sexp #"case" _) (cons expr clauses)) _)
-     (either-app2 case-expr
+    [(node (cons (symbol-sexp #"case" _) (cons expr clauses)) src)
+     (either-app3 case-expr
        (parse-expression #f expr)
        (extract-rights (map (lambda ([s : Sexp]) (parse-case-clause tail-position s))
-                            clauses)))]
+                            clauses))
+       (right/source-parse-error src))]
     [(node (cons (symbol-sexp #"lambda" _) lambda-sexps) src)
      (parse-lambda-sexps lambda-sexps src)]
-
-    [(node (cons (symbol-sexp #"ann" _)
-                 (cons pre-type (cons expr (empty)))) _)
+    [(node (cons (symbol-sexp #"ann" _) (cons pre-type (cons expr (empty)))) src)
      (case (parse-pre-type pre-type)
        [(left v) (left v)]
        [(right pre-type)
         (case (parse-expression tail-position expr)
           [(left v) (left v)]
           [(right expr)
-           (right (annotated-expr pre-type expr))])])]
+           (right (annotated-expr pre-type expr src))])])]
     [(node (cons (symbol-sexp #"match-define" _) _) src)
      (left (source-parse-error #"Definitions are not valid expressions" src))]
-    [(node (cons op-expr arg-exprs) _)
+    [(node (cons op-expr arg-exprs) src)
      (case (parse-expression #f op-expr)
        [(left v) (left v)]
        [(right op-expr)
         (case (extract-rights (map (lambda ([s : Sexp]) (parse-expression #f s)) arg-exprs))
           [(left v) (left v)]
           [(right arg-exprs)
-           (right (app-expr tail-position op-expr arg-exprs))])])]
+           (right (app-expr tail-position op-expr arg-exprs src))])])]
     [(node (empty) src)
      (left (source-parse-error #"Application needs an operator" src))]
     [(bracket-node _ src)
@@ -607,9 +632,10 @@
        [(node bindings-list src)
         (case bindings-list
           [(cons (bracket-node (cons (symbol-sexp name _) (cons expr (empty))) _) (empty))
-           (either-app3 let-expr
+           (either-app4 let-expr
              (right/source-parse-error name) (parse-expression #f expr)
-             (parse-block tail-position body body*))]
+             (parse-block tail-position body body*)
+             (right/source-parse-error full-src))]
           [_
            (left (source-parse-error #"Let bindings: couldn't be parsed" src))])]
        [_
@@ -623,15 +649,17 @@
      (case (parse-pre-type type-expr)
        [(left v) (left v)]
        [(right pre-type)
-        (either-app3 lambda-expr
+        (either-app4 lambda-expr
           (extract-rights (map parse-arg arg+tys))
           (right/source-parse-error (just pre-type))
-          (parse-block #t body body*))])]
+          (parse-block #t body body*)
+          (right/source-parse-error full-src))])]
     [(cons (node arg+tys _) (cons body body*))
-     (either-app3 lambda-expr
+     (either-app4 lambda-expr
        (extract-rights (map parse-arg arg+tys))
        (right/source-parse-error (ann (Maybe PreType) (nothing)))
-       (parse-block #t body body*))]
+       (parse-block #t body body*)
+       (right/source-parse-error full-src))]
     [_
      (left (source-parse-error #"Lambda: couldn't be parsed" full-src))]))
 
