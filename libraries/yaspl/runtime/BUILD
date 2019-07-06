@@ -10,11 +10,17 @@ prim_library(
     srcs = ["read-memory.prim"],
 )
 
+prim_library(
+    name = "type-descriptor",
+    srcs = ["type-descriptor.prim"],
+)
+
 filegroup(
     name = "runtime",
     srcs = [
         ":fill-stack",
         ":read-memory",
+        ":type-descriptor",
     ],
     visibility = ["//visibility:public"],
 )
@@ -24,6 +30,7 @@ filegroup(
     srcs = [
         ":fill-stack.prim",
         ":read-memory.prim",
+        ":type-descriptor",
     ],
     visibility = [
         "//bootstrap:__pkg__",
