@@ -406,6 +406,7 @@ yaspl_bootstrap_library(
         ":type-checked-language",
         ":types",
         "//libraries/data:list",
+        "//libraries/data:source-location",
     ],
 )
 
@@ -1050,6 +1051,7 @@ yaspl_bootstrap_library(
         "//libraries/data:maybe",
         "//libraries/data:numbers",
         "//libraries/data:set",
+        "//libraries/data:source-location",
         "//libraries/data:tuples",
     ],
 )
