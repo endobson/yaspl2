@@ -212,6 +212,7 @@ yaspl_library(
         "//libraries/data:indexed-set",
         "//libraries/data:list",
         "//libraries/data:set",
+        "//libraries/data:source-location",
     ],
 )
 
