@@ -1160,7 +1160,9 @@ yaspl_library(
     deps = [
         ":source-language",
         "//libraries/data:bytes",
+        "//libraries/data:dict",
         "//libraries/data:join-list",
+        "//libraries/data:lifted-primitives",
         "//libraries/data:list",
         "//libraries/data:maybe",
         "//libraries/data:set",
