@@ -336,6 +336,8 @@ yaspl_bootstrap_library(
     srcs = ["source-location.yaspl"],
     deps = [
         ":bytes",
+        ":list",
+        ":numbers",
         ":tuples",
     ],
 )
