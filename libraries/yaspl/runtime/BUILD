@@ -12,8 +12,8 @@ prim_library(
 )
 
 prim_library(
-    name = "type-descriptor",
-    srcs = ["type-descriptor.prim"],
+    name = "variant-descriptor",
+    srcs = ["variant-descriptor.prim"],
 )
 
 yaspl_test(
@@ -33,12 +33,25 @@ yaspl_test(
     ],
 )
 
+yaspl_test(
+    name = "variant-descriptor-test",
+    size = "small",
+    srcs = ["variant-descriptor-test.yaspl"],
+    deps = [
+        "//libraries:yunit",
+        "//libraries/data:bytes",
+        "//libraries/data:lifted-primitives",
+        "//libraries/data:list",
+        "//libraries/data:maybe",
+    ],
+)
+
 filegroup(
     name = "runtime",
     srcs = [
         ":fill-stack",
         ":read-memory",
-        ":type-descriptor",
+        ":variant-descriptor",
     ],
     visibility = ["//visibility:public"],
 )
@@ -48,7 +61,7 @@ filegroup(
     srcs = [
         ":fill-stack.prim",
         ":read-memory.prim",
-        ":type-descriptor.prim",
+        ":variant-descriptor.prim",
     ],
     visibility = [
         "//bootstrap:__pkg__",
