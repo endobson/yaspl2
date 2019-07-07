@@ -79,18 +79,18 @@
      (node/p (varargs list (symbol-sexp/p #"variant-constructor") (number-sexp/p (u8->s64 tag))))]))
 
 
-(define (sexp->trivial-closure [s : Sexp]) : (Maybe TopLevelName)
+(define (sexp->trivial-closure [s : Sexp]) : (Either Bytes (Maybe TopLevelName))
   (case s
-    [(boolean-sexp _ _) (nothing)]
+    [(boolean-sexp _ _) (right (nothing))]
     [_
      (case (sexp->top-level-name s)
-       [(just t) (just t)]
-       [_ (panic #"Bad trivial closure")])]))
+       [(just t) (right (just t))]
+       [_ (left #"Bad trivial closure")])]))
 
 (define (value-exports->dict [value-exports : (List Sexp)] [acc : (Dict Bytes ValueSignature)])
-  : (Dict Bytes ValueSignature)
+  : (Either Bytes (Dict Bytes ValueSignature))
   (case value-exports
-    [(empty) acc]
+    [(empty) (right acc)]
     [(cons (node (cons (bytes-sexp k _)
                        (cons type
                              (cons top-level-name (empty)))) _) value-exports)
@@ -102,41 +102,41 @@
              value-exports
              (dict-add acc k (value-signature type top-level-name)))]
           [(nothing)
-           (panic #"Bad value-exports")])]
+           (left #"Bad value-exports")])]
         [(nothing)
-         (panic #"Bad value-exports")])]
+         (left #"Bad value-exports")])]
     [_
-     (panic #"Bad value-exports")]))
+     (left #"Bad value-exports")]))
 
 (define (type-exports->dict [type-exports : (List Sexp)] [acc : (Dict Bytes Type)])
-  : (Dict Bytes Type)
+  : (Either Bytes (Dict Bytes Type))
   (case type-exports
-    [(empty) acc]
+    [(empty) (right acc)]
     [(cons (node (cons (bytes-sexp k _) (cons type (empty))) _) type-exports)
      (case (sexp->type type)
        [(just type)
         (type-exports->dict type-exports (dict-add acc k type))]
        [(nothing)
-        (panic #"Bad type-exports")])]
+        (left #"Bad type-exports")])]
     [_
-     (panic #"Bad type-exports")]))
+     (left #"Bad type-exports")]))
 
-(define (parse-type-var-sexp [s : Sexp]) : Bytes
+(define (parse-type-var-sexp [s : Sexp]) : (Either Bytes Bytes)
   (case s
-    [(symbol-sexp v _) v]
-    [_ (panic #"Not a valid type-var")]))
+    [(symbol-sexp v _) (right v)]
+    [_ (left #"Not a valid type-var")]))
 
-(define (parse-variant-name [s : Sexp]) : Bytes
+(define (parse-variant-name [s : Sexp]) : (Either Bytes Bytes)
   (case s
-    [(bytes-sexp v _) v]
-    [_ (panic #"Not a valid variant-name")]))
+    [(bytes-sexp v _) (right v)]
+    [_ (left #"Not a valid variant-name")]))
 
 (define (pattern-exports->dict
           [pattern-exports : (List Sexp)]
           [acc : (Dict Bytes PatternSignature)])
-  : (Dict Bytes PatternSignature)
+  : (Either Bytes (Dict Bytes PatternSignature))
   (case pattern-exports
-    [(empty) acc]
+    [(empty) (right acc)]
     [(cons (node (cons (bytes-sexp export-name _)
                        (cons (bytes-sexp variant-name _)
                              (cons (number-sexp variant-tag _)
@@ -149,54 +149,65 @@
                  _)
            pattern-exports)
      (case (sexp->mod-name mod-name-sexp)
-       [(nothing) (panic #"Bad mod-name")]
+       [(nothing) (left #"Bad mod-name")]
        [(just mod-name)
         (case (extract-justs (map sexp->type field-type-sexps))
           [(just field-types)
-           (pattern-exports->dict
-             pattern-exports
-             (dict-add acc export-name
-                       (pattern-signature
-                         variant-name
-                         (u8 variant-tag)
-                         mod-name
-                         type-name
-                         (map parse-type-var-sexp type-var-sexps)
-                         field-types
-                         (type-signature (map parse-variant-name variant-names)))))]
-          [(nothing) (panic #"Not a valid pattern-exports")])])]
-    [_ (panic #"Not a valid pattern-exports")]))
+           (case (extract-rights (map parse-type-var-sexp type-var-sexps))
+             [(left v) (left v)]
+             [(right type-vars)
+              (case (extract-rights (map parse-variant-name variant-names))
+                [(left v) (left v)]
+                [(right variant-names)
+                 (pattern-exports->dict
+                   pattern-exports
+                   (dict-add acc export-name
+                             (pattern-signature
+                               variant-name
+                               (u8 variant-tag)
+                               mod-name
+                               type-name
+                               type-vars
+                               field-types
+                               (type-signature variant-names))))])])]
+          [(nothing) (left #"Not a valid pattern-exports")])])]
+    [_ (left #"Not a valid pattern-exports")]))
 
 
 (define (top-level-sigs->dict
           [top-level-sigs : (List Sexp)]
           [acc : (Dict TopLevelName TopLevelSignature)])
-  : (Dict TopLevelName TopLevelSignature)
+  : (Either Bytes (Dict TopLevelName TopLevelSignature))
   (case top-level-sigs
-    [(empty) acc]
+    [(empty) (right acc)]
     [(cons (node (cons name (cons trivial-closure (cons inline (empty)))) _) top-level-sigs)
      (case (sexp->top-level-name name)
        [(just name)
-        (top-level-sigs->dict
-          top-level-sigs
-          (dict-add acc name (top-level-signature (sexp->trivial-closure trivial-closure)
-                                                  (sexp->inlineable-function inline))))]
-       [(nothing) (panic #"Not a valid top-level-sigs")])]
-    [_ (panic #"Not a valid top-level-sigs")]))
+        (case (sexp->trivial-closure trivial-closure)
+          [(left v) (left v)]
+          [(right trivial-closure)
+           (case (sexp->inlineable-function inline)
+             [(left v) (left v)]
+             [(right inline)
+              (top-level-sigs->dict
+                top-level-sigs
+                (dict-add acc name (top-level-signature trivial-closure inline)))])])]
+       [(nothing) (left #"Not a valid top-level-sigs")])]
+    [_ (left #"Not a valid top-level-sigs")]))
 
-(define (sexp->inlineable-function [sexp : Sexp]) : (Maybe InlineableFunction)
+(define (sexp->inlineable-function [sexp : Sexp]) : (Either Bytes (Maybe InlineableFunction))
   (case sexp
-    [(boolean-sexp _ _) (nothing)]
+    [(boolean-sexp _ _) (right (nothing))]
     [(node (cons (symbol-sexp #"variant-accessor" _) (cons (number-sexp index _) (empty))) _)
-     (just (variant-accessor-inlineable-function index))]
+     (right (just (variant-accessor-inlineable-function index)))]
     [(node (cons (symbol-sexp #"zero-arg-constant" _) (cons name (empty))) _)
      (case (sexp->top-level-name name)
-       [(nothing) (panic #"Bad zero-arg-constant")]
+       [(nothing) (left #"Bad zero-arg-constant")]
        [(just name)
-        (just (zero-arg-constant-inlineable-function name))])]
+        (right (just (zero-arg-constant-inlineable-function name)))])]
     [(node (cons (symbol-sexp #"variant-constructor" _) (cons (number-sexp tag _) (empty))) _)
-     (just (variant-constructor-inlineable-function (u8 tag)))]
-    [_ (panic #"Bad inlineable-function")]))
+     (right (just (variant-constructor-inlineable-function (u8 tag))))]
+    [_ (left #"Bad inlineable-function")]))
 
 (define (deserialize-module-signature [sbytes : SourcedBytes]) : (Either Bytes ModuleSignature)
   (case (parse-single-sexp sbytes)
@@ -211,12 +222,24 @@
      (case (sexp->mod-name name)
        [(nothing) (left #"Bad mod-name")]
        [(just name)
-        (right
-          (module-signature
-            name
-            (value-exports->dict value-exports (make-dict bytes-cmp))
-            (pattern-exports->dict pattern-exports (make-dict bytes-cmp))
-            (type-exports->dict type-bindings (make-dict bytes-cmp))
-            (top-level-sigs->dict top-level-sigs (make-dict top-level-name-cmp))))])]
+        (case (value-exports->dict value-exports (make-dict bytes-cmp))
+          [(left v) (left v)]
+          [(right value-exports)
+           (case (pattern-exports->dict pattern-exports (make-dict bytes-cmp))
+             [(left v) (left v)]
+             [(right pattern-exports)
+              (case (type-exports->dict type-bindings (make-dict bytes-cmp))
+                [(left v) (left v)]
+                [(right type-exports)
+                 (case (top-level-sigs->dict top-level-sigs (make-dict top-level-name-cmp))
+                   [(left v) (left v)]
+                   [(right top-level-sigs)
+                    (right
+                      (module-signature
+                        name
+                        value-exports
+                        pattern-exports
+                        type-exports
+                        top-level-sigs))])])])])])]
     [(right _)
      (left #"Unexpected sexp shape")]))
