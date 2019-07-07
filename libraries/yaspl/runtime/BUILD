@@ -30,7 +30,7 @@ filegroup(
     srcs = [
         ":fill-stack.prim",
         ":read-memory.prim",
-        ":type-descriptor",
+        ":type-descriptor.prim",
     ],
     visibility = [
         "//bootstrap:__pkg__",
