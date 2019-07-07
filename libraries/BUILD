@@ -558,6 +558,7 @@ yaspl_bootstrap_library(
     name = "module-signature-serialization",
     srcs = ["module-signature-serialization.yaspl"],
     deps = [
+        ":intermediate-expression",
         ":module-name",
         ":module-signature",
         ":sexp-parser",
