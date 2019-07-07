@@ -20,7 +20,6 @@
       [ValueExport ed:ValueExport]
     }
     {#:values
-      [module-datatype-definitions ed:module-datatype-definitions]
       [module-definitions ed:module-definitions]
       [module-imports ed:module-imports]
       [module-name ed:module-name]
@@ -153,19 +152,30 @@
 
 (define (resolve-vars [mod : ed:Module]) : Module
   (match-define (ed:module name imports exports definitions datatype-definitions) mod)
-  (match-define global-env (setup-value-environment mod))
+
+  (match-define datatype-definitions : (Dict Bytes DatatypeDefinition)
+    (dict-add-all
+      (make-dict bytes-cmp)
+      (map resolve-vars/datatype-definition datatype-definitions)))
+
+  (match-define global-env (setup-value-environment mod datatype-definitions))
   (match-define env (environment (make-dict bytes-cmp) global-env name))
 
   (module name imports
           (resolve-vars/exports exports env)
           (map (lambda ([f : ed:FunctionDefinition]) (resolve-vars/function-definition f env))
                definitions)
-          (map resolve-vars/datatype-definition datatype-definitions)))
+          (dict-values datatype-definitions)))
 
-(define (setup-value-environment [mod : ed:Module]) : (Dict Bytes TopLevelName)
+(define (setup-value-environment
+          [mod : ed:Module]
+          [datatype-definitions : (Dict Bytes DatatypeDefinition)]) : (Dict Bytes TopLevelName)
   (add-all-imported-functions
     (add-locally-defined-functions
-      (make-dict bytes-cmp)
+      (add-datatype-definitions
+        (make-dict bytes-cmp)
+        (ed:module-name mod)
+        datatype-definitions)
       mod)
     mod))
 
@@ -186,27 +196,23 @@
         [(ed:function-definition name _ _ _ _)
          (dict-add env name (top-level-name (ed:module-name mod) name))]))
     (ed:module-definitions mod)
-    (foldl
-      (lambda ([def : ed:DatatypeDefinition] [env : (Dict Bytes TopLevelName)])
-        (case def
-          [(ed:variant-constructor type-name variant-name _ _)
-           (dict-add
-             env
-             variant-name
-             (top-level-name
-               (ed:module-name mod)
-               (bytes-append
-                 (varargs list type-name #"_" variant-name #"_closure"))))]
-          [(ed:variant-accessor type-name variant-name field-name _)
-           (dict-add
-             env
-             (bytes-append (varargs list variant-name #"-" field-name))
-             (top-level-name
-               (ed:module-name mod)
-               (bytes-append
-                 (varargs list type-name #"_" variant-name #"_" field-name #"_closure"))))]))
-      (ed:module-datatype-definitions mod)
-      env)))
+    env))
+
+(define (add-datatype-definitions
+          [env : (Dict Bytes TopLevelName)]
+          [mod-name : ModName]
+          [datatype-definitions : (Dict Bytes DatatypeDefinition)])
+  : (Dict Bytes TopLevelName)
+  (merge-dicts
+    env
+    (dict-value-map
+      datatype-definitions
+      (lambda ([data : DatatypeDefinition])
+        (case data
+          [(variant-constructor _ closure-name _ _ _ _)
+           (top-level-name mod-name closure-name)]
+          [(variant-accessor _ closure-name _)
+           (top-level-name mod-name closure-name)])))))
 
 (define (resolve-vars/exports [e : ed:Exports] [env : Environment]) : Exports
   (case e
@@ -236,21 +242,25 @@
      (function-definition name type-vars args return-type next-var body)]))
 
 (define (resolve-vars/datatype-definition [f : ed:DatatypeDefinition])
-  : DatatypeDefinition
+  : (Tuple2 Bytes DatatypeDefinition)
   (case f
     [(ed:variant-constructor type-name variant-name fields tag)
-     (variant-constructor
-       (bytes-append (varargs list type-name #"_" variant-name))
-       (bytes-append (varargs list type-name #"_" variant-name #"_closure"))
-       (bytes-append (varargs list type-name #"_" variant-name #"_const"))
-       (bytes-append (varargs list type-name #"_" variant-name #"_descriptor"))
-       fields
-       tag)]
+     (tuple2
+       variant-name
+       (variant-constructor
+         (bytes-append (varargs list type-name #"_" variant-name))
+         (bytes-append (varargs list type-name #"_" variant-name #"_closure"))
+         (bytes-append (varargs list type-name #"_" variant-name #"_const"))
+         (bytes-append (varargs list type-name #"_" variant-name #"_descriptor"))
+         fields
+         tag))]
     [(ed:variant-accessor type-name variant-name field-name field-offset)
-     (variant-accessor
-       (bytes-append (varargs list type-name #"_" variant-name #"_" field-name))
-       (bytes-append (varargs list type-name #"_" variant-name #"_" field-name #"_closure"))
-       field-offset)]))
+     (tuple2
+       (bytes-append (varargs list variant-name #"-" field-name))
+       (variant-accessor
+         (bytes-append (varargs list type-name #"_" variant-name #"_" field-name))
+         (bytes-append (varargs list type-name #"_" variant-name #"_" field-name #"_closure"))
+         field-offset))]))
 
 ;; TODO optimize this so that we don't add unnecessary patterns
 (define (resolve-vars/function-arg
