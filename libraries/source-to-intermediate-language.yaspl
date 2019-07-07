@@ -121,16 +121,17 @@
      (match-define mod (resolve-vars mod))
      (match-define mod (expand-patterns mod))
      (case mod
-       [(module name imports exports definitions)
+       [(module name imports exports definitions datatype-definitions)
         (case (convert-function-definitions
                 definitions
                 name
-                (state (empty) (empty) 0))
+                (convert-datatype-definitions
+                  datatype-definitions
+                  name
+                  (state (empty) (empty) 0)))
           [(state funcs inner-expr-constants _)
            (match-define constants
-             (append
-               (create-closures definitions (empty))
-               inner-expr-constants))
+             (create-closures definitions datatype-definitions inner-expr-constants))
            (right
              (i:module
                name
@@ -138,7 +139,7 @@
                (convert-exports exports)
                funcs
                constants
-               (create-static-info name constants definitions)))])])]))
+               (create-static-info name constants datatype-definitions)))])])]))
 
 (define (convert-imports [i : Imports]) : i:Imports
   (case i
@@ -170,35 +171,40 @@
 
 (define (create-closures
           [funs : (List FunctionDefinition)]
+          [data-funs : (List DatatypeDefinition)]
           [acc : (List i:ConstantDefinition)]) : (List i:ConstantDefinition)
   (foldl
     (lambda ([f : FunctionDefinition] [acc : (List i:ConstantDefinition)])
       (case f
         [(function-definition name _ _ _ _ _)
-         (cons (closure-constant name (bytes-append (varargs list name #"-code"))) acc)]
-        [(variant-constructor name (empty) tag)
-         (match-define descriptor-name (bytes-append (varargs list name #"_descriptor")))
-         (match-define const-name (bytes-append (varargs list name #"_const")))
-         (match-define closure-name (bytes-append (varargs list name #"_closure")))
-         (cons
-           (variant-descriptor-constant descriptor-name name)
-           (cons
-             (trivial-variant-constant const-name descriptor-name tag)
-             (cons
-               (closure-constant closure-name name) acc)))]
-        [(variant-constructor name _ _)
-         (match-define descriptor-name (bytes-append (varargs list name #"_descriptor")))
-         (match-define closure-name (bytes-append (varargs list name #"_closure")))
-         (cons
-           (variant-descriptor-constant descriptor-name name)
-           (cons
-             (closure-constant closure-name name) acc))]
-        [(variant-accessor name _)
-         (cons
-           (closure-constant (bytes-append (varargs list name #"_closure")) name)
-           acc)]))
+         (cons (closure-constant name (bytes-append (varargs list name #"-code"))) acc)]))
     funs
-    acc))
+    (foldl
+      (lambda ([f : DatatypeDefinition] [acc : (List i:ConstantDefinition)])
+        (case f
+          [(variant-constructor name (empty) tag)
+           (match-define descriptor-name (bytes-append (varargs list name #"_descriptor")))
+           (match-define const-name (bytes-append (varargs list name #"_const")))
+           (match-define closure-name (bytes-append (varargs list name #"_closure")))
+           (cons
+             (variant-descriptor-constant descriptor-name name)
+             (cons
+               (trivial-variant-constant const-name descriptor-name tag)
+               (cons
+                 (closure-constant closure-name name) acc)))]
+          [(variant-constructor name _ _)
+           (match-define descriptor-name (bytes-append (varargs list name #"_descriptor")))
+           (match-define closure-name (bytes-append (varargs list name #"_closure")))
+           (cons
+             (variant-descriptor-constant descriptor-name name)
+             (cons
+               (closure-constant closure-name name) acc))]
+          [(variant-accessor name _)
+           (cons
+             (closure-constant (bytes-append (varargs list name #"_closure")) name)
+             acc)]))
+      data-funs
+      acc)))
 
 (define (convert-function-definitions
           [funs : (List FunctionDefinition)]
@@ -208,6 +214,16 @@
     [(empty) acc]
     [(cons fun funs)
      (convert-function-definitions funs mod-name (convert-function-definition fun mod-name acc))]))
+
+(define (convert-datatype-definitions
+          [funs : (List DatatypeDefinition)]
+          [mod-name : ModName]
+          [acc : State]) : State
+  (case funs
+    [(empty) acc]
+    [(cons fun funs)
+     (convert-datatype-definitions funs mod-name (convert-datatype-definition fun mod-name acc))]))
+
 
 (define (convert-function-definition
           [fun : FunctionDefinition]
@@ -230,7 +246,14 @@
             (empty)
             next-var
             i:body)
-          acc)])]
+          acc)])]))
+
+(define (convert-datatype-definition
+          [fun : DatatypeDefinition]
+          [mod-name : ModName]
+          [acc : State])
+  : State
+  (case fun
     [(variant-constructor name (empty) _)
      (match-define const-name
        (bytes-append (varargs list name #"_const")))
@@ -455,10 +478,10 @@
 (define (create-static-info
           [name : ModName]
           [constants : (List i:ConstantDefinition)]
-          [funcs : (List FunctionDefinition)]) : (Dict TopLevelName TopLevelSignature)
+          [datatypes : (List DatatypeDefinition)]) : (Dict TopLevelName TopLevelSignature)
   (add-function-static-info
     name
-    funcs
+    datatypes
     (add-constants-static-info
       name
       constants
@@ -486,12 +509,11 @@
 
 (define (add-function-static-info
           [mod-name : ModName]
-          [funs : (List FunctionDefinition)]
+          [funs : (List DatatypeDefinition)]
           [acc : (Dict TopLevelName TopLevelSignature)]) : (Dict TopLevelName TopLevelSignature)
   (foldl
-    (lambda ([f : FunctionDefinition] [acc : (Dict TopLevelName TopLevelSignature)])
+    (lambda ([f : DatatypeDefinition] [acc : (Dict TopLevelName TopLevelSignature)])
       (case f
-        [(function-definition _ _ _ _ _ _) acc]
         [(variant-constructor name (empty) _tag)
          (dict-add
            acc
