@@ -1,4 +1,5 @@
 load("//libraries/prim-language:prim-language.bzl", "prim_library")
+load("//libraries:yaspl.bzl", "yaspl_test")
 
 prim_library(
     name = "fill-stack",
@@ -13,6 +14,23 @@ prim_library(
 prim_library(
     name = "type-descriptor",
     srcs = ["type-descriptor.prim"],
+)
+
+yaspl_test(
+    name = "fill-stack-test",
+    size = "small",
+    srcs = ["fill-stack-test.yaspl"],
+    tags = [
+        "manual",
+    ],
+    deps = [
+        "//libraries:io",
+        "//libraries:stack-trace",
+        "//libraries/data:bytes",
+        "//libraries/data:lifted-primitives",
+        "//libraries/data:list",
+        "//libraries/data:tuples",
+    ],
 )
 
 filegroup(
@@ -35,4 +53,16 @@ filegroup(
     visibility = [
         "//bootstrap:__pkg__",
     ],
+)
+
+test_suite(
+    name = "package_tests",
+    testonly = 0,
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "package_binaries",
+    srcs = [],
+    visibility = ["//visibility:public"],
 )

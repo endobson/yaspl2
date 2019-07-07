@@ -13,6 +13,7 @@ ALL_PACKAGES = [
     "//libraries/protocols/http",
     "//libraries/yaspl",
     "//libraries/yaspl/interpreter",
+    "//libraries/yaspl/runtime",
     "//tools",
     "//tools/shell",
     "//tools/web-calculator",

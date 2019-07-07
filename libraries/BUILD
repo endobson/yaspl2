@@ -162,22 +162,6 @@ yaspl_library(
     ],
 )
 
-yaspl_test(
-    name = "fill-stack-test",
-    size = "small",
-    srcs = ["fill-stack-test.yaspl"],
-    tags = [
-        "manual",
-    ],
-    deps = [
-        ":io",
-        ":stack-trace",
-        "//libraries/data:bytes",
-        "//libraries/data:list",
-        "//libraries/data:tuples",
-    ],
-)
-
 yaspl_library(
     name = "module-header-lint",
     srcs = ["module-header-lint.yaspl"],
