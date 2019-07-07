@@ -20,14 +20,11 @@ yaspl_test(
     name = "fill-stack-test",
     size = "small",
     srcs = ["fill-stack-test.yaspl"],
-    tags = [
-        "manual",
-    ],
     deps = [
         "//libraries:io",
+        "//libraries:machine-code",
         "//libraries:stack-trace",
         "//libraries/data:bytes",
-        "//libraries/data:lifted-primitives",
         "//libraries/data:list",
         "//libraries/data:tuples",
     ],
