@@ -131,6 +131,7 @@ yaspl_bootstrap_library(
         ":register-language",
         ":register-language-used-vars",
         ":simplify-register-language",
+        ":variant-info",
         "//libraries:panic",
         "//libraries/data:bytes",
         "//libraries/data:dict",
@@ -315,6 +316,7 @@ yaspl_library(
         ":block-number",
         ":prim-language",
         ":register-language",
+        ":variant-info",
         "//libraries/data:bytes",
         "//libraries/data:indexed-set",
         "//libraries/data:join-list",
@@ -354,6 +356,7 @@ yaspl_bootstrap_library(
     deps = [
         ":block-number",
         ":prim-language",
+        ":variant-info",
         "//libraries/data:indexed-set",
         "//libraries/data:list",
         "//libraries/data:maybe",
@@ -450,6 +453,7 @@ yaspl_bootstrap_library(
         ":prim-language",
         ":register-language",
         ":register-language-used-vars",
+        ":variant-info",
         "//libraries:panic",
         "//libraries/data:bytes",
         "//libraries/data:dict",
@@ -490,6 +494,13 @@ yaspl_bootstrap_library(
     srcs = ["syscalls.yaspl"],
     deps = [
         "//libraries:machine-code",
+    ],
+)
+
+yaspl_bootstrap_library(
+    name = "variant-info",
+    srcs = ["variant-info.yaspl"],
+    deps = [
     ],
 )
 

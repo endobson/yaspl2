@@ -57,6 +57,7 @@ yaspl_bootstrap_library(
         "//libraries/prim-language:block-number",
         "//libraries/prim-language:register-language",
         "//libraries/prim-language:register-language-builder",
+        "//libraries/prim-language:variant-info",
     ],
 )
 
