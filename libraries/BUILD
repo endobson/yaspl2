@@ -220,6 +220,7 @@ yaspl_bootstrap_library(
     deps = [
         ":top-level-name",
         ":types",
+        ":variant-info",
         "//libraries/data:list",
         "//libraries/data:maybe",
         "//libraries/yaspl:math-operations",
@@ -548,6 +549,7 @@ yaspl_bootstrap_library(
         ":module-name",
         ":top-level-name",
         ":types",
+        ":variant-info",
         "//libraries/data:dict",
         "//libraries/data:list",
         "//libraries/data:maybe",
@@ -558,13 +560,13 @@ yaspl_bootstrap_library(
     name = "module-signature-serialization",
     srcs = ["module-signature-serialization.yaspl"],
     deps = [
-        ":intermediate-expression",
         ":module-name",
         ":module-signature",
         ":sexp-parser",
         ":sexp-printer",
         ":top-level-name",
         ":types",
+        ":variant-info",
         "//libraries/data:bytes",
         "//libraries/data:dict",
         "//libraries/data:either",
@@ -887,6 +889,7 @@ yaspl_bootstrap_library(
         ":top-level-name",
         ":type-checker",
         ":types",
+        ":variant-info",
         "//libraries/data:bytes",
         "//libraries/data:dict",
         "//libraries/data:either",
@@ -1174,6 +1177,13 @@ yaspl_bootstrap_library(
         "//libraries/data:set",
         "//libraries/data:source-location",
         "//libraries/data:tuples",
+    ],
+)
+
+yaspl_bootstrap_library(
+    name = "variant-info",
+    srcs = ["variant-info.yaspl"],
+    deps = [
     ],
 )
 
