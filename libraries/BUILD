@@ -1190,6 +1190,7 @@ yaspl_bootstrap_library(
     name = "variant-info",
     srcs = ["variant-info.yaspl"],
     deps = [
+        ":top-level-name",
     ],
 )
 
