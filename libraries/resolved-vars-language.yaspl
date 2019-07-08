@@ -103,17 +103,17 @@
   (define-type DatatypeDefinition
     (variant-constructor
       [variant-name : Bytes]
-      [function-name : Bytes]
-      [closure-name : Bytes]
-      [const-name : Bytes]
-      [descriptor-name : Bytes]
-      [variant-name-name : Bytes]
+      [function-name : TopLevelName]
+      [closure-name : TopLevelName]
+      [const-name : TopLevelName]
+      [descriptor-name : TopLevelName]
+      [variant-name-name : TopLevelName]
       ;; TODO include something more useful than field names here
       [fields : (List Bytes)]
       [tag : U8])
     (variant-accessor
-      [function-name : Bytes]
-      [closure-name : Bytes]
+      [function-name : TopLevelName]
+      [closure-name : TopLevelName]
       [field-offset : Int]))
   (define-type FunctionArg
     (function-arg
@@ -158,7 +158,9 @@
   (match-define datatype-definitions : (Dict Bytes DatatypeDefinition)
     (dict-add-all
       (make-dict bytes-cmp)
-      (map resolve-vars/datatype-definition datatype-definitions)))
+      (map (lambda ([def : ed:DatatypeDefinition])
+             (resolve-vars/datatype-definition def name))
+           datatype-definitions)))
 
   (match-define global-env (setup-value-environment mod datatype-definitions))
   (match-define env (environment (make-dict bytes-cmp) global-env name))
@@ -176,7 +178,6 @@
     (add-locally-defined-functions
       (add-datatype-definitions
         (make-dict bytes-cmp)
-        (ed:module-name mod)
         datatype-definitions)
       mod)
     mod))
@@ -202,7 +203,6 @@
 
 (define (add-datatype-definitions
           [env : (Dict Bytes TopLevelName)]
-          [mod-name : ModName]
           [datatype-definitions : (Dict Bytes DatatypeDefinition)])
   : (Dict Bytes TopLevelName)
   (merge-dicts
@@ -212,9 +212,9 @@
       (lambda ([data : DatatypeDefinition])
         (case data
           [(variant-constructor _ _ closure-name _ _ _ _ _)
-           (top-level-name mod-name closure-name)]
+           closure-name]
           [(variant-accessor _ closure-name _)
-           (top-level-name mod-name closure-name)])))))
+           closure-name])))))
 
 (define (resolve-vars/exports [e : ed:Exports] [env : Environment]) : Exports
   (case e
@@ -243,27 +243,35 @@
      (match-define (state next-var) state)
      (function-definition name type-vars args return-type next-var body)]))
 
-(define (resolve-vars/datatype-definition [f : ed:DatatypeDefinition])
+(define (resolve-vars/datatype-definition [f : ed:DatatypeDefinition] [mod-name : ModName])
   : (Tuple2 Bytes DatatypeDefinition)
   (case f
     [(ed:variant-constructor type-name variant-name fields tag)
+     (match-define make-name
+       (lambda ([suffix : Bytes])
+         (top-level-name mod-name (bytes-append (varargs list type-name #"_" variant-name suffix)))))
      (tuple2
        variant-name
        (variant-constructor
          variant-name
-         (bytes-append (varargs list type-name #"_" variant-name))
-         (bytes-append (varargs list type-name #"_" variant-name #"_closure"))
-         (bytes-append (varargs list type-name #"_" variant-name #"_const"))
-         (bytes-append (varargs list type-name #"_" variant-name #"_descriptor"))
-         (bytes-append (varargs list type-name #"_" variant-name #"_variantname"))
+         (make-name #"")
+         (make-name #"_closure")
+         (make-name #"_const")
+         (make-name #"_descriptor")
+         (make-name #"_variantname")
          fields
          tag))]
     [(ed:variant-accessor type-name variant-name field-name field-offset)
+     (match-define make-name
+       (lambda ([suffix : Bytes])
+         (top-level-name
+           mod-name
+           (bytes-append (varargs list type-name #"_" variant-name #"_" field-name suffix)))))
      (tuple2
        (bytes-append (varargs list variant-name #"-" field-name))
        (variant-accessor
-         (bytes-append (varargs list type-name #"_" variant-name #"_" field-name))
-         (bytes-append (varargs list type-name #"_" variant-name #"_" field-name #"_closure"))
+         (make-name #"")
+         (make-name #"_closure")
          field-offset))]))
 
 ;; TODO optimize this so that we don't add unnecessary patterns

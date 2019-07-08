@@ -90,7 +90,7 @@
     (compile-constants mod)
     (map
       (lambda ([f : FunctionDefinition])
-        (register-function-tlo (convert-function (module-name mod) f)))
+        (register-function-tlo (convert-function f)))
       (module-definitions mod))))
 
 ;; TODO investigate if this can be simplified now that intermediate language has vars.
@@ -110,7 +110,7 @@
 (define (env-ref-join-var [env : Environment] [name : Var]) : (Maybe BlockNumber)
   (dict-ref (environment-join-vars env) name))
 
-(define (convert-function [mod-name : ModName] [f : FunctionDefinition]) :
+(define (convert-function [f : FunctionDefinition]) :
   r:FunctionDefinition
   (match-define (function-definition name _ arg-names free-vars next-var body) f)
   (match-define acc (block-accumulator next-var (initial-block-number)
@@ -137,7 +137,7 @@
   (match-define (block-accumulator next-var next-block blocks) (add-terminal acc (r:return result)))
 
   (r:function-definition
-    (mangle-name (bytes-append (varargs list (mangled-mod-name mod-name) #"_" name)))
+    (mangle-top-level-name name)
     (closure-convention (length arg-names) start-block-num (length free-vars)) blocks next-var next-block))
 
 (define (convert-expr [e : Expression] [env : Environment] [acc : Accumulator]) : (Tuple2 Var Accumulator)
@@ -563,43 +563,26 @@
            (tuple2 (cons v vs) s)])])]))
 
 (define (compile-constants [mod : Module]) : (List TopLevelObject)
-  (compile-constants* (module-name mod) (module-constants mod)))
+  (map compile-constant (module-constants mod)))
 
-(define (compile-constants*
-          [mod-name : ModName]
-          [constants : (List ConstantDefinition)])
-  : (List TopLevelObject)
-  (case constants
-    [(empty) (empty)]
-    [(cons (bytes-constant name value) constants)
-     (cons
-       (bytes-tlo
-         (mangle-name (bytes-append (varargs list (mangled-mod-name mod-name) #"_" name)))
-         value)
-       (compile-constants* mod-name constants))]
-    [(cons (variant-descriptor-constant name variant-name-name) constants)
-     (match-define descriptor-symbol
-       (mangle-name
-         (bytes-append (varargs list (mangled-mod-name mod-name) #"_" name))))
-     (match-define variant-name-symbol
-       (mangle-name
-         (bytes-append (varargs list (mangled-mod-name mod-name) #"_" variant-name-name))))
-     (cons
-       (variant-descriptor-tlo descriptor-symbol variant-name-symbol)
-       (compile-constants* mod-name constants))]
-    [(cons (trivial-variant-constant name desc-name tag) constants)
-     (cons
-       (trivial-variant-tlo
-         (mangle-name (bytes-append (varargs list (mangled-mod-name mod-name) #"_" name)))
-         (mangle-name (bytes-append (varargs list (mangled-mod-name mod-name) #"_" desc-name)))
-         tag)
-       (compile-constants* mod-name constants))]
-    [(cons (closure-constant name fun-name) constants)
-     (cons
-       (trivial-closure-tlo
-         (mangle-name (bytes-append (varargs list (mangled-mod-name mod-name) #"_" name)))
-         (mangle-name (bytes-append (varargs list (mangled-mod-name mod-name) #"_" fun-name))))
-       (compile-constants* mod-name constants))]))
+(define (compile-constant [constant : ConstantDefinition])
+  : TopLevelObject
+  (case constant
+    [(bytes-constant name value)
+     (bytes-tlo (mangle-top-level-name name) value)]
+    [(variant-descriptor-constant name variant-name-name)
+     (variant-descriptor-tlo
+       (mangle-top-level-name name)
+       (mangle-top-level-name variant-name-name))]
+    [(trivial-variant-constant name desc-name tag)
+     (trivial-variant-tlo
+       (mangle-top-level-name name)
+       (mangle-top-level-name desc-name)
+       tag)]
+    [(closure-constant name fun-name)
+     (trivial-closure-tlo
+       (mangle-top-level-name name)
+       (mangle-top-level-name fun-name))]))
 
 ;; TODO remove initial y once starting with an 'l' is not an issue
 (define (mangle-name [name : Bytes]) : Bytes
@@ -610,7 +593,9 @@
 
 (define (mangle-top-level-name [t : TopLevelName]) : Bytes
   (match-define (top-level-name m l) t)
-  (mangle-name (bytes-append (varargs list (mangled-mod-name m) #"_" l))))
+  (mangle-name
+    (bytes-append
+      (varargs list (bytes-append (interleave (mod-name-parts m) #"_")) #"_" l))))
 
 ;; TODO Figure out how to avoid overlap in generated mangled names
 (define (mangle-name/helper [orig-name : Bytes] [buf : Bytes] [index : Int]) : Bytes
@@ -632,7 +617,3 @@
             (begin
               (bytes-set! buf index new-byte)
               (mangle-name/helper orig-name buf (- index 1))))))))
-
-;; TODO merge this with the rest of mangling
-(define (mangled-mod-name [m : ModName]) : Bytes
-  (bytes-append (interleave (mod-name-parts m) #"_")))

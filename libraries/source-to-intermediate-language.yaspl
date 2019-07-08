@@ -127,11 +127,10 @@
                 name
                 (convert-datatype-definitions
                   datatype-definitions
-                  name
                   (state (empty) (empty) 0)))
           [(state funcs inner-expr-constants _)
            (match-define constants
-             (create-closures definitions datatype-definitions inner-expr-constants))
+             (create-closures name definitions datatype-definitions inner-expr-constants))
            (right
              (i:module
                name
@@ -139,7 +138,7 @@
                (convert-exports exports)
                funcs
                constants
-               (create-static-info name constants datatype-definitions)))])])]))
+               (create-static-info constants datatype-definitions)))])])]))
 
 (define (convert-imports [i : Imports]) : i:Imports
   (case i
@@ -170,6 +169,7 @@
      (i:value-export exported top-level type)]))
 
 (define (create-closures
+          [mod-name : ModName]
           [funs : (List FunctionDefinition)]
           [data-funs : (List DatatypeDefinition)]
           [acc : (List i:ConstantDefinition)]) : (List i:ConstantDefinition)
@@ -177,7 +177,10 @@
     (lambda ([f : FunctionDefinition] [acc : (List i:ConstantDefinition)])
       (case f
         [(function-definition name _ _ _ _ _)
-         (cons (closure-constant name (bytes-append (varargs list name #"-code"))) acc)]))
+         (cons (closure-constant
+                 (top-level-name mod-name name)
+                 (top-level-name mod-name (bytes-append (varargs list name #"-code"))))
+               acc)]))
     funs
     (foldl
       (lambda ([f : DatatypeDefinition] [acc : (List i:ConstantDefinition)])
@@ -214,12 +217,11 @@
 
 (define (convert-datatype-definitions
           [funs : (List DatatypeDefinition)]
-          [mod-name : ModName]
           [acc : State]) : State
   (case funs
     [(empty) acc]
     [(cons fun funs)
-     (convert-datatype-definitions funs mod-name (convert-datatype-definition fun mod-name acc))]))
+     (convert-datatype-definitions funs (convert-datatype-definition fun acc))]))
 
 
 (define (convert-function-definition
@@ -237,7 +239,7 @@
        [(tuple2 i:body acc)
         (add-function
           (i:function-definition
-            (bytes-append (varargs list name #"-code"))
+            (top-level-name mod-name (bytes-append (varargs list name #"-code")))
             new-type
             arg-names
             (empty)
@@ -247,7 +249,6 @@
 
 (define (convert-datatype-definition
           [fun : DatatypeDefinition]
-          [mod-name : ModName]
           [acc : State])
   : State
   (case fun
@@ -259,7 +260,7 @@
          (empty)
          (empty)
          (initial-var-number)
-         (i:global-var-expr (top-level-name mod-name const-name)))
+         (i:global-var-expr const-name))
        acc)]
     [(variant-constructor variant-name function-name _ _ _ _ field-names tag)
      (match-define args
@@ -293,10 +294,12 @@
      (case (get-next-index acc)
        [(tuple2 (lifted-int index) acc)
         ;; TODO make this not use the same namespace as function names.
-        (let ([constant-name
-                (bytes-append (cons #"bytes-constant-" (cons (integer->decimal-bytes index) (empty))))])
-          (tuple2 (i:global-var-expr (top-level-name (environment-module-name env) constant-name))
-                  (add-bytes-constant constant-name v acc)))])]
+        (match-define constant-name
+          (top-level-name
+            (environment-module-name env)
+            (bytes-append (cons #"bytes-constant-" (cons (integer->decimal-bytes index) (empty))))))
+        (tuple2 (i:global-var-expr constant-name)
+                (add-bytes-constant constant-name v acc))])]
     [(boolean-literal v) (tuple2 (i:boolean-literal v) acc)]
     [(local-var-expr v)
      (tuple2 (i:local-var-expr v) acc)]
@@ -362,21 +365,21 @@
     [(bytes-case-expr expr (bytes-case-clause val body) (default-case-clause def))
      (case (get-next-index acc)
        [(tuple2 (lifted-int index) acc)
-        (let ([constant-name
-                (bytes-append (cons #"bytes-" (cons (integer->decimal-bytes index) (empty))))])
-          (case (convert-expression expr env acc)
-            [(tuple2 iexpr acc)
-             (case (convert-expression body env acc)
-               [(tuple2 ibody acc)
-                (case (convert-expression def env acc)
-                  [(tuple2 idef acc)
-                   (tuple2
-                     (i:bytes-case-expr iexpr
-                       (i:bytes-case-clause (top-level-name (environment-module-name env)
-                                                            constant-name)
-                                            ibody)
-                       (i:default-case-clause idef))
-                     (add-bytes-constant constant-name val acc))])])]))])]
+        (match-define constant-name
+          (top-level-name
+            (environment-module-name env)
+            (bytes-append (cons #"bytes-" (cons (integer->decimal-bytes index) (empty))))))
+        (case (convert-expression expr env acc)
+          [(tuple2 iexpr acc)
+           (case (convert-expression body env acc)
+             [(tuple2 ibody acc)
+              (case (convert-expression def env acc)
+                [(tuple2 idef acc)
+                 (tuple2
+                   (i:bytes-case-expr iexpr
+                     (i:bytes-case-clause constant-name ibody)
+                     (i:default-case-clause idef))
+                   (add-bytes-constant constant-name val acc))])])])])]
     [(lambda-expr fun-args _ body)
      (let ([args (map function-arg-name fun-args)])
        (let ([fv (set->list (free-variables/expr body (set-add-all (make-set var-cmp) args)
@@ -386,13 +389,18 @@
             (case (get-next-index acc)
               [(tuple2 (lifted-int index) acc)
                (match-define function-name
-                 (bytes-append (cons #"lambda_code_" (cons (integer->decimal-bytes index) (empty)))))
+                 (top-level-name
+                   (environment-module-name env)
+                   (bytes-append (cons #"lambda_code_" (cons (integer->decimal-bytes index) (empty))))))
                (match-define closure-name
-                 (bytes-append (cons #"lambda_" (cons (integer->decimal-bytes index) (empty)))))
+                 (top-level-name
+                   (environment-module-name env)
+                   (bytes-append (cons #"lambda_" (cons (integer->decimal-bytes index) (empty))))))
                (match-define acc
                  (add-function
                    (i:function-definition
-                     function-name (var-type #"bogus")
+                     function-name
+                     (var-type #"bogus")
                      args
                      fv
                      (environment-next-var env)
@@ -400,12 +408,10 @@
                    acc))
                (if (= (length fv) 0)
                    (tuple2
-                     (i:global-var-expr (top-level-name (environment-module-name env) closure-name))
+                     (i:global-var-expr closure-name)
                      (add-closure-constant closure-name function-name acc))
                    (tuple2
-                     (i:create-closure-expr
-                       (top-level-name (environment-module-name env) function-name)
-                       (map i:local-var-expr fv))
+                     (i:create-closure-expr function-name (map i:local-var-expr fv))
                      acc))])])))]
     [(app-expr tail-position op args)
      (case (convert-expression op env acc)
@@ -454,12 +460,12 @@
     [(state funcs consts counter)
      (state (cons func funcs) consts counter)]))
 
-(define (add-bytes-constant [name : Bytes] [value : Bytes] [acc : State]) : State
+(define (add-bytes-constant [name : TopLevelName] [value : Bytes] [acc : State]) : State
   (case acc
     [(state funcs consts counter)
      (state funcs (cons (bytes-constant name value) consts) counter)]))
 
-(define (add-closure-constant [name : Bytes] [fun-name : Bytes] [acc : State]) : State
+(define (add-closure-constant [name : TopLevelName] [fun-name : TopLevelName] [acc : State]) : State
   (case acc
     [(state funcs consts counter)
      (state funcs (cons (closure-constant name fun-name) consts) counter)]))
@@ -471,19 +477,15 @@
      (tuple2 (lifted-int counter) (state funcs consts (+ 1 counter)))]))
 
 (define (create-static-info
-          [name : ModName]
           [constants : (List i:ConstantDefinition)]
           [datatypes : (List DatatypeDefinition)]) : (Dict TopLevelName TopLevelSignature)
   (add-function-static-info
-    name
     datatypes
     (add-constants-static-info
-      name
       constants
       (make-dict top-level-name-cmp))))
 
 (define (add-constants-static-info
-          [mod-name : ModName]
           [constants : (List i:ConstantDefinition)]
           [acc : (Dict TopLevelName TopLevelSignature)])
   : (Dict TopLevelName TopLevelSignature)
@@ -491,8 +493,7 @@
     (lambda ([const : i:ConstantDefinition] [acc : (Dict TopLevelName TopLevelSignature)])
       (case const
         [(closure-constant name fun-name)
-         (dict-add acc (top-level-name mod-name name)
-                   (top-level-signature (just (top-level-name mod-name fun-name)) (nothing)))]
+         (dict-add acc name (top-level-signature (just fun-name) (nothing)))]
         [(bytes-constant _ _)
          acc]
         [(variant-descriptor-constant _ _)
@@ -503,7 +504,6 @@
     acc))
 
 (define (add-function-static-info
-          [mod-name : ModName]
           [funs : (List DatatypeDefinition)]
           [acc : (Dict TopLevelName TopLevelSignature)]) : (Dict TopLevelName TopLevelSignature)
   (foldl
@@ -512,25 +512,23 @@
         [(variant-constructor _ function-name _ const-name _ _ (empty) _tag)
          (dict-add
            acc
-           (top-level-name mod-name function-name)
+           function-name
            (top-level-signature
              (nothing)
-             (just
-               (zero-arg-constant-inlineable-function
-                 (top-level-name mod-name const-name)))))]
-        [(variant-constructor _ function-name _ _ _ _ _fields tag)
+             (just (zero-arg-constant-inlineable-function const-name))))]
+        [(variant-constructor variant-name function-name _ _ _ _ _fields tag)
          (dict-add
            acc
-           (top-level-name mod-name function-name)
+           function-name
            (top-level-signature
              (nothing)
              (just
                ;; TODO include the expected number of args
-               (variant-constructor-inlineable-function (variant-info function-name tag)))))]
+               (variant-constructor-inlineable-function (variant-info variant-name tag)))))]
         [(variant-accessor function-name _ offset)
          (dict-add
            acc
-           (top-level-name mod-name function-name)
+           function-name
            (top-level-signature
              (nothing)
              (just

@@ -12,6 +12,7 @@ yaspl_library(
         "//libraries:intermediate-language",
         "//libraries:module-name",
         "//libraries:pretty-print",
+        "//libraries:top-level-name",
         "//libraries/data:join-list",
         "//libraries/data:list",
         "//libraries/data:maybe",
