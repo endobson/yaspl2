@@ -398,10 +398,10 @@ yaspl_bootstrap_library(
     name = "expanded-patterns-language",
     srcs = ["expanded-patterns-language.yaspl"],
     deps = [
+        ":expanded-varargs-language",
         ":module-name",
         ":module-signature",
         ":panic",
-        ":resolved-vars-language",
         ":top-level-name",
         ":types",
         ":variant-info",
@@ -411,6 +411,20 @@ yaspl_bootstrap_library(
         "//libraries/data:maybe",
         "//libraries/data:set",
         "//libraries/data:tuples",
+        "//libraries/yaspl:var",
+    ],
+)
+
+yaspl_bootstrap_library(
+    name = "expanded-varargs-language",
+    srcs = ["expanded-varargs-language.yaspl"],
+    deps = [
+        ":module-name",
+        ":resolved-vars-language",
+        ":top-level-name",
+        ":types",
+        "//libraries/data:list",
+        "//libraries/data:maybe",
         "//libraries/yaspl:var",
     ],
 )
@@ -884,6 +898,7 @@ yaspl_bootstrap_library(
     deps = [
         ":expanded-datatypes-language",
         ":expanded-patterns-language",
+        ":expanded-varargs-language",
         ":intermediate-expression",
         ":intermediate-language",
         ":module-name",
