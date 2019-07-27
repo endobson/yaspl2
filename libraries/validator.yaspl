@@ -38,6 +38,7 @@
       FunctionArg
       FunctionDefinition
       Pattern
+      StaticDefinition
       TypeDefinition
       VariantDefinition
       VariantField
@@ -70,6 +71,7 @@
       match-def
       type-definition
       var-expr
+      vararg-definition
       varargs-app-expr
       variable-pattern
       variant-definition
@@ -91,7 +93,8 @@
     (duplicate-module-bindings
       [types : (List Bytes)]
       [values : (List Bytes)]
-      [patterns : (List Bytes)])
+      [patterns : (List Bytes)]
+      [statics : (List Bytes)])
     (undefined-exports
       [types : (List Bytes)]
       [values : (List Bytes)]
@@ -113,7 +116,7 @@
 (define (validate-module [mod : Module] [sigs : (IndexedSet ModuleSignature ModName)]) : (Maybe ModuleErrors)
   (case (validate-module/duplicate-bindings mod)
     [(left v) (just (module-errors (module-name mod) (varargs list v)))]
-    [(right (tuple3 type-env env pat-env))
+    [(right (tuple2 (tuple2 type-env env) (tuple2 pat-env _static-env)))
      (case
        (append*
          (varargs list
@@ -131,7 +134,8 @@
 ;; If there are returns (left <error-message>), otherwise returns
 ;; (right (tuple3 <types> <values> <patterns>))
 (define (validate-module/duplicate-bindings [mod : Module])
-  : (Either ModuleError (Tuple3 (Set Bytes) (Set Bytes) (Set Bytes)))
+  : (Either ModuleError (Tuple2 (Tuple2 (Set Bytes) (Set Bytes))
+                                (Tuple2 (Set Bytes) (Set Bytes))))
   (let ([env (module-environment mod)])
     (case (find-duplicates env)
       [value-dups
@@ -141,13 +145,21 @@
             (let ([type-env (module-type-environment mod)])
               (case (find-duplicates type-env)
                 [type-dups
-                 (case (tuple3 value-dups pattern-dups type-dups)
-                   [(tuple3 (empty) (empty) (empty))
-                    (right (tuple3 (multi-set-keys type-env)
-                                   (multi-set-keys env)
-                                   (multi-set-keys pattern-env)))]
-                   [_
-                    (left (duplicate-module-bindings type-dups value-dups pattern-dups))])]))]))])))
+                 (let ([static-env (module-static-environment mod)])
+                   (case (find-duplicates static-env)
+                     [static-dups
+                      (case (tuple2 (tuple2 value-dups pattern-dups) (tuple2 type-dups static-dups))
+                        [(tuple2 (tuple2 (empty) (empty)) (tuple2 (empty) (empty)))
+                         (right (tuple2
+                                  (tuple2
+                                    (multi-set-keys type-env)
+                                    (multi-set-keys env))
+                                  (tuple2
+                                    (multi-set-keys pattern-env)
+                                    (multi-set-keys static-env))))]
+                        [_
+                         (left (duplicate-module-bindings type-dups value-dups pattern-dups
+                                                          static-dups))])]))]))]))])))
 
 (define (validate-module/unique-name [mod : Module] [sigs : (IndexedSet ModuleSignature ModName)])
   : (List ModuleError)
@@ -174,7 +186,7 @@
           [value-env : (Set Bytes)]
           [pattern-env : (Set Bytes)])
   : (List ModuleError)
-  (match-define (module _ _ (exports types values patterns) _ _) mod)
+  (match-define (module _ _ (exports types values patterns) _ _ _) mod)
   (let ([check-exports
           (lambda ([exports : (List Export)] [env : (Set Bytes)])
             (set->list
@@ -193,7 +205,7 @@
 
 (define (validate-module/duplicate-exports [mod : Module])
   : (List ModuleError)
-  (match-define (module _ _ (exports types values patterns) _ _) mod)
+  (match-define (module _ _ (exports types values patterns) _ _ _) mod)
   (let ([check-exports
           (lambda ([exports : (List Export)])
             (find-duplicates
@@ -241,7 +253,7 @@
 
 (define (module-type-environment [mod : Module]) : (MultiSet Bytes)
   (case mod
-    [(module _ (imports imported-types _ _ _) _ types _)
+    [(module _ (imports imported-types _ _ _) _ types _ _)
      (multi-set-add-all
        (add-type-definitions-bindings types
          (make-multi-set bytes-cmp))
@@ -250,7 +262,7 @@
 
 (define (module-environment [mod : Module]) : (MultiSet Bytes)
   (case mod
-    [(module _ (imports _ imported-values _ _) _ types definitions)
+    [(module _ (imports _ imported-values _ _) _ types definitions _)
      (multi-set-add-all
        (add-constructor-bindings/types types
          (add-accessor-bindings/types types
@@ -260,11 +272,23 @@
 
 (define (module-pattern-environment [mod : Module]) : (MultiSet Bytes)
   (case mod
-    [(module _ (imports _ _ imported-patterns _) _ types _)
+    [(module _ (imports _ _ imported-patterns _) _ types _ _)
      (multi-set-add-all
        (add-constructor-bindings/types types
          (make-multi-set bytes-cmp))
        (set->list (dict-keys imported-patterns)))]))
+
+(define (module-static-environment [mod : Module]) : (MultiSet Bytes)
+  (case mod
+    [(module _ (imports _ _ _ _) _ _ _ statics)
+     (multi-set-add-all
+       (make-multi-set bytes-cmp)
+       (map
+         (lambda ([s : StaticDefinition])
+           (case s
+             [(vararg-definition name _ _ _ _ _)
+              name]))
+         statics))]))
 
 (define (add-definitions-bindings [defs : (List FunctionDefinition)] [env : (MultiSet Bytes)])
   : (MultiSet Bytes)
@@ -435,7 +459,7 @@
 
 (define (module-error->bytes [mod-name : ModName] [error : ModuleError]) : Bytes
   (case error
-    [(duplicate-module-bindings types values patterns)
+    [(duplicate-module-bindings types values patterns statics)
      (let ([warn-duplicates
              (lambda ([kind : Bytes] [bindings : (List Bytes)]) : (JoinList Bytes)
                (case bindings
@@ -452,7 +476,8 @@
               (varargs join-list #"Duplicate bindings in module " (mod-name->bytes mod-name) #":\n")
               (warn-duplicates #"Type" types)
               (warn-duplicates #"Value" values)
-              (warn-duplicates #"Pattern" patterns)))))]
+              (warn-duplicates #"Pattern" patterns)
+              (warn-duplicates #"Static" statics)))))]
     [(non-unique-name)
      (bytes-append (varargs list #"Module \"" (mod-name->bytes mod-name) #"\" already exists."))]
     [(undefined-exports types values patterns)
