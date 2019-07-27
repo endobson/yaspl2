@@ -1171,7 +1171,6 @@ yaspl_bootstrap_library(
         ":module-name",
         ":module-signature",
         ":resolved-imports-language",
-        ":source-language",
         "//libraries/data:bytes",
         "//libraries/data:dict",
         "//libraries/data:either",
