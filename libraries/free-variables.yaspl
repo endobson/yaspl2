@@ -11,9 +11,9 @@
 }
 (export
   (#:types FreeVar)
-  (#:values free-variables/module free-types/module free-patterns/module
+  (#:values free-variables/module free-types/module free-patterns/module free-statics/module
             free-variables/function-definition free-types/function-definition
-            free-patterns/function-definition
+            free-patterns/function-definition free-statics/function-definition
             free-types/type-definitions
             free-variables-by-function-definition
             free-var-name)
@@ -394,3 +394,82 @@
   (case ps
     [(empty) acc]
     [(cons p ps) (free-patterns/patterns ps env (free-patterns/pattern p env acc))]))
+
+(define (free-statics/module [mod : Module] [env : (Set Bytes)]) : (List FreeVar)
+  (free-statics/function-definitions (module-definitions mod) env (empty)))
+
+(define (free-statics/function-definition
+          [def : FunctionDefinition]
+          [env : (Set Bytes)]
+          [acc : (List FreeVar)]) : (List FreeVar)
+  (match-define (function-definition _ _ _ _ body) def)
+  (free-statics/block body env acc))
+
+
+(define (free-statics/function-definitions
+          [defs : (List FunctionDefinition)]
+          [env : (Set Bytes)]
+          [acc : (List FreeVar)]) : (List FreeVar)
+  (case defs
+    [(empty) acc]
+    [(cons def defs)
+     (free-statics/function-definitions
+       defs env (free-statics/function-definition def env acc))]))
+
+(define (free-statics/block [block : Block] [env : (Set Bytes)] [acc : (List FreeVar)])
+  : (List FreeVar)
+  (match-define (block defs body) block)
+  (free-statics/block* defs body env acc))
+
+(define (free-statics/block*
+          [defs : (List BlockDefinition)]
+          [final-expr : Expression]
+          [env : (Set Bytes)]
+          [acc : (List FreeVar)]) : (List FreeVar)
+  (case defs
+    [(empty) (free-statics/expr final-expr env acc)]
+    [(cons (match-def _ _ expr) defs)
+     (free-statics/block* defs final-expr env
+       (free-statics/expr expr env acc))]))
+
+(define (free-statics/expr [expr : Expression] [env : (Set Bytes)] [acc : (List FreeVar)])
+  : (List FreeVar)
+  (case expr
+    [(var-expr _ _) acc]
+    [(int-literal _ _) acc]
+    [(bytes-literal _ _) acc]
+    [(boolean-literal _ _) acc]
+    [(annotated-expr _ expr _)
+     (free-statics/expr expr env acc)]
+    [(if-expr c t f _)
+     (free-statics/list (cons c (cons t (cons f (empty)))) env acc)]
+    [(begin-expr es e _)
+     (free-statics/list (cons e es) env acc)]
+    [(app-expr _ op args _)
+     (free-statics/list (cons op args) env acc)]
+    [(varargs-app-expr _ op args _)
+     (free-statics/list (cons op args) env acc)]
+    [(let-expr _ expr body _)
+     (free-statics/block body env (free-statics/expr expr env acc))]
+    [(case-expr expr clauses _)
+     (free-statics/clauses clauses env (free-statics/expr expr env acc))]
+    [(lambda-expr _ _ body _)
+     (free-statics/block body env acc)]))
+
+(define (free-statics/list
+          [exprs : (List Expression)]
+          [env : (Set Bytes)]
+          [acc : (List FreeVar)]) : (List FreeVar)
+  (case exprs
+    [(empty) acc]
+    [(cons expr exprs)
+     (free-statics/list exprs env (free-statics/expr expr env acc))]))
+
+(define (free-statics/clauses
+          [exprs : (List CaseClause)]
+          [env : (Set Bytes)]
+          [acc : (List FreeVar)]) : (List FreeVar)
+  (case exprs
+    [(empty) acc]
+    [(cons (case-clause _ body) clauses)
+     (free-statics/clauses clauses env (free-statics/block body env acc))]))
