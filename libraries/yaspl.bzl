@@ -7,19 +7,23 @@ def _lib_impl(ctx):
     fail("Only one source is supported", "srcs")
   src_file = ctx.files.srcs[0]
 
+  output_object = ctx.actions.declare_file("%s.o" % ctx.attr.name)
+  output_signature = ctx.actions.declare_file("%s.sig" % ctx.attr.name)
+  output_module_name = ctx.actions.declare_file("%s.module_name" % ctx.attr.name)
+
   toolchain = ctx.toolchains["//libraries/yaspl:yaspl_toolchain"]
   input_signatures = [dep[yaspl_provider].signature for dep in ctx.attr.deps]
 
   args = ctx.actions.args()
   args.add(toolchain.platform)
-  args.add(ctx.outputs.object)
-  args.add(ctx.outputs.signature)
+  args.add(output_object)
+  args.add(output_signature)
   args.add(src_file)
   args.add_all(input_signatures)
 
   ctx.actions.run(
     inputs = input_signatures + ctx.files.srcs,
-    outputs = [ctx.outputs.object, ctx.outputs.signature],
+    outputs = [output_object, output_signature],
     mnemonic = "YasplCompile",
     executable = ctx.executable._library_compiler,
     arguments = [args],
@@ -27,26 +31,30 @@ def _lib_impl(ctx):
 
   ctx.actions.run_shell(
     inputs = ctx.files.srcs,
-    outputs = [ctx.outputs.module_name],
+    outputs = [output_module_name],
     command = 'echo "$(head -n 1 %s | sed -e "s/#:module //")" > %s'
-       % (src_file.path, ctx.outputs.module_name.path),
+       % (src_file.path, output_module_name.path),
   )
 
   return [
     yaspl_provider(
       source_file = src_file,
-      module_name_file = ctx.outputs.module_name,
-      signature = ctx.outputs.signature,
+      module_name_file = output_module_name,
+      signature = output_signature,
       input_signatures = input_signatures,
       transitive_objects = depset(
-        direct = [ctx.outputs.object],
+        direct = [output_object],
         transitive = [dep[yaspl_provider].transitive_objects for dep in ctx.attr.deps]
       ),
     ),
-    DefaultInfo(files=depset([ctx.outputs.object])),
+    DefaultInfo(
+      files = depset([output_object])
+    ),
   ]
 
 def _src_impl(ctx):
+  output_list = ctx.actions.declare_file("%s.list" % ctx.attr.name)
+
   transitive_srcs = depset(
     direct = ctx.files.srcs,
     transitive = [dep[yaspl_src_provider].files for dep in ctx.attr.deps],
@@ -55,12 +63,19 @@ def _src_impl(ctx):
   args.add_all(transitive_srcs)
 
   ctx.actions.run_shell(
-    outputs = [ctx.outputs.file],
-    command = 'printf "%%s\n" "$@" > %s' % ctx.outputs.file.path,
+    outputs = [output_list],
+    command = 'printf "%%s\n" "$@" > %s' % output_list.path,
     arguments = [args],
   )
 
   return [
+    DefaultInfo(
+      files = depset(direct = [output_list], transitive = [transitive_srcs]),
+      runfiles = ctx.runfiles(
+        files = [output_list],
+        transitive_files = transitive_srcs,
+      ),
+    ),
     yaspl_src_provider(files = transitive_srcs),
   ]
 
@@ -69,23 +84,25 @@ def _bin_impl(ctx):
     fail("Only one dep is supported", "deps")
   dep = ctx.attr.deps[0]
 
+  output_main_stub = ctx.actions.declare_file("%s_main.o" % ctx.attr.name)
+
   toolchain = ctx.toolchains["//libraries/yaspl:yaspl_toolchain"]
 
   ctx.actions.run_shell(
     inputs = [dep[yaspl_provider].module_name_file],
     tools = [ctx.executable._main_stub],
-    outputs = [ctx.outputs.main_stub_object],
+    outputs = [output_main_stub],
     mnemonic = "YasplGenerateMain",
     command = '%s %s %s "$(cat %s)"' % (
       ctx.executable._main_stub.path,
       toolchain.platform,
-      ctx.outputs.main_stub_object.path,
+      output_main_stub.path,
       dep[yaspl_provider].module_name_file.path,
     )
   )
 
   input_objects = depset(
-    direct = [ctx.outputs.main_stub_object],
+    direct = [output_main_stub],
     transitive = [ctx.attr._runtime_objects.files,
                   dep[yaspl_provider].transitive_objects],
   )
@@ -104,7 +121,9 @@ def _bin_impl(ctx):
     arguments = [args],
   )
   return [
-    DefaultInfo(files=depset([ctx.outputs.executable])),
+    DefaultInfo(
+      files = depset([ctx.outputs.executable])
+    ),
   ]
 
 _yaspl_src_file_extensions = [".yaspl"]
@@ -137,11 +156,6 @@ _yaspl_runtime_objects = attr.label(
 
 yaspl_library = rule(
   implementation = _lib_impl,
-  outputs = {
-    "object": "%{name}.o",
-    "signature": "%{name}.sig",
-    "module_name": "%{name}.module_name",
-  },
   toolchains = ["//libraries/yaspl:yaspl_toolchain"],
   attrs = {
     "srcs": attr.label_list(
@@ -160,9 +174,6 @@ yaspl_library = rule(
 def _yaspl_binary_rule(test):
   return rule(
     implementation = _bin_impl,
-    outputs = {
-      "main_stub_object": "%{name}_main.o",
-    },
     executable = True,
     test = test,
     toolchains = ["//libraries/yaspl:yaspl_toolchain"],
@@ -180,9 +191,6 @@ yaspl_prim_test = _yaspl_binary_rule(True)
 
 yaspl_srcs = rule(
   implementation = _src_impl,
-  outputs = {
-    "file": "%{name}.list",
-  },
   attrs = {
     "srcs": attr.label_list(
       allow_files=_yaspl_src_file_extensions,
@@ -290,7 +298,7 @@ def yaspl_bootstrap_binary(name, srcs=[], deps=[]):
   native.filegroup(
     name = name + "_library_files",
     data = [
-         name + ".src.list",
+         name + ".src",
          name + ".srcs",
     ],
   )

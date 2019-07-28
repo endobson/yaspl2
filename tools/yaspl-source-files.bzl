@@ -16,24 +16,27 @@ yaspl_source_files = aspect(
 )
 
 def _yaspl_source_files_rule_impl(ctx):
+  output_list = ctx.actions.declare_file("%s.list" % ctx.attr.name)
+
   source_files = depset(transitive=[d[yaspl_source_files_provider].files for d in ctx.attr.deps])
 
   args = ctx.actions.args()
   args.add_all(source_files)
 
   ctx.actions.write(
-    output=ctx.outputs.list,
+    output=output_list,
     content=args
   )
 
-  return [DefaultInfo(files=source_files)]
+  return [
+    DefaultInfo(
+      files = depset(direct = [output_list], transitive = [source_files]),
+    ),
+  ]
 
 yaspl_source_files_rule = rule(
   implementation = _yaspl_source_files_rule_impl,
   attrs = {
     "deps": attr.label_list(aspects=[yaspl_source_files]),
-  },
-  outputs = {
-    "list": "%{name}.list"
   },
 )

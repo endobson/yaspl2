@@ -2,40 +2,30 @@ def _bin_impl(ctx):
   if (len(ctx.files.srcs) != 1):
     fail("Must have exactly one source file.", "srcs")
 
+  output_object = ctx.actions.declare_file("%s.o" % ctx.attr.name)
+
   toolchain = ctx.toolchains["//libraries/prim-language:prim_language_toolchain"]
 
   ctx.actions.run(
     inputs = ctx.files.srcs,
     tools = [ctx.executable._compiler],
-    outputs = [ctx.outputs.object],
+    outputs = [output_object],
     executable = ctx.executable._compiler,
     arguments = [
       toolchain.platform,
       ctx.files.srcs[0].path,
-      ctx.outputs.object.path,
+      output_object.path,
     ]
   )
 
   ctx.actions.run(
-    inputs = ctx.files.srcs,
-    tools = [ctx.executable._compiler],
-    outputs = [ctx.outputs.assembly],
-    executable = ctx.executable._compiler,
-    arguments = [
-      "assembly-" + toolchain.platform,
-      ctx.files.srcs[0].path,
-      ctx.outputs.assembly.path,
-    ]
-  )
-
-  ctx.actions.run(
-    inputs = [ctx.outputs.object],
+    inputs = [output_object],
     outputs = [ctx.outputs.executable],
     executable = ctx.executable._linker,
     arguments = [
       toolchain.platform,
       ctx.outputs.executable.path,
-      ctx.outputs.object.path,
+      output_object.path,
     ]
   )
 
@@ -43,10 +33,6 @@ def _bin_impl(ctx):
 
 prim_binary = rule(
   implementation = _bin_impl,
-  outputs = {
-    "object": "%{name}.o",
-    "assembly": "%{name}.s",
-  },
   executable = True,
   toolchains = ["//libraries/prim-language:prim_language_toolchain"],
   attrs = {
@@ -72,26 +58,29 @@ def _lib_impl(ctx):
   if (len(ctx.files.srcs) != 1):
     fail("Must have exactly one source file.", "srcs")
 
+  output_object = ctx.actions.declare_file("%s.o" % ctx.attr.name)
+
   toolchain = ctx.toolchains["//libraries/prim-language:prim_language_toolchain"]
 
   ctx.actions.run(
     inputs = ctx.files.srcs,
-    outputs = [ctx.outputs.object],
+    outputs = [output_object],
     executable = ctx.executable._compiler,
     arguments = [
       toolchain.platform,
       ctx.files.srcs[0].path,
-      ctx.outputs.object.path,
+      output_object.path,
     ]
   )
 
-  return []
+  return [
+    DefaultInfo(
+      files = depset([output_object])
+    ),
+  ]
 
 prim_library = rule(
   implementation = _lib_impl,
-  outputs = {
-    "object": "%{name}.o",
-  },
   toolchains = ["//libraries/prim-language:prim_language_toolchain"],
   attrs = {
     "srcs": attr.label_list(
@@ -146,7 +135,6 @@ def _binary_test_impl(ctx):
 
 binary_test = rule(
   implementation = _binary_test_impl,
-  outputs = {},
   test = True,
   attrs = {
     "binary": attr.label(

@@ -57,7 +57,6 @@ container_image(
     files = [
         ":doc-server",
         ":source_files",
-        ":source_files.list",
     ],
 )
 
