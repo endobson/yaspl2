@@ -265,43 +265,37 @@
        [(empty) (just (make-dict bytes-cmp))]
        [_ (nothing)])]
     [(just t)
-     (case (map-state
-             (lambda ([type-var : Bytes] [s : UnificationVarSource])
-               (case (uvar-source-next s)
-                 [(tuple2 u s)
-                  (tuple2 (tuple2 type-var u) s)]))
-             type-vars
-             (new-uvar-source))
-       [(tuple2 type-var-uvars _s)
-        (let ([constraints
-                (cons
-                  (eq-constraint
-                    (type->constrainable t (make-dict bytes-cmp))
-                    (type->constrainable
-                      result-type
-                      (dict-add-all (make-dict bytes-cmp) type-var-uvars)))
-                  (map
-                    (lambda ([t : (Tuple2 Bytes UnificationVar)])
-                      (case t
-                        [(tuple2 _ uvar)
-                         (star-kind-constraint uvar)]))
-                    type-var-uvars))])
-          (case (unify constraints)
-            [(nothing) (nothing)]
-            [(just uvar-dict)
-             (case (extract-justs
-                     (map
-                       (lambda ([t : (Tuple2 Bytes UnificationVar)]) : (Maybe (Tuple2 Bytes Type))
-                         (case t
-                           [(tuple2 tvar uvar)
-                            (case (dict-ref uvar-dict uvar)
-                              [(nothing) (nothing)]
-                              [(just type) (just (tuple2 tvar type))])]))
-                       type-var-uvars))
-               [(nothing)
-                (nothing)]
-               [(just tvar-types)
-                (just (dict-add-all (make-dict bytes-cmp) tvar-types))])]))])]))
+     (match-define (tuple2 type-var-uvars _s)
+       (type-vars->unification-vars type-vars))
+     (match-define constraints
+       (cons
+         (eq-constraint
+           (type->constrainable t (make-dict bytes-cmp))
+           (type->constrainable
+             result-type
+             (dict-add-all (make-dict bytes-cmp) type-var-uvars)))
+         (map
+           (lambda ([t : (Tuple2 Bytes UnificationVar)])
+             (case t
+               [(tuple2 _ uvar)
+                (star-kind-constraint uvar)]))
+           type-var-uvars)))
+     (case (unify constraints)
+       [(nothing) (nothing)]
+       [(just uvar-dict)
+        (case (extract-justs
+                (map
+                  (lambda ([t : (Tuple2 Bytes UnificationVar)]) : (Maybe (Tuple2 Bytes Type))
+                    (case t
+                      [(tuple2 tvar uvar)
+                       (case (dict-ref uvar-dict uvar)
+                         [(nothing) (nothing)]
+                         [(just type) (just (tuple2 tvar type))])]))
+                  type-var-uvars))
+          [(nothing)
+           (nothing)]
+          [(just tvar-types)
+           (just (dict-add-all (make-dict bytes-cmp) tvar-types))])])]))
 
 (define (type-check/expr
           [expr : Expression]
@@ -406,13 +400,7 @@
              [(left v) (left v)]
              [(right actual-arg-types)
               (match-define (tuple2 type-var-uvars s)
-                (map-state
-                  (lambda ([type-var : Bytes] [s : UnificationVarSource])
-                    (case (uvar-source-next s)
-                      [(tuple2 u s)
-                       (tuple2 (tuple2 type-var u) s)]))
-                  type-vars
-                  (new-uvar-source)))
+                (type-vars->unification-vars type-vars))
               (match-define (tuple2 u _s) (uvar-source-next s))
               (match-define constraints
                   (cons
@@ -485,13 +473,7 @@
           [(left v) (left v)]
           [(right actual-types)
            (match-define (tuple2 type-var-uvars s)
-             (map-state
-               (lambda ([type-var : Bytes] [s : UnificationVarSource])
-                 (case (uvar-source-next s)
-                   [(tuple2 u s)
-                    (tuple2 (tuple2 type-var u) s)]))
-               type-vars
-               (new-uvar-source)))
+             (type-vars->unification-vars type-vars))
            (match-define type-var-uvar-dict : (Dict Bytes UnificationVar)
              (dict-add-all (make-dict bytes-cmp) type-var-uvars))
            (match-define (tuple2 u _s) (uvar-source-next s))
@@ -724,6 +706,16 @@
         (case (map-state f l s)
           [(tuple2 vs s)
            (tuple2 (cons v vs) s)])])]))
+
+(define (type-vars->unification-vars [type-vars : (List Bytes)])
+  : (Tuple2 (List (Tuple2 Bytes UnificationVar)) UnificationVarSource)
+  (map-state
+    (lambda ([type-var : Bytes] [s : UnificationVarSource])
+      (case (uvar-source-next s)
+        [(tuple2 u s)
+         (tuple2 (tuple2 type-var u) s)]))
+    type-vars
+    (new-uvar-source)))
 
 (define (convert-exports [m : Module] [ctx : Context]) : tc:Module
   (match-define (module name imports exports types definitions statics) m)
