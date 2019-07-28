@@ -514,8 +514,8 @@ prim_language_toolchain(
 toolchain(
     name = "osx_prim_language_toolchain",
     target_compatible_with = [
-        "@bazel_tools//platforms:osx",
-        "@bazel_tools//platforms:x86_64",
+        "@platforms//os:osx",
+        "@platforms//cpu:x86_64",
     ],
     toolchain = ":osx_prim_language_toolchain_impl",
     toolchain_type = ":prim_language_toolchain",
@@ -529,8 +529,8 @@ prim_language_toolchain(
 toolchain(
     name = "linux_prim_language_toolchain",
     target_compatible_with = [
-        "@bazel_tools//platforms:linux",
-        "@bazel_tools//platforms:x86_64",
+        "@platforms//os:linux",
+        "@platforms//cpu:x86_64",
     ],
     toolchain = ":linux_prim_language_toolchain_impl",
     toolchain_type = ":prim_language_toolchain",
