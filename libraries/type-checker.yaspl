@@ -285,32 +285,44 @@
        [(empty) (just (make-dict bytes-cmp))]
        [_ (nothing)])]
     [(just t)
-     (match-define (tuple2 type-var-uvars _s)
-       (type-vars->unification-vars type-vars))
-     (match-define constraints
-       (cons
-         (eq-constraint
-           (type->constrainable t (make-dict bytes-cmp))
-           (type->constrainable
-             result-type
-             (dict-add-all (make-dict bytes-cmp) type-var-uvars)))
-         (tvar-star-kind-constraints type-var-uvars)))
-     (case (unify constraints)
-       [(nothing) (nothing)]
-       [(just uvar-dict)
-        (case (extract-justs
-                (map
-                  (lambda ([t : (Tuple2 Bytes UnificationVar)]) : (Maybe (Tuple2 Bytes Type))
-                    (case t
-                      [(tuple2 tvar uvar)
-                       (case (dict-ref uvar-dict uvar)
-                         [(nothing) (nothing)]
-                         [(just type) (just (tuple2 tvar type))])]))
-                  type-var-uvars))
-          [(nothing)
-           (nothing)]
-          [(just tvar-types)
-           (just (dict-add-all (make-dict bytes-cmp) tvar-types))])])]))
+     (attempt-unification type-vars result-type t)]))
+
+(define (attempt-unification [type-vars : (List Bytes)] [t : Type] [final-type : Type])
+  : (Maybe (Dict Bytes Type))
+  (match-define (tuple2 type-var-uvars _s)
+    (type-vars->unification-vars type-vars))
+  (match-define constraints
+    (cons
+      (eq-constraint
+        (type->constrainable final-type (make-dict bytes-cmp))
+        (type->constrainable
+          t
+          (dict-add-all (make-dict bytes-cmp) type-var-uvars)))
+      (tvar-star-kind-constraints type-var-uvars)))
+  (case (unify constraints)
+    [(nothing) (nothing)]
+    [(just uvar-dict)
+     (case (extract-justs
+             (map
+               (lambda ([t : (Tuple2 Bytes UnificationVar)]) : (Maybe (Tuple2 Bytes Type))
+                 (case t
+                   [(tuple2 tvar uvar)
+                    (case (dict-ref uvar-dict uvar)
+                      [(nothing) (nothing)]
+                      [(just type) (just (tuple2 tvar type))])]))
+               type-var-uvars))
+       [(nothing)
+        (nothing)]
+       [(just tvar-types)
+        (just (dict-add-all (make-dict bytes-cmp) tvar-types))])]))
+
+(define (instantiates-as? [s : Type] [t : Type]) : Boolean
+  (case s
+    [(fun-type type-vars args result)
+     (case (attempt-unification type-vars (fun-type (empty) args result) t)
+       [(nothing) #f]
+       [(just _) #t])]
+    [_ (type=? s t)]))
 
 (define (type-check/expr
           [expr : Expression]
@@ -701,6 +713,27 @@
        [(right var-types)
         (type-check/function-args* args (context-set-values context var-types))])]))
 
+(define (type-check/static-definition
+          [def : StaticDefinition]
+          [context : Context]) : (Maybe TypeCheckError)
+  (case def
+    [(varargs-definition _ _ arg-type return-type
+                         (source-span-annotated cons-func cons-span)
+                         (source-span-annotated empty-func empty-span))
+     (case (context-ref-value context cons-func)
+       [(nothing)
+        (just (type-check-error #"Unbound varargs cons function" cons-span))]
+       [(just cons-type)
+        (if (instantiates-as? cons-type
+                              (fun-type (empty) (varargs list arg-type return-type) return-type))
+            (case (context-ref-value context empty-func)
+              [(nothing)
+               (just (type-check-error #"Unbound varargs empty function" empty-span))]
+              [(just empty-type)
+               (if (instantiates-as? empty-type (fun-type (empty) (empty) return-type))
+                   (nothing)
+                   (just (type-check-error #"Varargs empty function has bad type" empty-span)))])
+            (just (type-check-error #"Varargs cons function has bad type" cons-span)))])]))
 
 (define [a b s] (map-state [f : (a s -> (Tuple2 b s))] [l : (List a)] [s : s]) : (Tuple2 (List b) s)
   (case l
@@ -754,11 +787,16 @@
     statics))
 
 (define (type-check [mod : Module]) : (Either TypeCheckErrors tc:Module)
-  (match-define (module name _ _ _ definitions _) mod)
+  (match-define (module name _ _ _ definitions statics) mod)
   (match-define context (create-context mod))
-  (case (filter-map
-          (lambda ([def : FunctionDefinition]) (type-check/definition def context))
-          definitions)
+  (case
+    (append
+      (filter-map
+        (lambda ([def : FunctionDefinition]) (type-check/definition def context))
+        definitions)
+      (filter-map
+        (lambda ([def : StaticDefinition]) (type-check/static-definition def context))
+        statics))
     [(empty)
      (right (convert-exports mod context))]
     [vs
