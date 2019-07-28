@@ -23,6 +23,7 @@
       Imports
       Module
       Pattern
+      StaticDefinition
       TypeDefinition
       VariantDefinition
       VariantField
@@ -62,6 +63,7 @@
       type-definition
       var-expr
       varargs-app-expr
+      varargs-definition
       variable-pattern
       variant-definition
       variant-field
@@ -118,7 +120,8 @@
 (define (imports->context [imports : Imports]) : Context
   (case imports
     [(imports values _)
-     (context (dict-value-map values value-signature-type))]))
+     (context (dict-value-map values value-signature-type)
+              (make-dict bytes-cmp))]))
 
 (define (variant-definition->context
           [def : VariantDefinition]
@@ -150,7 +153,8 @@
                                    (varargs list self-type)
                                    field-type))]))
                     fields)
-               (empty)))))]))
+               (empty))))
+       (make-dict bytes-cmp))]))
 
 (define (simplify-type-vars [type-vars : (Maybe (List Bytes))]) : (List Bytes)
   (case type-vars
@@ -188,18 +192,34 @@
   (context
     (dict-add-all
       (make-dict bytes-cmp)
-      (map (lambda ([def : FunctionDefinition]) : (Tuple2 Bytes Type)
-             (tuple2 (function-definition-name def)
-                     (function-definition->type def)))
+      (map
+        (lambda ([def : FunctionDefinition]) : (Tuple2 Bytes Type)
+          (tuple2 (function-definition-name def)
+                  (function-definition->type def)))
+        defs))
+    (make-dict bytes-cmp)))
+
+(define (static-definitions->context [defs : (List StaticDefinition)])
+  : Context
+  (context
+    (make-dict bytes-cmp)
+    (dict-add-all
+      (make-dict bytes-cmp)
+      (map
+        (lambda ([def : StaticDefinition]) : (Tuple2 Bytes StaticInfo)
+          (case def
+            [(varargs-definition name type-vars arg-type return-type _ _)
+             (tuple2 name (varargs-info type-vars arg-type return-type))]))
         defs))))
 
 (define (create-context [mod : Module]) : Context
   (case mod
-    [(module mod-name imports _ types defs _)
+    [(module mod-name imports _ types fun-defs static-defs)
      (merge-contexts*
        (varargs list
          (imports->context imports)
-         (function-definitions->context defs)
+         (function-definitions->context fun-defs)
+         (static-definitions->context static-defs)
          (type-definitions->context mod-name types)))]))
 
 (define (type-check/definition
