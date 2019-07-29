@@ -64,6 +64,7 @@
       var-expr
       varargs-app-expr
       varargs-definition
+      varargs2-app-expr
       variable-pattern
       variant-definition
       variant-field
@@ -543,6 +544,57 @@
                (bytes-append
                  (varargs list #"Cannot apply non function: " (print-sexp (type->sexp t))))
                src))])])]
+    [(varargs2-app-expr _ (source-span-annotated op op-src) args src)
+     (case (context-ref-static context op)
+       [(nothing)
+        (left (type-check-error #"Unbound static" op-src))]
+       [(just (varargs-info type-vars arg-type return-type))
+        (match-define expected-arg-type : (Maybe Type)
+          (case (attempt-result-based-unification type-vars return-type expected-type)
+            [(nothing) (nothing)]
+            [(just subst)
+             (just (substitute-types arg-type subst))]))
+        (case
+          (extract-rights
+            (map (lambda ([arg : Expression])
+                   (type-check/expr arg context expected-arg-type))
+                 args))
+          [(left v) (left v)]
+          [(right actual-types)
+           (match-define (tuple2 type-var-uvars s)
+             (type-vars->unification-vars type-vars))
+           (match-define type-var-uvar-dict : (Dict Bytes UnificationVar)
+             (dict-add-all (make-dict bytes-cmp) type-var-uvars))
+           (match-define (tuple2 u _s) (uvar-source-next s))
+           (match-define constraints
+             (cons
+               (eq-constraint
+                 (type->constrainable return-type type-var-uvar-dict)
+                 (constrain-uvar u))
+               (append
+                 (map
+                   (lambda ([t : Type])
+                     (eq-constraint
+                       (type->constrainable t type-var-uvar-dict)
+                       (type->constrainable arg-type type-var-uvar-dict)))
+                   actual-types)
+                 (tvar-star-kind-constraints type-var-uvars))))
+           (case (unify constraints)
+             [(nothing)
+              (left
+                (type-check-error
+                  (bytes-append
+                    (map
+                      (lambda ([c : Constraint])
+                        (bytes-append (varargs list (constraint->bytes c) #"\n")))
+                      constraints))
+                  src))]
+             [(just uvar-dict)
+              (case (dict-ref uvar-dict u)
+                [(nothing)
+                 (left (type-check-error #"No binding for uvar in output of unification" src))]
+                [(just type)
+                 (check-expected type expected-type src)])])])])]
     [(case-expr op clauses src)
      (case (type-check/expr op context (nothing))
        [(left v) (left v)]
