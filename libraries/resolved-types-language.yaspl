@@ -24,6 +24,7 @@
       [Module ri:Module]
       [Pattern ri:Pattern]
       PreType
+      [StaticDefinition ri:StaticDefinition]
       [TypeDefinition ri:TypeDefinition]
       [VariantDefinition ri:VariantDefinition]
       [VariantField ri:VariantField]
@@ -62,6 +63,7 @@
       [var-expr ri:var-expr]
       var-pre-type
       [varargs-app-expr ri:varargs-app-expr]
+      [varargs-definition ri:varargs-definition]
       [varargs2-app-expr ri:varargs2-app-expr]
       [variable-pattern ri:variable-pattern]
       [variant-definition ri:variant-definition]
@@ -192,13 +194,12 @@
        [(right definitions)
         (case (resolve-types/exports exports ctx)
           [(left v) (error v)]
-           [(right exports)
-            (match-define imports (resolve-types/imports imports))
-            (case statics
-              [(empty)
-               (right (module name imports exports types definitions (empty)))]
-              [_
-               (error #"Cannot handle static definitions yet")])])])]))
+          [(right exports)
+           (case (resolve-types/statics statics ctx)
+             [(left v) (error v)]
+             [(right statics)
+              (match-define imports (resolve-types/imports imports))
+              (right (module name imports exports types definitions statics))])])])]))
 
 (define (init-context [mod : ri:Module]) : Context
   (match-define (ri:module mod-name imports _ type-defs _ _) mod)
@@ -325,6 +326,24 @@
     [(nothing) (left (bytes-append (varargs list #"Unbound exported pattern:" local-name)))]
     [(just v)
      (right (pattern-export exported-name v))]))
+
+(define (resolve-types/statics [statics : (List ri:StaticDefinition)] [ctx : Context])
+  : (Either Bytes (List StaticDefinition))
+  (extract-rights
+    (map
+      (lambda ([static : ri:StaticDefinition]) : (Either Bytes StaticDefinition)
+        (case static
+          [(ri:varargs-definition name type-vars arg-type return-type cons-func empty-func)
+           (match-define ctx (context-add-var-types ctx type-vars))
+           (case (pre-type->type arg-type ctx)
+             [(left v) (left v)]
+             [(right arg-type)
+              (case (pre-type->type return-type ctx)
+                [(left v) (left v)]
+                [(right return-type)
+                 (right (varargs-definition name type-vars arg-type return-type cons-func
+                                            empty-func))])])]))
+      statics)))
 
 (define (resolve-types/type-defs [defs : (List ri:TypeDefinition)] [ctx : Context])
   : (Either Bytes (List TypeDefinition))
