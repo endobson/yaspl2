@@ -257,30 +257,43 @@
 
 (define (parse-exports/top [sexp : Sexp]) : (Either SourceParseError Exports)
   (case sexp
-    [(node (cons (symbol-sexp #"export" _) (empty)) _)
-     (right (exports (empty) (empty) (empty)))]
-    [(node
-       (cons (symbol-sexp #"export" _)
-         (cons (node (cons (keyword-sexp #"types" _) type-exports) _)
-           (cons (node (cons (keyword-sexp #"values" _) value-exports) _)
-             (cons (node (cons (keyword-sexp #"patterns" _) pattern-exports) _)
-               (empty)))))
-       _)
-     (case (extract-rights (map parse-exported-symbol type-exports))
-       [(left v) (left v)]
-       [(right type-names)
-        (case (extract-rights (map parse-exported-symbol value-exports))
+    [(node (cons (symbol-sexp #"export" _) export-sexps) exports-src)
+     (match-define (tuple2 export-sexps type-exports) : (Tuple2 (List Sexp) (List Sexp))
+       (case export-sexps
+         [(cons (node (cons (keyword-sexp #"types" _) type-exports) _) export-sexps)
+          (tuple2 export-sexps type-exports)]
+         [_
+          (tuple2 export-sexps (empty))]))
+     (match-define (tuple2 export-sexps value-exports) : (Tuple2 (List Sexp) (List Sexp))
+       (case export-sexps
+         [(cons (node (cons (keyword-sexp #"values" _) value-exports) _) export-sexps)
+          (tuple2 export-sexps value-exports)]
+         [_
+          (tuple2 export-sexps (empty))]))
+     (match-define (tuple2 export-sexps pattern-exports) : (Tuple2 (List Sexp) (List Sexp))
+       (case export-sexps
+         [(cons (node (cons (keyword-sexp #"patterns" _) pattern-exports) _) export-sexps)
+          (tuple2 export-sexps pattern-exports)]
+         [_
+          (tuple2 export-sexps (empty))]))
+     (case export-sexps
+       [(empty)
+        (case (extract-rights (map parse-exported-symbol type-exports))
           [(left v) (left v)]
-          [(right value-names)
-           (case (extract-rights (map parse-exported-symbol pattern-exports))
+          [(right type-names)
+           (case (extract-rights (map parse-exported-symbol value-exports))
              [(left v) (left v)]
-             [(right pattern-names)
-              (let ([convert (lambda ([name : Bytes]) (export name name))])
-                (right (exports
-                         (map convert type-names)
-                         (map convert value-names)
-                         (map convert pattern-names))))])])])]
-
+             [(right value-names)
+              (case (extract-rights (map parse-exported-symbol pattern-exports))
+                [(left v) (left v)]
+                [(right pattern-names)
+                 (let ([convert (lambda ([name : Bytes]) (export name name))])
+                   (right (exports
+                            (map convert type-names)
+                            (map convert value-names)
+                            (map convert pattern-names))))])])])]
+       [(cons _ _)
+        (left (source-parse-error #"Bad exports" exports-src))])]
     [_ (left (source-parse-error #"Bad exports" (sexp-source-span sexp)))]))
 
 (define (parse-exported-symbol [sexp : Sexp]) : (Either SourceParseError Bytes)

@@ -72,9 +72,12 @@
    [(list)
     (exports& empty empty empty) ]
    [(list
-      (list #:types (? symbol? types) ...)
-      (list #:values (? symbol? values) ...)
-      (list #:patterns (? symbol? patterns) ...))
+      (list #:types (? symbol? types*) ...) ...
+      (list #:values (? symbol? values*) ...) ...
+      (list #:patterns (? symbol? patterns*) ...) ...)
+    (define types (append* types*))
+    (define values (append* values*))
+    (define patterns (append* patterns*))
     (exports&
       (map export& types types)
       (map export& values values)
