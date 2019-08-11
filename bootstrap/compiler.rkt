@@ -70,6 +70,17 @@
 (define variant-val-sym 'variant-val)
 (define variant-val-fields-sym 'variant-val-fields)
 
+;; patterns is a (Hash Symbol Symbol)
+;; values is a (Hash Symbol Identifier)
+(struct environment (patterns values))
+
+(define (environment-set/value env var id)
+  (match-define (environment pats vals) env)
+  (environment pats (hash-set vals var id)))
+
+(define (environment-ref/value env var f)
+  (hash-ref (environment-values env) var f))
+
 (define (compile-modules modules signatures)
   (for/list ([module (topo-sort (set->list modules))])
     (compile-module module signatures)))
@@ -154,12 +165,13 @@
            (define temporaries (generate-temporaries args))
            `(,define-sym (,(hash-ref local-env name) ,@temporaries)
                ,(compile-block
+                  (environment
                     immutable-local-pattern-env
                     (for/fold ([env immutable-local-env])
                               ([a (in-list args)] [t (in-list temporaries)])
-                      (hash-set env a t))
-                    defs
-                    body))]))))
+                      (hash-set env a t)))
+                  defs
+                  body))]))))
 
   (define racket-mod-name (mod-name->racket-mod-name (module&-name module)))
   (define racket-module
@@ -180,23 +192,23 @@
   racket-module)
 
 
-(define (compile-block pat-env env defs body)
+(define (compile-block env defs body)
   (match defs
     [(list)
-     (compile-expr pat-env env body)]
+     (compile-expr env body)]
     [(cons (match-def& pattern type expr) defs)
      (define vars (pattern-variables pattern))
      (define body-vars (generate-temporaries vars))
      (define body-env
        (for/fold ([env env]) ([var (in-list vars)] [id (in-list body-vars)])
-         (hash-set env var id)))
-     #`(let ([val #,(compile-expr pat-env env expr)]
-             [succ (#,lambda-sym (#,@body-vars) #,(compile-block pat-env body-env defs body))])
-         (#,app-sym #,(compile-pattern pattern pat-env vars)
+         (environment-set/value env var id)))
+     #`(let ([val #,(compile-expr env expr)]
+             [succ (#,lambda-sym (#,@body-vars) #,(compile-block body-env defs body))])
+         (#,app-sym #,(compile-pattern pattern (environment-patterns env) vars)
           val succ (#,lambda-sym () (error 'match))))]))
 
 ;; env is hash table to expressions which evaluate to the value
-(define (compile-expr pat-env env expr)
+(define (compile-expr env expr)
   (match expr
     [(byte& v)
      `',v]
@@ -205,42 +217,42 @@
     [(boolean& v)
      `',v]
     [(variable& v)
-     (hash-ref env v (lambda () (error 'compile-expr "Unbound variables ~a" v)))]
+     (environment-ref/value env v (lambda () (error 'compile-expr "Unbound variables ~a" v)))]
     [(app& op args)
      `(,#'#%app
        ,@(for/list ([v (in-list (cons op args))])
-           (compile-expr pat-env env v)))]
+           (compile-expr env v)))]
     [(varargs-app& op args)
      `(,#'#%app
-        ,(compile-expr pat-env env op)
+        ,(compile-expr env op)
         (,#'#%app ,#'vector
                   ,@(for/list ([arg (in-list args)])
-                      (compile-expr pat-env env arg))))]
+                      (compile-expr env arg))))]
 
     [(if& cond true false)
-     `(,#'if ,(compile-expr pat-env env cond)
-           ,(compile-expr pat-env env true)
-           ,(compile-expr pat-env env false))]
+     `(,#'if ,(compile-expr env cond)
+             ,(compile-expr env true)
+             ,(compile-expr env false))]
     [(begin& first-expr exprs)
-     `(,#'begin ,@(map (λ (e) (compile-expr pat-env env e)) (cons first-expr exprs)))]
+     `(,#'begin ,@(map (λ (e) (compile-expr env e)) (cons first-expr exprs)))]
     [(ann& _ expr)
-     (compile-expr pat-env env expr)]
+     (compile-expr env expr)]
     [(let& name expr (block& defs body))
-     (define compiled-expr (compile-expr pat-env env expr))
+     (define compiled-expr (compile-expr env expr))
      (cond
        [(identifier? compiled-expr)
-        (compile-block pat-env (hash-set env name compiled-expr) defs body)]
+        (compile-block (environment-set/value env name compiled-expr) defs body)]
        [else
         (define temp (generate-temporary name))
         `(,#'let ([,temp ,compiled-expr])
-            ,(compile-block pat-env (hash-set env name temp) defs body))])]
+            ,(compile-block (environment-set/value env name temp) defs body))])]
     [(lambda& (list (list arg-names _) ...) _ (block& defs body))
      (define ids (generate-temporaries arg-names))
      (define new-env
        (for/fold ([env env]) ([name (in-list arg-names)] [id (in-list ids)])
-         (hash-set env name id)))
+         (environment-set/value env name id)))
 
-     `(,#'lambda (,@ids) ,(compile-block pat-env new-env defs body))]
+     `(,#'lambda (,@ids) ,(compile-block new-env defs body))]
     [(case& expr clauses)
      (define form
        (for/fold ([form #'(error 'end-of-case)]) ([clause (in-list (reverse clauses))])
@@ -249,14 +261,14 @@
          (define body-vars (generate-temporaries vars))
          (define body-env
            (for/fold ([env env]) ([var (in-list vars)] [id (in-list body-vars)])
-             (hash-set env var id)))
-         (define body (compile-block pat-env body-env defs expr))
-         #`(#,app-sym #,(compile-pattern pattern pat-env vars)
+             (environment-set/value env var id)))
+         (define body (compile-block body-env defs expr))
+         #`(#,app-sym #,(compile-pattern pattern (environment-patterns env) vars)
             val
             (#,lambda-sym (#,@body-vars) #,body)
             (#,lambda-sym () #,form))))
 
-     #`(let ([val #,(compile-expr pat-env env expr)]) #,form)]))
+     #`(let ([val #,(compile-expr env expr)]) #,form)]))
 
 (define (pattern-variables p)
   (define (recur p acc)
