@@ -229,7 +229,7 @@
      (define compiled-expr (compile-expr pat-env env expr))
      (cond
        [(identifier? compiled-expr)
-        (compile-expr pat-env (hash-set env name compiled-expr) body)]
+        (compile-block pat-env (hash-set env name compiled-expr) defs body)]
        [else
         (define temp (generate-temporary name))
         `(,#'let ([,temp ,compiled-expr])
