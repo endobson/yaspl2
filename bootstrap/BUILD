@@ -15,6 +15,7 @@ racket_library(
     srcs = ["parser.rkt"],
     deps = [
         ":parser-structs",
+        ":utils",
     ],
 )
 

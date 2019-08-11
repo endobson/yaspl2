@@ -72,14 +72,20 @@
 
 ;; patterns is a (Hash Symbol Symbol)
 ;; values is a (Hash Symbol Identifier)
-(struct environment (patterns values))
+;; statics is a (Hash Symbol varargs-bindings)
+(struct environment (patterns values statics))
+(struct varargs-bindings (cons-id empty-id))
 
 (define (environment-set/value env var id)
-  (match-define (environment pats vals) env)
-  (environment pats (hash-set vals var id)))
+  (match-define (environment pats vals statics) env)
+  (environment pats (hash-set vals var id) statics))
 
 (define (environment-ref/value env var f)
   (hash-ref (environment-values env) var f))
+
+(define (environment-ref/static env var f)
+  (hash-ref (environment-statics env) var f))
+
 
 (define (compile-modules modules signatures)
   (for/list ([module (topo-sort (set->list modules))])
@@ -155,6 +161,17 @@
   (for ([(name _) (in-hash (module&-definitions module))])
     (define temporary (generate-temporary name))
     (hash-set! local-env name temporary))
+
+  (match-define static-env
+    (for/hash ([(name def) (in-hash (module&-static-defs module))])
+      (values
+        name
+        (match def
+          [(varargs-definition& _ _ _ cons-sym empty-sym)
+           (varargs-bindings
+             (hash-ref local-env cons-sym)
+             (hash-ref local-env empty-sym))]))))
+
   (define function-defs
     (let ()
       (define immutable-local-env (hash-copy/immutable local-env))
@@ -169,7 +186,8 @@
                     immutable-local-pattern-env
                     (for/fold ([env immutable-local-env])
                               ([a (in-list args)] [t (in-list temporaries)])
-                      (hash-set env a t)))
+                      (hash-set env a t))
+                    static-env)
                   defs
                   body))]))))
 
@@ -228,6 +246,13 @@
         (,#'#%app ,#'vector
                   ,@(for/list ([arg (in-list args)])
                       (compile-expr env arg))))]
+    [(varargs2-app& op args)
+     (match-define (varargs-bindings cons-id empty-id)
+       (environment-ref/static
+         env op (lambda () (error 'compile-expr "Unbound static variable ~a" op))))
+     (for/fold ([acc `(,#'#%app ,empty-id)])
+               ([arg (in-list (reverse args))])
+       `(,#'#%app ,cons-id ,(compile-expr env arg) ,acc))]
 
     [(if& cond true false)
      `(,#'if ,(compile-expr env cond)

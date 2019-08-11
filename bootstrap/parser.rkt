@@ -2,6 +2,7 @@
 
 (require
   "parser-structs.rkt"
+  "utils.rkt"
   racket/match
   racket/list
   racket/set
@@ -16,8 +17,8 @@
        #:import ,(app parse-imports imports)
        (export . ,(app parse-exports exports))
        (types . ,(app parse-type-definitions types))
-       . ,(app parse-definitions definitions))
-     (module& (module-name& name) imports exports types definitions)]))
+       . ,(app parse-top-level-definitions fun-definitions static-definitions))
+     (module& (module-name& name) imports exports types fun-definitions static-definitions)]))
 
 (define (parse-imports imports)
   (define (recur imports)
@@ -94,19 +95,38 @@
   (map parse-type-definition types))
 
 
-(define (parse-definitions defs)
-  (define (parse-definition sexp)
+(define (parse-top-level-definitions defs)
+  (define fun-defs (make-hash))
+  (define static-defs (make-hash))
+
+
+  (define (parse-top-level-definition sexp)
     (match sexp
       [`(define (,name (,(? symbol? args) : ,arg-types) ...) : ,return-type . ,body)
         (define type (fun-pre-type empty (map parse-pre-type arg-types) (parse-pre-type return-type)))
-        (values name (definition& type args (parse-block body)))]
+        (hash-set! fun-defs name (definition& type args (parse-block body)))]
       [`(define (,(? symbol? type-vars) ...) (,name (,(? symbol? args) : ,arg-types) ...) :
                 ,return-type . ,body)
         (define type (fun-pre-type type-vars (map parse-pre-type arg-types) (parse-pre-type return-type)))
-        (values name (definition& type args (parse-block body)))]))
+        (hash-set! fun-defs name (definition& type args (parse-block body)))]
+      [`(define/varargs ,name : (,arg-type ,return-type) ,(? symbol? cons-name) ,(? symbol? empty-name))
+        (hash-set!
+          static-defs
+          name
+          (varargs-definition& empty (parse-pre-type arg-type) (parse-pre-type return-type)
+                               cons-name empty-name))]
+      [`(define/varargs (,(? symbol? type-vars) ...) ,name :
+                        (,arg-type ,return-type) ,(? symbol? cons-name) ,(? symbol? empty-name))
+        (hash-set!
+          static-defs
+          name
+          (varargs-definition& type-vars (parse-pre-type arg-type) (parse-pre-type return-type)
+                               cons-name empty-name))]))
+  (for-each parse-top-level-definition defs)
 
-  (for/hash ([def (in-list defs)])
-    (parse-definition def)))
+  (values
+    (hash-copy/immutable fun-defs)
+    (hash-copy/immutable static-defs)))
 
 
 (define (parse-block sexps)
@@ -134,6 +154,8 @@
      (begin& (parse first-expr) (map parse exprs))]
     [(list 'varargs first-expr exprs ...)
      (varargs-app& (parse first-expr) (map parse exprs))]
+    [(list 'varargs2 (? symbol? name) exprs ...)
+     (varargs2-app& name (map parse exprs))]
     [`(let ([,(? symbol? name) ,expr]) . ,body)
      (let& name (parse expr) (parse-block body))]
     [`(case ,expr . ,(list (cons patterns bodies) ...))

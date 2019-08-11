@@ -37,6 +37,7 @@
 
 ;; TODO make this work over types and not conflate type bindings and value bindings
 ;; TODO also support patterns
+;; TODO also support statics
 (define (ensure-no-free-variables module signatures)
   (define unbound (mutable-set))
   (define ((recur/env env) expr)
@@ -56,6 +57,8 @@
        (for-each recur (cons op exprs))]
       [(varargs-app& op exprs)
        (for-each recur (cons op exprs))]
+      [(varargs2-app& op exprs)
+       (for-each recur exprs)]
       [(let& name expr (block& defs body))
        (recur expr)
        (recur/block (set-add env name) defs body)]
@@ -86,7 +89,8 @@
     [(module& _ importss  _
        (list (define-type& _ _
                (list (variant& variant-namess (list (variant-field& field-namesss _) ...)) ...)) ...)
-       definitions)
+       definitions
+       statics)
 
      (define mut-env (mutable-set))
      (for ([imports (in-list importss)])
@@ -143,7 +147,7 @@
 
 (define (construct-module-signature module module-signatures)
   (match module
-    [(module& module-name importss exports type-defs defs)
+    [(module& module-name importss exports type-defs defs statics)
      (define type-name-env
        (hash-copy/immutable
          (let ([mut-type-name-env (make-hash)])
@@ -244,6 +248,20 @@
 
      (define type-env (hash-copy/immutable mut-type-env))
 
+     ;; TODO type check that cons-func and empty-func have the right types
+     (define static-env
+       (for/hash ([(name def) (in-hash statics)])
+         (values
+           name
+           (match def
+             [(varargs-definition& type-vars arg-type return-type _ _)
+              (define local-type-name-env
+                (foldl (λ (k h) (hash-set h k (type-var-ty k))) type-name-env type-vars))
+              (define parse-type (parse-type/env local-type-name-env))
+              (varargs-static-binding
+                type-vars
+                (parse-type arg-type)
+                (parse-type return-type))]))))
 
      (define pattern-env
        (hash-copy/immutable
@@ -329,7 +347,7 @@
                (let ([type-name-env
                        (foldl (λ (k h) (hash-set h k (type-var-ty k))) type-name-env type-vars)])
                  (type-check/block
-                  (binding-env values inductive-signatures pattern-env type-name-env)
+                  (binding-env values inductive-signatures pattern-env type-name-env static-env)
                   defs body result-type)))])]))
 
      (define exported-value-bindings
@@ -363,15 +381,19 @@
        exported-type-bindings
        exported-pattern-bindings)]))
 
-(struct binding-env (values inductive-signatures patterns types))
+(struct binding-env (values inductive-signatures patterns types statics))
+(struct varargs-static-binding (type-vars arg-type return-type))
 
 (define (binding-env-value-ref env name)
   (hash-ref (binding-env-values env) name))
 
+(define (binding-env-static-ref env name)
+  (hash-ref (binding-env-statics env) name))
+
 (define (binding-env-value-set env name ty)
   (match env
-    [(binding-env v is p t)
-     (binding-env (hash-set v name ty) is p t)]))
+    [(binding-env v is p t s)
+     (binding-env (hash-set v name ty) is p t s)]))
 
 (define (binding-env-pattern-ref env name)
   (hash-ref (binding-env-patterns env) name))
@@ -646,6 +668,32 @@
                    body-type))
                (for ([arg (in-list args)])
                  (type-check arg (substitute body-substitution element-ty))))])])]
+    [(varargs2-app& op args)
+     (match-define (varargs-static-binding stale-type-vars stale-arg-type stale-return-type)
+       (binding-env-static-ref env op))
+     (match-define-values (type-vars (list arg-type return-type))
+       (freshen-types stale-type-vars (list stale-arg-type stale-return-type)))
+     (cond
+       [(unknown-ty? type)
+        (cond
+          [(empty? type-vars)
+           (for ([arg (in-list args)])
+             (type-check arg arg-type))
+           (check return-type)]
+          [else
+            (check
+              (substitute
+                (unify-types type-vars (map (λ (t) (list arg-type t)) (map type-infer args)))
+                return-type))])]
+       [else
+        (define body-substitution (unify-types type-vars (list (list return-type type))))
+        (if (member 'unused-type-var (hash-values body-substitution))
+            (check
+              (substitute
+                (unify-types type-vars (map (λ (t) (list arg-type t)) (map type-infer args)))
+                return-type))
+            (for ([arg (in-list args)])
+              (type-check arg (substitute body-substitution arg-type))))])]
     [(let& name expr (block& defs body))
      (let* ([expr-type (type-infer expr)]
             [type-env (binding-env-value-set env name expr-type)])

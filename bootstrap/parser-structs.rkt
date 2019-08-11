@@ -2,7 +2,7 @@
 
 (provide (all-defined-out))
 
-(struct module& (name imports exports types definitions))
+(struct module& (name imports exports types definitions static-defs))
 (struct module-name& (v) #:transparent)
 
 (struct exports& (types values patterns))
@@ -12,6 +12,7 @@
 (struct full-imports& imports& ())
 (struct import& (exported-name local-name) #:transparent)
 (struct definition& (type args body))
+(struct varargs-definition& (type-vars arg-type return-type cons-func empty-func))
 
 (struct block& (definitions body) #:transparent)
 (struct match-def& (pattern type expr) #:transparent)
@@ -25,6 +26,7 @@
 (struct begin& expression& (first-expr exprs) #:transparent)
 (struct app& expression& (op args) #:transparent)
 (struct varargs-app& expression& (op args) #:transparent)
+(struct varargs2-app& expression& (op args) #:transparent)
 (struct let& expression& (name expr body) #:transparent)
 (struct ann& expression& (type expr) #:transparent)
 (struct case& expression& (expr clauses) #:transparent)
