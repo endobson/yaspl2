@@ -33,11 +33,13 @@
     (undefined-exports
       [types : (List Bytes)]
       [values : (List Bytes)]
-      [patterns : (List Bytes)])
+      [patterns : (List Bytes)]
+      [statics : (List Bytes)])
     (duplicate-exports
       [types : (List Bytes)]
       [values : (List Bytes)]
-      [patterns : (List Bytes)])
+      [patterns : (List Bytes)]
+      [statics : (List Bytes)])
     (non-unique-name)
     (function-error [name : Bytes] [error : FunctionError]))
   (define-type FunctionError
@@ -57,7 +59,7 @@
        (append*
          (varargs list
            (validate-module/free-variables mod type-env env pat-env static-env)
-           (validate-module/undefined-exports mod type-env env pat-env)
+           (validate-module/undefined-exports mod type-env env pat-env static-env)
            (validate-module/duplicate-exports mod)
            (validate-module/unique-name mod sigs)
            (validate-module/unique-bindings mod)))
@@ -112,9 +114,10 @@
           [mod : Module]
           [type-env : (Set Bytes)]
           [value-env : (Set Bytes)]
-          [pattern-env : (Set Bytes)])
+          [pattern-env : (Set Bytes)]
+          [static-env : (Set Bytes)])
   : (List ModuleError)
-  (match-define (module _ _ (exports types values patterns) _ _ _) mod)
+  (match-define (module _ _ (exports types values patterns statics) _ _ _) mod)
   (let ([check-exports
           (lambda ([exports : (List Export)] [env : (Set Bytes)])
             (set->list
@@ -122,32 +125,38 @@
                 (set-add-all (make-set bytes-cmp) (map export-local-name exports))
                 (set->list env))))])
 
-    (case (tuple3
-            (check-exports types type-env)
-            (check-exports values value-env)
-            (check-exports patterns pattern-env))
-      [(tuple3 (empty) (empty) (empty))
+    (case (tuple2
+            (tuple2
+              (check-exports types type-env)
+              (check-exports values value-env))
+            (tuple2
+              (check-exports patterns pattern-env)
+              (check-exports statics static-env)))
+      [(tuple2 (tuple2 (empty) (empty)) (tuple2 (empty) (empty)))
        (empty)]
-      [(tuple3 types values patterns)
-       (varargs list (undefined-exports types values patterns))])))
+      [(tuple2 (tuple2 types values) (tuple2 patterns statics))
+       (varargs list (undefined-exports types values patterns statics))])))
 
 (define (validate-module/duplicate-exports [mod : Module])
   : (List ModuleError)
-  (match-define (module _ _ (exports types values patterns) _ _ _) mod)
+  (match-define (module _ _ (exports types values patterns statics) _ _ _) mod)
   (let ([check-exports
           (lambda ([exports : (List Export)])
             (find-duplicates
               (multi-set-add-all
                 (make-multi-set bytes-cmp)
                 (map export-exported-name exports))))])
-    (case (tuple3
-            (check-exports types)
-            (check-exports values)
-            (check-exports patterns))
-      [(tuple3 (empty) (empty) (empty))
+    (case (tuple2
+            (tuple2
+              (check-exports types)
+              (check-exports values))
+            (tuple2
+              (check-exports patterns)
+              (check-exports statics)))
+      [(tuple2 (tuple2 (empty) (empty)) (tuple2 (empty) (empty)))
        (empty)]
-      [(tuple3 types values patterns)
-       (varargs list (duplicate-exports types values patterns))])))
+      [(tuple2 (tuple2 types values) (tuple2 patterns statics))
+       (varargs list (duplicate-exports types values patterns statics))])))
 
 (define (validate-module/free-variables
           [mod : Module]
@@ -414,7 +423,7 @@
               (warn-duplicates #"Static" statics)))))]
     [(non-unique-name)
      (bytes-append (varargs list #"Module \"" (mod-name->bytes mod-name) #"\" already exists."))]
-    [(undefined-exports types values patterns)
+    [(undefined-exports types values patterns statics)
      (let ([warn-undefined-exports
              (lambda ([kind : Bytes] [names : (List Bytes)]) : (JoinList Bytes)
                (case names
@@ -432,8 +441,9 @@
               (varargs append-jl*
                 (warn-undefined-exports #"Type" types)
                 (warn-undefined-exports #"Value" values)
-                (warn-undefined-exports #"Pattern" patterns))))))]
-    [(duplicate-exports types values patterns)
+                (warn-undefined-exports #"Pattern" patterns)
+                (warn-undefined-exports #"Static" statics))))))]
+    [(duplicate-exports types values patterns statics)
      (let ([warn-duplicate-exports
              (lambda ([kind : Bytes] [names : (List Bytes)]) : (JoinList Bytes)
                (case names
@@ -451,7 +461,8 @@
               (varargs append-jl*
                 (warn-duplicate-exports #"Type" types)
                 (warn-duplicate-exports #"Value" values)
-                (warn-duplicate-exports #"Pattern" patterns))))))]
+                (warn-duplicate-exports #"Pattern" patterns)
+                (warn-duplicate-exports #"Static" statics))))))]
     [(function-error function-name (free-variables types values patterns statics))
      (match-define warn-free-variables
        (lambda ([kind : Bytes] [names : (List FreeVar)]) : (JoinList Bytes)

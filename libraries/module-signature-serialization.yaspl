@@ -21,7 +21,7 @@
 
 (define (serialize-module-signature [sig : ModuleSignature]) : Bytes
   (case sig
-    [(module-signature name values patterns type-bindings top-level-sigs)
+    [(module-signature name values patterns type-bindings static-bindings top-level-sigs)
      (print-sexp
        (node/p
          (varargs list
@@ -52,6 +52,18 @@
                              (lambda ([name : Bytes] [type : Type])
                                (node/p (varargs list (bytes-sexp/p name)
                                                      (type->sexp type))))))
+           (node/p (dict-map static-bindings
+                             (lambda ([name : Bytes] [sig : StaticSignature])
+                               (case sig
+                                 [(varargs-signature type-vars arg-type return-type cons-name
+                                                     empty-name)
+                                  (node/p (varargs list
+                                            (bytes-sexp/p name)
+                                            (node/p (map symbol-sexp/p type-vars))
+                                            (type->sexp arg-type)
+                                            (type->sexp return-type)
+                                            (top-level-name->sexp cons-name)
+                                            (top-level-name->sexp empty-name)))]))))
            (node/p (dict-map top-level-sigs
                              (lambda ([name : TopLevelName] [sig : TopLevelSignature]) : Sexp/P
                                (case sig
@@ -128,6 +140,39 @@
   (case s
     [(symbol-sexp v _) (right v)]
     [_ (left #"Not a valid type-var")]))
+
+(define (static-exports->dict [static-exports : (List Sexp)] [acc : (Dict Bytes StaticSignature)])
+  : (Either Bytes (Dict Bytes StaticSignature))
+  (case static-exports
+    [(empty) (right acc)]
+    [(cons (node (cons (bytes-sexp name _)
+                       (cons (node type-vars _)
+                             (cons arg-type
+                                   (cons return-type
+                                         (cons cons-name
+                                               (cons empty-name (empty))))))) _)
+           static-exports)
+     (case (extract-rights (map parse-type-var-sexp type-vars))
+       [(left v) (left v)]
+       [(right type-vars)
+        (case (sexp->type arg-type)
+          [(nothing) (left #"Not a valid static-exports")]
+          [(just arg-type)
+           (case (sexp->type return-type)
+             [(nothing) (left #"Not a valid static-exports")]
+             [(just return-type)
+              (case (sexp->top-level-name cons-name)
+                [(nothing) (left #"Not a valid static-exports")]
+                [(just cons-name)
+                 (case (sexp->top-level-name empty-name)
+                   [(nothing) (left #"Not a valid static-exports")]
+                   [(just empty-name)
+                    (match-define sig
+                      (varargs-signature type-vars arg-type return-type cons-name empty-name))
+                    (static-exports->dict static-exports (dict-add acc name sig))])])])])])]
+    [_
+     (left #"Bad static-exports")]))
+
 
 (define (parse-variant-name [s : Sexp]) : (Either Bytes Bytes)
   (case s
@@ -225,8 +270,9 @@
                         (cons (node value-exports _)
                               (cons (node pattern-exports _)
                                     (cons (node type-bindings _)
-                                          (cons (node top-level-sigs _)
-                                                (empty))))))
+                                          (cons (node static-bindings _)
+                                                (cons (node top-level-sigs _)
+                                                      (empty)))))))
                   _))
      (case (sexp->mod-name name)
        [(nothing) (left #"Bad mod-name")]
@@ -240,15 +286,19 @@
               (case (type-exports->dict type-bindings (make-dict bytes-cmp))
                 [(left v) (left v)]
                 [(right type-exports)
-                 (case (top-level-sigs->dict top-level-sigs (make-dict top-level-name-cmp))
+                 (case (static-exports->dict static-bindings (make-dict bytes-cmp))
                    [(left v) (left v)]
-                   [(right top-level-sigs)
-                    (right
-                      (module-signature
-                        name
-                        value-exports
-                        pattern-exports
-                        type-exports
-                        top-level-sigs))])])])])])]
+                   [(right static-exports)
+                    (case (top-level-sigs->dict top-level-sigs (make-dict top-level-name-cmp))
+                      [(left v) (left v)]
+                      [(right top-level-sigs)
+                       (right
+                         (module-signature
+                           name
+                           value-exports
+                           pattern-exports
+                           type-exports
+                           static-exports
+                           top-level-sigs))])])])])])])]
     [(right _)
      (left #"Unexpected sexp shape")]))

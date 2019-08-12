@@ -9,6 +9,7 @@
       [BlockDefinition ed:BlockDefinition]
       [CaseClause ed:CaseClause]
       [DatatypeDefinition ed:DatatypeDefinition]
+      [Export ed:Export]
       [Exports ed:Exports]
       [Expression ed:Expression]
       [FunctionArg ed:FunctionArg]
@@ -37,6 +38,7 @@
       [bytes-pattern ed:bytes-pattern]
       [case-clause ed:case-clause]
       [case-expr ed:case-expr]
+      [export ed:export]
       [exports ed:exports]
       [function-arg ed:function-arg]
       [function-definition ed:function-definition]
@@ -73,13 +75,13 @@
 }
 (export
   (#:types CaseClause DatatypeDefinition Exports Expression FunctionDefinition FunctionArg Imports
-           Module Pattern PatternExport TypeExport ValueExport)
+           Module Pattern PatternExport StaticExport TypeExport ValueExport)
   (#:values resolve-vars module-definitions module-imports module-name
             function-arg-name function-arg-type)
   (#:patterns abstraction-pattern app-expr begin-expr boolean-literal
               bytes-literal bytes-pattern case-clause case-expr exports function-definition function-arg
               global-var-expr if-expr imports int-literal int-pattern lambda-expr let-expr
-              local-var-expr module pattern-export type-export value-export
+              local-var-expr module pattern-export type-export value-export varargs-export
               varargs-app-expr varargs2-app-expr variable-pattern variant-constructor variant-accessor))
 (types
   (define-type Module
@@ -92,10 +94,18 @@
   (define-type Exports
     (exports [types : (List TypeExport)]
              [values : (List ValueExport)]
-             [patterns : (List PatternExport)]))
+             [patterns : (List PatternExport)]
+             [statics : (List StaticExport)]))
   (define-type ValueExport
     (value-export [exported-name : Bytes] [top-level-name : TopLevelName] [type : Type]))
-
+  (define-type StaticExport
+    (varargs-export
+      [exported-name : Bytes]
+      [type-vars : (List Bytes)]
+      [arg-type : Type]
+      [return-type : Type]
+      [cons-func : TopLevelName]
+      [empty-func : TopLevelName]))
 
   (define-type FunctionDefinition
     (function-definition
@@ -161,6 +171,9 @@
 
   (define-type TopLevelStaticInfo
     (varargs-top-level-info
+      [type-vars : (List Bytes)]
+      [arg-type : Type]
+      [return-type : Type]
       [cons-func : TopLevelName]
       [empty-func : TopLevelName]))
 
@@ -244,12 +257,13 @@
       (lambda ([def : ed:StaticDefinition]) : (Tuple2 Bytes TopLevelStaticInfo)
         (case def
           [(ed:varargs-definition
-             name _ _ _ (source-span-annotated cons-func _) (source-span-annotated empty-func _))
+             name type-vars arg-type return-type
+             (source-span-annotated cons-func _) (source-span-annotated empty-func _))
            (case (dict-ref global-env cons-func)
              [(just cons-func)
               (case (dict-ref global-env empty-func)
                 [(just empty-func)
-                 (tuple2 name (varargs-top-level-info cons-func empty-func))]
+                 (tuple2 name (varargs-top-level-info type-vars arg-type return-type cons-func empty-func))]
                 [(nothing)
                  (panic #"Unbound empty-func")])]
              [(nothing)
@@ -258,11 +272,12 @@
 
 (define (resolve-vars/exports [e : ed:Exports] [env : Environment]) : Exports
   (case e
-    [(ed:exports types values patterns)
+    [(ed:exports types values patterns statics)
      (exports
        types
        (map (lambda ([e : ed:ValueExport]) (resolve-vars/value-export e env)) values)
-       patterns)]))
+       patterns
+       (map (lambda ([e : ed:Export]) (resolve-vars/static-export e env)) statics))]))
 
 (define (resolve-vars/value-export [e : ed:ValueExport] [env : Environment]) : ValueExport
   (case e
@@ -270,6 +285,15 @@
      (case (dict-ref (environment-global-variables env) local-name)
        [(just v)
         (value-export exported-name v type)]
+       [(nothing)
+        (panic #"Unbound variable for export")])]))
+
+(define (resolve-vars/static-export [e : ed:Export] [env : Environment]) : StaticExport
+  (case e
+    [(ed:export local-name exported-name)
+     (case (dict-ref (environment-global-statics env) local-name)
+       [(just (varargs-top-level-info type-vars arg-type return-type cons-func empty-func))
+        (varargs-export exported-name type-vars arg-type return-type cons-func empty-func)]
        [(nothing)
         (panic #"Unbound variable for export")])]))
 
@@ -456,7 +480,7 @@
     [(ed:varargs2-app-expr tail-position (source-span-annotated op _) args _)
      (case (dict-ref (environment-global-statics env) op)
        [(nothing) (panic #"Unbound static")]
-       [(just (varargs-top-level-info cons-func empty-func))
+       [(just (varargs-top-level-info _ _ _ cons-func empty-func))
         (match-define (tuple2 args state) (resolve-vars/exprs args env state))
         (tuple2 (varargs2-app-expr tail-position cons-func empty-func args) state)])]))
 
