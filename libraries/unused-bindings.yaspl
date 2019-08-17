@@ -40,55 +40,34 @@
 (define (module-unused-bindings [mod : Module] [sigs : (IndexedSet ModuleSignature ModName)]) : UnusedBindings
   (case mod
     [(module _ imports (exports exported-types exported-values exported-patterns exported-statics) _ _ _)
-     (match-define used-types
-       (set-add-all
+     (match-define used-bindings
+       (lambda ([free-bindings : (Module (Set Bytes) -> (List FreeVar))]
+                [exports : (List Export)])
          (set-add-all
-           (make-set bytes-cmp)
-           (map free-var-name (free-types/module mod (make-set bytes-cmp))))
-         (map export-local-name exported-types)))
-     (match-define used-values
-       (set-add-all
-         (set-add-all
-           (make-set bytes-cmp)
-           (map free-var-name (free-variables/module mod (make-set bytes-cmp))))
-         (map export-local-name exported-values)))
-     (match-define used-patterns
-       (set-add-all
-         (set-add-all
-           (make-set bytes-cmp)
-           (map free-var-name (free-patterns/module mod (make-set bytes-cmp))))
-         (map export-local-name exported-patterns)))
-     (match-define used-statics
-       (set-add-all
-         (set-add-all
-           (make-set bytes-cmp)
-           (map free-var-name (free-statics/module mod (make-set bytes-cmp))))
-         (map export-local-name exported-statics)))
+           (set-add-all
+             (make-set bytes-cmp)
+             (map free-var-name (free-bindings mod (make-set bytes-cmp))))
+           (map export-local-name exports))))
+     (match-define used-types (used-bindings free-types/module exported-types))
+     (match-define used-values (used-bindings free-variables/module exported-values))
+     (match-define used-patterns (used-bindings free-patterns/module exported-patterns))
+     (match-define used-statics (used-bindings free-statics/module exported-statics))
      (unused-bindings
        (filter-map
          (lambda ([imports : Imports]) : (Maybe ImportsUnusedBindings)
            (case imports
              [(partial-imports mod-name types values patterns statics)
-              (match-define unused-types
-                (set->list
-                  (set-difference
-                    (set-add-all (make-set bytes-cmp) (map import-local-name types))
-                    used-types)))
-              (match-define unused-values
-                (set->list
-                  (set-difference
-                    (set-add-all (make-set bytes-cmp) (map import-local-name values))
-                    used-values)))
-              (match-define unused-patterns
-                (set->list
-                  (set-difference
-                    (set-add-all (make-set bytes-cmp) (map import-local-name patterns))
-                    used-patterns)))
-              (match-define unused-statics
-                (set->list
-                  (set-difference
-                    (set-add-all (make-set bytes-cmp) (map import-local-name statics))
-                    used-statics)))
+              (match-define unused-imports
+                (lambda ([imports : (List Import)] [used-bindings : (Set Bytes)])
+                  (set->list
+                    (set-difference
+                      (set-add-all (make-set bytes-cmp) (map import-local-name imports))
+                      used-bindings))))
+
+              (match-define unused-types (unused-imports types used-types))
+              (match-define unused-values (unused-imports values used-values))
+              (match-define unused-patterns (unused-imports patterns used-patterns))
+              (match-define unused-statics (unused-imports statics used-statics))
               (if (and (= (length unused-types) (length types))
                        (and (= (length unused-values) (length values))
                             (and (= (length unused-patterns) (length patterns))

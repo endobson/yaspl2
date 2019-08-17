@@ -194,13 +194,13 @@
               duplicate-modules duplicate-types duplicate-values duplicate-patterns duplicate-statics)]
            [(just (module-signature _ e-values e-patterns e-types e-statics _))
             (match-define (tuple2 duplicate-types types)
-              (add-all-type-imports e-types types duplicate-types))
+              (add-all-imports e-types types duplicate-types))
             (match-define (tuple2 duplicate-values values)
-              (add-all-value-imports e-values values duplicate-values))
+              (add-all-imports e-values values duplicate-values))
             (match-define (tuple2 duplicate-patterns patterns)
-              (add-all-pattern-imports e-patterns patterns duplicate-patterns))
+              (add-all-imports e-patterns patterns duplicate-patterns))
             (match-define (tuple2 duplicate-statics statics)
-              (add-all-static-imports e-statics statics duplicate-statics))
+              (add-all-imports e-statics statics duplicate-statics))
             (resolve-imports/importss
               importss sigs
               (set-add seen-modules mod-name) types values patterns statics errors
@@ -221,13 +221,13 @@
               duplicate-modules duplicate-types duplicate-values duplicate-patterns duplicate-statics)]
            [(just (module-signature _ e-values e-patterns e-types e-statics _))
             (match-define (tuple3 unknown-types duplicate-types types)
-              (add-type-imports i-types e-types types (empty) duplicate-types))
+              (add-imports i-types e-types types duplicate-types))
             (match-define (tuple3 unknown-values duplicate-values values)
-              (add-value-imports i-values e-values values (empty) duplicate-values))
+              (add-imports i-values e-values values duplicate-values))
             (match-define (tuple3 unknown-patterns duplicate-patterns patterns)
-              (add-pattern-imports i-patterns e-patterns patterns (empty) duplicate-patterns))
+              (add-imports i-patterns e-patterns patterns duplicate-patterns))
             (match-define (tuple3 unknown-statics duplicate-statics statics)
-              (add-static-imports i-statics e-statics statics (empty) duplicate-statics))
+              (add-imports i-statics e-statics statics duplicate-statics))
             (match-define new-errors
               (case (tuple2 (tuple2 unknown-types unknown-values)
                             (tuple2 unknown-patterns unknown-statics))
@@ -242,171 +242,52 @@
               importss sigs (set-add seen-modules mod-name) types values patterns statics new-errors
               duplicate-modules duplicate-types duplicate-values duplicate-patterns duplicate-statics)]))]))
 
-(define (add-type-imports
-          [imports : (List Import)]
-          [exported-types : (Dict Bytes Type)]
-          [types : (Dict Bytes Type)]
-          [unknown-imports : (List Bytes)]
-          [duplicate-bindings : (List Bytes)])
-  : (Tuple3 (List Bytes) (List Bytes) (Dict Bytes Type))
+
+(define [Val] (add-imports
+                [imports : (List Import)]
+                [exports : (Dict Bytes Val)]
+                [locals : (Dict Bytes Val)]
+                [duplicate-bindings : (List Bytes)])
+  : (Tuple3 (List Bytes) (List Bytes) (Dict Bytes Val))
+  (add-imports* imports exports locals (empty) duplicate-bindings))
+
+(define [Val] (add-imports*
+                [imports : (List Import)]
+                [exports : (Dict Bytes Val)]
+                [locals : (Dict Bytes Val)]
+                [unknown-imports : (List Bytes)]
+                [duplicate-bindings : (List Bytes)])
+  : (Tuple3 (List Bytes) (List Bytes) (Dict Bytes Val))
   (case imports
     [(empty)
-     (tuple3 unknown-imports duplicate-bindings types)]
+     (tuple3 unknown-imports duplicate-bindings locals)]
     [(cons (import ex-name im-name) imports)
-     (case (dict-ref exported-types ex-name)
+     (case (dict-ref exports ex-name)
        [(nothing)
-        (add-type-imports imports exported-types types (cons ex-name unknown-imports)
-                          duplicate-bindings)]
-       [(just t)
-        (case (dict-maybe-add types im-name t)
+        (add-imports* imports exports locals (cons ex-name unknown-imports) duplicate-bindings)]
+       [(just v)
+        (case (dict-maybe-add locals im-name v)
           [(nothing)
-           (add-type-imports imports exported-types types unknown-imports
-                             (cons im-name duplicate-bindings))]
-          [(just types)
-           (add-type-imports imports exported-types types unknown-imports duplicate-bindings)])])]))
+           (add-imports* imports exports locals unknown-imports (cons im-name duplicate-bindings))]
+          [(just locals)
+           (add-imports* imports exports locals unknown-imports duplicate-bindings)])])]))
 
-(define (add-value-imports
-          [imports : (List Import)]
-          [exported-values : (Dict Bytes ValueSignature)]
-          [values : (Dict Bytes ValueSignature)]
-          [unknown-imports : (List Bytes)]
-          [duplicate-bindings : (List Bytes)])
-  : (Tuple3 (List Bytes) (List Bytes) (Dict Bytes ValueSignature))
-  (case imports
-    [(empty)
-     (tuple3 unknown-imports duplicate-bindings values)]
-    [(cons (import ex-name im-name) imports)
-     (case (dict-ref exported-values ex-name)
-       [(nothing)
-        (add-value-imports imports exported-values values (cons ex-name unknown-imports)
-                           duplicate-bindings)]
-       [(just t)
-        (case (dict-maybe-add values im-name t)
-          [(nothing)
-           (add-value-imports imports exported-values values unknown-imports
-                              (cons im-name duplicate-bindings))]
-          [(just values)
-           (add-value-imports imports exported-values values unknown-imports duplicate-bindings)])])]))
-
-(define (add-pattern-imports
-          [imports : (List Import)]
-          [exported-patterns : (Dict Bytes PatternSignature)]
-          [patterns : (Dict Bytes PatternSignature)]
-          [unknown-imports : (List Bytes)]
-          [duplicate-bindings : (List Bytes)])
-  : (Tuple3 (List Bytes) (List Bytes) (Dict Bytes PatternSignature))
-  (case imports
-    [(empty)
-     (tuple3 unknown-imports duplicate-bindings patterns)]
-    [(cons (import ex-name im-name) imports)
-     (case (dict-ref exported-patterns ex-name)
-       [(nothing)
-        (add-pattern-imports imports exported-patterns patterns (cons ex-name unknown-imports)
-                             duplicate-bindings)]
-       [(just sig)
-        (case (dict-maybe-add patterns im-name sig)
-          [(nothing)
-           (add-pattern-imports imports exported-patterns patterns unknown-imports
-                                (cons im-name duplicate-bindings))]
-          [(just patterns)
-           (add-pattern-imports imports exported-patterns patterns unknown-imports duplicate-bindings)])])]))
-
-(define (add-static-imports
-          [imports : (List Import)]
-          [exported-statics : (Dict Bytes StaticSignature)]
-          [statics : (Dict Bytes StaticSignature)]
-          [unknown-imports : (List Bytes)]
-          [duplicate-bindings : (List Bytes)])
-  : (Tuple3 (List Bytes) (List Bytes) (Dict Bytes StaticSignature))
-  (case imports
-    [(empty)
-     (tuple3 unknown-imports duplicate-bindings statics)]
-    [(cons (import ex-name im-name) imports)
-     (case (dict-ref exported-statics ex-name)
-       [(nothing)
-        (add-static-imports imports exported-statics statics (cons ex-name unknown-imports)
-                            duplicate-bindings)]
-       [(just sig)
-        (case (dict-maybe-add statics im-name sig)
-          [(nothing)
-           (add-static-imports imports exported-statics statics unknown-imports
-                                (cons im-name duplicate-bindings))]
-          [(just statics)
-           (add-static-imports imports exported-statics statics unknown-imports duplicate-bindings)])])]))
-
-(define (add-all-type-imports
-          [exported-types : (Dict Bytes Type)]
-          [types : (Dict Bytes Type)]
-          [duplicate-bindings : (List Bytes)])
-  : (Tuple2 (List Bytes) (Dict Bytes Type))
+(define [Val] (add-all-imports
+                [exports : (Dict Bytes Val)]
+                [locals : (Dict Bytes Val)]
+                [duplicate-bindings : (List Bytes)])
+  : (Tuple2 (List Bytes) (Dict Bytes Val))
   (dict-fold
-    exported-types
-    (lambda ([name : Bytes] [t : Type] [acc : (Tuple2 (List Bytes) (Dict Bytes Type))])
+    exports
+    (lambda ([name : Bytes] [v : Val] [acc : (Tuple2 (List Bytes) (Dict Bytes Val))])
       (case acc
-        [(tuple2 duplicate-bindings types)
-         (case (dict-maybe-add types name t)
+        [(tuple2 duplicate-bindings locals)
+         (case (dict-maybe-add locals name v)
            [(nothing)
-            (tuple2 (cons name duplicate-bindings) types)]
-           [(just types)
-            (tuple2 duplicate-bindings types)])]))
-    (tuple2 duplicate-bindings types)))
-
-(define (add-all-value-imports
-          [exported-values : (Dict Bytes ValueSignature)]
-          [values : (Dict Bytes ValueSignature)]
-          [duplicate-bindings : (List Bytes)])
-  : (Tuple2 (List Bytes) (Dict Bytes ValueSignature))
-  (dict-fold
-    exported-values
-    (lambda ([name : Bytes]
-             [v : ValueSignature]
-             [acc : (Tuple2 (List Bytes) (Dict Bytes ValueSignature))])
-      (case acc
-        [(tuple2 duplicate-bindings values)
-         (case (dict-maybe-add values name v)
-           [(nothing)
-            (tuple2 (cons name duplicate-bindings) values)]
-           [(just values)
-            (tuple2 duplicate-bindings values)])]))
-    (tuple2 duplicate-bindings values)))
-
-(define (add-all-pattern-imports
-          [exported-patterns : (Dict Bytes PatternSignature)]
-          [patterns : (Dict Bytes PatternSignature)]
-          [duplicate-bindings : (List Bytes)])
-  : (Tuple2 (List Bytes) (Dict Bytes PatternSignature))
-  (dict-fold
-    exported-patterns
-    (lambda ([name : Bytes]
-             [p : PatternSignature]
-             [acc : (Tuple2 (List Bytes) (Dict Bytes PatternSignature))])
-      (case acc
-        [(tuple2 duplicate-bindings patterns)
-         (case (dict-maybe-add patterns name p)
-           [(nothing)
-            (tuple2 (cons name duplicate-bindings) patterns)]
-           [(just patterns)
-            (tuple2 duplicate-bindings patterns)])]))
-    (tuple2 duplicate-bindings patterns)))
-
-(define (add-all-static-imports
-          [exported-statics : (Dict Bytes StaticSignature)]
-          [statics : (Dict Bytes StaticSignature)]
-          [duplicate-bindings : (List Bytes)])
-  : (Tuple2 (List Bytes) (Dict Bytes StaticSignature))
-  (dict-fold
-    exported-statics
-    (lambda ([name : Bytes]
-             [sig : StaticSignature]
-             [acc : (Tuple2 (List Bytes) (Dict Bytes StaticSignature))])
-      (case acc
-        [(tuple2 duplicate-bindings statics)
-         (case (dict-maybe-add statics name sig)
-           [(nothing)
-            (tuple2 (cons name duplicate-bindings) statics)]
-           [(just statics)
-            (tuple2 duplicate-bindings statics)])]))
-    (tuple2 duplicate-bindings statics)))
+            (tuple2 (cons name duplicate-bindings) locals)]
+           [(just locals)
+            (tuple2 duplicate-bindings locals)])]))
+    (tuple2 duplicate-bindings locals)))
 
 (define (import-resolution-errors->bytes [me : ImportResolutionErrors]) : Bytes
   (case me
