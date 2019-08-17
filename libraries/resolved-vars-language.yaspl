@@ -14,7 +14,7 @@
       [Expression ed:Expression]
       [FunctionArg ed:FunctionArg]
       [FunctionDefinition ed:FunctionDefinition]
-      Imports
+      [Imports ed:Imports]
       [Module ed:Module]
       [Pattern ed:Pattern]
       PatternExport
@@ -26,6 +26,7 @@
       [module-definitions ed:module-definitions]
       [module-imports ed:module-imports]
       [module-name ed:module-name]
+      [module-static-definitions ed:module-static-definitions]
     }
     {#:patterns
       [abstraction-pattern ed:abstraction-pattern]
@@ -44,7 +45,7 @@
       [function-definition ed:function-definition]
       [if-expr ed:if-expr]
       [ignore-pattern ed:ignore-pattern]
-      imports
+      [imports ed:imports]
       [int-literal ed:int-literal]
       [int-pattern ed:int-pattern]
       [lambda-expr ed:lambda-expr]
@@ -106,6 +107,9 @@
       [return-type : Type]
       [cons-func : TopLevelName]
       [empty-func : TopLevelName]))
+  (define-type Imports
+    (imports
+      [static-info : (Dict TopLevelName TopLevelSignature)]))
 
   (define-type FunctionDefinition
     (function-definition
@@ -181,7 +185,7 @@
     (state [counter : VarNumber])))
 
 (define (resolve-vars [mod : ed:Module]) : Module
-  (match-define (ed:module name imports exports definitions datatype-definitions statics) mod)
+  (match-define (ed:module name imports exports definitions datatype-definitions _statics) mod)
 
   (match-define datatype-definitions : (Dict Bytes DatatypeDefinition)
     (dict-add-all
@@ -192,10 +196,11 @@
 
   (match-define global-env (setup-value-environment mod datatype-definitions))
   (match-define global-statics : (Dict Bytes TopLevelStaticInfo)
-    (setup-static-environment statics global-env))
+    (setup-static-environment mod global-env))
   (match-define env (environment (make-dict bytes-cmp) global-env global-statics name))
 
-  (module name imports
+  (module name
+          (resolve-vars/imports imports)
           (resolve-vars/exports exports env)
           (map (lambda ([f : ed:FunctionDefinition]) (resolve-vars/function-definition f env))
                definitions)
@@ -214,7 +219,7 @@
 
 (define (add-all-imported-functions [env : (Dict Bytes TopLevelName)] [mod : ed:Module])
   : (Dict Bytes TopLevelName)
-  (match-define (imports values _) (ed:module-imports mod))
+  (match-define (ed:imports values _ _) (ed:module-imports mod))
   (merge-dicts
     (dict-value-map values
       (lambda ([v : ValueSignature])
@@ -248,11 +253,23 @@
            closure-name])))))
 
 (define (setup-static-environment
-          [statics : (List ed:StaticDefinition)]
+          [mod : ed:Module]
+          [global-env : (Dict Bytes TopLevelName)])
+  : (Dict Bytes TopLevelStaticInfo)
+  (add-all-imported-statics
+    (add-locally-defined-statics
+      (make-dict bytes-cmp)
+      mod
+      global-env)
+    mod))
+
+(define (add-locally-defined-statics
+          [env : (Dict Bytes TopLevelStaticInfo)]
+          [mod : ed:Module]
           [global-env : (Dict Bytes TopLevelName)])
   : (Dict Bytes TopLevelStaticInfo)
   (dict-add-all
-    (make-dict bytes-cmp)
+    env
     (map
       (lambda ([def : ed:StaticDefinition]) : (Tuple2 Bytes TopLevelStaticInfo)
         (case def
@@ -268,7 +285,25 @@
                  (panic #"Unbound empty-func")])]
              [(nothing)
               (panic #"Unbound cons-func")])]))
-      statics)))
+      (ed:module-static-definitions mod))))
+
+(define (add-all-imported-statics
+          [env : (Dict Bytes TopLevelStaticInfo)]
+          [mod : ed:Module])
+  : (Dict Bytes TopLevelStaticInfo)
+  (match-define (ed:imports _ statics _) (ed:module-imports mod))
+  (merge-dicts
+    env
+    (dict-value-map
+      statics
+      (lambda ([sig : StaticSignature]) : TopLevelStaticInfo
+        (case sig
+          [(varargs-signature type-vars arg-type return-type cons-func empty-func)
+           (varargs-top-level-info type-vars arg-type return-type cons-func empty-func)])))))
+
+(define (resolve-vars/imports [i : ed:Imports]) : Imports
+  (match-define (ed:imports _ _ static-info) i)
+  (imports static-info))
 
 (define (resolve-vars/exports [e : ed:Exports] [env : Environment]) : Exports
   (case e
