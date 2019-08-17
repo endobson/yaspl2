@@ -15,6 +15,7 @@ yaspl_binary(
     srcs = ["env.yaspl"],
     deps = [
         "//libraries:io",
+        "//libraries/data:bytes",
         "//libraries/data:list",
     ],
 )
