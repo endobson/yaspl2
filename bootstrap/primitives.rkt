@@ -112,6 +112,7 @@
            (module-signature (module-name& '(prim))
               (hash (?@ 'clauses.name clauses.ty) ...)
               prim-types
+              (hash)
               (hash)))))]))
 
 (define-primitives

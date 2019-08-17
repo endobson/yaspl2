@@ -95,12 +95,12 @@
      (define mut-env (mutable-set))
      (for ([imports (in-list importss)])
        (match imports
-         [(partial-imports& _ _ import-names _)
+         [(partial-imports& _ _ import-names _ _)
           (for ([import-name (in-list import-names)])
             (set-add! mut-env (import&-local-name import-name)))]
          [(full-imports& mod-name)
           (match (hash-ref signatures mod-name)
-            [(module-signature _ exports _ _)
+            [(module-signature _ exports _ _ _)
              (for ([export (in-hash-keys exports)])
                (set-add! mut-env export))])]))
      (for ([variant-name (in-list (append* variant-namess))]
@@ -161,10 +161,10 @@
            (for ([imports (in-list importss)])
              (define import-names
                (match imports
-                 [(partial-imports& _ types _ _) types]
+                 [(partial-imports& _ types _ _ _) types]
                  [(full-imports& mod-name)
                   (match (hash-ref module-signatures mod-name)
-                    [(module-signature _ _ types _)
+                    [(module-signature _ _ types _ _)
                      (for/list ([export (in-hash-keys types)])
                        (import& export export))])]))
              (for ([import (in-list import-names)])
@@ -225,10 +225,10 @@
      (for ([imports (in-list importss)])
        (define import-names
          (match imports
-           [(partial-imports& _ _ values _) values]
+           [(partial-imports& _ _ values _ _) values]
            [(full-imports& mod-name)
             (match (hash-ref module-signatures mod-name)
-              [(module-signature _ values _ _)
+              [(module-signature _ values _ _ _)
                (for/list ([export (in-hash-keys values)])
                  (import& export export))])]))
        (define src-mod (imports&-module-name imports))
@@ -249,19 +249,44 @@
      (define type-env (hash-copy/immutable mut-type-env))
 
      ;; TODO type check that cons-func and empty-func have the right types
-     (define static-env
+     (define local-static-env
        (for/hash ([(name def) (in-hash statics)])
          (values
            name
            (match def
-             [(varargs-definition& type-vars arg-type return-type _ _)
+             [(varargs-definition& type-vars arg-type return-type cons-name empty-name)
               (define local-type-name-env
                 (foldl (λ (k h) (hash-set h k (type-var-ty k))) type-name-env type-vars))
               (define parse-type (parse-type/env local-type-name-env))
-              (varargs-static-binding
+              (varargs-signature
                 type-vars
                 (parse-type arg-type)
-                (parse-type return-type))]))))
+                (parse-type return-type)
+                ;; TODO support these from being in other modules
+                module-name
+                cons-name
+                module-name
+                empty-name)]))))
+     (define imported-static-env
+       (let ([mut-static-env (make-hash)])
+         (for ([imports (in-list importss)])
+           (define import-names
+             (match imports
+               [(partial-imports& _ _ _ _ statics) statics]
+               [(full-imports& mod-name)
+                (match (hash-ref module-signatures mod-name)
+                  [(module-signature _ _ _ _ statics)
+                   (for/list ([export (in-hash-keys statics)])
+                     (import& export export))])]))
+           (define src-mod (imports&-module-name imports))
+           (for ([import (in-list import-names)])
+             (match import
+               [(import& exported-name local-name)
+                (hash-set! mut-static-env local-name
+                           (hash-ref (module-signature-statics (hash-ref module-signatures src-mod))
+                                     exported-name))])))
+         (hash-copy/immutable mut-static-env)))
+     (define static-env (hash-union local-static-env imported-static-env))
 
      (define pattern-env
        (hash-copy/immutable
@@ -290,27 +315,27 @@
                                   (data-ty ty-module-name ty-name (map type-var-ty type-vars))
                                   type-vars
                                   (hash-ref variant-parsed-field-types name)))]))]))
-          (for ([imports (in-list importss)])
-            (define import-names
-              (match imports
-                [(partial-imports& _ _ _ patterns) patterns]
-                [(full-imports& mod-name)
-                 (match (hash-ref module-signatures mod-name)
-                   [(module-signature _ _ _ patterns)
-                    (for/list ([export (in-hash-keys patterns)])
-                      (import& export export))])]))
-            (for ([import (in-list import-names)])
-              (define src-mod (imports&-module-name imports))
-              (match import
-                [(import& exported-name local-name)
-                 (hash-set!
-                   mut-pattern-env
-                   local-name
-                   (hash-ref (module-signature-patterns (hash-ref module-signatures src-mod)) exported-name
-                             (lambda () (raise-user-error
-                                          'import-pattern
-                                          "No pattern '~s' exported by ~s. (Imported by ~s)"
-                                          exported-name src-mod module-name))))])))
+           (for ([imports (in-list importss)])
+             (define import-names
+               (match imports
+                 [(partial-imports& _ _ _ patterns _) patterns]
+                 [(full-imports& mod-name)
+                  (match (hash-ref module-signatures mod-name)
+                    [(module-signature _ _ _ patterns _)
+                     (for/list ([export (in-hash-keys patterns)])
+                       (import& export export))])]))
+             (for ([import (in-list import-names)])
+               (define src-mod (imports&-module-name imports))
+               (match import
+                 [(import& exported-name local-name)
+                  (hash-set!
+                    mut-pattern-env
+                    local-name
+                    (hash-ref (module-signature-patterns (hash-ref module-signatures src-mod)) exported-name
+                              (lambda () (raise-user-error
+                                           'import-pattern
+                                           "No pattern '~s' exported by ~s. (Imported by ~s)"
+                                           exported-name src-mod module-name))))])))
            mut-pattern-env)))
 
 
@@ -375,14 +400,24 @@
                                                  "No pattern '~s' exported by ~s"
                                                  in-name module-name))))))
 
+     (define exported-static-bindings
+       (for/hash ([export (exports&-statics exports)])
+         (match-define (export& in-name out-name) export)
+         (values out-name (hash-ref static-env in-name
+                                    (lambda () (raise-user-error
+                                                 'export-static
+                                                 "No static '~s' exported by ~s"
+                                                 in-name module-name))))))
+
+
      (module-signature
        module-name
        exported-value-bindings
        exported-type-bindings
-       exported-pattern-bindings)]))
+       exported-pattern-bindings
+       exported-static-bindings)]))
 
 (struct binding-env (values inductive-signatures patterns types statics))
-(struct varargs-static-binding (type-vars arg-type return-type))
 
 (define (binding-env-value-ref env name)
   (hash-ref (binding-env-values env) name))
@@ -669,7 +704,7 @@
                (for ([arg (in-list args)])
                  (type-check arg (substitute body-substitution element-ty))))])])]
     [(varargs2-app& op args)
-     (match-define (varargs-static-binding stale-type-vars stale-arg-type stale-return-type)
+     (match-define (varargs-signature stale-type-vars stale-arg-type stale-return-type _ _ _ _)
        (binding-env-static-ref env op))
      (match-define-values (type-vars (list arg-type return-type))
        (freshen-types stale-type-vars (list stale-arg-type stale-return-type)))

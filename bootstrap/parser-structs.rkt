@@ -5,10 +5,10 @@
 (struct module& (name imports exports types definitions static-defs))
 (struct module-name& (v) #:transparent)
 
-(struct exports& (types values patterns))
+(struct exports& (types values patterns statics))
 (struct export& (in-name out-name))
 (struct imports& (module-name))
-(struct partial-imports& imports& (types values patterns))
+(struct partial-imports& imports& (types values patterns statics))
 (struct full-imports& imports& ())
 (struct import& (exported-name local-name) #:transparent)
 (struct definition& (type args body))

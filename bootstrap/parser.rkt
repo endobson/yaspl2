@@ -52,12 +52,24 @@
     (define (pattern-point forms)
       (match forms
         [(cons (list #:patterns (? import-elem? import-elems) ...) forms)
-         (list (map parse-import-elem import-elems))]
+         (cons (map parse-import-elem import-elems)
+               (statics-point forms))]
+        [forms
+         (cons empty (statics-point forms))]))
+    (define (statics-point forms)
+      (match forms
+        [(cons (list #:statics (? import-elem? import-elems) ...) forms)
+         (cons (map parse-import-elem import-elems)
+               (empty-point forms))]
+        [forms
+         (cons empty (empty-point forms))]))
+    (define (empty-point forms)
+      (match forms
         [(list)
-         (list empty)]))
+         (list)]))
     (match (type-point forms)
-      [(list types values patterns)
-       (partial-imports& module-name types values patterns)]))
+      [(list types values patterns statics)
+       (partial-imports& module-name types values patterns statics)]))
   (define (import-elem? x)
     (match x
       [(? symbol?) #t]
@@ -70,18 +82,21 @@
 (define (parse-exports exports)
   (match exports
    [(list)
-    (exports& empty empty empty) ]
+    (exports& empty empty empty empty) ]
    [(list
       (list #:types (? symbol? types*) ...) ...
       (list #:values (? symbol? values*) ...) ...
-      (list #:patterns (? symbol? patterns*) ...) ...)
+      (list #:patterns (? symbol? patterns*) ...) ...
+      (list #:statics (? symbol? statics*) ...) ...)
     (define types (append* types*))
     (define values (append* values*))
     (define patterns (append* patterns*))
+    (define statics (append* statics*))
     (exports&
       (map export& types types)
       (map export& values values)
-      (map export& patterns patterns))]))
+      (map export& patterns patterns)
+      (map export& statics statics))]))
 
 (define (parse-type-definitions types)
   (define (parse-variant variant)

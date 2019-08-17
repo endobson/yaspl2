@@ -95,23 +95,25 @@
   ;;mapping to identifiers
   (define local-env (make-hash))
   (define local-pattern-env (make-hash))
+  ;;mapping to varargs-bindings
+  (define local-static-env (make-hash))
 
   ;; TODO actually support more complicated pattern bindings
   (for ([imports (in-list (module&-imports module))])
     (match imports
-      [(partial-imports& mod-name _ _ patterns)
+      [(partial-imports& mod-name _ _ patterns _)
        (for ([import (in-list patterns)])
          (hash-set! local-pattern-env (import&-local-name import)
                     (import&-exported-name import)))]
       [(full-imports& mod-name)
        (match (hash-ref signatures mod-name)
-         [(module-signature _ _ _ patterns)
+         [(module-signature _ _ _ patterns _)
           (for ([export (in-hash-keys patterns)])
             (hash-set! local-pattern-env export export))])]))
   (define module-import-forms
     (for/list ([imports (in-list (module&-imports module))])
       (match imports
-        [(partial-imports& mod-name _ values _)
+        [(partial-imports& mod-name _ values _ _)
          `(require
             (only-in ',(mod-name->racket-mod-name mod-name)
               ,@(for/list ([import (in-list values)])
@@ -122,11 +124,37 @@
          `(require
             (only-in ',(mod-name->racket-mod-name mod-name)
               ,@(match (hash-ref signatures mod-name)
-                  [(module-signature _ values _ _)
+                  [(module-signature _ values _ _ _)
                    (for/list ([export (in-hash-keys values)])
                      (define id (generate-temporary export))
                      (hash-set! local-env export id)
                      `[,export ,id])])))])))
+  (define static-import-forms
+    (for/list ([imports (in-list (module&-imports module))])
+      (define static-names
+        (match imports
+          [(partial-imports& mod-name _ _ _ statics) statics]
+          [(full-imports& mod-name)
+           (match (hash-ref signatures mod-name)
+             [(module-signature _ _ _ _ statics)
+              (for/list ([export (in-hash-keys statics)])
+                (import& export export))])]))
+
+      (define mod-name (imports&-module-name imports))
+      `(begin
+         ,@(for/list ([import static-names])
+             (match (hash-ref (module-signature-statics (hash-ref signatures mod-name))
+                              (import&-exported-name import))
+               [(varargs-signature _ _ _ cons-mod cons-name empty-mod empty-name)
+                (define cons-id (generate-temporary cons-name))
+                (define empty-id (generate-temporary empty-name))
+                (hash-set! local-static-env (import&-local-name import)
+                           (varargs-bindings cons-id empty-id))
+                `(require
+                   (only-in ',(mod-name->racket-mod-name cons-mod)
+                            [,cons-name ,cons-id])
+                   (only-in ',(mod-name->racket-mod-name empty-mod)
+                            [,empty-name ,empty-id]))])))))
 
   (define variant-defs
     (append*
@@ -162,20 +190,21 @@
     (define temporary (generate-temporary name))
     (hash-set! local-env name temporary))
 
-  (match-define static-env
-    (for/hash ([(name def) (in-hash (module&-static-defs module))])
-      (values
-        name
-        (match def
-          [(varargs-definition& _ _ _ cons-sym empty-sym)
-           (varargs-bindings
-             (hash-ref local-env cons-sym)
-             (hash-ref local-env empty-sym))]))))
+  (for ([(name def) (in-hash (module&-static-defs module))])
+    (hash-set!
+      local-static-env
+      name
+      (match def
+        [(varargs-definition& _ _ _ cons-sym empty-sym)
+         (varargs-bindings
+           (hash-ref local-env cons-sym)
+           (hash-ref local-env empty-sym))])))
 
   (define function-defs
     (let ()
       (define immutable-local-env (hash-copy/immutable local-env))
       (define immutable-local-pattern-env (hash-copy/immutable local-pattern-env))
+      (define immutable-local-static-env (hash-copy/immutable local-static-env))
       (for/list ([(name def) (in-hash (module&-definitions module))])
         (match def
           [(definition& _ args (block& defs body))
@@ -187,7 +216,7 @@
                     (for/fold ([env immutable-local-env])
                               ([a (in-list args)] [t (in-list temporaries)])
                       (hash-set env a t))
-                    static-env)
+                    immutable-local-static-env)
                   defs
                   body))]))))
 
@@ -199,6 +228,7 @@
                   variant-val variant-val-variant-name variant-val-fields))
 
        ,@module-import-forms
+       ,@static-import-forms
        ,@variant-defs
        ,@function-defs
 
