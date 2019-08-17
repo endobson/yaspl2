@@ -170,9 +170,7 @@
      (if& (parse cond) (parse true) (parse false))]
     [(list 'begin first-expr exprs ...)
      (begin& (parse first-expr) (map parse exprs))]
-    [(list 'varargs first-expr exprs ...)
-     (varargs-app& (parse first-expr) (map parse exprs))]
-    [(list 'varargs2 (? symbol? name) exprs ...)
+    [(list 'varargs (? symbol? name) exprs ...)
      (varargs2-app& name (map parse exprs))]
     [`(let ([,(? symbol? name) ,expr]) . ,body)
      (let& name (parse expr) (parse-block body))]
