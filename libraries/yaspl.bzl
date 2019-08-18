@@ -91,10 +91,10 @@ def _bin_impl(ctx):
   args = ctx.actions.args()
   args.add(toolchain.platform)
   args.add(output_main_stub)
-  args.add(dep[yaspl_provider].module_name_file)
+  args.add(dep[yaspl_provider].signature)
 
   ctx.actions.run(
-    inputs = [dep[yaspl_provider].module_name_file],
+    inputs = [dep[yaspl_provider].signature],
     tools = [ctx.executable._main_stub],
     outputs = [output_main_stub],
     mnemonic = "YasplGenerateMain",
