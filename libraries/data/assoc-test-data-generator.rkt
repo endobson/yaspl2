@@ -2,7 +2,7 @@
 
 (define N 16)
 (for ([j 500])
-  (for ([i 100])
+  (for ([i 50])
     (define v (random))
     (if (< v .8)
         (write `(add ,(random N) ,(random N)))
