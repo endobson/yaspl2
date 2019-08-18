@@ -44,7 +44,9 @@
          main-fun)
       ns))
 
-  (define process-args (list->vector (cons #"/binary-path" supplied-args)))
+  (define process-args (cons #"/binary-path" supplied-args))
+  (define merged-process-args
+    (apply bytes-append (map (lambda (arg) (bytes-append arg #"\0")) process-args)))
   (define stdin (open-input-bytes stdin-bytes 'stderr))
   (define stdout (open-output-bytes 'stdout))
   (define stderr (open-output-bytes 'stderr))
@@ -52,7 +54,7 @@
   (define return-val
     (let/ec exit-k
       (parameterize ([exit-parameter exit-k])
-        (main-fun process-args stdin stdout stderr))))
+        (main-fun merged-process-args stdin stdout stderr))))
 
   (program-result
     (if (error-sentinal? return-val) 255 return-val)

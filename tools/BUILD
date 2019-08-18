@@ -126,6 +126,7 @@ yaspl_library(
     srcs = ["command-line.yaspl"],
     deps = [
         "//libraries:io",
+        "//libraries/data:bytes",
         "//libraries/data:either",
         "//libraries/data:list",
     ],
