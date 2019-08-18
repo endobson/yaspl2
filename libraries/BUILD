@@ -79,6 +79,8 @@ yaspl_bootstrap_binary(
         ":module-signature",
         ":module-signature-serialization",
         ":prim-implementation",
+        ":prim-types",
+        ":types",
         "//libraries/data:bytes",
         "//libraries/data:dict",
         "//libraries/data:either",
