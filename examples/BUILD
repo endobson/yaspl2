@@ -11,16 +11,6 @@ yaspl_binary(
 )
 
 yaspl_binary(
-    name = "env",
-    srcs = ["env.yaspl"],
-    deps = [
-        "//libraries:io",
-        "//libraries/data:bytes",
-        "//libraries/data:list",
-    ],
-)
-
-yaspl_binary(
     name = "http-echo-server",
     srcs = ["http-echo-server.yaspl"],
     deps = [
@@ -83,7 +73,6 @@ test_suite(
 filegroup(
     name = "package_binaries",
     srcs = [
-        ":env",
         ":hello-world",
         ":http-echo-server",
         ":thread-example",
