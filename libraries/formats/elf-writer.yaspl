@@ -168,7 +168,7 @@
 
   (match-define section-headers : (List (JoinList Bytes))
     (varargs list
-      (single-jl (make-bytes (* 16 4))) ;; Empty section header
+      (padding (* 16 4)) ;; Empty section header
       ;; .text section
       (section-header/bytes 32 1 6 0 text-section-start text-section-length 0 0
                       (logical-shift-left 1 text-section-alignment) 0)
@@ -196,30 +196,32 @@
   (bytes-append
     (jl->list
       (varargs append-jl*
-        (single-jl #"\x7FELF") ;; Magic
-        (single-jl #"\x02") ;; Class (64 bit)
-        (single-jl #"\x01") ;; Data encoding (LSB)
-        (single-jl #"\x01") ;; Version
-        (single-jl #"\x00") ;; OS ABI (SysV)
-        (single-jl #"\x00") ;; OS ABI version
-        (single-jl (make-bytes 7)) ;; Padding
-        (single-jl (bytes/u16-le 1)) ;; Relocatable object file
-        (single-jl (bytes/u16-le #x3E)) ;; Machine type X86_64
-        (single-jl (bytes/u32-le 1)) ;; Version
-        (single-jl (bytes/u64-le (u64 0))) ;; No start address
-        (single-jl (bytes/u64-le (u64 0))) ;; Program header offset
-        (single-jl (bytes/u64-le (u64 section-header-start))) ;; Section header offset
-        (single-jl (bytes/u32-le 0)) ;; FLAGS
-        (single-jl (bytes/u16-le #x40)) ;; ELF header size
-        (single-jl (bytes/u16-le #x00)) ;; Size of program header entry
-        (single-jl (bytes/u16-le #x00)) ;; Number of program header entries
-        (single-jl (bytes/u16-le #x40)) ;; size of section header entry
-        (single-jl (bytes/u16-le (length section-headers)))   ;; Number of section header entries
-        (single-jl (bytes/u16-le (- (length section-headers) 1)))  ;; Index of section name section
+        (varargs join-list
+          #"\x7FELF" ;; Magic
+          #"\x02"    ;; Class (64 bit)
+          #"\x01"    ;; Data encoding (LSB)
+          #"\x01"    ;; Version
+          #"\x00"    ;; OS ABI (SysV)
+          #"\x00")   ;; OS ABI version
+        (padding 7) ;; Padding
+        (varargs join-list
+          (bytes/u16-le 1)                                ;; Relocatable object file
+          (bytes/u16-le #x3E)                             ;; Machine type X86_64
+          (bytes/u32-le 1)                                ;; Version
+          (bytes/u64-le (u64 0))                          ;; No start address
+          (bytes/u64-le (u64 0))                          ;; Program header offset
+          (bytes/u64-le (u64 section-header-start))       ;; Section header offset
+          (bytes/u32-le 0)                                ;; FLAGS
+          (bytes/u16-le #x40)                             ;; ELF header size
+          (bytes/u16-le #x00)                             ;; Size of program header entry
+          (bytes/u16-le #x00)                             ;; Number of program header entries
+          (bytes/u16-le #x40)                             ;; size of section header entry
+          (bytes/u16-le (length section-headers))         ;; Number of section header entries
+          (bytes/u16-le (- (length section-headers) 1)))  ;; Index of section name section
         (single-jl text-section-contents)
-        (single-jl (make-bytes (- const-section-start text-section-end)))
+        (padding (- const-section-start text-section-end))
         (single-jl const-section-contents)
-        (single-jl (make-bytes (- symbol-table-start const-section-end)))
+        (padding (- symbol-table-start const-section-end))
         (symbol-table-entry 0 0 0 0)
         (concat-map-jl/list
           (lambda ([named-section-index : LiftedInt])
@@ -252,12 +254,15 @@
           (lambda ([s : Bytes])
             (single-jl (make-null-terminated s)))
           ordered-symbols)
-        (single-jl (make-bytes (- rela-text-section-start string-table-end)))
+        (padding (- rela-text-section-start string-table-end))
         (concat-map-jl/list serialize-relocation ordered-text-relocations)
         (concat-map-jl/list serialize-relocation const-relocations)
         (concat-map-jl/list (lambda ([v : Bytes]) (single-jl v)) section-string-table-strings)
-        (single-jl (make-bytes (- section-header-start section-string-table-end)))
+        (padding (- section-header-start section-string-table-end))
         (concat-jl section-headers)))))
+
+(define (padding [size : Int]) : (JoinList Bytes)
+  (single-jl (make-bytes size)))
 
 (define (remove-duplicates [l : (List Bytes)]) : (List Bytes)
   (remove-duplicates* l (empty) (make-set bytes-cmp)))
@@ -481,69 +486,18 @@
   (bytes-append
     (jl->list
       (varargs append-jl*
-        (single-jl #"\x7FELF") ;; Magic
-        (single-jl #"\x02") ;; Class (64 bit)
-        (single-jl #"\x01") ;; Data encoding (LSB)
-        (single-jl #"\x01") ;; Version
-        (single-jl #"\x00") ;; OS ABI (SysV)
-        (single-jl #"\x00") ;; OS ABI version
-        (single-jl (make-bytes 7)) ;; Padding
+        (executable-program-header
+          start-address
+          address-offset
+          const-section-start
+          const-section-length
+          text-section-start
+          text-section-length
+          section-header-start)
 
-        (single-jl (bytes/u16-le 2)) ;; Executable file
-        (single-jl (bytes/u16-le #x3E)) ;; Machine type X86_64
-        (single-jl (bytes/u32-le 1)) ;; Version
-        (single-jl (bytes/u64-le (u64 start-address))) ;; Start address
-        (single-jl (bytes/u64-le (u64 #x40))) ;; Program header offset
-        (single-jl (bytes/u64-le (u64 section-header-start))) ;; Section header offset
-        (single-jl (bytes/u32-le 0)) ;; FLAGS
-        (single-jl (bytes/u16-le #x40)) ;; ELF header size
-        (single-jl (bytes/u16-le #x38)) ;; Size of program header entry
-        (single-jl (bytes/u16-le #x04)) ;; Number of program header entries
-
-        (single-jl (bytes/u16-le #x40)) ;; size of section header entry
-        (single-jl (bytes/u16-le #x09))   ;; Number of section header entries
-        (single-jl (bytes/u16-le #x07))  ;; Index of section name section
-
-        (single-jl (bytes/u32-le #x06))  ;; Segment type (Program Header)
-        (single-jl (bytes/u32-le #x4))  ;; Segment flags (Read)
-        (single-jl (bytes/u64-le (u64 #x40)))  ;; Segment offset
-        (single-jl (bytes/u64-le (u64 (+ address-offset #x40))))  ;; Segment virtual address
-        (single-jl (bytes/u64-le (u64 (+ address-offset #x40))))  ;; Segment physical address
-        (single-jl (bytes/u64-le (u64 #x118)))  ;; Segment file size
-        (single-jl (bytes/u64-le (u64 #x118)))  ;; Segment memory size
-        (single-jl (bytes/u64-le (u64 #x08)))  ;; Segment alignment
-
-        ;; The const segment includes all the elf and program headers.
-        (single-jl (bytes/u32-le #x01))  ;; Segment type (Loadable)
-        (single-jl (bytes/u32-le #x4))  ;; Segment flags (Read)
-        (single-jl (bytes/u64-le (u64 #x00)))  ;; Segment offset
-        (single-jl (bytes/u64-le (u64 (+ address-offset #x00))))  ;; Segment virtual address
-        (single-jl (bytes/u64-le (u64 (+ address-offset #x00))))  ;; Segment physical address
-        (single-jl (bytes/u64-le (u64 (+ const-section-start const-section-length))))  ;; Segment file size
-        (single-jl (bytes/u64-le (u64 (+ const-section-start const-section-length))))  ;; Segment memory size
-        (single-jl (bytes/u64-le (u64 #x1000)))  ;; Segment alignment
-
-        (single-jl (bytes/u32-le #x01))  ;; Segment type (Loadable)
-        (single-jl (bytes/u32-le #x5))  ;; Segment flags (Read/Execute)
-        (single-jl (bytes/u64-le (u64 text-section-start)))  ;; Segment offset
-        (single-jl (bytes/u64-le (u64 (+ address-offset text-section-start))))  ;; Segment virtual address
-        (single-jl (bytes/u64-le (u64 (+ address-offset text-section-start))))  ;; Segment physical address
-        (single-jl (bytes/u64-le (u64 (round-up text-section-length #x1000))))  ;; Segment file size
-        (single-jl (bytes/u64-le (u64 (round-up text-section-length #x1000))))  ;; Segment memory size
-        (single-jl (bytes/u64-le (u64 #x1000)))  ;; Segment alignment
-
-        (single-jl (bytes/u32-le #x6474e551))  ;; Segment type (Loadable)
-        (single-jl (bytes/u32-le #x6))  ;; Segment flags (Read/Write)
-        (single-jl (bytes/u64-le (u64 #x00)))  ;; Segment offset
-        (single-jl (bytes/u64-le (u64 #x00)))  ;; Segment virtual address
-        (single-jl (bytes/u64-le (u64 #x00)))  ;; Segment physical address
-        (single-jl (bytes/u64-le (u64 #x00)))  ;; Segment file size
-        (single-jl (bytes/u64-le (u64 #x00)))  ;; Segment memory size
-        (single-jl (bytes/u64-le (u64 #x00000)))  ;; Segment alignment
-
-        (single-jl (make-bytes (- const-section-start #x120)))
+        (padding (- const-section-start #x120))
         (single-jl const-section-contents)
-        (single-jl (make-bytes (- text-section-start const-section-end)))
+        (padding (- text-section-start const-section-end))
         (single-jl text-section-contents)
         (single-jl (make-bytes/fill (- linker-comment-start text-section-end) (u8 #xCC)))
 
@@ -551,7 +505,7 @@
         (single-jl #"Linker: LLD 6.0.0\x00")
 
         ;; Symbol tables are 8 byte aligned, so add padding as needed
-        (single-jl (make-bytes (- symbol-table-start linker-comment-end)))
+        (padding (- symbol-table-start linker-comment-end))
         (symbol-table-entry 0 0 0 0)
         (concat-map-jl/list
           (lambda ([sym : Bytes])
@@ -580,6 +534,7 @@
             #".symtab"
             #".shstrtab"
             #".strtab"))
+
         (single-jl (make-null-terminated #""))
         (concat-map-jl/list
           (lambda ([t : (Tuple2 Bytes LiftedInt)])
@@ -588,8 +543,8 @@
                (single-jl (make-null-terminated s))]))
           offset-symbols)
 
-        (single-jl (make-bytes (- section-header-start string-table-end)))
-        (single-jl (make-bytes (* 16 4))) ;; Empty section header
+        (padding (- section-header-start string-table-end))
+        (padding (* 16 4)) ;; Empty section header
         (section-header/bytes 1 1 2 (+ address-offset const-section-start)
                               const-section-start const-section-length
                               0 0 (logical-shift-left 1 const-section-alignment) 0)
@@ -603,6 +558,78 @@
                               (+ (length text-local-symbols) 1) #x08 #x18)
         (section-header/bytes 43 3 0 0 section-string-table-start section-string-table-size 0 0 1 0)
         (section-header/bytes 53 3 0 0 string-table-start string-table-size 0 0 1 0)))))
+
+(define (executable-program-header
+          [start-address : Int]
+          [address-offset : Int]
+          [const-section-start : Int]
+          [const-section-length : Int]
+          [text-section-start : Int]
+          [text-section-length : Int]
+          [section-header-start : Int])
+  : (JoinList Bytes)
+  (varargs append-jl*
+    (varargs join-list
+      #"\x7FELF" ;; Magic
+      #"\x02"    ;; Class (64 bit)
+      #"\x01"    ;; Data encoding (LSB)
+      #"\x01"    ;; Version
+      #"\x00"    ;; OS ABI (SysV)
+      #"\x00")   ;; OS ABI version
+    (padding 7) ;; Padding
+
+    (varargs join-list
+      (bytes/u16-le 2) ;; Executable file
+      (bytes/u16-le #x3E) ;; Machine type X86_64
+      (bytes/u32-le 1) ;; Version
+      (bytes/u64-le (u64 start-address)) ;; Start address
+      (bytes/u64-le (u64 #x40)) ;; Program header offset
+      (bytes/u64-le (u64 section-header-start)) ;; Section header offset
+      (bytes/u32-le 0) ;; FLAGS
+      (bytes/u16-le #x40) ;; ELF header size
+      (bytes/u16-le #x38) ;; Size of program header entry
+      (bytes/u16-le #x04) ;; Number of program header entries
+
+      (bytes/u16-le #x40) ;; size of section header entry
+      (bytes/u16-le #x09)   ;; Number of section header entries
+      (bytes/u16-le #x07)  ;; Index of section name section
+
+      (bytes/u32-le #x06)  ;; Segment type (Program Header)
+      (bytes/u32-le #x4)  ;; Segment flags (Read)
+      (bytes/u64-le (u64 #x40))  ;; Segment offset
+      (bytes/u64-le (u64 (+ address-offset #x40)))  ;; Segment virtual address
+      (bytes/u64-le (u64 (+ address-offset #x40)))  ;; Segment physical address
+      (bytes/u64-le (u64 #x118))  ;; Segment file size
+      (bytes/u64-le (u64 #x118))  ;; Segment memory size
+      (bytes/u64-le (u64 #x08))  ;; Segment alignment
+
+      ;; The const segment includes all the elf and program headers.
+      (bytes/u32-le #x01)  ;; Segment type (Loadable)
+      (bytes/u32-le #x4)  ;; Segment flags (Read)
+      (bytes/u64-le (u64 #x00))  ;; Segment offset
+      (bytes/u64-le (u64 (+ address-offset #x00)))  ;; Segment virtual address
+      (bytes/u64-le (u64 (+ address-offset #x00)))  ;; Segment physical address
+      (bytes/u64-le (u64 (+ const-section-start const-section-length)))  ;; Segment file size
+      (bytes/u64-le (u64 (+ const-section-start const-section-length)))  ;; Segment memory size
+      (bytes/u64-le (u64 #x1000))  ;; Segment alignment
+
+      (bytes/u32-le #x01)  ;; Segment type (Loadable)
+      (bytes/u32-le #x5)  ;; Segment flags (Read/Execute)
+      (bytes/u64-le (u64 text-section-start))  ;; Segment offset
+      (bytes/u64-le (u64 (+ address-offset text-section-start)))  ;; Segment virtual address
+      (bytes/u64-le (u64 (+ address-offset text-section-start)))  ;; Segment physical address
+      (bytes/u64-le (u64 (round-up text-section-length #x1000)))  ;; Segment file size
+      (bytes/u64-le (u64 (round-up text-section-length #x1000)))  ;; Segment memory size
+      (bytes/u64-le (u64 #x1000))  ;; Segment alignment
+
+      (bytes/u32-le #x6474e551)  ;; Segment type (Loadable)
+      (bytes/u32-le #x6)  ;; Segment flags (Read/Write)
+      (bytes/u64-le (u64 #x00))  ;; Segment offset
+      (bytes/u64-le (u64 #x00))  ;; Segment virtual address
+      (bytes/u64-le (u64 #x00))  ;; Segment physical address
+      (bytes/u64-le (u64 #x00))  ;; Segment file size
+      (bytes/u64-le (u64 #x00))  ;; Segment memory size
+      (bytes/u64-le (u64 #x00000)))))  ;; Segment alignment
 
 (define (apply-elf-relocations [relocations : (List (Relocation ElfRelocationKind))]
                                [symbol-addresses : (Dict Bytes LiftedInt)]
