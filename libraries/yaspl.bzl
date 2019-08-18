@@ -88,17 +88,18 @@ def _bin_impl(ctx):
 
   toolchain = ctx.toolchains["//libraries/yaspl:yaspl_toolchain"]
 
-  ctx.actions.run_shell(
+  args = ctx.actions.args()
+  args.add(toolchain.platform)
+  args.add(output_main_stub)
+  args.add(dep[yaspl_provider].module_name_file)
+
+  ctx.actions.run(
     inputs = [dep[yaspl_provider].module_name_file],
     tools = [ctx.executable._main_stub],
     outputs = [output_main_stub],
     mnemonic = "YasplGenerateMain",
-    command = '%s %s %s "$(cat %s)"' % (
-      ctx.executable._main_stub.path,
-      toolchain.platform,
-      output_main_stub.path,
-      dep[yaspl_provider].module_name_file.path,
-    )
+    executable = ctx.executable._main_stub,
+    arguments = [args],
   )
 
   input_objects = depset(
