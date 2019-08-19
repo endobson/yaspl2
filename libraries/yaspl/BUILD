@@ -101,6 +101,7 @@ yaspl_bootstrap_library(
     deps = [
         ":top-level-objects",
         ":x86-64-assembly",
+        "//libraries:prim-implementation",
         "//libraries/data:bytes",
         "//libraries/data:either",
         "//libraries/data:list",
@@ -163,6 +164,7 @@ yaspl_bootstrap_library(
         ":intermediate-to-register",
         ":x86-64-assembly",
         "//libraries:machine-code",
+        "//libraries:prim-implementation",
         "//libraries:top-level-name",
         "//libraries/data:bytes",
         "//libraries/data:join-list",
