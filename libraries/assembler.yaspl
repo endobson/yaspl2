@@ -221,31 +221,50 @@
        (reverse relocations)
        (reverse symbols)
        (empty))]
-    [(cons (address-fragment name value addend alignment) fragments)
+    [(cons (const-fragment name alignment parts) fragments)
      (match-define aligned-offset (round-up offset (logical-shift-left 1 alignment)))
      (match-define reversed-contents
        (if (= aligned-offset offset)
            reversed-contents
            (cons (make-bytes (- aligned-offset offset)) reversed-contents)))
-     (const-section-fold
+     (const-section-fold-inner
+       parts
+       fragments
+       reversed-contents
+       aligned-offset
+       (max alignment max-alignment)
+       (cons (defined-symbol name aligned-offset) symbols)
+       relocations)]))
+
+(define (const-section-fold-inner
+          [parts : (List ConstFragmentPart)]
+          [fragments : (List ConstFragment)]
+          [reversed-contents : (List Bytes)]
+          [offset : Int]
+          [max-alignment : Int]
+          [symbols : (List DefinedSymbol)]
+          [relocations : (List (Relocation AbstractRelocationKind))])
+  : (ProgramSection AbstractRelocationKind)
+  (case parts
+    [(empty)
+     (const-section-fold fragments reversed-contents offset max-alignment symbols relocations)]
+    [(cons (address-fragment value addend) parts)
+     (const-section-fold-inner
+       parts
        fragments
        (cons (make-bytes 8) reversed-contents)
-       (+ aligned-offset 8)
-       (max alignment max-alignment)
-       (cons (defined-symbol name aligned-offset) symbols)
-       (cons (relocation (address-relocation addend) aligned-offset value) relocations))]
-    [(cons (bytes-fragment name value alignment) fragments)
-     (match-define aligned-offset (round-up offset (logical-shift-left 1 alignment)))
-     (match-define reversed-contents
-       (if (= aligned-offset offset)
-           reversed-contents
-           (cons (make-bytes (- aligned-offset offset)) reversed-contents)))
-     (const-section-fold
+       (+ offset 8)
+       max-alignment
+       symbols
+       (cons (relocation (address-relocation addend) offset value) relocations))]
+    [(cons (bytes-fragment value) parts)
+     (const-section-fold-inner
+       parts
        fragments
        (cons value reversed-contents)
-       (+ aligned-offset (bytes-length value))
-       (max alignment max-alignment)
-       (cons (defined-symbol name aligned-offset) symbols)
+       (+ offset (bytes-length value))
+       max-alignment
+       symbols
        relocations)]))
 
 (define (assemble-const-section [fragments : (List ConstFragment)])
