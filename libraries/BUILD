@@ -1008,6 +1008,7 @@ yaspl_test(
     srcs = ["types-test.yaspl"],
     deps = [
         ":module-name",
+        ":prim-types",
         ":sexp-parser",
         ":sexp-printer",
         ":types",
@@ -1126,6 +1127,7 @@ yaspl_test(
     srcs = ["type-unification-test.yaspl"],
     deps = [
         ":module-name",
+        ":prim-types",
         ":type-unification",
         ":types",
         ":types-test-utils",
