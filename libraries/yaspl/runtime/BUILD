@@ -40,6 +40,7 @@ yaspl_test(
         "//libraries/data:lifted-primitives",
         "//libraries/data:list",
         "//libraries/data:maybe",
+        "//libraries/data:numbers",
     ],
 )
 
