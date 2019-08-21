@@ -21,6 +21,7 @@ yaspl_binary(
     name = "aspect-clean-up-imports",
     srcs = ["aspect-clean-up-imports-main.yaspl"],
     deps = [
+        ":command-line",
         ":linter_lib",
         ":rewrite-imports",
         "//libraries:compiler_lib",

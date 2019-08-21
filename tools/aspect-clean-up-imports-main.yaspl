@@ -10,35 +10,37 @@
   (prim)
   (set)
   (source-language)
+  (tools command-line)
   (tools linter)
   (tools rewrite-imports)
   (unused-bindings)
 }
 (export
   (#:values main))
-(types)
+(types
+  (define-type Args
+    (args
+      [module-file-path : Bytes]
+      [signature-file-paths : (List Bytes)])))
 
-(define (handle-failure-result [msg : Bytes] [stderr : OutputPort]) : Int
-  (begin
-    (write-line msg stderr)
-    1))
+(define (parse-args [input-args : (List Bytes)]) : (Either Bytes Args)
+  (case input-args
+    [(empty)
+     (left #"No binary!?")]
+    [(cons _ (empty))
+     (left #"No module file provided.")]
+    [(cons _ (cons module-file-path signature-file-paths))
+     (right (args module-file-path signature-file-paths))]))
 
-(define (handle-result [output : OutputPort] [stderr : OutputPort]
-                       [results : (Either Bytes Bytes)]) : Int
-  (case results
-    [(left v)
-     (handle-failure-result v stderr)]
-    [(right new-contents)
-     (begin
-       (write-all-bytes new-contents output)
-       0)]))
+(define (get-output [args : Args]) : OutputLocation
+  (output-to-stdout))
 
-(define (run [module-file : Bytes] [signature-files : (List Bytes)])
-  : (Either Bytes Bytes)
-  (case (lint-module module-file signature-files)
+(define (run [args : Args] [stdin : InputPort])  : (Either Bytes Bytes)
+  (match-define (args module-file-path signature-file-paths) args)
+  (case (lint-module module-file-path signature-file-paths)
     [(left v) (left v)]
     [(right (lint-results _ (unused-bindings all-unused-bindings _ _) _ _ _))
-     (case (parse-module-file module-file)
+     (case (parse-module-file module-file-path)
        [(left v) (left (parser-error->bytes v))]
        [(right mod)
         (match-define new-imports
@@ -86,14 +88,8 @@
                   [(just (full-imports-unused _))
                    (nothing)])))
             (module-imports mod)))
-        (rewrite-imports (module-name mod) new-imports module-file)])]))
+        (rewrite-imports (module-name mod) new-imports module-file-path)])]))
 
 (define (main [args : Bytes] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Int
-  (case (args->list args)
-    [(empty)
-     (handle-failure-result #"No binary!?" stderr)]
-    [(cons _ (empty))
-     (handle-failure-result #"No module file provided." stderr)]
-    [(cons _ (cons module-file signature-files))
-     (handle-result stdout stderr
-       (run module-file signature-files))]))
+  (run-command-line-tool args stdin stdout stderr
+    (command-line-tool parse-args run get-output write-all-bytes)))
