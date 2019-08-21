@@ -1,0 +1,57 @@
+#:module (tools aspect-exported-values-main)
+#:import {
+  (compiler)
+  (either)
+  (io)
+  (list)
+  (module-name)
+  (prim)
+  (sexp-printer)
+  (source-language)
+  (tools command-line)
+}
+(export
+  (#:values main))
+(types
+  (define-type Args
+    (args
+      [module-file-path : Bytes]))
+  (define-type Result
+    (result
+      [mod-name : ModName]
+      [exports : (List Bytes)])))
+
+(define (parse-args [input-args : (List Bytes)]) : (Either Bytes Args)
+  (case input-args
+    [(empty)
+     (left #"No binary!?")]
+    [(cons _ (empty))
+     (left #"No module file provided.")]
+    [(cons _ (cons _ (cons _ _)))
+     (left #"Too many arguments provided.")]
+    [(cons _ (cons module-file-path (empty)))
+     (right (args module-file-path ))]))
+
+(define (get-output [args : Args]) : OutputLocation
+  (output-to-stdout))
+
+(define (run [args : Args] [stdin : InputPort]) : (Either Bytes Result)
+  (case (parse-module-file (args-module-file-path args))
+    [(left v) (left (parser-error->bytes v))]
+    [(right mod)
+     (right (result (module-name mod)
+                    (map export-exported-name (exports-values (module-exports mod)))))]))
+
+(define (handle-result [result : Result] [output : OutputPort]) : Void
+  (match-define (result mod-name exports) result)
+  (for-each
+    (lambda ([export : Bytes])
+      (write-line
+        (print-sexp (node/p (varargs list (mod-name->sexp mod-name) (symbol-sexp/p export))))
+        output))
+    exports))
+
+
+(define (main [args : Bytes] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Int
+  (run-command-line-tool args stdin stdout stderr
+    (command-line-tool parse-args run get-output handle-result)))

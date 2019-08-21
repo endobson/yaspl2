@@ -49,6 +49,21 @@ yaspl_binary(
 )
 
 yaspl_binary(
+    name = "aspect-exported-values",
+    srcs = ["aspect-exported-values-main.yaspl"],
+    deps = [
+        ":command-line",
+        "//libraries:compiler_lib",
+        "//libraries:io",
+        "//libraries:module-name",
+        "//libraries:sexp-printer",
+        "//libraries:source-language",
+        "//libraries/data:either",
+        "//libraries/data:list",
+    ],
+)
+
+yaspl_binary(
     name = "aspect-ir-validator",
     srcs = ["aspect-ir-validator-main.yaspl"],
     deps = [
@@ -276,6 +291,7 @@ filegroup(
     srcs = [
         ":aspect-analysis",
         ":aspect-clean-up-imports",
+        ":aspect-exported-values",
         ":aspect-ir-validator",
         ":aspect-linter",
         ":aspect-missing-dependencies",
