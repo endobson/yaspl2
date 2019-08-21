@@ -13,29 +13,40 @@
   (set)
   (sexp-parser)
   (source-language)
+  (tools command-line)
   (tools module-index-parser)
 }
 (export
   (#:values main))
-(types)
+(types
+  (define-type Args
+    (args
+      [target-label : Bytes]
+      [module-index-file-path : Bytes]
+      [module-file-path : Bytes]
+      [mod-name-file-paths : (List Bytes)])))
 
-(define (handle-failure-result [msg : Bytes] [stderr : OutputPort]) : Int
-  (begin
-    (write-line msg stderr)
-    1))
+(define (parse-args [input-args : (List Bytes)]) : (Either Bytes Args)
+  (case input-args
+    [(empty)
+     (left #"No binary!?")]
+    [(cons _ (empty))
+     (left #"No target label provided.")]
+    [(cons _ (cons _ (empty)))
+     (left #"No module index file provided.")]
+    [(cons _ (cons _ (cons _ (empty))))
+     (left #"No module file provided.")]
+    [(cons _ (cons target-label (cons module-index-file (cons module-file mod-name-files))))
+     (right (args target-label module-index-file module-file mod-name-files))]))
 
-(define (handle-result [output : OutputPort] [stderr : OutputPort]
-                       [results : (Either Bytes (List Bytes))]) : Int
-  (case results
-    [(left v)
-     (handle-failure-result v stderr)]
-    [(right buildozer-commands)
-     (begin
-       (for-each
-         (lambda ([buildozer-command : Bytes])
-           (write-line buildozer-command output))
-         buildozer-commands)
-       0)]))
+(define (get-output [args : Args]) : OutputLocation
+  (output-to-stdout))
+
+(define (handle-result [buildozer-commands : (List Bytes)] [output : OutputPort]) : Void
+  (for-each
+    (lambda ([buildozer-command : Bytes])
+      (write-line buildozer-command output))
+    buildozer-commands))
 
 (define (extract-imported-modules [module-file : Bytes]) : (Either Bytes (List ModName))
   (case (parse-module-file module-file)
@@ -75,8 +86,6 @@
                 imported-modules)
               available-modules)))])]))
 
-
-
 (define (construct-buildozer-commands
           [self-target : Bytes]
           [module-index : (Dict ModName Bytes)]
@@ -93,30 +102,19 @@
            (right (bytes-append (varargs list #"add deps " module-target #"|" self-target)))]))
       mod-names)))
 
-
-(define (run [target-label : Bytes]
-             [module-index-file : Bytes]
-             [module-file : Bytes]
-             [mod-name-files : (List Bytes)])
+(define (run [args : Args] [stdin : InputPort])
   : (Either Bytes (List Bytes))
-  (case (compute-missing-dependencies module-file mod-name-files)
+  (match-define (args target-label module-index-file-path module-file-path mod-name-file-paths) args)
+
+  (case (compute-missing-dependencies module-file-path mod-name-file-paths)
     [(left v) (left v)]
     [(right missing-dependencies)
-     (case (read-module-index-file module-index-file)
+     (case (read-module-index-file module-index-file-path)
        [(left v) (left v)]
        [(right module-index)
         (construct-buildozer-commands target-label module-index missing-dependencies)])]))
 
 (define (main [args : Bytes] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Int
-  (case (args->list args)
-    [(empty)
-     (handle-failure-result #"No binary!?" stderr)]
-    [(cons _ (empty))
-     (handle-failure-result #"No target label provided." stderr)]
-    [(cons _ (cons _ (empty)))
-     (handle-failure-result #"No module index file provided." stderr)]
-    [(cons _ (cons _ (cons _ (empty))))
-     (handle-failure-result #"No module file provided." stderr)]
-    [(cons _ (cons target-label (cons module-index-file (cons module-file mod-name-files))))
-     (handle-result stdout stderr
-       (run target-label module-index-file module-file mod-name-files))]))
+  (run-command-line-tool args stdin stdout stderr
+    (ann (CommandLineTool Args (List Bytes))
+         (command-line-tool parse-args run get-output handle-result))))

@@ -86,6 +86,7 @@ yaspl_binary(
     name = "aspect-missing-dependencies",
     srcs = ["aspect-missing-dependencies-main.yaspl"],
     deps = [
+        ":command-line",
         ":module-index-parser",
         "//libraries:compiler_lib",
         "//libraries:io",
