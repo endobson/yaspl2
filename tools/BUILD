@@ -108,6 +108,7 @@ yaspl_binary(
     name = "aspect-remove-unused-dependencies",
     srcs = ["aspect-remove-unused-dependencies-main.yaspl"],
     deps = [
+        ":command-line",
         ":module-index-parser",
         "//libraries:compiler_lib",
         "//libraries:io",
