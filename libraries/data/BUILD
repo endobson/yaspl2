@@ -162,6 +162,17 @@ yaspl_bootstrap_library(
     ],
 )
 
+yaspl_bootstrap_library(
+    name = "list-multi-dict",
+    srcs = ["list-multi-dict.yaspl"],
+    deps = [
+        ":dict",
+        ":list",
+        ":maybe",
+        ":ordering",
+    ],
+)
+
 yaspl_test(
     name = "list-test",
     srcs = ["list-test.yaspl"],
