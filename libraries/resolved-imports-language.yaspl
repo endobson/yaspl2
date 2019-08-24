@@ -6,11 +6,11 @@
   (either)
   (join-list)
   (list)
+  (list-multi-dict)
   (maybe)
   (module-name)
   (module-signature)
   (prim)
-  (set)
   {(source-language)
     {#:types
       Block
@@ -114,6 +114,21 @@
       [statics : (Dict Bytes StaticSignature)]
       [static-info : (Dict TopLevelName TopLevelSignature)]))
 
+  (define-type ResolvedImports
+    (resolved-imports
+      [types : (ListMultiDict Bytes Type)]
+      [values : (ListMultiDict Bytes ValueSignature)]
+      [patterns : (ListMultiDict Bytes PatternSignature)]
+      [statics : (ListMultiDict Bytes StaticSignature)]))
+
+  (define-type FullyResolvedImports
+    (fully-resolved-imports
+      [types : (Dict Bytes Type)]
+      [values : (Dict Bytes ValueSignature)]
+      [patterns : (Dict Bytes PatternSignature)]
+      [statics : (Dict Bytes StaticSignature)]))
+
+
   (define-type ImportResolutionErrors
     (import-resolution-errors
       [module-name : ModName]
@@ -137,10 +152,7 @@
 (define (resolve-imports [mod : s:Module] [sigs : (IndexedSet ModuleSignature ModName)])
   : (Either ImportResolutionErrors Module)
   (match-define (s:module name importss exports types definitions statics) mod)
-  (case (resolve-imports/importss
-          importss sigs (make-set mod-name-cmp)
-          (make-dict bytes-cmp) (make-dict bytes-cmp) (make-dict bytes-cmp) (make-dict bytes-cmp)
-          (empty) (empty) (empty) (empty) (empty) (empty))
+  (case (resolve-imports/importss importss sigs)
     [(left errors)
      (left (import-resolution-errors name errors))]
     [(right imports)
@@ -148,145 +160,144 @@
 
 (define (resolve-imports/importss
           [importss : (List s:Imports)]
-          [sigs : (IndexedSet ModuleSignature ModName)]
-          [seen-modules : (Set ModName)]
+          [sigs : (IndexedSet ModuleSignature ModName)])
+  : (Either (List ImportResolutionError) Imports)
+  (match-define (tuple2 maybe-errors resolved-imports)
+    (unzip (map (lambda ([i : s:Imports]) (resolve-imports/import i sigs)) importss)))
+  (match-define errors (filter-map (lambda ([x : (Maybe ImportResolutionError)]) x) maybe-errors))
+  (case (merge-imports resolved-imports)
+    [(left error)
+     (left (cons error errors))]
+    [(right (fully-resolved-imports types values patterns statics))
+     (case errors
+       [(empty) (right (imports types values patterns statics (make-static-info sigs)))]
+       [_ (left errors)])]))
+
+(define (merge-imports [is : (List ResolvedImports)])
+  : (Either ImportResolutionError FullyResolvedImports)
+  (merge-imports* (make-dict bytes-cmp) (make-dict bytes-cmp) (make-dict bytes-cmp) (make-dict bytes-cmp)
+                  (empty) (empty) (empty) (empty) (empty) is))
+
+(define (merge-imports*
           [types : (Dict Bytes Type)]
           [values : (Dict Bytes ValueSignature)]
           [patterns : (Dict Bytes PatternSignature)]
           [statics : (Dict Bytes StaticSignature)]
-          [errors : (List ImportResolutionError)]
           [duplicate-modules : (List ModName)]
           [duplicate-types : (List Bytes)]
           [duplicate-values : (List Bytes)]
           [duplicate-patterns : (List Bytes)]
-          [duplicate-statics : (List Bytes)])
-  : (Either (List ImportResolutionError) Imports)
-  (case importss
+          [duplicate-statics : (List Bytes)]
+          [is : (List ResolvedImports)])
+  : (Either ImportResolutionError FullyResolvedImports)
+  (case is
     [(empty)
-     (match-define final-errors
-       (case (tuple2 (tuple2 duplicate-modules duplicate-types)
-                     (tuple3 duplicate-values duplicate-patterns duplicate-statics))
-         [(tuple2 (tuple2 (empty) (empty)) (tuple3 (empty) (empty) (empty)))
-          errors]
-         [_
-          (cons (duplicate-imports duplicate-modules duplicate-types duplicate-values
-                                   duplicate-patterns duplicate-statics)
-                errors)]))
-     (case final-errors
-       [(empty)
-        (right (imports types values patterns statics (make-static-info sigs)))]
-       [e
-        (left e)])]
-    [(cons (s:full-imports mod-name) importss)
-     (if (set-member? seen-modules mod-name)
-         (resolve-imports/importss
-           importss sigs
-           seen-modules types values patterns statics errors
-           (cons mod-name duplicate-modules)
-           duplicate-types duplicate-values duplicate-patterns duplicate-statics)
-         (case (indexed-set-ref sigs mod-name)
-           [(nothing)
-            (resolve-imports/importss
-              importss sigs
-              (set-add seen-modules mod-name) types values patterns statics
-              (cons (non-existent-imports/module mod-name) errors)
-              duplicate-modules duplicate-types duplicate-values duplicate-patterns duplicate-statics)]
-           [(just (module-signature _ e-values e-patterns e-types e-statics _))
-            (match-define (tuple2 duplicate-types types)
-              (add-all-imports e-types types duplicate-types))
-            (match-define (tuple2 duplicate-values values)
-              (add-all-imports e-values values duplicate-values))
-            (match-define (tuple2 duplicate-patterns patterns)
-              (add-all-imports e-patterns patterns duplicate-patterns))
-            (match-define (tuple2 duplicate-statics statics)
-              (add-all-imports e-statics statics duplicate-statics))
-            (resolve-imports/importss
-              importss sigs
-              (set-add seen-modules mod-name) types values patterns statics errors
-              duplicate-modules duplicate-types duplicate-values duplicate-patterns duplicate-statics)]))]
-    [(cons (s:partial-imports mod-name i-types i-values i-patterns i-statics) importss)
-     (if (set-member? seen-modules mod-name)
-         (resolve-imports/importss
-           importss sigs
-           seen-modules types values patterns statics errors
-           (cons mod-name duplicate-modules)
-           duplicate-types duplicate-values duplicate-patterns duplicate-statics)
-         (case (indexed-set-ref sigs mod-name)
-           [(nothing)
-            (resolve-imports/importss
-              importss sigs
-              (set-add seen-modules mod-name) types values patterns statics
-              (cons (non-existent-imports/module mod-name) errors)
-              duplicate-modules duplicate-types duplicate-values duplicate-patterns duplicate-statics)]
-           [(just (module-signature _ e-values e-patterns e-types e-statics _))
-            (match-define (tuple3 unknown-types duplicate-types types)
-              (add-imports i-types e-types types duplicate-types))
-            (match-define (tuple3 unknown-values duplicate-values values)
-              (add-imports i-values e-values values duplicate-values))
-            (match-define (tuple3 unknown-patterns duplicate-patterns patterns)
-              (add-imports i-patterns e-patterns patterns duplicate-patterns))
-            (match-define (tuple3 unknown-statics duplicate-statics statics)
-              (add-imports i-statics e-statics statics duplicate-statics))
-            (match-define new-errors
-              (case (tuple2 (tuple2 unknown-types unknown-values)
-                            (tuple2 unknown-patterns unknown-statics))
-                [(tuple2 (tuple2 (empty) (empty))
-                         (tuple2 (empty) (empty)))
-                 errors]
-                [_
-                 (cons (non-existent-imports/bindings mod-name unknown-types unknown-values unknown-patterns
-                                                      unknown-statics)
-                       errors)]))
-            (resolve-imports/importss
-              importss sigs (set-add seen-modules mod-name) types values patterns statics new-errors
-              duplicate-modules duplicate-types duplicate-values duplicate-patterns duplicate-statics)]))]))
+     (case (tuple2 (tuple2 duplicate-modules duplicate-types)
+                   (tuple3 duplicate-values duplicate-patterns duplicate-statics))
+       [(tuple2 (tuple2 (empty) (empty)) (tuple3 (empty) (empty) (empty)))
+        (right (fully-resolved-imports types values patterns statics))]
+       [_
+        (left (duplicate-imports duplicate-modules duplicate-types duplicate-values
+                                 duplicate-patterns duplicate-statics))])]
+    [(cons (resolved-imports new-types new-values new-patterns new-statics) is)
+     (match-define (tuple2 types duplicate-types)
+       (add-bindings new-types types duplicate-types))
+     (match-define (tuple2 values duplicate-values)
+       (add-bindings new-values values duplicate-values))
+     (match-define (tuple2 patterns duplicate-patterns)
+       (add-bindings new-patterns patterns duplicate-patterns))
+     (match-define (tuple2 statics duplicate-statics)
+       (add-bindings new-statics statics duplicate-statics))
+     (merge-imports* types values patterns statics duplicate-modules
+                     duplicate-types duplicate-values duplicate-patterns duplicate-statics
+                     is)]))
 
+(define (empty-resolved-imports) : ResolvedImports
+  (resolved-imports (make-list-multi-dict bytes-cmp) (make-list-multi-dict bytes-cmp)
+                    (make-list-multi-dict bytes-cmp) (make-list-multi-dict bytes-cmp)))
 
-(define [Val] (add-imports
+(define (resolve-imports/import [imports : s:Imports] [sigs : (IndexedSet ModuleSignature ModName)])
+  : (Tuple2 (Maybe ImportResolutionError) ResolvedImports)
+  (case imports
+    [(s:full-imports mod-name)
+     (case (indexed-set-ref sigs mod-name)
+       [(nothing)
+        (tuple2 (just (non-existent-imports/module mod-name))
+                (empty-resolved-imports))]
+       [(just (module-signature _ e-values e-patterns e-types e-statics _))
+        (tuple2 (nothing)
+                (resolved-imports (dict->list-multi-dict e-types)
+                                  (dict->list-multi-dict e-values)
+                                  (dict->list-multi-dict e-patterns)
+                                  (dict->list-multi-dict e-statics)))])]
+    [(s:partial-imports mod-name i-types i-values i-patterns i-statics)
+     (case (indexed-set-ref sigs mod-name)
+       [(nothing)
+        (tuple2 (just (non-existent-imports/module mod-name))
+                (empty-resolved-imports))]
+       [(just (module-signature mod-name e-values e-patterns e-types e-statics _))
+        (match-define (tuple2 unknown-types types)
+          (resolve-partial-imports i-types e-types))
+        (match-define (tuple2 unknown-values values)
+          (resolve-partial-imports i-values e-values))
+        (match-define (tuple2 unknown-patterns patterns)
+          (resolve-partial-imports i-patterns e-patterns))
+        (match-define (tuple2 unknown-statics statics)
+          (resolve-partial-imports i-statics e-statics))
+
+        (match-define maybe-error : (Maybe ImportResolutionError)
+          (case (tuple2 (tuple2 unknown-types unknown-values)
+                        (tuple2 unknown-patterns unknown-statics))
+            [(tuple2 (tuple2 (empty) (empty))
+                     (tuple2 (empty) (empty)))
+             (nothing)]
+            [_
+             (just (non-existent-imports/bindings mod-name unknown-types unknown-values unknown-patterns
+                                                  unknown-statics))]))
+        (tuple2 maybe-error (resolved-imports types values patterns statics))])]))
+
+(define [Val] (resolve-partial-imports
+                [imports : (List Import)]
+                [exports : (Dict Bytes Val)])
+  : (Tuple2 (List Bytes) (ListMultiDict Bytes Val))
+  (resolve-partial-imports* imports exports (empty) (make-list-multi-dict bytes-cmp)))
+
+(define [Val] (resolve-partial-imports*
                 [imports : (List Import)]
                 [exports : (Dict Bytes Val)]
-                [locals : (Dict Bytes Val)]
-                [duplicate-bindings : (List Bytes)])
-  : (Tuple3 (List Bytes) (List Bytes) (Dict Bytes Val))
-  (add-imports* imports exports locals (empty) duplicate-bindings))
-
-(define [Val] (add-imports*
-                [imports : (List Import)]
-                [exports : (Dict Bytes Val)]
-                [locals : (Dict Bytes Val)]
                 [unknown-imports : (List Bytes)]
-                [duplicate-bindings : (List Bytes)])
-  : (Tuple3 (List Bytes) (List Bytes) (Dict Bytes Val))
+                [locals : (ListMultiDict Bytes Val)])
+  : (Tuple2 (List Bytes) (ListMultiDict Bytes Val))
   (case imports
     [(empty)
-     (tuple3 unknown-imports duplicate-bindings locals)]
+     (tuple2 unknown-imports locals)]
     [(cons (import ex-name im-name) imports)
      (case (dict-ref exports ex-name)
        [(nothing)
-        (add-imports* imports exports locals (cons ex-name unknown-imports) duplicate-bindings)]
+        (resolve-partial-imports* imports exports (cons ex-name unknown-imports) locals)]
        [(just v)
-        (case (dict-maybe-add locals im-name v)
-          [(nothing)
-           (add-imports* imports exports locals unknown-imports (cons im-name duplicate-bindings))]
-          [(just locals)
-           (add-imports* imports exports locals unknown-imports duplicate-bindings)])])]))
+        (resolve-partial-imports* imports exports unknown-imports
+                                  (list-multi-dict-add locals im-name v))])]))
 
-(define [Val] (add-all-imports
-                [exports : (Dict Bytes Val)]
-                [locals : (Dict Bytes Val)]
+(define [Val] (add-bindings
+                [new-bindings : (ListMultiDict Bytes Val)]
+                [bindings : (Dict Bytes Val)]
                 [duplicate-bindings : (List Bytes)])
-  : (Tuple2 (List Bytes) (Dict Bytes Val))
-  (dict-fold
-    exports
-    (lambda ([name : Bytes] [v : Val] [acc : (Tuple2 (List Bytes) (Dict Bytes Val))])
-      (case acc
-        [(tuple2 duplicate-bindings locals)
-         (case (dict-maybe-add locals name v)
-           [(nothing)
-            (tuple2 (cons name duplicate-bindings) locals)]
-           [(just locals)
-            (tuple2 duplicate-bindings locals)])]))
-    (tuple2 duplicate-bindings locals)))
+  : (Tuple2 (Dict Bytes Val) (List Bytes))
+  (list-multi-dict-fold
+    new-bindings
+    (lambda ([name : Bytes] [vals : (List Val)]
+             [acc : (Tuple2 (Dict Bytes Val) (List Bytes))])
+      (foldl
+        (lambda ([val : Val]
+                 [(tuple2 bindings duplicate-bindings) : (Tuple2 (Dict Bytes Val) (List Bytes))])
+          (case (dict-maybe-add bindings name val)
+            [(nothing)
+             (tuple2 bindings (cons name duplicate-bindings))]
+            [(just bindings)
+             (tuple2 bindings duplicate-bindings)]))
+        vals acc))
+    (tuple2 bindings duplicate-bindings)))
 
 (define (import-resolution-errors->bytes [me : ImportResolutionErrors]) : Bytes
   (case me

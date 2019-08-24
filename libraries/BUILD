@@ -694,8 +694,8 @@ yaspl_bootstrap_library(
         "//libraries/data:indexed-set",
         "//libraries/data:join-list",
         "//libraries/data:list",
+        "//libraries/data:list-multi-dict",
         "//libraries/data:maybe",
-        "//libraries/data:set",
         "//libraries/data:tuples",
     ],
 )
@@ -718,7 +718,6 @@ yaspl_test(
         "//libraries/data:indexed-set",
         "//libraries/data:list",
         "//libraries/data:maybe",
-        "//libraries/data:set",
     ],
 )
 
