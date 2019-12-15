@@ -7,7 +7,7 @@
   racket/syntax
   racket/match)
 
-(provide compile-pattern)
+(provide racketize-pattern)
 
 (define (convert p pat-env temp-env val fail succ)
   (match p
@@ -37,7 +37,7 @@
 ;; The resulting syntax is a function that takes in a value and a success continuation and failure
 ;; continuation. The success continuation should be called with the values for the patterns with the
 ;; given symbols. The failure continuation takes no arguments.
-(define (compile-pattern pat pat-env vars)
+(define (racketize-pattern pat pat-env vars)
   (define temp-env
     (for/hash ([var (in-list vars)])
       (values var (generate-temporary var))))

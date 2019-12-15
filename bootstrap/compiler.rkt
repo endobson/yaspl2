@@ -26,7 +26,7 @@
 
 (define (run-program modules signatures module-name main-name #:stdin stdin-bytes
                      #:args [supplied-args empty])
-  (define racket-modules (compile-modules modules signatures))
+  (define racket-modules (racketize-modules modules signatures))
   (define ns (namespace-anchor->empty-namespace anchor))
   (parameterize ([current-namespace ns])
     (namespace-require 'racket/base))
@@ -89,11 +89,11 @@
   (hash-ref (environment-statics env) var f))
 
 
-(define (compile-modules modules signatures)
+(define (racketize-modules modules signatures)
   (for/list ([module (topo-sort (set->list modules))])
-    (compile-module module signatures)))
+    (racketize-module module signatures)))
 
-(define (compile-module module signatures)
+(define (racketize-module module signatures)
   ;;mapping to identifiers
   (define local-env (make-hash))
   (define local-pattern-env (make-hash))
@@ -212,7 +212,7 @@
           [(definition& _ args (block& defs body))
            (define temporaries (generate-temporaries args))
            `(,define-sym (,(hash-ref local-env name) ,@temporaries)
-               ,(compile-block
+               ,(racketize-block
                   (environment
                     immutable-local-pattern-env
                     (for/fold ([env immutable-local-env])
@@ -242,23 +242,23 @@
   racket-module)
 
 
-(define (compile-block env defs body)
+(define (racketize-block env defs body)
   (match defs
     [(list)
-     (compile-expr env body)]
+     (racketize-expr env body)]
     [(cons (match-def& pattern type expr) defs)
      (define vars (pattern-variables pattern))
      (define body-vars (generate-temporaries vars))
      (define body-env
        (for/fold ([env env]) ([var (in-list vars)] [id (in-list body-vars)])
          (environment-set/value env var id)))
-     #`(let ([val #,(compile-expr env expr)]
-             [succ (#,lambda-sym (#,@body-vars) #,(compile-block body-env defs body))])
-         (#,app-sym #,(compile-pattern pattern (environment-patterns env) vars)
+     #`(let ([val #,(racketize-expr env expr)]
+             [succ (#,lambda-sym (#,@body-vars) #,(racketize-block body-env defs body))])
+         (#,app-sym #,(racketize-pattern pattern (environment-patterns env) vars)
           val succ (#,lambda-sym () (error 'match))))]))
 
 ;; env is hash table to expressions which evaluate to the value
-(define (compile-expr env expr)
+(define (racketize-expr env expr)
   (match expr
     [(byte& v)
      `',v]
@@ -267,49 +267,49 @@
     [(boolean& v)
      `',v]
     [(variable& v)
-     (environment-ref/value env v (lambda () (error 'compile-expr "Unbound variables ~a" v)))]
+     (environment-ref/value env v (lambda () (error 'racketize-expr "Unbound variables ~a" v)))]
     [(app& op args)
      `(,#'#%app
        ,@(for/list ([v (in-list (cons op args))])
-           (compile-expr env v)))]
+           (racketize-expr env v)))]
     [(varargs-app& op args)
      `(,#'#%app
-        ,(compile-expr env op)
+        ,(racketize-expr env op)
         (,#'#%app ,#'vector
                   ,@(for/list ([arg (in-list args)])
-                      (compile-expr env arg))))]
+                      (racketize-expr env arg))))]
     [(varargs2-app& op args)
      (match-define (varargs-bindings cons-id empty-id)
        (environment-ref/static
-         env op (lambda () (error 'compile-expr "Unbound static variable ~a" op))))
+         env op (lambda () (error 'racketize-expr "Unbound static variable ~a" op))))
      (for/fold ([acc `(,#'#%app ,empty-id)])
                ([arg (in-list (reverse args))])
-       `(,#'#%app ,cons-id ,(compile-expr env arg) ,acc))]
+       `(,#'#%app ,cons-id ,(racketize-expr env arg) ,acc))]
 
     [(if& cond true false)
-     `(,#'if ,(compile-expr env cond)
-             ,(compile-expr env true)
-             ,(compile-expr env false))]
+     `(,#'if ,(racketize-expr env cond)
+             ,(racketize-expr env true)
+             ,(racketize-expr env false))]
     [(begin& first-expr exprs)
-     `(,#'begin ,@(map (λ (e) (compile-expr env e)) (cons first-expr exprs)))]
+     `(,#'begin ,@(map (λ (e) (racketize-expr env e)) (cons first-expr exprs)))]
     [(ann& _ expr)
-     (compile-expr env expr)]
+     (racketize-expr env expr)]
     [(let& name expr (block& defs body))
-     (define compiled-expr (compile-expr env expr))
+     (define compiled-expr (racketize-expr env expr))
      (cond
        [(identifier? compiled-expr)
-        (compile-block (environment-set/value env name compiled-expr) defs body)]
+        (racketize-block (environment-set/value env name compiled-expr) defs body)]
        [else
         (define temp (generate-temporary name))
         `(,#'let ([,temp ,compiled-expr])
-            ,(compile-block (environment-set/value env name temp) defs body))])]
+            ,(racketize-block (environment-set/value env name temp) defs body))])]
     [(lambda& (list (list arg-names _) ...) _ (block& defs body))
      (define ids (generate-temporaries arg-names))
      (define new-env
        (for/fold ([env env]) ([name (in-list arg-names)] [id (in-list ids)])
          (environment-set/value env name id)))
 
-     `(,#'lambda (,@ids) ,(compile-block new-env defs body))]
+     `(,#'lambda (,@ids) ,(racketize-block new-env defs body))]
     [(case& expr clauses)
      (define form
        (for/fold ([form #'(error 'end-of-case)]) ([clause (in-list (reverse clauses))])
@@ -319,13 +319,13 @@
          (define body-env
            (for/fold ([env env]) ([var (in-list vars)] [id (in-list body-vars)])
              (environment-set/value env var id)))
-         (define body (compile-block body-env defs expr))
-         #`(#,app-sym #,(compile-pattern pattern (environment-patterns env) vars)
+         (define body (racketize-block body-env defs expr))
+         #`(#,app-sym #,(racketize-pattern pattern (environment-patterns env) vars)
             val
             (#,lambda-sym (#,@body-vars) #,body)
             (#,lambda-sym () #,form))))
 
-     #`(let ([val #,(compile-expr env expr)]) #,form)]))
+     #`(let ([val #,(racketize-expr env expr)]) #,form)]))
 
 (define (pattern-variables p)
   (define (recur p acc)
