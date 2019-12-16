@@ -843,9 +843,6 @@
 (struct any-abstract-value () #:transparent)
 ;; A set of abstract variants
 (struct full-abstract-variants (names) #:transparent)
-;; This is some part of the space that isn't fully matched. Usually a literal.
-;; Should only be used in the return values on the matched side.
-(struct some-abstract-value () #:transparent)
 (struct abstract-variant (name fields) #:transparent)
 
 
@@ -870,31 +867,31 @@
     (map variant-signature-name (inductive-signature-variants (set-first ind-sigs))))
 
   (define (abstract-match/many pattern abstract-values)
-    (for/fold ([leftovers-acc (set)] [matched-acc (set)])
+    (for/fold ([leftovers-acc (set)] [any-matches-acc #f])
               ([abstract-value (in-set abstract-values)])
-      (define-values (leftovers matched)
+      (define-values (leftovers matched any-matches)
         (abstract-match pattern abstract-value))
       (values
         (set-union leftovers-acc leftovers)
-        (set-union matched-acc matched))))
+        (or any-matches any-matches-acc))))
 
 
   (define (abstract-match/vec patterns abstract-values)
     (match* (patterns abstract-values)
       [((list) (list))
-       (values (set) (set (list)))]
+       (values (set) (set (list)) #t)]
       [((cons pattern patterns) (cons abstract-value abstract-values))
-       (define-values (unmatched matched)
+       (define-values (unmatched matched any-matches)
          (abstract-match pattern abstract-value))
 
        (define unmatched-unmatched
          (for/set ([unmatched-value (in-set unmatched)])
            (cons unmatched-value abstract-values)))
 
-       (define-values (matched-unmatched matched-matched)
+       (define-values (matched-unmatched matched-matched combined-any-matches)
          (if (set-empty? matched)
-             (values (set) (set))
-             (let-values ([(rec-unmatched rec-matched)
+             (values (set) (set) any-matches)
+             (let-values ([(rec-unmatched rec-matched rec-any-matches)
                            (abstract-match/vec patterns abstract-values)])
                (values
                  (for*/set ([matched-value (in-set matched)]
@@ -902,17 +899,19 @@
                    (cons matched-value unmatched-value-list))
                  (for*/set ([matched-value (in-set matched)]
                             [matched-value-list (in-set rec-matched)])
-                   (cons matched-value matched-value-list))))))
+                   (cons matched-value matched-value-list))
+                 (and any-matches rec-any-matches)))))
        (values
          (set-union unmatched-unmatched matched-unmatched)
-         matched-matched)]))
+         matched-matched
+         combined-any-matches)]))
 
   (define (abstract-match pattern abstract-value)
     (match pattern
-      [(bytes-pattern& _) (values (set abstract-value) (set (some-abstract-value)))]
-      [(byte-pattern& _) (values (set abstract-value) (set (some-abstract-value)))]
+      [(bytes-pattern& _) (values (set abstract-value) (set) #t)]
+      [(byte-pattern& _) (values (set abstract-value) (set) #t)]
       [(or (variable-pattern& _) (ignore-pattern&))
-       (values (set) (set abstract-value))]
+       (values (set) (set abstract-value) #t)]
       [(abstraction-pattern& pat-binding patterns)
        (define pat-spec (binding-env-pattern-ref env pat-binding))
        (define variant-name (pattern-spec-variant-name pat-spec))
@@ -922,37 +921,39 @@
         [(full-abstract-variants variants)
          (define matched-variant (pattern-spec-variant-name pat-spec))
          (if (member matched-variant variants)
-             (let-values ([(unmatched-values matched-values)
+             (let-values ([(unmatched-values matched-values any-matches)
                            (abstract-match
                              pattern
                              (abstract-variant matched-variant (map (lambda (p) (any-abstract-value))
                                                                     patterns)))])
                 (match (remove matched-variant variants)
                   [(list)
-                   (values unmatched-values matched-values)]
+                   (values unmatched-values matched-values any-matches)]
                   [remaining-variants
                    (values
                      (set-add unmatched-values (full-abstract-variants remaining-variants))
-                     matched-values)]))
-             (values (set abstract-value) (set)))]
+                     matched-values
+                     any-matches)]))
+             (values (set abstract-value) (set) #f))]
         [(abstract-variant val-name fields)
          #:when (equal? variant-name val-name)
-         (define-values (unmatched-vecs matched-vecs)
+         (define-values (unmatched-vecs matched-vecs any-matches)
            (abstract-match/vec patterns fields))
          (values
            (for/set ([unmatched-vec (in-set unmatched-vecs)])
               (abstract-variant val-name unmatched-vec))
            (for/set ([matched-vec (in-set matched-vecs)])
-              (abstract-variant val-name matched-vec)))]
+              (abstract-variant val-name matched-vec))
+           any-matches)]
         [(abstract-variant _ _)
-         (values (set abstract-value) (set))])]))
+         (values (set abstract-value) (set) #f)])]))
 
   (define unmatched
     (for/fold ([incoming-abstract-values (set (any-abstract-value))])
               ([pattern (in-list patterns)])
-      (define-values (unmatched matched)
+      (define-values (unmatched any-matches)
         (abstract-match/many pattern incoming-abstract-values))
-      (when (set-empty? matched)
+      (unless any-matches
         (raise-user-error 'pattern-match "Unmatchable pattern: ~s" pattern))
       unmatched))
   (unless (set-empty? unmatched)
