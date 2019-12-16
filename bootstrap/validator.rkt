@@ -841,16 +841,18 @@
 
 
 (struct any-abstract-value () #:transparent)
+;; A set of abstract variants
+(struct full-abstract-variants (names) #:transparent)
 ;; This is some part of the space that isn't fully matched. Usually a literal.
 ;; Should only be used in the return values on the matched side.
 (struct some-abstract-value () #:transparent)
 (struct abstract-variant (name fields) #:transparent)
 
 
+;; TODO figure out if there is a better algorithm here
 (define (check-patterns-complete/not-useless env patterns)
 
-  (define (lookup-variants pattern-spec)
-    (define variant-name (pattern-spec-variant-name pattern-spec))
+  (define (all-variants pattern-spec)
     (define input-type (pattern-spec-input-type pattern-spec))
     (define ind-sigs
       (for*/set ([ind-sig (in-list (binding-env-inductive-signatures env))]
@@ -863,19 +865,9 @@
     (unless (= (set-count ind-sigs) 1)
       (for ([ind-sig (in-list (binding-env-inductive-signatures env))])
         (eprintf "~a~n" ind-sig))
-      (error 'lookup-other-variants "Bad variant ~s: ~s ~s" variant-name input-type
-             (set->list ind-sigs)))
-    (define abstract-values
-      (for/hash ([variant-sig (in-list (inductive-signature-variants (set-first ind-sigs)))])
-        (define name (variant-signature-name variant-sig))
-        (values
-          name
-          (abstract-variant name (map (λ (_) (any-abstract-value))
-                                      (variant-signature-types variant-sig))))))
-    (values
-      (hash-ref abstract-values variant-name)
-      (list->set
-        (hash-values (hash-remove abstract-values variant-name)))))
+      (error 'lookup-other-variants "Bad variant ~s: ~s ~s" (pattern-spec-variant-name pattern-spec)
+             input-type (set->list ind-sigs)))
+    (map variant-signature-name (inductive-signature-variants (set-first ind-sigs))))
 
   (define (abstract-match/many pattern abstract-values)
     (for/fold ([leftovers-acc (set)] [matched-acc (set)])
@@ -926,14 +918,23 @@
        (define variant-name (pattern-spec-variant-name pat-spec))
        (match abstract-value
         [(any-abstract-value)
-         ;; Compute all variants
-         (define-values (refined-value other-variant-values)
-           (lookup-variants pat-spec))
-         (define-values (unmatched matched)
-           (abstract-match pattern refined-value))
-         (values
-           (set-union unmatched other-variant-values)
-           matched)]
+         (abstract-match pattern (full-abstract-variants (all-variants pat-spec)))]
+        [(full-abstract-variants variants)
+         (define matched-variant (pattern-spec-variant-name pat-spec))
+         (if (member matched-variant variants)
+             (let-values ([(unmatched-values matched-values)
+                           (abstract-match
+                             pattern
+                             (abstract-variant matched-variant (map (lambda (p) (any-abstract-value))
+                                                                    patterns)))])
+                (match (remove matched-variant variants)
+                  [(list)
+                   (values unmatched-values matched-values)]
+                  [remaining-variants
+                   (values
+                     (set-add unmatched-values (full-abstract-variants remaining-variants))
+                     matched-values)]))
+             (values (set abstract-value) (set)))]
         [(abstract-variant val-name fields)
          #:when (equal? variant-name val-name)
          (define-values (unmatched-vecs matched-vecs)
