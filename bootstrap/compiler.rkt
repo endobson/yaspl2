@@ -69,8 +69,6 @@
 (define vector-sym (datum->syntax #'vector 'vector))
 (define vector-ref-sym (datum->syntax #'vector-ref 'vector-ref))
 ;;
-(define variant-val-sym 'variant-val)
-(define variant-val-fields-sym 'variant-val-fields)
 
 ;; patterns is a (Hash Symbol Symbol)
 ;; values is a (Hash Symbol Identifier)
@@ -173,10 +171,10 @@
                 (if (zero? (length (syntax->list #'vs)))
                     (let ([v (generate-temporary constructor-id)])
                       `(,define-sym ,constructor-id
-                         (,let-sym ([,v (,app-sym ,variant-val-sym ',variant-name (,app-sym ,vector-sym))])
+                         (,let-sym ([,v (,app-sym ,#'variant-val ',variant-name (,app-sym ,vector-sym))])
                            (,lambda-sym () ,v))))
                     `(,define-sym (,constructor-id . ,#'vs)
-                       (,app-sym ,variant-val-sym ',variant-name (,app-sym ,vector-sym . ,#'vs)))))
+                       (,app-sym ,#'variant-val ',variant-name (,app-sym ,vector-sym . ,#'vs)))))
               (for/list ([field (variant&-fields variant)] [index (in-naturals)])
                 (define field-name (variant-field&-name field))
                 (define field-id (generate-temporary field-name))
@@ -184,7 +182,7 @@
                   (string->symbol (format "~a-~a" variant-name field-name))
                   field-id)
                 `(,define-sym (,field-id v)
-                    (,app-sym ,vector-ref-sym (,app-sym ,variant-val-fields-sym v)
+                    (,app-sym ,vector-ref-sym (,app-sym ,#'variant-val-fields v)
                               ',index)))))))))
 
 
@@ -225,9 +223,8 @@
   (define racket-mod-name (mod-name->racket-mod-name (module&-name module)))
   (define racket-module
     `(module ,racket-mod-name racket/base
-       (require
-         (only-in (file ,(path->string machine-structs-path))
-                  variant-val variant-val-variant-name variant-val-fields))
+       ;; Ensure that the machine-structs module is instantiated.
+       (require (only-in (file ,(path->string machine-structs-path))))
 
        ,@module-import-forms
        ,@static-import-forms
