@@ -7,7 +7,7 @@
   "utils.rkt"
   "topo-sort.rkt"
   "signature-structs.rkt"
-  "simple-match.rkt"
+  "racketize/pattern.rkt"
   racket/list
   racket/syntax
   racket/set

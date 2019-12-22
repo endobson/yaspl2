@@ -1,8 +1,8 @@
 #lang racket/base
 
 (require
-  "machine-structs.rkt"
-  "parser-structs.rkt"
+  "../machine-structs.rkt"
+  "../parser-structs.rkt"
   racket/list
   racket/syntax
   racket/match)

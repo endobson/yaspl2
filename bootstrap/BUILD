@@ -41,15 +41,6 @@ racket_library(
 )
 
 racket_library(
-    name = "simple-match",
-    srcs = ["simple-match.rkt"],
-    deps = [
-        ":machine-structs",
-        ":parser-structs",
-    ],
-)
-
-racket_library(
     name = "validator",
     srcs = ["validator.rkt"],
     deps = [
@@ -79,7 +70,7 @@ racket_library(
         ":machine-structs",
         ":parser-structs",
         ":primitives",
-        ":simple-match",
+        "//bootstrap/racketize:pattern",
         ":topo-sort",
         ":utils",
     ],
