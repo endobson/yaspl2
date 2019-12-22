@@ -110,19 +110,20 @@
          [(module-signature _ _ _ patterns _)
           (for ([export (in-hash-keys patterns)])
             (hash-set! local-pattern-env export export))])]))
+  ;; Import forms use no lexical context as it is much faster.
   (define module-import-forms
     (for/list ([imports (in-list (module&-imports module))])
       (match imports
         [(partial-imports& mod-name _ values _ _)
-         `(require
-            (only-in ',(mod-name->racket-mod-name mod-name)
+         (datum->syntax #f
+           `(only-in ',(mod-name->racket-mod-name mod-name)
               ,@(for/list ([import (in-list values)])
                   (define id (generate-temporary (import&-local-name import)))
                   (hash-set! local-env (import&-local-name import) id)
                   `[,(import&-exported-name import) ,id])))]
         [(full-imports& mod-name)
-         `(require
-            (only-in ',(mod-name->racket-mod-name mod-name)
+         (datum->syntax #f
+           `(only-in ',(mod-name->racket-mod-name mod-name)
               ,@(match (hash-ref signatures mod-name)
                   [(module-signature _ values _ _ _)
                    (for/list ([export (in-hash-keys values)])
@@ -130,31 +131,34 @@
                      (hash-set! local-env export id)
                      `[,export ,id])])))])))
   (define static-import-forms
-    (for/list ([imports (in-list (module&-imports module))])
-      (define static-names
-        (match imports
-          [(partial-imports& mod-name _ _ _ statics) statics]
-          [(full-imports& mod-name)
-           (match (hash-ref signatures mod-name)
-             [(module-signature _ _ _ _ statics)
-              (for/list ([export (in-hash-keys statics)])
-                (import& export export))])]))
+    (append*
+      (for/list ([imports (in-list (module&-imports module))])
+        (define static-names
+          (match imports
+            [(partial-imports& mod-name _ _ _ statics) statics]
+            [(full-imports& mod-name)
+             (match (hash-ref signatures mod-name)
+               [(module-signature _ _ _ _ statics)
+                (for/list ([export (in-hash-keys statics)])
+                  (import& export export))])]))
 
-      (define mod-name (imports&-module-name imports))
-      `(begin
-         ,@(for/list ([import static-names])
-             (match (hash-ref (module-signature-statics (hash-ref signatures mod-name))
-                              (import&-exported-name import))
-               [(varargs-signature _ _ _ cons-mod cons-name empty-mod empty-name)
-                (define cons-id (generate-temporary cons-name))
-                (define empty-id (generate-temporary empty-name))
-                (hash-set! local-static-env (import&-local-name import)
-                           (varargs-bindings cons-id empty-id))
-                `(require
-                   (only-in ',(mod-name->racket-mod-name cons-mod)
-                            [,cons-name ,cons-id])
-                   (only-in ',(mod-name->racket-mod-name empty-mod)
-                            [,empty-name ,empty-id]))])))))
+        (define mod-name (imports&-module-name imports))
+        (append*
+          (for/list ([import static-names])
+            (match (hash-ref (module-signature-statics (hash-ref signatures mod-name))
+                             (import&-exported-name import))
+              [(varargs-signature _ _ _ cons-mod cons-name empty-mod empty-name)
+               (define cons-id (generate-temporary cons-name))
+               (define empty-id (generate-temporary empty-name))
+               (hash-set! local-static-env (import&-local-name import)
+                          (varargs-bindings cons-id empty-id))
+               (list
+                 (datum->syntax #f
+                   `(only-in ',(mod-name->racket-mod-name cons-mod)
+                      [,cons-name ,cons-id]))
+                 (datum->syntax #f
+                   `(only-in ',(mod-name->racket-mod-name empty-mod)
+                      [,empty-name ,empty-id])))]))))))
 
   (define variant-defs
     (append*
@@ -223,11 +227,12 @@
   (define racket-mod-name (mod-name->racket-mod-name (module&-name module)))
   (define racket-module
     `(module ,racket-mod-name racket/base
-       ;; Ensure that the machine-structs module is instantiated.
-       (require (only-in (file ,(path->string machine-structs-path))))
+       ,#`(require
+            ;; Ensure that the machine-structs module is instantiated.
+            (only-in (file #,(path->string machine-structs-path)))
+            #,@module-import-forms
+            #,@static-import-forms)
 
-       ,@module-import-forms
-       ,@static-import-forms
        ,@variant-defs
        ,@function-defs
 
