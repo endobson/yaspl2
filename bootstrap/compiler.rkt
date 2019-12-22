@@ -111,25 +111,26 @@
           (for ([export (in-hash-keys patterns)])
             (hash-set! local-pattern-env export export))])]))
   ;; Import forms use no lexical context as it is much faster.
+  (define (null-context v) (datum->syntax #f v))
+  (define (quoted-mod-name mod-name)
+    (null-context `(,#'quote ,(mod-name->racket-mod-name mod-name))))
   (define module-import-forms
     (for/list ([imports (in-list (module&-imports module))])
       (match imports
         [(partial-imports& mod-name _ values _ _)
-         (datum->syntax #f
-           `(,#'only-in (,#'quote ,(mod-name->racket-mod-name mod-name))
-              ,@(for/list ([import (in-list values)])
+         #`(only-in #,(quoted-mod-name mod-name)
+             #,@(for/list ([import (in-list values)])
                   (define id (generate-temporary (import&-local-name import)))
                   (hash-set! local-env (import&-local-name import) id)
-                  `[,(import&-exported-name import) ,id])))]
+                  `[,(null-context (import&-exported-name import)) ,id]))]
         [(full-imports& mod-name)
-         (datum->syntax #f
-           `(,#'only-in (,#'quote ,(mod-name->racket-mod-name mod-name))
-              ,@(match (hash-ref signatures mod-name)
+         #`(only-in #,(quoted-mod-name mod-name)
+             #,@(match (hash-ref signatures mod-name)
                   [(module-signature _ values _ _ _)
                    (for/list ([export (in-hash-keys values)])
                      (define id (generate-temporary export))
                      (hash-set! local-env export id)
-                     `[,export ,id])])))])))
+                     `[,(null-context export) ,id])]))])))
   (define static-import-forms
     (append*
       (for/list ([imports (in-list (module&-imports module))])
@@ -153,12 +154,10 @@
                (hash-set! local-static-env (import&-local-name import)
                           (varargs-bindings cons-id empty-id))
                (list
-                 (datum->syntax #f
-                   `(,#'only-in (,#'quote ,(mod-name->racket-mod-name cons-mod))
-                      [,cons-name ,cons-id]))
-                 (datum->syntax #f
-                   `(,#'only-in (,#'quote ,(mod-name->racket-mod-name empty-mod))
-                      [,empty-name ,empty-id])))]))))))
+                 #`(only-in #,(quoted-mod-name cons-mod)
+                     [#,(null-context cons-name) #,cons-id])
+                 #`(only-in #,(quoted-mod-name empty-mod)
+                     [#,(null-context empty-name) #,empty-id]))]))))))
 
   (define variant-defs
     (append*
