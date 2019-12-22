@@ -62,11 +62,6 @@
     (get-output-bytes stdout)
     (get-output-bytes stderr)))
 
-(define define-sym (datum->syntax #'define 'define))
-(define app-sym (datum->syntax #'#%plain-app '#%plain-app))
-(define lambda-sym (datum->syntax #'lambda 'lambda))
-(define let-sym (datum->syntax #'let 'let))
-
 ;; patterns is a (Hash Symbol Symbol)
 ;; values is a (Hash Symbol Identifier)
 ;; statics is a (Hash Symbol varargs-bindings)
@@ -207,16 +202,16 @@
         (match def
           [(definition& _ args (block& defs body))
            (define temporaries (generate-temporaries args))
-           `(,define-sym (,(hash-ref local-env name) ,@temporaries)
-               ,(racketize-block
-                  (environment
-                    immutable-local-pattern-env
-                    (for/fold ([env immutable-local-env])
-                              ([a (in-list args)] [t (in-list temporaries)])
-                      (hash-set env a t))
-                    immutable-local-static-env)
-                  defs
-                  body))]))))
+           #`(define (#,(hash-ref local-env name) #,@temporaries)
+               #,(racketize-block
+                   (environment
+                     immutable-local-pattern-env
+                     (for/fold ([env immutable-local-env])
+                               ([a (in-list args)] [t (in-list temporaries)])
+                       (hash-set env a t))
+                     immutable-local-static-env)
+                   defs
+                   body))]))))
 
   (define racket-mod-name (mod-name->racket-mod-name (module&-name module)))
   (define racket-module
@@ -249,9 +244,9 @@
        (for/fold ([env env]) ([var (in-list vars)] [id (in-list body-vars)])
          (environment-set/value env var id)))
      #`(let ([val #,(racketize-expr env expr)]
-             [succ (#,lambda-sym (#,@body-vars) #,(racketize-block body-env defs body))])
-         (#,app-sym #,(racketize-pattern pattern (environment-patterns env) vars)
-          val succ (#,lambda-sym () (error 'match))))]))
+             [succ (lambda (#,@body-vars) #,(racketize-block body-env defs body))])
+         (#,(racketize-pattern pattern (environment-patterns env) vars)
+          val succ (lambda () (error 'match))))]))
 
 ;; env is hash table to expressions which evaluate to the value
 (define (racketize-expr env expr)
@@ -316,10 +311,10 @@
            (for/fold ([env env]) ([var (in-list vars)] [id (in-list body-vars)])
              (environment-set/value env var id)))
          (define body (racketize-block body-env defs expr))
-         #`(#,app-sym #,(racketize-pattern pattern (environment-patterns env) vars)
+         #`(#,(racketize-pattern pattern (environment-patterns env) vars)
             val
-            (#,lambda-sym (#,@body-vars) #,body)
-            (#,lambda-sym () #,form))))
+            (lambda (#,@body-vars) #,body)
+            (lambda () #,form))))
 
      #`(let ([val #,(racketize-expr env expr)]) #,form)]))
 
