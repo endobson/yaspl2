@@ -116,14 +116,14 @@
       (match imports
         [(partial-imports& mod-name _ values _ _)
          (datum->syntax #f
-           `(only-in ',(mod-name->racket-mod-name mod-name)
+           `(,#'only-in (,#'quote ,(mod-name->racket-mod-name mod-name))
               ,@(for/list ([import (in-list values)])
                   (define id (generate-temporary (import&-local-name import)))
                   (hash-set! local-env (import&-local-name import) id)
                   `[,(import&-exported-name import) ,id])))]
         [(full-imports& mod-name)
          (datum->syntax #f
-           `(only-in ',(mod-name->racket-mod-name mod-name)
+           `(,#'only-in (,#'quote ,(mod-name->racket-mod-name mod-name))
               ,@(match (hash-ref signatures mod-name)
                   [(module-signature _ values _ _ _)
                    (for/list ([export (in-hash-keys values)])
@@ -154,10 +154,10 @@
                           (varargs-bindings cons-id empty-id))
                (list
                  (datum->syntax #f
-                   `(only-in ',(mod-name->racket-mod-name cons-mod)
+                   `(,#'only-in (,#'quote ,(mod-name->racket-mod-name cons-mod))
                       [,cons-name ,cons-id]))
                  (datum->syntax #f
-                   `(only-in ',(mod-name->racket-mod-name empty-mod)
+                   `(,#'only-in (,#'quote ,(mod-name->racket-mod-name empty-mod))
                       [,empty-name ,empty-id])))]))))))
 
   (define variant-defs
@@ -226,21 +226,21 @@
 
   (define racket-mod-name (mod-name->racket-mod-name (module&-name module)))
   (define racket-module
-    `(module ,racket-mod-name racket/base
-       ,#`(require
-            ;; Ensure that the machine-structs module is instantiated.
-            (only-in (file #,(path->string machine-structs-path)))
-            #,@module-import-forms
-            #,@static-import-forms)
+    #`(module #,racket-mod-name racket/base
+        (require
+          ;; Ensure that the machine-structs module is instantiated.
+          (only-in (file #,(path->string machine-structs-path)))
+          #,@module-import-forms
+          #,@static-import-forms)
 
-       ,@variant-defs
-       ,@function-defs
+        #,@variant-defs
+        #,@function-defs
 
-       (provide
-         (rename-out
-           ,@(for/list ([export (in-list (exports&-values (module&-exports module)))])
-               (match-define (export& in-name out-name) export)
-               `[,(hash-ref local-env in-name) ,out-name])))))
+        (provide
+          (rename-out
+            #,@(for/list ([export (in-list (exports&-values (module&-exports module)))])
+                 (match-define (export& in-name out-name) export)
+                 `[,(hash-ref local-env in-name) ,out-name])))))
   racket-module)
 
 
