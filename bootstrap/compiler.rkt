@@ -66,9 +66,6 @@
 (define app-sym (datum->syntax #'#%plain-app '#%plain-app))
 (define lambda-sym (datum->syntax #'lambda 'lambda))
 (define let-sym (datum->syntax #'let 'let))
-(define vector-sym (datum->syntax #'vector 'vector))
-(define vector-ref-sym (datum->syntax #'vector-ref 'vector-ref))
-;;
 
 ;; patterns is a (Hash Symbol Symbol)
 ;; values is a (Hash Symbol Identifier)
@@ -172,21 +169,19 @@
             (cons
               (with-syntax ([vs (generate-temporaries (variant&-fields variant))])
                 (if (zero? (length (syntax->list #'vs)))
-                    (let ([v (generate-temporary constructor-id)])
-                      `(,define-sym ,constructor-id
-                         (,let-sym ([,v (,app-sym ,#'variant-val ',variant-name (,app-sym ,vector-sym))])
-                           (,lambda-sym () ,v))))
-                    `(,define-sym (,constructor-id . ,#'vs)
-                       (,app-sym ,#'variant-val ',variant-name (,app-sym ,vector-sym . ,#'vs)))))
+                    #`(define #,constructor-id
+                        (let ([v (variant-val '#,variant-name (vector))])
+                          (lambda () v)))
+                    #`(define (#,constructor-id . vs)
+                        (variant-val '#,variant-name (vector . vs)))))
               (for/list ([field (variant&-fields variant)] [index (in-naturals)])
                 (define field-name (variant-field&-name field))
                 (define field-id (generate-temporary field-name))
                 (hash-set! local-env
                   (string->symbol (format "~a-~a" variant-name field-name))
                   field-id)
-                `(,define-sym (,field-id v)
-                    (,app-sym ,vector-ref-sym (,app-sym ,#'variant-val-fields v)
-                              ',index)))))))))
+                #`(define (#,field-id v)
+                    (vector-ref (variant-val-fields v) #,index)))))))))
 
 
   (for ([(name _) (in-hash (module&-definitions module))])
