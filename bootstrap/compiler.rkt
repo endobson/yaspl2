@@ -31,17 +31,17 @@
   (parameterize ([current-namespace ns])
     (namespace-require 'racket/base))
   (define main-fun
-    (eval
-      `(begin
-         (module prim racket/base
-           (provide (all-defined-out))
-           ,@(for/list ([(prim-name prim-val) (in-hash supported-primitives)])
-               `(define ,prim-name ,prim-val)))
-         ,@racket-modules
-         (require
-           (only-in ',(mod-name->racket-mod-name module-name)
-             [,main-name main-fun]))
-         main-fun)
+    (eval-syntax
+      #`(begin
+          (module prim racket/base
+            (provide (all-defined-out))
+            #,@(for/list ([(prim-name prim-val) (in-hash supported-primitives)])
+                `(define ,prim-name ,prim-val)))
+          #,@racket-modules
+          (require
+            (only-in '#,(mod-name->racket-mod-name module-name)
+              [#,main-name main-fun]))
+          main-fun)
       ns))
 
   (define process-args (cons #"/binary-path" supplied-args))
