@@ -3,9 +3,9 @@ load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
 
 http_archive(
   name = "minimal_racket",
-  sha256 = "537482e0c777ace4b973e28696a82fc078d5045b8e82c187a6468522f5899ab8",
-  strip_prefix = "minimal-racket-4869febd6dbd0306cf7ebc34b275d0a5d45b53ae",
-  urls = ["https://github.com/endobson/minimal-racket/archive/4869febd6dbd0306cf7ebc34b275d0a5d45b53ae.tar.gz"]
+  sha256 = "f44618d5a0a81e38e9c5dbdcce40b2a9b518d8d499360830824a1ea0e6d6672d",
+  strip_prefix = "minimal-racket-0f017af70e3c06b917c1d34cf127580dc43f229e",
+  urls = ["https://github.com/endobson/minimal-racket/archive/0f017af70e3c06b917c1d34cf127580dc43f229e.tar.gz"]
 )
 load("@minimal_racket//:releases.bzl", "racket_releases")
 racket_releases()
@@ -26,6 +26,8 @@ register_toolchains(
     '//libraries/yaspl:linux_yaspl_toolchain',
 )
 register_toolchains(
+    '@minimal_racket//:osx_racket_bootstrap_toolchain',
+    '@minimal_racket//:linux_racket_bootstrap_toolchain',
     '@minimal_racket//:osx_osx_racket_toolchain',
     '@minimal_racket//:linux_linux_racket_toolchain',
     '@minimal_racket//:osx_linux_racket_toolchain',
