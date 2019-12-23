@@ -252,37 +252,36 @@
 (define (racketize-expr env expr)
   (match expr
     [(byte& v)
-     `',v]
+     #`#,v]
     [(bytes& v)
-     `',v]
+     #`#,v]
     [(boolean& v)
-     `',v]
+     #`#,v]
     [(variable& v)
      (environment-ref/value env v (lambda () (error 'racketize-expr "Unbound variables ~a" v)))]
     [(app& op args)
-     `(,#'#%app
-       ,@(for/list ([v (in-list (cons op args))])
-           (racketize-expr env v)))]
+     #`(#,(racketize-expr env op)
+        #,@(for/list ([v (in-list args)])
+             (racketize-expr env v)))]
     [(varargs-app& op args)
-     `(,#'#%app
-        ,(racketize-expr env op)
-        (,#'#%app ,#'vector
-                  ,@(for/list ([arg (in-list args)])
-                      (racketize-expr env arg))))]
+     #`(#,(racketize-expr env op)
+        (vector
+          #,@(for/list ([arg (in-list args)])
+               (racketize-expr env arg))))]
     [(varargs2-app& op args)
      (match-define (varargs-bindings cons-id empty-id)
        (environment-ref/static
          env op (lambda () (error 'racketize-expr "Unbound static variable ~a" op))))
-     (for/fold ([acc `(,#'#%app ,empty-id)])
+     (for/fold ([acc #`(#,empty-id)])
                ([arg (in-list (reverse args))])
-       `(,#'#%app ,cons-id ,(racketize-expr env arg) ,acc))]
+       #`(#,cons-id #,(racketize-expr env arg) #,acc))]
 
     [(if& cond true false)
-     `(,#'if ,(racketize-expr env cond)
-             ,(racketize-expr env true)
-             ,(racketize-expr env false))]
+     #`(if #,(racketize-expr env cond)
+           #,(racketize-expr env true)
+           #,(racketize-expr env false))]
     [(begin& first-expr exprs)
-     `(,#'begin ,@(map (λ (e) (racketize-expr env e)) (cons first-expr exprs)))]
+     #`(begin #,@(map (λ (e) (racketize-expr env e)) (cons first-expr exprs)))]
     [(ann& _ expr)
      (racketize-expr env expr)]
     [(let& name expr (block& defs body))
@@ -292,15 +291,15 @@
         (racketize-block (environment-set/value env name compiled-expr) defs body)]
        [else
         (define temp (generate-temporary name))
-        `(,#'let ([,temp ,compiled-expr])
-            ,(racketize-block (environment-set/value env name temp) defs body))])]
+        #`(let ([#,temp #,compiled-expr])
+            #,(racketize-block (environment-set/value env name temp) defs body))])]
     [(lambda& (list (list arg-names _) ...) _ (block& defs body))
      (define ids (generate-temporaries arg-names))
      (define new-env
        (for/fold ([env env]) ([name (in-list arg-names)] [id (in-list ids)])
          (environment-set/value env name id)))
 
-     `(,#'lambda (,@ids) ,(racketize-block new-env defs body))]
+     #`(lambda (#,@ids) #,(racketize-block new-env defs body))]
     [(case& expr clauses)
      (define form
        (for/fold ([form #'(error 'end-of-case)]) ([clause (in-list (reverse clauses))])
