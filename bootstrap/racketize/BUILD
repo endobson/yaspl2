@@ -12,3 +12,15 @@ racket_library(
         "//bootstrap:parser-structs",
     ],
 )
+
+racket_library(
+    name = "module",
+    srcs = ["module.rkt"],
+    deps = [
+        ":pattern",
+        "//bootstrap:machine-structs",
+        "//bootstrap:parser-structs",
+        "//bootstrap:signature-structs",
+        "//bootstrap:utils",
+    ],
+)

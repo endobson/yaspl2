@@ -70,6 +70,7 @@ racket_library(
         ":machine-structs",
         ":parser-structs",
         ":primitives",
+        "//bootstrap/racketize:module",
         "//bootstrap/racketize:pattern",
         ":topo-sort",
         ":utils",
