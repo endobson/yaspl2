@@ -3,9 +3,9 @@ load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
 
 http_archive(
   name = "minimal_racket",
-  sha256 = "f44618d5a0a81e38e9c5dbdcce40b2a9b518d8d499360830824a1ea0e6d6672d",
-  strip_prefix = "minimal-racket-0f017af70e3c06b917c1d34cf127580dc43f229e",
-  urls = ["https://github.com/endobson/minimal-racket/archive/0f017af70e3c06b917c1d34cf127580dc43f229e.tar.gz"]
+  sha256 = "b2795ff801dec3d8aa9192a86cfd2241c6571909a4f37111c38e4f24f815d0a9",
+  strip_prefix = "minimal-racket-ccf44052b2b07e2b292c7b011c433a273864f754",
+  urls = ["https://github.com/endobson/minimal-racket/archive/ccf44052b2b07e2b292c7b011c433a273864f754.tar.gz"]
 )
 load("@minimal_racket//:releases.bzl", "racket_releases")
 racket_releases()

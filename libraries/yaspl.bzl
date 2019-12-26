@@ -298,7 +298,7 @@ def yaspl_bootstrap_binary(name, srcs=[], deps=[]):
 
   native.filegroup(
     name = name + "_library_files",
-    data = [
+    srcs = [
          name + ".src",
          name + ".srcs",
     ],
