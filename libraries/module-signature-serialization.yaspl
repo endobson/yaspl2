@@ -78,16 +78,13 @@
      (panic #"Cannot inline hoas-linear inlineable functions")]
     [(variant-accessor-inlineable-function index info)
      (node/p (varargs list (symbol-sexp/p #"variant-accessor")
-                      (number-sexp/p index)
-                      (variant-destruction-info->sexp info)))]
+                           (number-sexp/p index)
+                           (variant-destruction-info->sexp info)))]
     [(zero-arg-constant-inlineable-function name)
      (node/p (varargs list (symbol-sexp/p #"zero-arg-constant") (top-level-name->sexp name)))]
-    [(variant-constructor-inlineable-function (variant-construction-info name tag descriptor-name))
-     (node/p (varargs list
-               (symbol-sexp/p #"variant-constructor")
-               (bytes-sexp/p name)
-               (number-sexp/p (u8->s64 tag))
-               (top-level-name->sexp descriptor-name)))]))
+    [(variant-constructor-inlineable-function info)
+     (node/p (varargs list (symbol-sexp/p #"variant-constructor")
+                           (variant-construction-info->sexp info)))]))
 
 (define (source-variant-info->sexp [info : SourceVariantInfo]) : Sexp/P
   (match-define
@@ -102,16 +99,28 @@
             (node/p (map bytes-sexp/p variant-names)))))
 
 (define (variant-destruction-info->sexp [info : VariantDestructionInfo]) : Sexp/P
-  (match-define (variant-destruction-info tag num-fields variant-tags) info)
+  (match-define (variant-destruction-info tag num-fields variant-tags indices) info)
   (node/p (varargs list
             (number-sexp/p (u8->s64 tag))
             (number-sexp/p num-fields)
-            (node/p (map tag->sexp variant-tags)))))
+            (node/p (map tag->sexp variant-tags))
+            (node/p (map field-index->sexp indices)))))
 
+(define (variant-construction-info->sexp [info : VariantConstructionInfo]) : Sexp/P
+  (match-define (variant-construction-info name tag descriptor-name indices) info)
+  (node/p (varargs list
+            (bytes-sexp/p name)
+            (number-sexp/p (u8->s64 tag))
+            (top-level-name->sexp descriptor-name)
+            (node/p (map field-index->sexp indices)))))
 
 (define (tag->sexp [l : LiftedU8]) : Sexp/P
   (match-define (lifted-u8 v) l)
   (number-sexp/p (u8->s64 v)))
+
+(define (field-index->sexp [l : LiftedInt]) : Sexp/P
+  (match-define (lifted-int v) l)
+  (number-sexp/p v))
 
 (define (sexp->trivial-closure [s : Sexp]) : (Either Bytes (Maybe TopLevelName))
   (case s
@@ -203,6 +212,10 @@
     [(number-sexp v _) (right (lifted-u8 (u8 v)))]
     [_ (left #"Not a valid variant-name")]))
 
+(define (parse-field-index [s : Sexp]) : (Either Bytes LiftedInt)
+  (case s
+    [(number-sexp v _) (right (lifted-int v))]
+    [_ (left #"Not a valid field index")]))
 
 (define (pattern-exports->dict
           [pattern-exports : (List Sexp)]
@@ -259,14 +272,11 @@
        [(just name)
         (right (just (zero-arg-constant-inlineable-function name)))])]
     [(node (cons (symbol-sexp #"variant-constructor" _)
-                 (cons (bytes-sexp name _)
-                       (cons (number-sexp tag _)
-                             (cons descriptor-name (empty))))) _)
-     (case (sexp->top-level-name descriptor-name)
-       [(nothing) (left #"Bad variant-constructor")]
-       [(just descriptor-name)
-        (right (just (variant-constructor-inlineable-function
-                       (variant-construction-info name (u8 tag) descriptor-name))))])]
+                 (cons info (empty))) _)
+     (case (sexp->variant-construction-info info)
+       [(left v) (left v)]
+       [(right info)
+        (right (just (variant-constructor-inlineable-function info)))])]
     [_ (left #"Bad inlineable-function")]))
 
 
@@ -304,13 +314,37 @@
     [(node (cons (number-sexp variant-tag _)
                  (cons (number-sexp num-fields _)
                        (cons (node variant-tags _)
-                             (empty))))
+                             (cons (node field-indices _)
+                                   (empty)))))
            _)
       (case (extract-rights (map parse-variant-tag variant-tags))
         [(left v) (left v)]
         [(right variant-tags)
-         (right (variant-destruction-info (u8 variant-tag) num-fields variant-tags))])]
+         (case (extract-rights (map parse-field-index field-indices))
+           [(left v) (left v)]
+           [(right field-indices)
+            (right (variant-destruction-info (u8 variant-tag) num-fields variant-tags
+                                             field-indices))])])]
     [_ (left #"Not a valid variant destruction info")]))
+
+(define (sexp->variant-construction-info [sexp : Sexp])
+  : (Either Bytes VariantConstructionInfo)
+  (case sexp
+    [(node (cons (bytes-sexp name _)
+                 (cons (number-sexp tag _)
+                       (cons descriptor-name
+                             (cons (node field-indices _)
+                                   (empty)))))
+           _)
+      (case (sexp->top-level-name descriptor-name)
+        [(nothing) (left #"bad variant constructor")]
+        [(just descriptor-name)
+         (case (extract-rights (map parse-field-index field-indices))
+           [(left v) (left v)]
+           [(right field-indices)
+            (right (variant-construction-info
+                     name (u8 tag) descriptor-name field-indices))])])]
+    [_ (left #"Not a valid variant construction info")]))
 
 
 (define (deserialize-module-signature [sbytes : SourcedBytes]) : (Either Bytes ModuleSignature)
