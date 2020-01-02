@@ -752,6 +752,7 @@ yaspl_bootstrap_library(
         ":module-signature",
         ":top-level-name",
         ":types",
+        ":variant-info",
         "//libraries/data:bytes",
         "//libraries/data:dict",
         "//libraries/data:list",
