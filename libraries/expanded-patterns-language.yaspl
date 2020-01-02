@@ -146,9 +146,9 @@
 
   (define-type SplitMatrix
     (abstraction-matrix
-      [rows : (List (Tuple2 PatternSignature PatternRow))])
+      [rows : (List (Tuple2 VariantDestructionInfo PatternRow))])
     (abstraction-split-matrix
-      [top : (List (Tuple2 PatternSignature PatternRow))]
+      [top : (List (Tuple2 VariantDestructionInfo PatternRow))]
       [bottom : (List PatternRow)])
     (variable-matrix
       [rows : (List (Tuple2 Var PatternRow))])
@@ -316,7 +316,7 @@
 (define (expand-patterns/abstraction-matrix
           [first-var : Var]
           [other-vars : (List Var)]
-          [rows : (List (Tuple2 PatternSignature PatternRow))]
+          [rows : (List (Tuple2 VariantDestructionInfo PatternRow))]
           [fail-var : Var]
           [state : State])
   : (Tuple2 Expression State)
@@ -324,8 +324,8 @@
   (match-define (tuple2 clauses state)
     (all-grouped-rows->variant-case-clauses other-vars fail-var grouped-rows state))
   (match-define all-variants-covered
-    (all-variants-covered? (map (lambda ([t : (Tuple2 PatternSignature (List PatternRow))])
-                                  (case t [(tuple2 sig _) sig])) grouped-rows)))
+    (all-variants-covered? (map (lambda ([t : (Tuple2 VariantDestructionInfo (List PatternRow))])
+                                  (case t [(tuple2 info _) info])) grouped-rows)))
   (tuple2
     (variant-case-expr
       (local-var-expr first-var)
@@ -357,10 +357,10 @@
   : SplitMatrix
   (case top-row
     [(pattern-row (empty) _) (panic #"No columns")]
-    [(pattern-row (cons (ev:abstraction-pattern sig sub-pats) pats) succ)
+    [(pattern-row (cons (ev:abstraction-pattern (pattern-signature info _ _ _ _) sub-pats) pats) succ)
      (split-matrix/abstraction-prefix
        rows
-       (varargs list (tuple2 sig (pattern-row (append sub-pats pats) succ))))]
+       (varargs list (tuple2 info (pattern-row (append sub-pats pats) succ))))]
     [(pattern-row (cons (ev:variable-pattern var) pats) succ)
      (split-matrix/variable-prefix
        rows
@@ -372,17 +372,17 @@
 
 (define (split-matrix/abstraction-prefix
           [rows : (List PatternRow)]
-          [acc : (List (Tuple2 PatternSignature PatternRow))])
+          [acc : (List (Tuple2 VariantDestructionInfo PatternRow))])
   : SplitMatrix
   (case rows
     [(empty)
      (abstraction-matrix (reverse acc))]
     [(cons
-       (pattern-row (cons (ev:abstraction-pattern sig sub-pats) pats) succ)
+       (pattern-row (cons (ev:abstraction-pattern (pattern-signature info _ _ _ _) sub-pats) pats) succ)
        rows)
      (split-matrix/abstraction-prefix
        rows
-       (cons (tuple2 sig (pattern-row (append sub-pats pats) succ)) acc))]
+       (cons (tuple2 info (pattern-row (append sub-pats pats) succ)) acc))]
     [rows
      (abstraction-split-matrix (reverse acc) rows)]))
 
@@ -404,33 +404,33 @@
     [rows
      (variable-split-matrix (reverse acc) rows)]))
 
-(define (group-rows [rows : (List (Tuple2 PatternSignature PatternRow))])
-  : (List (Tuple2 PatternSignature (List PatternRow)))
+(define (group-rows [rows : (List (Tuple2 VariantDestructionInfo PatternRow))])
+  : (List (Tuple2 VariantDestructionInfo (List PatternRow)))
   (group-rows* (reverse rows) (make-dict bytes-cmp)))
 
-(define (group-rows* [rows : (List (Tuple2 PatternSignature PatternRow))]
-                     [acc : (Dict Bytes (Tuple2 PatternSignature (List PatternRow)))])
-  : (List (Tuple2 PatternSignature (List PatternRow)))
+(define (group-rows* [rows : (List (Tuple2 VariantDestructionInfo PatternRow))]
+                     [acc : (Dict Bytes (Tuple2 VariantDestructionInfo (List PatternRow)))])
+  : (List (Tuple2 VariantDestructionInfo (List PatternRow)))
   (case rows
     [(empty)
      (dict-values acc)]
-    [(cons (tuple2 sig pat-row) rows)
-     (match-define (pattern-signature (variant-destruction-info variant-name _ _ _) _ _ _ _) sig)
+    [(cons (tuple2 info pat-row) rows)
+     (match-define (variant-destruction-info variant-name _ _ _) info)
      (group-rows*
        rows
        (dict-update
          acc
          variant-name
-         (lambda ([v : (Tuple2 PatternSignature (List PatternRow))])
+         (lambda ([v : (Tuple2 VariantDestructionInfo (List PatternRow))])
            (case v
-             [(tuple2 sig pat-rows)
-              (tuple2 sig (cons pat-row pat-rows))]))
-         (tuple2 sig (empty))))]))
+             [(tuple2 info pat-rows)
+              (tuple2 info (cons pat-row pat-rows))]))
+         (tuple2 info (empty))))]))
 
 (define (all-grouped-rows->variant-case-clauses
           [vars : (List Var)]
           [fail-var : Var]
-          [grouped-rows : (List (Tuple2 PatternSignature (List PatternRow)))]
+          [grouped-rows : (List (Tuple2 VariantDestructionInfo (List PatternRow)))]
           [state : State])
   : (Tuple2 (List VariantCaseClause) State)
   (case grouped-rows
@@ -446,30 +446,28 @@
 (define (grouped-rows->variant-case-clause
           [vars : (List Var)]
           [fail-var : Var]
-          [grouped-rows : (Tuple2 PatternSignature (List PatternRow))]
+          [grouped-rows : (Tuple2 VariantDestructionInfo (List PatternRow))]
           [state : State])
   : (Tuple2 VariantCaseClause State)
   (case grouped-rows
-    [(tuple2 sig rows)
-     (match-define (pattern-signature info _ _ _ _) sig)
+    [(tuple2 info rows)
      (match-define (variant-destruction-info _ _ num-fields _) info)
      (match-define (tuple2 field-vars state) (fresh-field-vars num-fields state))
      (match-define (tuple2 expr state)
        (expand-patterns/matrix (append field-vars vars) rows fail-var state))
      (tuple2 (variant-case-clause info field-vars expr) state)]))
 
-(define (all-variants-covered? [sigs : (List PatternSignature)]) : Boolean
-  (case sigs
+(define (all-variants-covered? [infos : (List VariantDestructionInfo)]) : Boolean
+  (case infos
     [(empty)
      (panic/boolean #"Cannot try to cover with no rows")]
-    [(cons (pattern-signature (variant-destruction-info _ _ _ all-variants) _ _ _ _) _)
+    [(cons (variant-destruction-info _ _ _ all-variants) _)
      (set=?
        (set-add-all
          (make-set bytes-cmp)
-         (map (lambda ([sig : PatternSignature])
-                (match-define (pattern-signature (variant-destruction-info name _ _ _) _ _ _ _) sig)
-                name)
-              sigs))
+         (map (lambda ([info : VariantDestructionInfo])
+                (case info [(variant-destruction-info name _ _ _) name]))
+              infos))
        (set-add-all (make-set bytes-cmp) all-variants))]))
 
 (define (fresh-var [base : Bytes] [s : State]) : (Tuple2 Var State)
