@@ -403,7 +403,6 @@ yaspl_bootstrap_library(
     deps = [
         ":expanded-varargs-language",
         ":module-name",
-        ":module-signature",
         ":panic",
         ":top-level-name",
         ":types",
