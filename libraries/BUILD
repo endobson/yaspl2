@@ -1210,6 +1210,7 @@ yaspl_bootstrap_library(
     srcs = ["variant-info.yaspl"],
     deps = [
         ":top-level-name",
+        "//libraries/data:list",
     ],
 )
 
