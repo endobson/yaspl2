@@ -1,9 +1,12 @@
 #:module (expanded-datatypes-language)
 #:import {
+  (bytes)
   (data source-location)
+  (dict)
   (list)
   (module-name)
   (prim)
+  (tuples)
   {(type-checked-language)
     {#:types
       Block
@@ -29,6 +32,7 @@
       exports
       function-arg-pattern
       value-export
+      variant-definition-name
       variant-field-name
     }
     {#:patterns
@@ -68,6 +72,7 @@
     }
   }
   (types)
+  (variant-info)
 }
 (export
   (#:types
@@ -77,7 +82,7 @@
   (#:values
    expand-datatypes
    module exports value-export module-definitions module-imports module-name
-   module-static-definitions
+   module-static-definitions module-patterns
    function-arg-pattern)
   (#:patterns
     module annotated-expr app-expr type-export export exports begin-expr block boolean-literal
@@ -94,6 +99,7 @@
             [exports : Exports]
             [definitions : (List FunctionDefinition)]
             [datatype-definitions : (List DatatypeDefinition)]
+            [patterns : (Dict Bytes VariantDestructionInfo)]
             [static-definitions : (List StaticDefinition)]))
 
   (define-type FunctionDefinition
@@ -123,6 +129,7 @@
     [(tc:module name imports exports types definitions statics)
      (module name imports exports (expand-datatypes/function-definitions definitions)
                                   (expand-datatypes/type-definitions types)
+                                  (expand-datatypes/patterns types)
                                   statics)]))
 
 (define (expand-datatypes/function-definitions [defs : (List tc:FunctionDefinition)])
@@ -150,6 +157,25 @@
          (variant-definitions->constructors acc 0 name variants)]))
     defs
     (ann (List DatatypeDefinition) (empty))))
+
+(define (expand-datatypes/patterns [defs : (List TypeDefinition)])
+  : (Dict Bytes VariantDestructionInfo)
+  (foldl
+    (lambda ([def : TypeDefinition] [acc : (Dict Bytes VariantDestructionInfo)])
+      (match-define (type-definition name _ variants) def)
+      (match-define all-variant-names (map variant-definition-name variants))
+      (dict-add-all
+        acc
+        (map/indexed
+          (lambda ([var : VariantDefinition] [tag : Int])
+            (match-define (variant-definition name fields) var)
+            (tuple2
+              name
+              (variant-destruction-info name (u8 tag) (length fields) all-variant-names)))
+          variants)))
+    defs
+    (ann (Dict Bytes VariantDestructionInfo) (make-dict bytes-cmp))))
+
 
 (define (variant-definitions->constructors
           [acc : (List DatatypeDefinition)]

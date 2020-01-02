@@ -392,8 +392,12 @@ yaspl_bootstrap_library(
         ":module-name",
         ":type-checked-language",
         ":types",
+        ":variant-info",
+        "//libraries/data:bytes",
+        "//libraries/data:dict",
         "//libraries/data:list",
         "//libraries/data:source-location",
+        "//libraries/data:tuples",
     ],
 )
 

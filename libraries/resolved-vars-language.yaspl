@@ -27,6 +27,7 @@
       [module-definitions ed:module-definitions]
       [module-imports ed:module-imports]
       [module-name ed:module-name]
+      [module-patterns ed:module-patterns]
       [module-static-definitions ed:module-static-definitions]
     }
     {#:patterns
@@ -170,6 +171,7 @@
       [local-variables : (Dict Bytes Var)]
       [global-variables : (Dict Bytes TopLevelName)]
       [global-statics : (Dict Bytes TopLevelStaticInfo)]
+      [pattern-variables : (Dict Bytes VariantDestructionInfo)]
       [module-name : ModName]))
 
   (define-type TopLevelStaticInfo
@@ -184,7 +186,7 @@
     (state [counter : VarNumber])))
 
 (define (resolve-vars [mod : ed:Module]) : Module
-  (match-define (ed:module name imports exports definitions datatype-definitions _statics) mod)
+  (match-define (ed:module name imports exports definitions datatype-definitions _patterns _statics) mod)
 
   (match-define datatype-definitions : (Dict Bytes DatatypeDefinition)
     (dict-add-all
@@ -194,9 +196,11 @@
            datatype-definitions)))
 
   (match-define global-env (setup-value-environment mod datatype-definitions))
-  (match-define global-statics : (Dict Bytes TopLevelStaticInfo)
+  (match-define global-statics
     (setup-static-environment mod global-env))
-  (match-define env (environment (make-dict bytes-cmp) global-env global-statics name))
+  (match-define pattern-env
+    (setup-pattern-environment mod))
+  (match-define env (environment (make-dict bytes-cmp) global-env global-statics pattern-env name))
 
   (module name
           (resolve-vars/imports imports)
@@ -299,6 +303,32 @@
         (case sig
           [(varargs-signature type-vars arg-type return-type cons-func empty-func)
            (varargs-top-level-info type-vars arg-type return-type cons-func empty-func)])))))
+
+(define (setup-pattern-environment [mod : ed:Module])
+  : (Dict Bytes VariantDestructionInfo)
+  (add-all-imported-patterns
+    (add-locally-defined-patterns
+      (make-dict bytes-cmp)
+      mod)
+    mod))
+
+(define (add-all-imported-patterns [env : (Dict Bytes VariantDestructionInfo)] [mod : ed:Module])
+  : (Dict Bytes VariantDestructionInfo)
+  (match-define (ed:imports _ patterns _ _) (ed:module-imports mod))
+  (merge-dicts
+    env
+    (dict-value-map
+      patterns
+      (lambda ([sig : PatternSignature])
+        (case sig
+          [(pattern-signature info _ _ _ _) info])))))
+
+(define (add-locally-defined-patterns [env : (Dict Bytes VariantDestructionInfo)] [mod : ed:Module])
+  : (Dict Bytes VariantDestructionInfo)
+  (merge-dicts
+    env
+    (ed:module-patterns mod)))
+
 
 (define (resolve-vars/imports [i : ed:Imports]) : Imports
   (match-define (ed:imports _ _ _ static-info) i)
@@ -554,9 +584,12 @@
     [(ed:variable-pattern v _)
      (match-define (tuple3 env var state) (environment-add-local env v state))
      (tuple3 (variable-pattern var) env state)]
-    [(ed:abstraction-pattern _name (pattern-signature info _ _ _ _) patterns _)
+    [(ed:abstraction-pattern name _ patterns _)
      (match-define (tuple3 patterns env state) (resolve-vars/patterns patterns env state))
-     (tuple3 (abstraction-pattern info patterns) env state)]))
+     (case (dict-ref (environment-pattern-variables env) name)
+       [(nothing) (panic #"Unbound pattern")]
+       [(just info)
+        (tuple3 (abstraction-pattern info patterns) env state)])]))
 
 (define (resolve-vars/patterns [ps : (List ed:Pattern)] [env : Environment] [state : State])
   : (Tuple3 (List Pattern) Environment State)
@@ -574,10 +607,10 @@
 
 (define (environment-add-local [env : Environment] [local : Bytes] [state : State])
   : (Tuple3 Environment Var State)
-  (match-define (environment locals globals statics name) env)
+  (match-define (environment locals globals statics patterns name) env)
   (match-define (tuple2 var-num state) (get-next-index state))
   (match-define v (var local var-num))
   (tuple3
-    (environment (dict-set locals local v) globals statics name)
+    (environment (dict-set locals local v) globals statics patterns name)
     v
     state))
