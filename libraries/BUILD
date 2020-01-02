@@ -975,9 +975,8 @@ yaspl_bootstrap_library(
     name = "totality-checker",
     srcs = ["totality-checker.yaspl"],
     deps = [
-        ":module-signature",
         ":resolved-types-language",
-        ":variant-info",
+        ":type-checker-context",
         "//libraries/data:bytes",
         "//libraries/data:either",
         "//libraries/data:list",
@@ -1072,6 +1071,7 @@ yaspl_bootstrap_library(
     name = "type-checker-context",
     srcs = ["type-checker-context.yaspl"],
     deps = [
+        ":module-name",
         ":types",
         "//libraries/data:bytes",
         "//libraries/data:dict",
