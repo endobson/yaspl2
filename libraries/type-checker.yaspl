@@ -4,18 +4,12 @@
   (data source-location)
   (dict)
   (either)
-  (list)
-  (maybe)
-  (module-name)
-  (module-signature)
-  (numbers)
-  (prim)
-  (prim-types)
-  {(resolved-types-language)
+  {(expanded-datatypes-language)
     {#:types
       Block
       BlockDefinition
       CaseClause
+      DatatypeDefinition
       Export
       Expression
       FunctionArg
@@ -24,17 +18,12 @@
       Module
       Pattern
       StaticDefinition
-      TypeDefinition
-      VariantDefinition
-      VariantField
     }
     {#:values
       case-clause-pattern
       function-arg-type
       function-definition-name
       pattern-source-span
-      variant-definition-name
-      variant-field-type
     }
     {#:patterns
       abstraction-pattern
@@ -60,15 +49,21 @@
       let-expr
       match-def
       module
-      type-definition
       var-expr
       varargs-app-expr
       varargs-definition
       variable-pattern
-      variant-definition
-      variant-field
+      variant-accessor
+      variant-constructor
     }
   }
+  (list)
+  (maybe)
+  (module-name)
+  (module-signature)
+  (numbers)
+  (prim)
+  (prim-types)
   (set)
   (sexp-printer)
   (totality-checker)
@@ -118,17 +113,9 @@
 
 (define (imports->context [imports : Imports]) : Context
   (case imports
-    [(imports values patterns statics _)
+    [(imports values statics _)
      (context (dict-value-map values value-signature-type)
-              (dict-value-map
-                patterns
-                (lambda ([sig : PatternSignature])
-                  (case sig
-                    [(pattern-signature
-                       (variant-destruction-info variant-name _ _ all-variants)
-                       pat-mod-name pat-type-name type-vars input-field-types)
-                     (pattern-info variant-name all-variants pat-mod-name pat-type-name type-vars
-                                   input-field-types)])))
+              (make-dict bytes-cmp)
               (dict-value-map
                 statics
                 (lambda ([sig : StaticSignature])
@@ -136,73 +123,34 @@
                     [(varargs-signature type-vars arg-type return-type _ _)
                      (varargs-info type-vars arg-type return-type)]))))]))
 
-(define (variant-definition->context
-          [def : VariantDefinition]
-          [type-vars : (List Bytes)]
-          [gen-accessors : Boolean]
-          [self-type : Type]
-          [index : Int]
-          [mod-name : ModName]
-          [type-name : Bytes]
-          [all-variants : (List Bytes)]) : Context
-  (case def
-    [(variant-definition name fields)
-     (context
-       (dict-add-all
-         (make-dict bytes-cmp)
-         (cons
-           (tuple2 name
-             (fun-type
-               type-vars
-               (map variant-field-type fields)
-               self-type))
-           (if gen-accessors
-               (map (lambda ([field-definition : VariantField]) : (Tuple2 Bytes Type)
-                      (case field-definition
-                        [(variant-field field-name field-type)
-                         (tuple2 (bytes-append (varargs list name #"-" field-name))
-                                 (fun-type
-                                   type-vars
-                                   (varargs list self-type)
-                                   field-type))]))
-                    fields)
-               (empty))))
-       (dict-add
-         (make-dict bytes-cmp)
-         name
-         (pattern-info
-           name
-           all-variants
-           mod-name
-           type-name
-           type-vars
-           (map variant-field-type fields)))
-       (make-dict bytes-cmp))]))
+(define (datatype-definitions->context [defs : (List DatatypeDefinition)]) : Context
+  (context
+    (dict-add-all
+      (make-dict bytes-cmp)
+      (map
+        (lambda ([def : DatatypeDefinition])
+          (case def
+            [(variant-constructor variant-name type _ _)
+             (tuple2 variant-name type)]
+            [(variant-accessor name type _)
+             (tuple2 name type)]))
+        defs))
+    (make-dict bytes-cmp)
+    (make-dict bytes-cmp)))
 
-(define (simplify-type-vars [type-vars : (Maybe (List Bytes))]) : (List Bytes)
-  (case type-vars
-    [(nothing) (empty)]
-    [(just vars) vars]))
-
-
-(define (type-definitions->context [mod-name : ModName] [defs : (List TypeDefinition)]) : Context
-  (merge-contexts*
-    (map (lambda ([def : TypeDefinition]) (type-definition->context mod-name def)) defs)))
-
-(define (type-definition->context [mod-name : ModName] [def : TypeDefinition]) : Context
-  (case def
-    [(type-definition name type-vars variants)
-     (let ([simple-type-vars (simplify-type-vars type-vars)])
-       (let ([self-type (abstract-type mod-name name (map var-type simple-type-vars) (star-kind))])
-         (let ([gen-accessors (case variants
-                                [(cons _ (empty)) #t]
-                                [_ #f])])
-           (let ([all-variants (map variant-definition-name variants)])
-             (merge-contexts*
-               (map/indexed (lambda ([v : VariantDefinition] [index : Int])
-                              (variant-definition->context v simple-type-vars gen-accessors self-type
-                                                           index mod-name name all-variants))
-                             variants))))))]))
+(define (patterns->context [patterns : (Dict Bytes PatternSignature)]) : Context
+  (context
+    (make-dict bytes-cmp)
+    (dict-value-map
+      patterns
+      (lambda ([sig : PatternSignature])
+        (case sig
+          [(pattern-signature
+             (variant-destruction-info variant-name _ _ all-variants)
+             pat-mod-name pat-type-name type-vars input-field-types)
+           (pattern-info variant-name all-variants pat-mod-name pat-type-name type-vars
+                         input-field-types)])))
+    (make-dict bytes-cmp)))
 
 (define (function-definition->type [def : FunctionDefinition]) : Type
   (case def
@@ -239,13 +187,14 @@
 
 (define (create-context [mod : Module]) : Context
   (case mod
-    [(module mod-name imports _ types fun-defs static-defs)
+    [(module _ imports _ fun-defs datatypes patterns static-defs)
      (merge-contexts*
        (varargs list
          (imports->context imports)
          (function-definitions->context fun-defs)
          (static-definitions->context static-defs)
-         (type-definitions->context mod-name types)))]))
+         (datatype-definitions->context datatypes)
+         (patterns->context patterns)))]))
 
 (define (type-check/definition
           [def : FunctionDefinition]
@@ -768,7 +717,7 @@
     type-var-uvars))
 
 (define (convert-exports [m : Module] [ctx : Context]) : tc:Module
-  (match-define (module name imports exports types definitions statics) m)
+  (match-define (module name imports exports definitions datatypes patterns statics) m)
   (match-define (exports exported-types exported-values exported-patterns exported-statics) exports)
   (tc:module
     name
@@ -786,12 +735,13 @@
         exported-values)
       exported-patterns
       exported-statics)
-    types
     definitions
+    datatypes
+    patterns
     statics))
 
 (define (type-check [mod : Module]) : (Either TypeCheckErrors tc:Module)
-  (match-define (module name _ _ _ definitions statics) mod)
+  (match-define (module name _ _ definitions _ _ statics) mod)
   (match-define context (create-context mod))
   (case
     (append
