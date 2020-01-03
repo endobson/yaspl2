@@ -4,6 +4,7 @@
   (bytes)
   (data indexed-set)
   (data lifted-primitives)
+  (either)
   (io)
   (linker)
   (list)
@@ -115,6 +116,26 @@
     [(nothing) (panic/u64 #"Couldn't find symbol")]
     [(just v) (symbol-table-entry-value v)]))
 
+(define (make-symbol-table-lookup [entries : (List SymbolTableEntry)])
+  : (Either Bytes (IndexedSet SymbolTableEntry Bytes))
+  (make-symbol-table-lookup*
+    entries
+    (make-indexed-set symbol-table-entry-name bytes-cmp)))
+
+(define (make-symbol-table-lookup* [entries : (List SymbolTableEntry)]
+                            [acc : (IndexedSet SymbolTableEntry Bytes)])
+  : (Either Bytes (IndexedSet SymbolTableEntry Bytes))
+  (case entries
+    [(empty) (right acc)]
+    [(cons entry entries)
+     (case (indexed-set-maybe-add acc entry)
+       [(nothing)
+        (left (bytes-append (varargs list #"Duplicate symbol: "
+                                          (symbol-table-entry-name entry))))]
+       [(just acc)
+        (make-symbol-table-lookup* entries acc)])]))
+
+
 (define (write-mach-o-executable
           [text-section : (ProgramSection MachORelocationKind)]
           [const-section : (ProgramSection MachORelocationKind)]
@@ -152,138 +173,134 @@
     (construct-symbol-table-entries
       text-section-start-address text-section
       const-section-start-address const-section))
-
-  (match-define symbol-table-lookup
-    (foldl
-      (lambda ([e : SymbolTableEntry] [acc : (IndexedSet SymbolTableEntry Bytes)])
-        (indexed-set-add acc e))
-      symbol-table-entries
-      (make-indexed-set symbol-table-entry-name bytes-cmp)))
-  (case (apply-mach-o-relocations
-          text-relocations
-          symbol-table-lookup
-          text-section-contents
-          text-section-start-address)
-    [(just msg)
-     (just msg)]
-    [(nothing)
+  (case (make-symbol-table-lookup symbol-table-entries)
+    [(left msg) (just msg)]
+    [(right symbol-table-lookup)
      (case (apply-mach-o-relocations
-             const-relocations
+             text-relocations
              symbol-table-lookup
-             const-section-contents
-             const-section-start-address)
+             text-section-contents
+             text-section-start-address)
        [(just msg)
         (just msg)]
        [(nothing)
-        (match-define num-symbols (length symbol-table-entries))
-        (match-define symbols-length-unrounded
-          (+ (+ 2 (length symbol-table-entries))
-             (sum bytes-length (map symbol-table-entry-name
-                                    symbol-table-entries))))
-        (match-define symbols-length (round-up symbols-length-unrounded 8))
-        (match-define start-address (find-start-address symbol-table-entries))
-        (call-with-output-file output-file-name
-          (lambda ([output : OutputPort])
-            (begin
-              (write-executable-mach-o-header-and-load-commands
-                (varargs list
-                  (lc-load-segment64
-                    (load-segment64 #"__PAGEZERO"
-                      (u64 #x0000000000000000)
-                      (u64 page-zero-size)
-                      (u64 0)
-                      (u64 0)
-                      (u32 #x00)
-                      (u32 #x00)
-                      (u32 0)
-                      (empty)))
-                  (lc-load-segment64
-                    (load-segment64 #"__TEXT"
-                      (u64 page-zero-size)
-                      (u64 rounded-text-segment-length)
-                      (u64 #x0)
-                      (u64 rounded-text-segment-length)
-                      (u32 #x07)
-                      (u32 #x05)
-                      (u32 0)
-                      (varargs list
-                        (section64 #"__text" #"__TEXT"
-                                   (u64 text-section-start-address)
-                                   (u64 (bytes-length text-section-contents))
-                                   (u32 text-section-start-file-offset)
-                                   (u32 text-section-alignment)
-                                   (u32 0)
-                                   (u32 0)
-                                   (u32 #x80000400))
-                        (section64 #"__const" #"__TEXT"
-                                   (u64 const-section-start-address)
-                                   (u64 (bytes-length const-section-contents))
-                                   (u32 const-section-start-file-offset)
-                                   (u32 const-section-alignment)
-                                   (u32 0)
-                                   (u32 0)
-                                   (u32 0)))))
-                  (lc-load-segment64
-                    (load-segment64 #"__DATA"
-                      (u64 (+ page-zero-size rounded-text-segment-length))
-                      (u64 #x0000000000000000)
-                      (u64 rounded-text-segment-length)
-                      (u64 #x0)
-                      (u32 #x07)
-                      (u32 #x03)
-                      (u32 #x04)
-                      (varargs list
-                        (section64 #"__data" #"__DATA"
-                                   (u64 (+ page-zero-size rounded-text-segment-length))
-                                   (u64 #x0000000000000000)
-                                   (u32 rounded-text-segment-length)
-                                   (u32 0)
-                                   (u32 0)
-                                   (u32 0)
-                                   (u32 0)))))
-                  (lc-load-segment64
-                    (load-segment64 #"__LINKEDIT"
-                      (u64 (+ page-zero-size rounded-text-segment-length))
-                      (u64 (round-up
-                             (+ (* num-symbols 16) symbols-length)
-                             #x1000))
-                      (u64 rounded-text-segment-length)
-                      (u64 (+ (* num-symbols 16) symbols-length))
-                      (u32 #x07)
-                      (u32 #x01)
-                      (u32 #x00)
-                      (empty)))
-                  (lc-symbol-table
-                    (symbol-table
-                      (u32 rounded-text-segment-length)
-                      (u32 num-symbols)
-                      (u32 (+ rounded-text-segment-length (* num-symbols 16)))
-                      (u32 symbols-length)))
-                  (lc-unix-thread (unix-thread start-address)))
-                output)
-              ;; Write all the contents with appropriate padding
-              (write-all-bytes
-                (make-bytes (- text-section-start-file-offset mach-o-header-end-file-offset))
-                output)
-              (write-all-bytes text-section-contents output)
-              (write-all-bytes
-                (make-bytes (- const-section-start-file-offset text-section-end-file-offset))
-                output)
-              (write-all-bytes const-section-contents output)
-              (write-all-bytes
-                (make-bytes (- rounded-text-segment-length const-section-end-file-offset))
-                output)
-              (write-symbol-entries symbol-table-entries 2 output)
-              ;(write-all-bytes (make-bytes (- (* num-symbols 16) 2)) output)
+        (case (apply-mach-o-relocations
+                const-relocations
+                symbol-table-lookup
+                const-section-contents
+                const-section-start-address)
+          [(just msg)
+           (just msg)]
+          [(nothing)
+           (match-define num-symbols (length symbol-table-entries))
+           (match-define symbols-length-unrounded
+             (+ (+ 2 (length symbol-table-entries))
+                (sum bytes-length (map symbol-table-entry-name
+                                       symbol-table-entries))))
+           (match-define symbols-length (round-up symbols-length-unrounded 8))
+           (match-define start-address (find-start-address symbol-table-entries))
+           (call-with-output-file output-file-name
+             (lambda ([output : OutputPort])
+               (begin
+                 (write-executable-mach-o-header-and-load-commands
+                   (varargs list
+                     (lc-load-segment64
+                       (load-segment64 #"__PAGEZERO"
+                         (u64 #x0000000000000000)
+                         (u64 page-zero-size)
+                         (u64 0)
+                         (u64 0)
+                         (u32 #x00)
+                         (u32 #x00)
+                         (u32 0)
+                         (empty)))
+                     (lc-load-segment64
+                       (load-segment64 #"__TEXT"
+                         (u64 page-zero-size)
+                         (u64 rounded-text-segment-length)
+                         (u64 #x0)
+                         (u64 rounded-text-segment-length)
+                         (u32 #x07)
+                         (u32 #x05)
+                         (u32 0)
+                         (varargs list
+                           (section64 #"__text" #"__TEXT"
+                                      (u64 text-section-start-address)
+                                      (u64 (bytes-length text-section-contents))
+                                      (u32 text-section-start-file-offset)
+                                      (u32 text-section-alignment)
+                                      (u32 0)
+                                      (u32 0)
+                                      (u32 #x80000400))
+                           (section64 #"__const" #"__TEXT"
+                                      (u64 const-section-start-address)
+                                      (u64 (bytes-length const-section-contents))
+                                      (u32 const-section-start-file-offset)
+                                      (u32 const-section-alignment)
+                                      (u32 0)
+                                      (u32 0)
+                                      (u32 0)))))
+                     (lc-load-segment64
+                       (load-segment64 #"__DATA"
+                         (u64 (+ page-zero-size rounded-text-segment-length))
+                         (u64 #x0000000000000000)
+                         (u64 rounded-text-segment-length)
+                         (u64 #x0)
+                         (u32 #x07)
+                         (u32 #x03)
+                         (u32 #x04)
+                         (varargs list
+                           (section64 #"__data" #"__DATA"
+                                      (u64 (+ page-zero-size rounded-text-segment-length))
+                                      (u64 #x0000000000000000)
+                                      (u32 rounded-text-segment-length)
+                                      (u32 0)
+                                      (u32 0)
+                                      (u32 0)
+                                      (u32 0)))))
+                     (lc-load-segment64
+                       (load-segment64 #"__LINKEDIT"
+                         (u64 (+ page-zero-size rounded-text-segment-length))
+                         (u64 (round-up
+                                (+ (* num-symbols 16) symbols-length)
+                                #x1000))
+                         (u64 rounded-text-segment-length)
+                         (u64 (+ (* num-symbols 16) symbols-length))
+                         (u32 #x07)
+                         (u32 #x01)
+                         (u32 #x00)
+                         (empty)))
+                     (lc-symbol-table
+                       (symbol-table
+                         (u32 rounded-text-segment-length)
+                         (u32 num-symbols)
+                         (u32 (+ rounded-text-segment-length (* num-symbols 16)))
+                         (u32 symbols-length)))
+                     (lc-unix-thread (unix-thread start-address)))
+                   output)
+                 ;; Write all the contents with appropriate padding
+                 (write-all-bytes
+                   (make-bytes (- text-section-start-file-offset mach-o-header-end-file-offset))
+                   output)
+                 (write-all-bytes text-section-contents output)
+                 (write-all-bytes
+                   (make-bytes (- const-section-start-file-offset text-section-end-file-offset))
+                   output)
+                 (write-all-bytes const-section-contents output)
+                 (write-all-bytes
+                   (make-bytes (- rounded-text-segment-length const-section-end-file-offset))
+                   output)
+                 (write-symbol-entries symbol-table-entries 2 output)
+                 ;(write-all-bytes (make-bytes (- (* num-symbols 16) 2)) output)
 
-              (write-all-bytes (bytes/2 (u8 32) (u8 0)) output)
-              (write-symbol-strings symbol-table-entries output)
-              (write-all-bytes
-                (make-bytes
-                  (- symbols-length symbols-length-unrounded))
-                output)
+                 (write-all-bytes (bytes/2 (u8 32) (u8 0)) output)
+                 (write-symbol-strings symbol-table-entries output)
+                 (write-all-bytes
+                   (make-bytes
+                     (- symbols-length symbols-length-unrounded))
+                   output)
 
-              (nothing))))])]))
+                 (nothing))))])])]))
 
 (define (write-mach-o-library
           [text-section : (ProgramSection AbstractRelocationKind)]

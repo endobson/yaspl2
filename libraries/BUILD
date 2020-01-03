@@ -538,6 +538,7 @@ yaspl_bootstrap_library(
         ":structured-native-code",
         "//libraries/data:aligned-bytes",
         "//libraries/data:bytes",
+        "//libraries/data:either",
         "//libraries/data:indexed-set",
         "//libraries/data:lifted-primitives",
         "//libraries/data:list",
