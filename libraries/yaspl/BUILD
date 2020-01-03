@@ -82,6 +82,22 @@ yaspl_bootstrap_library(
 )
 
 yaspl_bootstrap_library(
+    name = "parser",
+    srcs = ["parser.yaspl"],
+    deps = [
+        "//libraries:io",
+        "//libraries:module-signature",
+        "//libraries:module-signature-serialization",
+        "//libraries:sexp-parser",
+        "//libraries:source-language",
+        "//libraries/data:bytes",
+        "//libraries/data:either",
+        "//libraries/data:list",
+        "//libraries/data:source-location",
+    ],
+)
+
+yaspl_bootstrap_library(
     name = "top-level-object-optimizer",
     srcs = ["top-level-object-optimizer.yaspl"],
     deps = [

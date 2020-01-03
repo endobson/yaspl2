@@ -1,0 +1,66 @@
+#:module (yaspl parser)
+#:import {
+  (bytes)
+  (data source-location)
+  (either)
+  (io)
+  (list)
+  (module-signature)
+  {(module-signature-serialization)
+    {#:values
+      deserialize-module-signature
+    }
+  }
+  (prim)
+  (sexp-parser)
+  {(source-language)
+    {#:types
+      Module
+    }
+    {#:values
+      parse-module
+    }
+    {#:patterns
+      source-parse-error
+    }
+  }
+}
+(export
+  (#:values parse-module-files parse-module-file parse-signature-files
+            parser-error->bytes))
+(types
+  (define-type ParserError
+    (parser-error [source : SourceSpan] [message : Bytes])))
+
+(define (parse-module-files [module-files : (List Bytes)])
+  : (Either ParserError (List Module))
+  (extract-rights (map parse-module-file module-files)))
+
+(define (parse-module-file [module-file-path : Bytes])
+  : (Either ParserError Module)
+  (case (parse-sexps (sourced-bytes-from-file module-file-path))
+    [(left (sexp-error v src))
+     (left (parser-error src v))]
+    [(right mod-sexps)
+     (case (parse-module mod-sexps)
+       [(left (source-parse-error v src))
+        (left (parser-error src v))]
+       [(right v)
+        (right v)])]))
+
+(define (parser-error->bytes [v : ParserError]) : Bytes
+  (match-define (parser-error src msg) v)
+  (bytes-append
+    (varargs list
+      #"Error parsinging module at " (source-span->start-location-bytes src) #": " msg)))
+
+(define (parse-signature-files [files : (List Bytes)]) : (Either Bytes (List ModuleSignature))
+  (case files
+    [(empty) (right (empty))]
+    [(cons name files)
+     (case (deserialize-module-signature (sourced-bytes-from-file name))
+       [(left v) (left v)]
+       [(right sig)
+        (case (parse-signature-files files)
+          [(left v) (left v)]
+          [(right sigs) (right (cons sig sigs))])])]))

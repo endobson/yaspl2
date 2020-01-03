@@ -8,12 +8,12 @@ yaspl_library(
     name = "analysis",
     srcs = ["analysis.yaspl"],
     deps = [
-        "//libraries:compiler_lib",
         "//libraries:io",
         "//libraries:source-language",
         "//libraries/data:either",
         "//libraries/data:list",
         "//libraries/data:maybe",
+        "//libraries/yaspl:parser",
     ],
 )
 
@@ -24,7 +24,6 @@ yaspl_binary(
         ":command-line",
         ":linter_lib",
         ":rewrite-imports",
-        "//libraries:compiler_lib",
         "//libraries:io",
         "//libraries:module-name",
         "//libraries:source-language",
@@ -34,6 +33,7 @@ yaspl_binary(
         "//libraries/data:list",
         "//libraries/data:maybe",
         "//libraries/data:set",
+        "//libraries/yaspl:parser",
     ],
 )
 
@@ -53,13 +53,13 @@ yaspl_binary(
     srcs = ["aspect-exported-values-main.yaspl"],
     deps = [
         ":command-line",
-        "//libraries:compiler_lib",
         "//libraries:io",
         "//libraries:module-name",
         "//libraries:sexp-printer",
         "//libraries:source-language",
         "//libraries/data:either",
         "//libraries/data:list",
+        "//libraries/yaspl:parser",
     ],
 )
 
@@ -104,7 +104,6 @@ yaspl_binary(
     deps = [
         ":command-line",
         ":module-index-parser",
-        "//libraries:compiler_lib",
         "//libraries:io",
         "//libraries:module-name",
         "//libraries:prim-types",
@@ -116,6 +115,7 @@ yaspl_binary(
         "//libraries/data:list",
         "//libraries/data:maybe",
         "//libraries/data:set",
+        "//libraries/yaspl:parser",
     ],
 )
 
@@ -125,7 +125,6 @@ yaspl_binary(
     deps = [
         ":command-line",
         ":module-index-parser",
-        "//libraries:compiler_lib",
         "//libraries:io",
         "//libraries:module-name",
         "//libraries:sexp-parser",
@@ -136,6 +135,7 @@ yaspl_binary(
         "//libraries/data:list",
         "//libraries/data:maybe",
         "//libraries/data:set",
+        "//libraries/yaspl:parser",
     ],
 )
 
@@ -154,11 +154,11 @@ yaspl_library(
     name = "compile-module-args",
     srcs = ["compile-module-args.yaspl"],
     deps = [
-        "//libraries:compiler_lib",
         "//libraries:module-signature",
         "//libraries:source-language",
         "//libraries/data:either",
         "//libraries/data:list",
+        "//libraries/yaspl:parser",
     ],
 )
 
@@ -218,7 +218,6 @@ yaspl_library(
     name = "linter_lib",
     srcs = ["linter.yaspl"],
     deps = [
-        "//libraries:compiler_lib",
         "//libraries:io",
         "//libraries:module-header-lint",
         "//libraries:module-name",
@@ -232,6 +231,7 @@ yaspl_library(
         "//libraries/data:list",
         "//libraries/data:set",
         "//libraries/data:source-location",
+        "//libraries/yaspl:parser",
     ],
 )
 

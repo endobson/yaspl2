@@ -26,6 +26,7 @@ yaspl_binary(
         "//libraries/formats:xml",
         "//libraries/protocols/http:http-response",
         "//libraries/protocols/http:http-responses",
+        "//libraries/yaspl:parser",
         "//libraries/yaspl:top-level-objects",
         "//libraries/yaspl:top-level-objects-to-x86-64",
         "//libraries/yaspl:x86-64-assembly",
