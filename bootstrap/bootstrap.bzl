@@ -21,8 +21,8 @@ def bootstrap_binary(name, source_files):
   racket/runtime-path)
 
 (define-runtime-path library-compiler-list-file "%s")
-(run-bootstrap-compiler library-compiler-list-file #"%s_main")
-""" % (source_file_list, short_name)
+(run-bootstrap-compiler library-compiler-list-file #"%s-main")
+""" % (source_file_list, short_name.replace("_", "-"))
 
   native.genrule(
       name = "racketize_" + name,
