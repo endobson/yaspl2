@@ -1,6 +1,7 @@
 #:module (module-signature-serialization)
 #:import {
   (bytes)
+  (data lifted-primitives)
   (data source-location)
   (dict)
   (either)
@@ -39,13 +40,15 @@
                                              (source-variant-info mod-name type-name type-vars
                                                                   field-types)
                                              (variant-destruction-info
-                                               variant-name tag num-fields variant-names))
+                                               variant-name tag num-fields variant-names
+                                               variant-tags))
                                            (node/p (varargs list
                                                      (bytes-sexp/p value)
                                                      (bytes-sexp/p variant-name)
                                                      (number-sexp/p (u8->s64 tag))
                                                      (number-sexp/p num-fields)
                                                      (node/p (map bytes-sexp/p variant-names))
+                                                     (node/p (map tag->sexp variant-tags))
                                                      (mod-name->sexp mod-name)
                                                      (bytes-sexp/p type-name)
                                                      (node/p (map symbol-sexp/p type-vars))
@@ -95,6 +98,9 @@
                (number-sexp/p (u8->s64 tag))
                (top-level-name->sexp descriptor-name)))]))
 
+(define (tag->sexp [l : LiftedU8]) : Sexp/P
+  (match-define (lifted-u8 v) l)
+  (number-sexp/p (u8->s64 v)))
 
 (define (sexp->trivial-closure [s : Sexp]) : (Either Bytes (Maybe TopLevelName))
   (case s
@@ -181,6 +187,12 @@
     [(bytes-sexp v _) (right v)]
     [_ (left #"Not a valid variant-name")]))
 
+(define (parse-variant-tag [s : Sexp]) : (Either Bytes LiftedU8)
+  (case s
+    [(number-sexp v _) (right (lifted-u8 (u8 v)))]
+    [_ (left #"Not a valid variant-name")]))
+
+
 (define (pattern-exports->dict
           [pattern-exports : (List Sexp)]
           [acc : (Dict Bytes PatternSignature)])
@@ -192,11 +204,12 @@
                              (cons (number-sexp variant-tag _)
                                    (cons (number-sexp num-fields _)
                                      (cons (node variant-names _)
-                                           (cons mod-name-sexp
-                                                 (cons (bytes-sexp type-name _)
-                                                       (cons (node type-var-sexps _)
-                                                                   (cons (node field-type-sexps _)
-                                                                         (empty))))))))))
+                                           (cons (node variant-tags _)
+                                                 (cons mod-name-sexp
+                                                       (cons (bytes-sexp type-name _)
+                                                             (cons (node type-var-sexps _)
+                                                                         (cons (node field-type-sexps _)
+                                                                               (empty)))))))))))
                  _)
            pattern-exports)
      (case (sexp->mod-name mod-name-sexp)
@@ -211,13 +224,16 @@
               (case (extract-rights (map parse-variant-name variant-names))
                 [(left v) (left v)]
                 [(right variant-names)
-                 (pattern-exports->dict
-                   pattern-exports
-                   (dict-add acc export-name
-                             (pattern-signature
-                               (source-variant-info mod-name type-name type-vars field-types)
-                               (variant-destruction-info variant-name (u8 variant-tag) num-fields
-                                                         variant-names))))])])])])]
+                 (case (extract-rights (map parse-variant-tag variant-tags))
+                   [(left v) (left v)]
+                   [(right variant-tags)
+                    (pattern-exports->dict
+                      pattern-exports
+                      (dict-add acc export-name
+                                (pattern-signature
+                                  (source-variant-info mod-name type-name type-vars field-types)
+                                  (variant-destruction-info variant-name (u8 variant-tag) num-fields
+                                                            variant-names variant-tags))))])])])])])]
     [_ (left #"Not a valid pattern-exports")]))
 
 
