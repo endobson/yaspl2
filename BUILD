@@ -12,6 +12,7 @@ ALL_PACKAGES = [
     "//libraries/prim-language/examples",
     "//libraries/protocols/http",
     "//libraries/yaspl",
+    "//libraries/yaspl/languages",
     "//libraries/yaspl/interpreter",
     "//libraries/yaspl/runtime",
     "//tools",

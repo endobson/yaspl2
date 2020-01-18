@@ -172,9 +172,9 @@ yaspl_library(
     srcs = ["module-header-lint.yaspl"],
     deps = [
         ":module-name",
-        ":source-language",
         "//libraries/data:bytes",
         "//libraries/data:list",
+        "//libraries/yaspl/languages:source-language",
     ],
 )
 
@@ -194,13 +194,13 @@ yaspl_bootstrap_library(
     name = "free-variables",
     srcs = ["free-variables.yaspl"],
     deps = [
-        ":source-language",
         "//libraries/data:bytes",
         "//libraries/data:dict",
         "//libraries/data:list",
         "//libraries/data:maybe",
         "//libraries/data:set",
         "//libraries/data:source-location",
+        "//libraries/yaspl/languages:source-language",
     ],
 )
 
@@ -367,7 +367,6 @@ yaspl_bootstrap_library(
         ":prim-implementation",
         ":resolved-imports-language",
         ":resolved-types-language",
-        ":source-language",
         ":source-to-intermediate-language",
         ":validator",
         "//libraries/data:bytes",
@@ -380,6 +379,7 @@ yaspl_bootstrap_library(
         "//libraries/yaspl:optimize-intermediate",
         "//libraries/yaspl:top-level-object-optimizer",
         "//libraries/yaspl:top-level-objects",
+        "//libraries/yaspl/languages:source-language",
     ],
 )
 
@@ -690,7 +690,6 @@ yaspl_bootstrap_library(
     deps = [
         ":module-name",
         ":module-signature",
-        ":source-language",
         ":top-level-name",
         ":types",
         "//libraries/data:bytes",
@@ -702,6 +701,7 @@ yaspl_bootstrap_library(
         "//libraries/data:list-multi-dict",
         "//libraries/data:maybe",
         "//libraries/data:tuples",
+        "//libraries/yaspl/languages:source-language",
     ],
 )
 
@@ -713,7 +713,6 @@ yaspl_test(
         ":module-name",
         ":module-signature",
         ":resolved-imports-language",
-        ":source-language",
         ":top-level-name",
         ":variant-info",
         ":yunit",
@@ -723,6 +722,7 @@ yaspl_test(
         "//libraries/data:indexed-set",
         "//libraries/data:list",
         "//libraries/data:maybe",
+        "//libraries/yaspl/languages:source-language",
     ],
 )
 
@@ -869,8 +869,8 @@ yaspl_test(
 )
 
 yaspl_bootstrap_library(
-    name = "source-language",
-    srcs = ["source-language.yaspl"],
+    name = "source-language-parser",
+    srcs = ["source-language-parser.yaspl"],
     deps = [
         ":module-name",
         ":sexp-parser",
@@ -880,16 +880,17 @@ yaspl_bootstrap_library(
         "//libraries/data:maybe",
         "//libraries/data:source-location",
         "//libraries/data:tuples",
+        "//libraries/yaspl/languages:source-language",
     ],
 )
 
 yaspl_test(
-    name = "source-language-test",
+    name = "source-language-parser-test",
     size = "small",
-    srcs = ["source-language-test.yaspl"],
+    srcs = ["source-language-parser-test.yaspl"],
     deps = [
         ":sexp-parser",
-        ":source-language",
+        ":source-language-parser",
         ":yunit",
         "//libraries/data:bytes",
         "//libraries/data:either",
@@ -1162,7 +1163,6 @@ yaspl_library(
         ":free-variables",
         ":module-name",
         ":module-signature",
-        ":source-language",
         "//libraries/algorithms:depth-first-search",
         "//libraries/data:bytes",
         "//libraries/data:dict",
@@ -1171,6 +1171,7 @@ yaspl_library(
         "//libraries/data:maybe",
         "//libraries/data:set",
         "//libraries/data:tuples",
+        "//libraries/yaspl/languages:source-language",
     ],
 )
 
@@ -1178,7 +1179,6 @@ yaspl_library(
     name = "unused-local-bindings",
     srcs = ["unused-local-bindings.yaspl"],
     deps = [
-        ":source-language",
         "//libraries/data:bytes",
         "//libraries/data:dict",
         "//libraries/data:join-list",
@@ -1186,6 +1186,7 @@ yaspl_library(
         "//libraries/data:maybe",
         "//libraries/data:source-location",
         "//libraries/data:tuples",
+        "//libraries/yaspl/languages:source-language",
     ],
 )
 

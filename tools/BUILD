@@ -9,11 +9,11 @@ yaspl_library(
     srcs = ["analysis.yaspl"],
     deps = [
         "//libraries:io",
-        "//libraries:source-language",
         "//libraries/data:either",
         "//libraries/data:list",
         "//libraries/data:maybe",
         "//libraries/yaspl:parser",
+        "//libraries/yaspl/languages:source-language",
     ],
 )
 
@@ -26,7 +26,6 @@ yaspl_binary(
         ":rewrite-imports",
         "//libraries:io",
         "//libraries:module-name",
-        "//libraries:source-language",
         "//libraries:unused-bindings",
         "//libraries/data:bytes",
         "//libraries/data:either",
@@ -34,6 +33,7 @@ yaspl_binary(
         "//libraries/data:maybe",
         "//libraries/data:set",
         "//libraries/yaspl:parser",
+        "//libraries/yaspl/languages:source-language",
     ],
 )
 
@@ -56,10 +56,10 @@ yaspl_binary(
         "//libraries:io",
         "//libraries:module-name",
         "//libraries:sexp-printer",
-        "//libraries:source-language",
         "//libraries/data:either",
         "//libraries/data:list",
         "//libraries/yaspl:parser",
+        "//libraries/yaspl/languages:source-language",
     ],
 )
 
@@ -72,7 +72,6 @@ yaspl_binary(
         "//libraries:compiler_lib",
         "//libraries:io",
         "//libraries:module-name",
-        "//libraries:source-language",
         "//libraries/data:bytes",
         "//libraries/data:either",
         "//libraries/data:indexed-set",
@@ -84,6 +83,7 @@ yaspl_binary(
         "//libraries/prim-language:register-language",
         "//libraries/prim-language:simplify-register-language",
         "//libraries/yaspl:top-level-objects",
+        "//libraries/yaspl/languages:source-language",
     ],
 )
 
@@ -108,7 +108,6 @@ yaspl_binary(
         "//libraries:module-name",
         "//libraries:prim-types",
         "//libraries:sexp-parser",
-        "//libraries:source-language",
         "//libraries/data:bytes",
         "//libraries/data:dict",
         "//libraries/data:either",
@@ -116,6 +115,7 @@ yaspl_binary(
         "//libraries/data:maybe",
         "//libraries/data:set",
         "//libraries/yaspl:parser",
+        "//libraries/yaspl/languages:source-language",
     ],
 )
 
@@ -128,7 +128,6 @@ yaspl_binary(
         "//libraries:io",
         "//libraries:module-name",
         "//libraries:sexp-parser",
-        "//libraries:source-language",
         "//libraries/data:bytes",
         "//libraries/data:dict",
         "//libraries/data:either",
@@ -136,6 +135,7 @@ yaspl_binary(
         "//libraries/data:maybe",
         "//libraries/data:set",
         "//libraries/yaspl:parser",
+        "//libraries/yaspl/languages:source-language",
     ],
 )
 
@@ -155,10 +155,10 @@ yaspl_library(
     srcs = ["compile-module-args.yaspl"],
     deps = [
         "//libraries:module-signature",
-        "//libraries:source-language",
         "//libraries/data:either",
         "//libraries/data:list",
         "//libraries/yaspl:parser",
+        "//libraries/yaspl/languages:source-language",
     ],
 )
 
@@ -222,7 +222,6 @@ yaspl_library(
         "//libraries:module-header-lint",
         "//libraries:module-name",
         "//libraries:module-signature",
-        "//libraries:source-language",
         "//libraries:unused-bindings",
         "//libraries:unused-local-bindings",
         "//libraries/data:bytes",
@@ -232,6 +231,7 @@ yaspl_library(
         "//libraries/data:set",
         "//libraries/data:source-location",
         "//libraries/yaspl:parser",
+        "//libraries/yaspl/languages:source-language",
     ],
 )
 
@@ -243,12 +243,12 @@ yaspl_library(
         "//libraries:lexer",
         "//libraries:module-name",
         "//libraries:sexp-parser",
-        "//libraries:source-language",
         "//libraries/data:bytes",
         "//libraries/data:either",
         "//libraries/data:join-list",
         "//libraries/data:list",
         "//libraries/data:source-location",
+        "//libraries/yaspl/languages:source-language",
     ],
 )
 
