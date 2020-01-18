@@ -869,38 +869,6 @@ yaspl_test(
 )
 
 yaspl_bootstrap_library(
-    name = "source-language-parser",
-    srcs = ["source-language-parser.yaspl"],
-    deps = [
-        ":module-name",
-        ":sexp-parser",
-        "//libraries/data:bytes",
-        "//libraries/data:either",
-        "//libraries/data:list",
-        "//libraries/data:maybe",
-        "//libraries/data:source-location",
-        "//libraries/data:tuples",
-        "//libraries/yaspl/languages:source-language",
-    ],
-)
-
-yaspl_test(
-    name = "source-language-parser-test",
-    size = "small",
-    srcs = ["source-language-parser-test.yaspl"],
-    deps = [
-        ":sexp-parser",
-        ":source-language-parser",
-        ":yunit",
-        "//libraries/data:bytes",
-        "//libraries/data:either",
-        "//libraries/data:list",
-        "//libraries/data:maybe",
-        "//libraries/data:source-location",
-    ],
-)
-
-yaspl_bootstrap_library(
     name = "source-to-intermediate-language",
     srcs = ["source-to-intermediate-language.yaspl"],
     deps = [

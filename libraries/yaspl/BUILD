@@ -89,7 +89,7 @@ yaspl_bootstrap_library(
         "//libraries:module-signature",
         "//libraries:module-signature-serialization",
         "//libraries:sexp-parser",
-        "//libraries:source-language-parser",
+        "//libraries/yaspl/conversions:source-language-parser",
         "//libraries/data:bytes",
         "//libraries/data:either",
         "//libraries/data:list",
