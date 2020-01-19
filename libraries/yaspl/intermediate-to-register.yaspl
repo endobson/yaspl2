@@ -3,6 +3,7 @@
   (block-number)
   (bytes)
   (data indexed-set)
+  (data lifted-primitives)
   (dict)
   (intermediate-expression)
   (intermediate-language)
@@ -299,21 +300,35 @@
            (r:pointer-set!-inst (eight-byte-mem-op) closure-var (fixed-pointer-offset 0) symbol-var))))
      (match-define acc (fill-array closure-var 8 value-vars acc))
      (tuple2 closure-var acc)]
-    [(make-variant-expr (variant-construction-info tag descriptor-name _) fields)
+    [(make-variant-expr (variant-construction-info tag descriptor-name indices) fields)
      (match-define (tuple2 variant-var acc) (fresh-var acc #"variant"))
      (match-define (tuple2 tag-var acc) (fresh-var acc #"tag"))
      (match-define (tuple2 value-vars acc) (convert-exprs fields env acc))
+     (match-define permuted-vars
+       (build-list (length value-vars)
+         (lambda ([runtime-index : Int]) : Var
+           (case (find-index (lambda ([v : LiftedInt])
+                               (case v [(lifted-int v) (= v runtime-index)]))
+                             indices)
+             [(nothing) (panic #"Bad index")]
+             [(just (lifted-int source-index))
+              (case (list-ref value-vars source-index)
+                [(nothing) (panic #"Bad index")]
+                [(just var) var])]))))
      (match-define var-info (r:variant-info tag (mangle-top-level-name descriptor-name)))
      (match-define acc
-       (add-instruction acc (r:variant-allocate-inst variant-var var-info tag-var value-vars)))
+       (add-instruction acc (r:variant-allocate-inst variant-var var-info tag-var permuted-vars)))
      (tuple2 variant-var acc)]
-    [(variant-field-ref-expr expr field-index _)
+    [(variant-field-ref-expr expr source-field-index (variant-destruction-info _ _ _ indices))
      (match-define (tuple2 variant-var acc) (convert-expr expr env acc))
      (match-define (tuple2 field-var acc) (fresh-var acc #"field"))
-     (match-define acc
-       (add-instruction acc
-         (r:variant-ref-inst field-var variant-var field-index)))
-     (tuple2 field-var acc)]
+     (case (list-ref indices source-field-index)
+       [(nothing) (panic #"Source field index is bad")]
+       [(just (lifted-int index))
+        (match-define acc
+          (add-instruction acc
+            (r:variant-ref-inst field-var variant-var index)))
+        (tuple2 field-var acc)])]
     [(int-case-expr expr (int-case-clause val body) (default-case-clause default-expr))
      (match-define (tuple2 value-var acc) (convert-expr expr env acc))
      (match-define (tuple2 continue-block acc) (fresh-block-number acc))
@@ -430,11 +445,12 @@
      (add-terminal acc (r:jump (jump-target join-block (varargs list fail-val))))]
     [(tuple2 (nothing) (empty))
      (panic #"Variant clause without cases or default clause")]
-    [(tuple2 (nothing) (cons (variant-case-clause _ fields body) (empty)))
-     (match-define (tuple2 continue-env acc) (extract-fields value-var fields env acc))
+    [(tuple2 (nothing) (cons (variant-case-clause info fields body) (empty)))
+     (match-define (tuple2 continue-env acc) (extract-fields value-var info fields env acc))
      (match-define (tuple2 success-val acc) (convert-expr body continue-env acc))
      (add-terminal acc (r:jump (jump-target join-block (varargs list success-val))))]
-    [(tuple2 default-clause (cons (variant-case-clause (variant-destruction-info tag _ _ _) fields body) clauses))
+    [(tuple2 default-clause (cons (variant-case-clause info fields body) clauses))
+     (match-define (variant-destruction-info tag _ _ _) info)
      (match-define (tuple2 continue-block acc) (fresh-block-number acc))
      (match-define (tuple2 fail-block acc) (fresh-block-number acc))
      (match-define acc
@@ -442,25 +458,31 @@
                                       (jump-target fail-block (empty))
                                       (jump-target continue-block (empty)))))
      (match-define acc (start-block continue-block (empty) acc))
-     (match-define (tuple2 continue-env acc) (extract-fields value-var fields env acc))
+     (match-define (tuple2 continue-env acc) (extract-fields value-var info fields env acc))
      (match-define (tuple2 success-val acc) (convert-expr body continue-env acc))
      (match-define acc (add-terminal acc (r:jump (jump-target join-block (varargs list success-val)))))
      (match-define acc (start-block fail-block (empty) acc))
      (convert-variant-clauses value-var clauses default-clause join-block env acc)]))
 
-(define (extract-fields [val : Var] [field-vars : (List Var)] [env : Environment] [acc : Accumulator])
+(define (extract-fields [val : Var] [info : VariantDestructionInfo]
+                        [field-vars : (List Var)] [env : Environment] [acc : Accumulator])
   : (Tuple2 Environment Accumulator)
-  (extract-fields* val 0 field-vars env acc))
+  (extract-fields* val info 0 field-vars env acc))
 
-(define (extract-fields* [val : Var] [index : Int] [field-vars : (List Var)] [env : Environment] [acc : Accumulator])
+(define (extract-fields* [val : Var] [info : VariantDestructionInfo] [index : Int]
+                         [field-vars : (List Var)] [env : Environment] [acc : Accumulator])
   : (Tuple2 Environment Accumulator)
   (case field-vars
     [(empty)
      (tuple2 env acc)]
     [(cons field-var field-vars)
-     (match-define (tuple2 fresh-var acc) (fresh-var2 acc field-var))
-     (match-define acc (add-instruction acc (r:variant-ref-inst fresh-var val index)))
-     (extract-fields* val (+ 1 index) field-vars (env-set env field-var fresh-var) acc)]))
+     (match-define (variant-destruction-info _ _ _ indices) info)
+     (case (list-ref indices index)
+       [(nothing) (panic #"Source field index is bad")]
+       [(just (lifted-int runtime-index))
+        (match-define (tuple2 fresh-var acc) (fresh-var2 acc field-var))
+        (match-define acc (add-instruction acc (r:variant-ref-inst fresh-var val runtime-index)))
+        (extract-fields* val info (+ 1 index) field-vars (env-set env field-var fresh-var) acc)])]))
 
 (define (fill-array [base : Var] [offset : Int] [vars : (List Var)]
                     [acc : Accumulator]) : Accumulator
