@@ -762,6 +762,7 @@ yaspl_bootstrap_library(
         ":variant-info",
         "//libraries/data:bytes",
         "//libraries/data:dict",
+        "//libraries/data:lifted-primitives",
         "//libraries/data:list",
         "//libraries/data:maybe",
         "//libraries/data:source-location",

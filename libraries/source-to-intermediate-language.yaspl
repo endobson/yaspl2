@@ -5,12 +5,8 @@
   (dict)
   (either)
   {(expanded-datatypes-language)
-    {#:types
-      FieldDescriptor
-    }
     {#:values
       expand-datatypes
-      field-descriptor-runtime-index
     }
   }
   (expanded-patterns-language)
@@ -201,7 +197,7 @@
         (case f
           [(variant-constructor
              variant-name function-name closure-name const-name descriptor-name variant-name-name
-             fields tag)
+             (variant-construction-info tag _ fields))
            (cons
              (variant-descriptor-constant descriptor-name variant-name-name (length fields))
              (cons
@@ -266,7 +262,8 @@
           [acc : State])
   : State
   (case fun
-    [(variant-constructor _ function-name _ const-name _ _ (empty) _)
+    [(variant-constructor _ function-name _ const-name _ _
+                          (variant-construction-info _ _ (empty)))
      (add-function
        (i:function-definition
          function-name
@@ -276,24 +273,19 @@
          (initial-var-number)
          (i:global-var-expr const-name))
        acc)]
-    [(variant-constructor _ function-name _ _ descriptor-name _ fields tag)
+    [(variant-constructor _ function-name _ _ _ _ info)
+     (match-define (variant-construction-info _ _ field-indices) info)
+     (match-define num-args (length field-indices))
      (match-define args
-       (build-list (length fields) (lambda ([index : Int]) (var #"arg" (var-number index)))))
+       (build-list num-args (lambda ([index : Int]) (var #"arg" (var-number index)))))
      (add-function
        (i:function-definition
          function-name
          (var-type #"bogus")
          args
          (empty)
-         (var-number (length fields))
-         (i:make-variant-expr
-           (variant-construction-info
-             tag
-             descriptor-name
-             (map (lambda ([f : FieldDescriptor])
-               (lifted-int (field-descriptor-runtime-index f)))
-               fields))
-           (map i:local-var-expr args)))
+         (var-number num-args)
+         (i:make-variant-expr info (map i:local-var-expr args)))
        acc)]
     [(variant-accessor function-name _ index info)
      (match-define arg (var #"arg" (initial-var-number)))
@@ -523,35 +515,28 @@
   (foldl
     (lambda ([f : DatatypeDefinition] [acc : (Dict TopLevelName TopLevelSignature)])
       (case f
-        [(variant-constructor _ function-name _ const-name _ _ (empty) _tag)
+        [(variant-constructor _ function-name _ const-name _ _
+                              (variant-construction-info _ _ (empty)))
          (dict-add
            acc
            function-name
            (top-level-signature
              (nothing)
              (just (zero-arg-constant-inlineable-function const-name))))]
-        [(variant-constructor _ function-name _ _ descriptor-name _ fields tag)
+        [(variant-constructor _ function-name _ _ _ _ info)
          (dict-add
            acc
            function-name
            (top-level-signature
              (nothing)
-             (just
-               ;; TODO include the expected number of args
-               (variant-constructor-inlineable-function
-                 (variant-construction-info
-                   tag descriptor-name
-                   (map (lambda ([f : FieldDescriptor])
-                          (lifted-int (field-descriptor-runtime-index f)))
-                        fields))))))]
+             (just (variant-constructor-inlineable-function info))))]
         [(variant-accessor function-name _ offset info)
          (dict-add
            acc
            function-name
            (top-level-signature
              (nothing)
-             (just
-               (variant-accessor-inlineable-function offset info))))]))
+             (just (variant-accessor-inlineable-function offset info))))]))
     funs
     acc))
 
