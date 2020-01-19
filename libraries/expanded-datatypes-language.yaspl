@@ -35,9 +35,6 @@
       function-definition-name
       [imports-patterns rt:imports-patterns]
       pattern-source-span
-      variant-definition-name
-      variant-field-name
-      variant-field-type
     }
     {#:patterns
       abstraction-pattern
@@ -135,76 +132,122 @@
              [patterns : (List PatternExport)]
              [statics : (List Export)]))
   (define-type PatternExport
-    (pattern-export [exported-name : Bytes] [desc : PatternSignature])))
+    (pattern-export [exported-name : Bytes] [desc : PatternSignature]))
+
+  (define-type ExpandedDatatype
+    (expanded-datatype
+      [name : Bytes]
+      [mod-name : ModName]
+      [vars : (List Bytes)]
+      [variants : (List ExpandedVariant)]))
+  (define-type ExpandedVariant
+    (expanded-variant
+      [name : Bytes]
+      [tag : U8]
+      [fields : (List ExpandedField)]
+      [destruction-info : VariantDestructionInfo]))
+  (define-type ExpandedField
+    (expanded-field
+      [name : Bytes]
+      [type : Type]
+      [source-index : Int]
+      [runtime-index : Int])))
 
 (define (expand-datatypes [mod : rt:Module]) : (Either Bytes Module)
   (case mod
     [(rt:module name imports exports types definitions statics)
-     (match-define type-defs (expand-datatypes/type-definitions name types))
+     (match-define new-types (expand-datatypes* name types))
+     (match-define type-defs (expand-datatypes/type-definitions new-types))
      (match-define patterns
        (merge-dicts
          (rt:imports-patterns imports)
-         (expand-datatypes/patterns name types)))
+         (expand-datatypes/patterns new-types)))
      (match-define imports (expand-datatypes/imports imports))
      (case (expand-datatypes/exports exports patterns)
        [(left v) (left v)]
        [(right exports)
         (right (module name imports exports definitions type-defs patterns statics))])]))
 
+(define (expand-datatypes* [mod-name : ModName] [defs : (List TypeDefinition)])
+  : (List ExpandedDatatype)
+  (map
+    (lambda ([def : TypeDefinition])
+      (case def
+        [(type-definition name type-vars variants)
+         (match-define all-tags (build-list (length variants)
+                                            (lambda ([i : Int]) (lifted-u8 (u8 i)))))
+         (expanded-datatype
+           name
+           mod-name
+           (simplify-type-vars type-vars)
+           (map/indexed
+             (lambda ([variant : VariantDefinition] [index : Int])
+               (case variant
+                 [(variant-definition name fields)
+                  (match-define tag (u8 index))
+                  (match-define expanded-fields 
+                    (map/indexed
+                      (lambda ([v : VariantField] [i : Int])
+                        (case v
+                          [(variant-field name type)
+                           (expanded-field name type i i)]))
+                      fields))
+
+                  (match-define info
+                    (variant-destruction-info
+                      tag (length expanded-fields) all-tags
+                      (map (lambda ([f : ExpandedField])
+                             (lifted-int (expanded-field-runtime-index f)))
+                           expanded-fields)))
+
+                  (expanded-variant name tag expanded-fields info)]))
+             variants))]))
+    defs))
+
 (define (expand-datatypes/imports [is : rt:Imports]) : Imports
   (case is
     [(rt:imports values _ static-bindings static-info)
      (imports values static-bindings static-info)]))
 
-(define (expand-datatypes/type-definitions [mod-name : ModName] [defs : (List TypeDefinition)])
+(define (expand-datatypes/type-definitions [defs : (List ExpandedDatatype)])
   : (List DatatypeDefinition)
   (foldl
-    (lambda ([def : TypeDefinition] [acc : (List DatatypeDefinition)])
+    (lambda ([def : ExpandedDatatype] [acc : (List DatatypeDefinition)])
       (case def
-        [(type-definition name type-vars variants)
-         (match-define simple-type-vars (simplify-type-vars type-vars))
+        [(expanded-datatype name mod-name type-vars variants)
          (match-define self-type
-           (abstract-type mod-name name (map var-type simple-type-vars) (star-kind)))
+           (abstract-type mod-name name (map var-type type-vars) (star-kind)))
          (case variants
            [(cons variant (empty))
-            (match-define (variant-definition variant-name fields) variant)
-            (match-define tag (u8 0))
-            (match-define info
-              (variant-destruction-info tag (length fields) (varargs list (lifted-u8 tag))
-                                        (build-list (length fields) lifted-int)))
+            (match-define (expanded-variant variant-name _ fields info) variant)
 
             (variant-definition->accessors
-              (variant-definition->constructor acc tag simple-type-vars self-type variant)
-              0 variant-name simple-type-vars self-type info fields)]
+              (variant-definition->constructor acc type-vars self-type variant)
+              variant-name type-vars self-type info fields)]
            [_
             (variant-definitions->constructors
-              acc 0 simple-type-vars self-type variants)])]))
+              acc type-vars self-type variants)])]))
     defs
     (ann (List DatatypeDefinition) (empty))))
 
-(define (expand-datatypes/patterns [mod-name : ModName] [defs : (List TypeDefinition)])
+(define (expand-datatypes/patterns [defs : (List ExpandedDatatype)])
   : (Dict Bytes PatternSignature)
   (foldl
-    (lambda ([def : TypeDefinition] [acc : (Dict Bytes PatternSignature)])
-      (match-define (type-definition type-name type-vars variants) def)
-      (match-define simple-type-vars (simplify-type-vars type-vars))
-      (match-define all-variant-names (map variant-definition-name variants))
-      (match-define all-variant-tags
-        (map/indexed (lambda ([_ : VariantDefinition] [tag : Int]) (lifted-u8 (u8 tag)))
-                     variants))
+    (lambda ([def : ExpandedDatatype] [acc : (Dict Bytes PatternSignature)])
+      (match-define (expanded-datatype type-name mod-name type-vars variants) def)
+      (match-define all-variant-names (map expanded-variant-name variants))
       (dict-add-all
         acc
-        (map/indexed
-          (lambda ([var : VariantDefinition] [tag : Int])
-            (match-define (variant-definition name fields) var)
+        (map
+          (lambda ([var : ExpandedVariant])
+            (match-define (expanded-variant name _ fields info) var)
             (tuple2
               name
               (pattern-signature
-                (source-variant-info name mod-name type-name simple-type-vars
-                                     (map variant-field-type fields)
+                (source-variant-info name mod-name type-name type-vars
+                                     (map expanded-field-type fields)
                                      all-variant-names)
-                (variant-destruction-info (u8 tag) (length fields) all-variant-tags
-                                          (build-list (length fields) lifted-int)))))
+                info)))
           variants)))
     defs
     (ann (Dict Bytes PatternSignature) (make-dict bytes-cmp))))
@@ -217,57 +260,54 @@
 
 (define (variant-definitions->constructors
           [acc : (List DatatypeDefinition)]
-          [tag : Int]
           [type-vars : (List Bytes)]
           [self-type : Type]
-          [defs : (List VariantDefinition)]) : (List DatatypeDefinition)
+          [defs : (List ExpandedVariant)]) : (List DatatypeDefinition)
   (case defs
     [(empty) acc]
     [(cons def defs)
      (variant-definitions->constructors
-       (variant-definition->constructor acc (u8 tag) type-vars self-type def)
-       (+ 1 tag)
+       (variant-definition->constructor acc type-vars self-type def)
        type-vars
        self-type
        defs)]))
 
 (define (variant-definition->constructor
           [acc : (List DatatypeDefinition)]
-          [tag : U8]
           [type-vars : (List Bytes)]
           [self-type : Type]
-          [def : VariantDefinition]) : (List DatatypeDefinition)
+          [def : ExpandedVariant]) : (List DatatypeDefinition)
   (case def
-    [(variant-definition name fields)
+    [(expanded-variant name tag fields _)
      (match-define field-descriptors
-       (map/indexed
-         (lambda ([v : VariantField] [i : Int])
-           (field-descriptor (variant-field-name v) i))
+       (map
+         (lambda ([v : ExpandedField])
+           (case v
+             [(expanded-field name _ _ runtime-index)
+              (field-descriptor name runtime-index)]))
          fields))
      (match-define type
-       (fun-type type-vars (map variant-field-type fields) self-type))
+       (fun-type type-vars (map expanded-field-type fields) self-type))
      (cons
        (variant-constructor name type field-descriptors tag)
        acc)]))
 
 (define (variant-definition->accessors
           [acc : (List DatatypeDefinition)]
-          [offset : Int]
           [variant-name : Bytes]
           [type-vars : (List Bytes)]
           [self-type : Type]
           [info : VariantDestructionInfo]
-          [fields : (List VariantField)]) : (List DatatypeDefinition)
+          [fields : (List ExpandedField)]) : (List DatatypeDefinition)
   (case fields
     [(empty) acc]
-    [(cons (variant-field name field-type) fields)
+    [(cons (expanded-field name field-type source-index _) fields)
      (match-define type (fun-type type-vars (varargs list self-type) field-type))
      (variant-definition->accessors
        (cons
-         (variant-accessor (bytes-append (varargs list variant-name #"-" name)) type offset
-                           info)
+         (variant-accessor (bytes-append (varargs list variant-name #"-" name)) type
+                           source-index info)
          acc)
-       (+ offset 1)
        variant-name
        type-vars
        self-type
