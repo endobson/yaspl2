@@ -76,7 +76,9 @@
               (name:id (args:id (~datum :) types:prim-ty) ...)
               (~datum :) result-type:prim-ty #:error message:expr)
       #:with impl
-        #'#`(lambda (args ...) ((#,exit-parameter) (#,error-sentinal message)))
+        #'#`(lambda (args ...)
+              ((#,exit-parameter)
+               (#,error-sentinal (bytes->string/utf-8 message) (current-continuation-marks))))
       #:with ty #'(fun-ty (list 'type-vars ...) (list types.ty ...) result-type.ty))))
 
 (define prim-types

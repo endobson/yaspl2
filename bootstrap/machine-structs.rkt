@@ -4,7 +4,7 @@
 
 (struct function-val (args env-box body) #:transparent)
 
-(struct error-sentinal (info) #:transparent)
+(struct error-sentinal exn:fail () #:transparent)
 
 (struct variant-val (variant-name fields) #:transparent)
 (struct variant-constructor-val (variant-name fields) #:transparent)

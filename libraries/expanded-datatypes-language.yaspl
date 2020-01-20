@@ -185,12 +185,18 @@
                (case variant
                  [(variant-definition name fields)
                   (match-define tag (u8 index))
+                  (match-define field-order
+                    (compute-field-order fields))
+
                   (match-define expanded-fields 
                     (map/indexed
-                      (lambda ([v : VariantField] [i : Int])
+                      (lambda ([v : VariantField] [i : Int]) : ExpandedField
                         (case v
                           [(variant-field name type)
-                           (expanded-field name type i i)]))
+                           (case (dict-ref field-order name)
+                             [(nothing) (panic #"Bad name")]
+                             [(just (lifted-int runtime-index))
+                              (expanded-field name type i runtime-index)])]))
                       fields))
 
                   (match-define info
@@ -203,6 +209,49 @@
                   (expanded-variant name tag expanded-fields info)]))
              variants))]))
     defs))
+
+(define (compute-field-order [fields : (List VariantField)]) : (Dict Bytes LiftedInt)
+  (match-define acc : (Tuple2 (Dict Bytes LiftedInt) LiftedInt)
+    (tuple2 (make-dict bytes-cmp) (lifted-int 0)))
+  (match-define acc
+    (foldl
+      (lambda ([field : VariantField]
+               [acc : (Tuple2 (Dict Bytes LiftedInt) LiftedInt)])
+        : (Tuple2 (Dict Bytes LiftedInt) LiftedInt)
+        (case field
+          [(variant-field name type)
+           (case (type->kind type)
+             [(star-kind)
+              (match-define (tuple2 dict lifted-offset) acc)
+              (match-define (lifted-int offset) lifted-offset)
+              (tuple2
+                (dict-add dict name lifted-offset)
+                (lifted-int (+ offset 1)))]
+             [(prim64-kind) acc]
+             [(fun-kind _ _) (panic #"Bad kind")])]))
+      fields
+      acc))
+  (match-define acc
+    (foldl
+      (lambda ([field : VariantField]
+               [acc : (Tuple2 (Dict Bytes LiftedInt) LiftedInt)])
+        : (Tuple2 (Dict Bytes LiftedInt) LiftedInt)
+        (case field
+          [(variant-field name type)
+           (case (type->kind type)
+             [(prim64-kind)
+              (match-define (tuple2 dict lifted-offset) acc)
+              (match-define (lifted-int offset) lifted-offset)
+              (tuple2
+                (dict-add dict name lifted-offset)
+                (lifted-int (+ offset 1)))]
+             [(star-kind) acc]
+             [(fun-kind _ _) (panic #"Bad kind")])]))
+      fields
+      acc))
+  (match-define (tuple2 dict _offset) acc)
+  dict)
+
 
 (define (expand-datatypes/imports [is : rt:Imports]) : Imports
   (case is

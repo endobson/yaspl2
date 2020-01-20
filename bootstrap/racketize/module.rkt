@@ -153,16 +153,21 @@
         (match def
           [(definition& _ args (block& defs body))
            (define temporaries (generate-temporaries args))
-           #`(define (#,(hash-ref local-env name) #,@temporaries)
-               #,(racketize-block
-                   (environment
-                     immutable-local-pattern-env
-                     (for/fold ([env immutable-local-env])
-                               ([a (in-list args)] [t (in-list temporaries)])
-                       (hash-set env a t))
-                     immutable-local-static-env)
-                   defs
-                   body))]))))
+           (define (add-name stx)
+             (syntax-property stx 'inferred-name name))
+           #`(define #,(hash-ref local-env name)
+               (#%expression
+                 #,(add-name
+                     #`(lambda (#,@temporaries)
+                         #,(racketize-block
+                             (environment
+                               immutable-local-pattern-env
+                               (for/fold ([env immutable-local-env])
+                                         ([a (in-list args)] [t (in-list temporaries)])
+                                 (hash-set env a t))
+                               immutable-local-static-env)
+                             defs
+                             body)))))]))))
 
   (define racket-mod-name (mod-name->racket-mod-name (module&-name module)))
   (define racket-module

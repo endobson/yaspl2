@@ -40,6 +40,6 @@
     (write-bytes (program-result-stdout result) (current-output-port))
     (write-bytes (program-result-stderr result) (current-error-port))
     (when (program-result-error-info result)
-      (write-bytes (program-result-error-info result) (current-error-port))
-      (newline (current-error-port)))
+      (define err (program-result-error-info result))
+      ((error-display-handler) (exn-message err) err))
     (exit (program-result-exit-code result))))

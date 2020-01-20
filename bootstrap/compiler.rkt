@@ -53,7 +53,7 @@
 
   (program-result
     (if (error-sentinal? return-val) 255 return-val)
-    (and (error-sentinal? return-val) (error-sentinal-info return-val))
+    (and (error-sentinal? return-val) return-val)
     (get-output-bytes stdout)
     (get-output-bytes stderr)))
 

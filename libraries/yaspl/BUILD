@@ -54,6 +54,7 @@ yaspl_bootstrap_library(
         "//libraries/data:lifted-primitives",
         "//libraries/data:list",
         "//libraries/data:maybe",
+        "//libraries/data:numbers",
         "//libraries/data:tuples",
         "//libraries/prim-language",
         "//libraries/prim-language:block-number",
