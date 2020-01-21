@@ -37,6 +37,15 @@ yaspl_bootstrap_library(
     ],
 )
 
+yaspl_bootstrap_library(
+    name = "sexp",
+    srcs = ["sexp.yaspl"],
+    deps = [
+        "//libraries/data:list",
+        "//libraries/data:source-location",
+    ],
+)
+
 yaspl_library(
     name = "html",
     srcs = ["html.yaspl"],

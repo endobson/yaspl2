@@ -52,6 +52,7 @@ yaspl_binary(
         "//libraries:io",
         "//libraries:sexp-parser",
         "//libraries:sexp-printer",
+        "//libraries/formats:sexp",
     ],
 )
 

@@ -556,12 +556,12 @@ yaspl_bootstrap_library(
     name = "module-name",
     srcs = ["module-name.yaspl"],
     deps = [
-        ":sexp-parser",
         ":sexp-printer",
         "//libraries/data:bytes",
         "//libraries/data:list",
         "//libraries/data:maybe",
         "//libraries/data:ordering",
+        "//libraries/formats:sexp",
     ],
 )
 
@@ -598,6 +598,7 @@ yaspl_bootstrap_library(
         "//libraries/data:list",
         "//libraries/data:maybe",
         "//libraries/data:source-location",
+        "//libraries/formats:sexp",
     ],
 )
 
@@ -783,6 +784,7 @@ yaspl_bootstrap_library(
         "//libraries/data:maybe",
         "//libraries/data:numbers",
         "//libraries/data:source-location",
+        "//libraries/formats:sexp",
     ],
 )
 
@@ -804,11 +806,11 @@ yaspl_bootstrap_library(
     name = "sexp-printer",
     srcs = ["sexp-printer.yaspl"],
     deps = [
-        ":sexp-parser",
         "//libraries/data:bytes",
         "//libraries/data:join-list",
         "//libraries/data:list",
         "//libraries/data:numbers",
+        "//libraries/formats:sexp",
     ],
 )
 
@@ -839,6 +841,7 @@ yaspl_bootstrap_library(
         "//libraries/data:list",
         "//libraries/data:maybe",
         "//libraries/data:source-location",
+        "//libraries/formats:sexp",
     ],
 )
 
@@ -940,12 +943,12 @@ yaspl_bootstrap_library(
     srcs = ["top-level-name.yaspl"],
     deps = [
         ":module-name",
-        ":sexp-parser",
         ":sexp-printer",
         "//libraries/data:bytes",
         "//libraries/data:list",
         "//libraries/data:maybe",
         "//libraries/data:ordering",
+        "//libraries/formats:sexp",
     ],
 )
 
@@ -968,7 +971,6 @@ yaspl_bootstrap_library(
     srcs = ["types.yaspl"],
     deps = [
         ":module-name",
-        ":sexp-parser",
         ":sexp-printer",
         "//libraries/data:bytes",
         "//libraries/data:dict",
@@ -976,6 +978,7 @@ yaspl_bootstrap_library(
         "//libraries/data:maybe",
         "//libraries/data:ordering",
         "//libraries/data:tuples",
+        "//libraries/formats:sexp",
     ],
 )
 
@@ -985,7 +988,6 @@ yaspl_test(
     deps = [
         ":module-name",
         ":prim-types",
-        ":sexp-parser",
         ":sexp-printer",
         ":types",
         ":types-test-utils",
@@ -994,6 +996,7 @@ yaspl_test(
         "//libraries/data:list",
         "//libraries/data:maybe",
         "//libraries/data:source-location",
+        "//libraries/formats:sexp",
     ],
 )
 

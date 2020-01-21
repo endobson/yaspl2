@@ -258,7 +258,6 @@ yaspl_bootstrap_library(
     deps = [
         ":prim-language",
         ":syscalls",
-        "//libraries:sexp-parser",
         "//libraries:sexp-printer",
         "//libraries/data:bytes",
         "//libraries/data:dict",
@@ -267,6 +266,7 @@ yaspl_bootstrap_library(
         "//libraries/data:maybe",
         "//libraries/data:source-location",
         "//libraries/data:tuples",
+        "//libraries/formats:sexp",
         "//libraries/yaspl:math-operations",
     ],
 )

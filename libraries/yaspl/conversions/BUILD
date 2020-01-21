@@ -13,13 +13,13 @@ yaspl_bootstrap_library(
     srcs = ["source-language-parser.yaspl"],
     deps = [
         "//libraries:module-name",
-        "//libraries:sexp-parser",
         "//libraries/data:bytes",
         "//libraries/data:either",
         "//libraries/data:list",
         "//libraries/data:maybe",
         "//libraries/data:source-location",
         "//libraries/data:tuples",
+        "//libraries/formats:sexp",
         "//libraries/yaspl/languages:source-language",
     ],
 )
@@ -29,8 +29,8 @@ yaspl_test(
     size = "small",
     srcs = ["source-language-parser-test.yaspl"],
     deps = [
-        "//libraries:sexp-parser",
         ":source-language-parser",
+        "//libraries:sexp-parser",
         "//libraries:yunit",
         "//libraries/data:bytes",
         "//libraries/data:either",

@@ -39,6 +39,7 @@ yaspl_binary(
         "//libraries/data:either",
         "//libraries/data:list",
         "//libraries/data:source-location",
+        "//libraries/formats:sexp",
         "//libraries/formats:web-assembly",
     ],
 )
