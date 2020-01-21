@@ -27,20 +27,19 @@ def transitivify_impl(target, ctx, impl, p):
 transitive_attrs = ["deps", "srcs", "tests", "_implicit_tests"]
 
 
-def concat_files_impl(ctx, p):
+def concat_files_impl(ctx, p, prefix="", suffix=""):
   args = ctx.actions.args()
   file_parts = depset(transitive=[d[p].files for d in ctx.attr.deps])
   args.add_all(file_parts)
 
+  tools = []
+  command = ("echo -n \"%s\" >>%s && " % (prefix, ctx.outputs.combined.path)  +
+             "cat >>%s $@ && " % ctx.outputs.combined.path +
+             "echo -n \"%s\" >>%s" % (suffix, ctx.outputs.combined.path))
+
   if hasattr(ctx.executable, "_validator"):
-    tools = [ctx.executable._validator]
-    command = "cat >%s $@ && %s %s" % (
-        ctx.outputs.combined.path,
-        ctx.executable._validator.path,
-        ctx.outputs.combined.path)
-  else:
-    tools = []
-    command = "cat >%s $@" % ctx.outputs.combined.path
+    tools += [ctx.executable._validator]
+    command += " && %s %s" % (ctx.executable._validator.path, ctx.outputs.combined.path)
 
   ctx.actions.run_shell(
      outputs = [ctx.outputs.combined],

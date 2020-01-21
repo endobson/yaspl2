@@ -120,6 +120,22 @@ yaspl_binary(
 )
 
 yaspl_binary(
+    name = "aspect-module-dependency-graph",
+    srcs = ["aspect-module-dependency-graph-main.yaspl"],
+    deps = [
+        ":command-line",
+        "//libraries:io",
+        "//libraries:module-name",
+        "//libraries/data:bytes",
+        "//libraries/data:either",
+        "//libraries/data:list",
+        "//libraries/data:tuples",
+        "//libraries/yaspl:parser",
+        "//libraries/yaspl/languages:source-language",
+    ],
+)
+
+yaspl_binary(
     name = "aspect-remove-unused-dependencies",
     srcs = ["aspect-remove-unused-dependencies-main.yaspl"],
     deps = [
@@ -295,6 +311,7 @@ filegroup(
         ":aspect-ir-validator",
         ":aspect-linter",
         ":aspect-missing-dependencies",
+        ":aspect-module-dependency-graph",
         ":aspect-remove-unused-dependencies",
         ":intermediate-html-printer",
         ":ir-printer",

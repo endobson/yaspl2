@@ -1,0 +1,58 @@
+#:module (tools aspect-module-dependency-graph-main)
+#:import {
+  (bytes)
+  (either)
+  (io)
+  (list)
+  (module-name)
+  (prim)
+  (tools command-line)
+  (tuples)
+  (yaspl languages source-language)
+  (yaspl parser)
+}
+(export
+  (#:values main))
+(types
+  (define-type Args
+    (args
+      [module-file-path : Bytes])))
+
+(define (parse-args [input-args : (List Bytes)]) : (Either Bytes Args)
+  (case input-args
+    [(empty)
+     (left #"No binary!?")]
+    [(cons _ (empty))
+     (left #"No module file provided.")]
+    [(cons _ (cons module-file-path (empty)))
+     (right (args module-file-path))]
+    [(cons _ (cons _ (cons _ _)))
+     (left #"Too many args provided.")]))
+
+(define (get-output [args : Args]) : OutputLocation
+  (output-to-stdout))
+
+(define (handle-result [edges : (List (Tuple2 ModName ModName))] [output : OutputPort]) : Void
+  (for-each
+    (lambda ([(tuple2 src dest) : (Tuple2 ModName ModName)])
+      (write-line (bytes-append (varargs list #"\"" (mod-name->bytes src) #"\" -> \""
+                                              (mod-name->bytes dest) #"\""))
+                  output))
+    edges))
+
+(define (run [args : Args] [stdin : InputPort]) : (Either Bytes (List (Tuple2 ModName ModName)))
+  (match-define (args module-file) args)
+
+  (case (parse-module-file module-file)
+    [(left v) (left (parser-error->bytes v))]
+    [(right mod)
+     (right (map (lambda ([imports : Imports])
+                   (tuple2
+                     (module-name mod)
+                     (imports-module-name imports)))
+                 (module-imports mod)))]))
+
+(define (main [args : Bytes] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Int
+  (run-command-line-tool args stdin stdout stderr
+    (command-line-tool parse-args run get-output handle-result)))
+
