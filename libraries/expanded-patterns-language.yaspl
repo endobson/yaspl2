@@ -225,24 +225,21 @@
 
 (define (expand-patterns/expressions [es : (List ev:Expression)] [state : State])
   : (Tuple2 (List Expression) State)
-  (case es
-    [(empty) (tuple2 (empty) state)]
-    [(cons e es)
-     (match-define (tuple2 e state) (expand-patterns/expression e state))
-     (match-define (tuple2 es state) (expand-patterns/expressions es state))
-     (tuple2 (cons e es) state)]))
+  (map/state expand-patterns/expression es state))
 
 (define (case-clauses->pattern-rows [cs : (List ev:CaseClause)] [state : State])
   : (Tuple2 (List PatternRow) State)
-  (case cs
-    [(empty)
-     (tuple2 (empty) state)]
-    [(cons (ev:case-clause pattern expr) cs)
+  (map/state case-clause->pattern-row cs state))
+
+(define (case-clause->pattern-row [c : ev:CaseClause] [state : State])
+  : (Tuple2 PatternRow State)
+  (case c
+    [(ev:case-clause pattern expr)
      (match-define (tuple2 expr state) (expand-patterns/expression expr state))
-     (match-define (tuple2 rows state) (case-clauses->pattern-rows cs state))
      (tuple2
-       (cons (pattern-row (varargs list pattern) expr) rows)
+       (pattern-row (varargs list pattern) expr)
        state)]))
+
 
 (define (expand-patterns/matrix
           [vars : (List Var)]
@@ -432,29 +429,18 @@
           [grouped-rows : (List (Tuple2 VariantDestructionInfo (List PatternRow)))]
           [state : State])
   : (Tuple2 (List VariantCaseClause) State)
-  (case grouped-rows
-    [(empty)
-     (tuple2 (empty) state)]
-    [(cons rows other-grouped-rows)
-     (match-define (tuple2 clause state)
-       (grouped-rows->variant-case-clause vars fail-var rows state))
-     (match-define (tuple2 clauses state)
-       (all-grouped-rows->variant-case-clauses vars fail-var other-grouped-rows state))
-     (tuple2 (cons clause clauses) state)]))
-
-(define (grouped-rows->variant-case-clause
-          [vars : (List Var)]
-          [fail-var : Var]
-          [grouped-rows : (Tuple2 VariantDestructionInfo (List PatternRow))]
-          [state : State])
-  : (Tuple2 VariantCaseClause State)
-  (case grouped-rows
-    [(tuple2 info rows)
-     (match-define (variant-destruction-info _ _ field-indices) info)
-     (match-define (tuple2 field-vars state) (fresh-field-vars (length field-indices) state))
-     (match-define (tuple2 expr state)
-       (expand-patterns/matrix (append field-vars vars) rows fail-var state))
-     (tuple2 (variant-case-clause info field-vars expr) state)]))
+  (map/state
+    (lambda ([grouped : (Tuple2 VariantDestructionInfo (List PatternRow))]
+             [state : State])
+      (case grouped
+       [(tuple2 info rows)
+        (match-define (variant-destruction-info _ _ field-indices) info)
+        (match-define (tuple2 field-vars state) (fresh-field-vars (length field-indices) state))
+        (match-define (tuple2 expr state)
+          (expand-patterns/matrix (append field-vars vars) rows fail-var state))
+        (tuple2 (variant-case-clause info field-vars expr) state)]))
+    grouped-rows
+    state))
 
 (define (all-variants-covered? [infos : (List VariantDestructionInfo)]) : Boolean
   (case infos
