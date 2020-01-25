@@ -68,7 +68,6 @@
       [variant-field ri:variant-field]
     }
   }
-  (sexp-printer)
   (top-level-name)
   (tuples)
   (types)
@@ -175,13 +174,20 @@
       [types : (Dict Bytes Type)]))
 
   (define-type TypeResolutionError
-    (type-resolution-error [mod-name : ModName] [message : Bytes])))
+    (type-resolution-error [mod-name : ModName] [err : LocalTypeResolutionError]))
+  (define-type LocalTypeResolutionError
+    (unbound-type-variable [variable : Bytes])
+    (type-constructor-bad-arg-kind)
+    (type-constructor-bad-number-of-args)
+    (type-constructor-bad-constructor [t : Type])
+    (function-definition-bad-arg-kind [t : Type])))
+
 
 (define (resolve-types [mod : ri:Module]) : (Either TypeResolutionError Module)
   (match-define ctx (init-context mod))
   (match-define (ri:module name imports exports types definitions statics) mod)
   (match-define error
-    (lambda ([v : Bytes]) : (Either TypeResolutionError Module)
+    (lambda ([v : LocalTypeResolutionError]) : (Either TypeResolutionError Module)
       (left (type-resolution-error name v))))
   (case (resolve-types/type-defs types ctx)
     [(left v) (error v)]
@@ -227,7 +233,7 @@
      (type-constructor mod-name name (map (lambda ([_v : Bytes]) (star-kind)) vars))]))
 
 (define (resolve-types/exports [e : ri:Exports] [ctx : Context])
-  : (Either Bytes Exports)
+  : (Either LocalTypeResolutionError Exports)
   (match-define (ri:exports types values patterns statics) e)
   (case (resolve-types/type-exports types ctx)
     [(left v) (left v)]
@@ -235,25 +241,26 @@
      (right (exports types values patterns statics))]))
 
 (define (resolve-types/type-exports [exports : (List Export)] [ctx : Context])
-  : (Either Bytes (List TypeExport))
+  : (Either LocalTypeResolutionError (List TypeExport))
   (extract-rights
     (map
       (lambda ([export : Export]) (resolve-types/type-export export ctx))
       exports)))
 
 (define (resolve-types/type-export [export : Export] [ctx : Context])
-  : (Either Bytes TypeExport)
+  : (Either LocalTypeResolutionError TypeExport)
   (match-define (export local-name exported-name) export)
   (case (context-ref-type ctx local-name)
-    [(nothing) (left (bytes-append (varargs list #"Unbound exported type:" local-name)))]
+    [(nothing) (left (unbound-type-variable local-name))]
     [(just v)
      (right (type-export exported-name v))]))
 
 (define (resolve-types/statics [statics : (List ri:StaticDefinition)] [ctx : Context])
-  : (Either Bytes (List StaticDefinition))
+  : (Either LocalTypeResolutionError (List StaticDefinition))
   (extract-rights
     (map
-      (lambda ([static : ri:StaticDefinition]) : (Either Bytes StaticDefinition)
+      (lambda ([static : ri:StaticDefinition])
+        : (Either LocalTypeResolutionError StaticDefinition)
         (case static
           [(ri:varargs-definition name type-vars arg-type return-type cons-func empty-func)
            (match-define ctx (context-add-var-types ctx type-vars))
@@ -268,14 +275,14 @@
       statics)))
 
 (define (resolve-types/type-defs [defs : (List ri:TypeDefinition)] [ctx : Context])
-  : (Either Bytes (List TypeDefinition))
+  : (Either LocalTypeResolutionError (List TypeDefinition))
   (extract-rights
     (map
       (lambda ([def : ri:TypeDefinition]) (resolve-types/type-def def ctx))
       defs)))
 
 (define (resolve-types/type-def [def : ri:TypeDefinition] [ctx : Context])
-  : (Either Bytes TypeDefinition)
+  : (Either LocalTypeResolutionError TypeDefinition)
   (match-define (ri:type-definition name vars variants) def)
   (match-define ctx
     (case vars
@@ -289,14 +296,14 @@
 
 
 (define (resolve-types/variants [defs : (List ri:VariantDefinition)] [ctx : Context])
-  : (Either Bytes (List VariantDefinition))
+  : (Either LocalTypeResolutionError (List VariantDefinition))
   (extract-rights
     (map
       (lambda ([def : ri:VariantDefinition]) (resolve-types/variant def ctx))
       defs)))
 
 (define (resolve-types/variant [def : ri:VariantDefinition] [ctx : Context])
-  : (Either Bytes VariantDefinition)
+  : (Either LocalTypeResolutionError VariantDefinition)
   (match-define (ri:variant-definition name fields) def)
   (case (resolve-types/variant-fields fields ctx)
     [(left v) (left v)]
@@ -305,14 +312,14 @@
 
 
 (define (resolve-types/variant-fields [fields : (List ri:VariantField)] [ctx : Context])
-  : (Either Bytes (List VariantField))
+  : (Either LocalTypeResolutionError (List VariantField))
   (extract-rights
     (map
       (lambda ([field : ri:VariantField]) (resolve-types/variant-field field ctx))
       fields)))
 
 (define (resolve-types/variant-field [def : ri:VariantField] [ctx : Context])
-  : (Either Bytes VariantField)
+  : (Either LocalTypeResolutionError VariantField)
   (match-define (ri:variant-field name type) def)
   (case (pre-type->type type ctx)
     [(left v) (left v)]
@@ -321,14 +328,14 @@
 
 
 (define (resolve-types/functions [defs : (List ri:FunctionDefinition)] [ctx : Context])
-  : (Either Bytes (List FunctionDefinition))
+  : (Either LocalTypeResolutionError (List FunctionDefinition))
   (extract-rights
     (map
       (lambda ([def : ri:FunctionDefinition]) (resolve-types/function def ctx))
       defs)))
 
 (define (resolve-types/function [def : ri:FunctionDefinition] [ctx : Context])
-  : (Either Bytes FunctionDefinition)
+  : (Either LocalTypeResolutionError FunctionDefinition)
   (match-define (ri:function-definition name type-vars args return-pre-type body) def)
   (match-define ctx (context-add-var-types ctx type-vars))
   (case (resolve-types/args args ctx)
@@ -345,9 +352,9 @@
            (right (function-definition name type-vars args ann-return-type body))])])]))
 
 (define (resolve-types/args [args : (List ri:FunctionArg)] [ctx : Context])
-  : (Either Bytes (List FunctionArg))
+  : (Either LocalTypeResolutionError (List FunctionArg))
   (extract-rights
-    (map (lambda ([arg : ri:FunctionArg]) : (Either Bytes FunctionArg)
+    (map (lambda ([arg : ri:FunctionArg]) : (Either LocalTypeResolutionError FunctionArg)
            (case arg
              [(ri:function-arg pattern pre-type)
               (case (resolve-types/pattern pattern ctx)
@@ -358,9 +365,7 @@
                    [(right type)
                     (case (type->kind type)
                       [(fun-kind _ _)
-                       (left (bytes-append (varargs list
-                                #"Function argument type's kind must corespond to a value, got: "
-                                (print-type type))))]
+                       (left (function-definition-bad-arg-kind type))]
                       [(star-kind)
                        (right (function-arg pattern type))]
                       [(prim64-kind)
@@ -368,13 +373,14 @@
          args)))
 
 (define (resolve-types/exprs [exprs : (List ri:Expression)] [ctx : Context])
-  : (Either Bytes (List Expression))
+  : (Either LocalTypeResolutionError (List Expression))
   (extract-rights
     (map
       (lambda ([expr : ri:Expression]) (resolve-types/expr expr ctx))
       exprs)))
 
-(define (resolve-types/expr [expr : ri:Expression] [ctx : Context]) : (Either Bytes Expression)
+(define (resolve-types/expr [expr : ri:Expression] [ctx : Context])
+  : (Either LocalTypeResolutionError Expression)
   (case expr
     [(ri:lambda-expr args maybe-return-type body src)
      (case (resolve-types/args args ctx)
@@ -455,14 +461,14 @@
 
 
 (define (resolve-types/case-clauses [clauses : (List ri:CaseClause)] [ctx : Context])
-  : (Either Bytes (List CaseClause))
+  : (Either LocalTypeResolutionError (List CaseClause))
   (extract-rights
     (map
       (lambda ([clause : ri:CaseClause]) (resolve-types/case-clause clause ctx))
       clauses)))
 
 (define (resolve-types/case-clause [clause : ri:CaseClause] [ctx : Context])
-  : (Either Bytes CaseClause)
+  : (Either LocalTypeResolutionError CaseClause)
   (match-define (ri:case-clause pattern body) clause)
   (case (resolve-types/pattern pattern ctx)
     [(left v) (left v)]
@@ -473,12 +479,13 @@
         (right (case-clause pattern body))])]))
 
 (define (resolve-types/block [b : ri:Block] [ctx : Context])
-  : (Either Bytes Block)
+  : (Either LocalTypeResolutionError Block)
   (match-define (ri:block defs expr) b)
   (case
     (extract-rights
       (map
-        (lambda ([def : ri:BlockDefinition]) : (Either Bytes BlockDefinition)
+        (lambda ([def : ri:BlockDefinition])
+          : (Either LocalTypeResolutionError BlockDefinition)
           (case def
             [(ri:match-def pattern type expr)
              (case (resolve-types/pattern pattern ctx)
@@ -500,7 +507,7 @@
         (right (block defs expr))])]))
 
 (define (resolve-types/pattern [pattern : ri:Pattern] [ctx : Context])
-  : (Either Bytes Pattern)
+  : (Either LocalTypeResolutionError Pattern)
   (case pattern
     [(ri:bytes-pattern v src)
      (right (bytes-pattern v src))]
@@ -543,11 +550,13 @@
        (context-add-type context name (var-type name))
        names)]))
 
-(define (pre-type->type [pre : PreType] [context : Context]) : (Either Bytes Type)
+(define (pre-type->type [pre : PreType] [context : Context])
+  : (Either LocalTypeResolutionError Type)
   (case pre
     [(var-pre-type v _)
      (case (context-ref-type context v)
-       [(nothing) (left (bytes-append (varargs list #"Unbound type variable: " v)))]
+       [(nothing)
+        (left (unbound-type-variable v))]
        [(just v) (right v)])]
     [(fun-pre-type type-vars args result _)
      (match-define context (context-add-var-types context type-vars))
@@ -561,13 +570,15 @@
            (right (fun-type type-vars args result))])])]
     [(type-app-pre-type (source-span-annotated constructor _) args _)
      (case (context-ref-type context constructor)
-       [(nothing) (left (bytes-append (varargs list #"Unbound type constructor: " constructor)))]
+       [(nothing)
+        (left (unbound-type-variable constructor))]
        ;; TODO actually check that the kind of the argument types match the expected kinds
        [(just (type-constructor mod-name name arg-kinds))
         (case (zip args arg-kinds)
           [(just args+kinds)
            (case (extract-rights
-                   (map (lambda ([t : (Tuple2 PreType Kind)]) : (Either Bytes Type)
+                   (map (lambda ([t : (Tuple2 PreType Kind)])
+                          : (Either LocalTypeResolutionError Type)
                           (case t
                             [(tuple2 pre kind)
                              (case (pre-type->type pre context)
@@ -575,23 +586,18 @@
                                [(right t)
                                 (if (kind=? kind (type->kind t))
                                     (right t)
-                                    (left
-                                      #"Kind doesn't match in type constructor application"))])]))
+                                    (left (type-constructor-bad-arg-kind)))])]))
                           args+kinds))
              [(left v) (left v)]
              [(right types)
               (right (abstract-type mod-name name types (star-kind)))])]
           [(nothing)
-           (left #"Number of arguments to type constructor doesn't match.")])]
+           (left (type-constructor-bad-number-of-args))])]
        [(just t)
-        (left
-          (bytes-append
-            (varargs list
-              #"Cannot apply non constructor type: "
-              (print-sexp (type->sexp t)))))])]))
+        (left (type-constructor-bad-constructor t))])]))
 
 (define (maybe-pre-type->maybe-type [t : (Maybe PreType)] [ctx : Context])
-  : (Either Bytes (Maybe Type))
+  : (Either LocalTypeResolutionError (Maybe Type))
   (case t
     [(nothing) (right (nothing))]
     [(just t)
@@ -608,5 +614,22 @@
     [(abstraction-pattern _ _ src) src]))
 
 (define (type-resolution-error->bytes [v : TypeResolutionError]) : Bytes
-  (match-define (type-resolution-error mod-name msg) v)
-  (bytes-append (varargs list #"Error resolving types in " (mod-name->bytes mod-name) #":\n" msg)))
+  (match-define (type-resolution-error mod-name error) v)
+  (match-define msg
+    (case error
+      [(unbound-type-variable v)
+       (bytes-append (varargs list #"Unbound type variable: " v))]
+      [(type-constructor-bad-arg-kind)
+       #"Kind doesn't match in type constructor application"]
+      [(type-constructor-bad-number-of-args)
+       #"Number of arguments to type constructor doesn't match."]
+      [(type-constructor-bad-constructor type)
+       (bytes-append (varargs list
+         #"Cannot apply non constructor type: "
+         (print-type type)))]
+      [(function-definition-bad-arg-kind type)
+       (bytes-append (varargs list
+         #"Function argument type's kind must corespond to a value, got: "
+         (print-type type)))]))
+  (bytes-append
+    (varargs list #"Error resolving types in " (mod-name->bytes mod-name) #":\n" msg)))

@@ -738,7 +738,6 @@ yaspl_bootstrap_library(
         ":module-name",
         ":module-signature",
         ":resolved-imports-language",
-        ":sexp-printer",
         ":top-level-name",
         ":types",
         "//libraries/data:bytes",
