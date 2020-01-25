@@ -205,6 +205,7 @@ yaspl_binary(
     name = "ir-printer",
     srcs = ["ir-printer-main.yaspl"],
     deps = [
+        ":command-line",
         ":compile-module-args",
         "//libraries:compiler_lib",
         "//libraries:io",
@@ -213,6 +214,7 @@ yaspl_binary(
         "//libraries/data:dict",
         "//libraries/data:either",
         "//libraries/data:join-list",
+        "//libraries/data:lifted-primitives",
         "//libraries/data:list",
         "//libraries/data:tuples",
         "//libraries/prim-language:color-graph",
