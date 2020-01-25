@@ -20,18 +20,27 @@
   (prim)
   (prim-implementation)
   {(resolved-imports-language)
+    {#:types
+      ImportResolutionErrors
+    }
     {#:values
       import-resolution-errors->bytes
       resolve-imports
     }
   }
   {(resolved-types-language)
+    {#:types
+      TypeResolutionError
+    }
     {#:values
       resolve-types
       type-resolution-error->bytes
     }
   }
   {(source-to-intermediate-language)
+    {#:types
+      TypeCheckErrors
+    }
     {#:values
       source->intermediate
       type-check-errors->bytes
@@ -54,21 +63,27 @@
   (yaspl top-level-objects)
 }
 (export
-  (#:values compile-main-module compile-modules))
-(types)
+  (#:values compile-main-module compile-modules module-compilation-error->bytes))
+(types
+  (define-type ModuleCompilationError
+    (mce-import-resolution-errors [err : ImportResolutionErrors])
+    (mce-module-errors [err : ModuleErrors])
+    (mce-type-resolution-error [err : TypeResolutionError])
+    (mce-type-check-errors [err : TypeCheckErrors])))
 
 (define (compile-main-module
           [main-module : Module]
           [sigs : (List ModuleSignature)])
-  : (Either Bytes (Tuple2 (List TopLevelObject) ModuleSignature))
+  : (Either ModuleCompilationError (Tuple2 (List TopLevelObject) ModuleSignature))
   (case (indexed-set-maybe-add-all
           (indexed-set-add
             (make-indexed-set module-signature-name mod-name-cmp)
             (prim-signature))
           sigs)
     [(left sig)
-     (left (bytes-append (varargs list #"Duplicate signature for module: "
-                                  (mod-name->bytes (module-signature-name sig)))))]
+     (panic
+       (bytes-append (varargs list #"Duplicate signature for module: "
+                              (mod-name->bytes (module-signature-name sig)))))]
     [(right sigs)
      (case (compile-module* main-module sigs)
        [(left v)
@@ -77,7 +92,7 @@
         (right (tuple2 (optimize-tlos tlos) sig))])]))
 
 (define (compile-modules [mods : (List Module)])
-  : (Either Bytes (List TopLevelObject))
+  : (Either ModuleCompilationError (List TopLevelObject))
   (match-define sigs
     (indexed-set-add
       (make-indexed-set module-signature-name mod-name-cmp)
@@ -94,7 +109,7 @@
           [mods : (List Module)]
           [sigs : (IndexedSet ModuleSignature ModName)]
           [tlos : (List TopLevelObject)])
-  : (Either Bytes (Tuple2 (IndexedSet ModuleSignature ModName) (List TopLevelObject)))
+  : (Either ModuleCompilationError (Tuple2 (IndexedSet ModuleSignature ModName) (List TopLevelObject)))
   (case mods
     [(empty)
      (right (tuple2 sigs tlos))]
@@ -110,20 +125,20 @@
 (define (compile-module*
           [mod : Module]
           [sigs : (IndexedSet ModuleSignature ModName)])
-  : (Either Bytes CompiledModule)
+  : (Either ModuleCompilationError CompiledModule)
   (case (resolve-imports mod sigs)
     [(left v)
-     (left (import-resolution-errors->bytes v))]
+     (left (mce-import-resolution-errors v))]
     [(right res-mod)
      (case (validate-module res-mod sigs)
        [(just v)
-        (left (module-errors->bytes v))]
+        (left (mce-module-errors v))]
        [(nothing)
         (case (resolve-types res-mod)
-          [(left v) (left (type-resolution-error->bytes v))]
+          [(left v) (left (mce-type-resolution-error v))]
           [(right res-mod)
            (case (source->intermediate res-mod)
-             [(left v) (left (type-check-errors->bytes v))]
+             [(left v) (left (mce-type-check-errors v))]
              [(right intermediate)
               (right (compile-module (optimize-intermediate-module intermediate)))])])])]))
 
@@ -131,3 +146,10 @@
   (compiled-module
     (r:module-to-top-level-objects imod)
     (module->module-signature imod)))
+
+(define (module-compilation-error->bytes [err : ModuleCompilationError]) : Bytes
+  (case err
+    [(mce-import-resolution-errors err) (import-resolution-errors->bytes err)]
+    [(mce-module-errors err) (module-errors->bytes err)]
+    [(mce-type-resolution-error err) (type-resolution-error->bytes err)]
+    [(mce-type-check-errors err) (type-check-errors->bytes err)]))
