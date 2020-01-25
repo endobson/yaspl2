@@ -3,7 +3,6 @@
   (bytes)
   (data lifted-primitives)
   (dict)
-  (either)
   (list)
   (maybe)
   (module-name)
@@ -155,7 +154,7 @@
       [source-index : Int]
       [runtime-index : Int])))
 
-(define (expand-datatypes [mod : rt:Module]) : (Either Bytes Module)
+(define (expand-datatypes [mod : rt:Module]) : Module
   (case mod
     [(rt:module name imports exports types definitions statics)
      (match-define new-types (expand-datatypes* name types))
@@ -165,10 +164,8 @@
          (rt:imports-patterns imports)
          (expand-datatypes/patterns new-types)))
      (match-define imports (expand-datatypes/imports imports))
-     (case (expand-datatypes/exports exports patterns)
-       [(left v) (left v)]
-       [(right exports)
-        (right (module name imports exports definitions type-defs patterns statics))])]))
+     (match-define exports (expand-datatypes/exports exports patterns))
+     (module name imports exports definitions type-defs patterns statics)]))
 
 (define (expand-datatypes* [mod-name : ModName] [defs : (List TypeDefinition)])
   : (List ExpandedDatatype)
@@ -385,22 +382,19 @@
 (define (expand-datatypes/exports
           [orig-exports : rt:Exports]
           [local-patterns : (Dict Bytes PatternSignature)])
-  : (Either Bytes Exports)
+  : Exports
   (match-define (rt:exports types values patterns statics) orig-exports)
-  (case (expand-datatypes/pattern-exports patterns local-patterns)
-    [(left v) (left v)]
-    [(right patterns)
-     (right (exports types values patterns statics))]))
+  (match-define patterns (expand-datatypes/pattern-exports patterns local-patterns))
+  (exports types values patterns statics))
 
 (define (expand-datatypes/pattern-exports [exports : (List Export)]
                                           [patterns : (Dict Bytes PatternSignature)])
-  : (Either Bytes (List PatternExport))
-  (extract-rights
-    (map
-      (lambda ([export : Export]) : (Either Bytes PatternExport)
-        (match-define (export local-name exported-name) export)
-        (case (dict-ref patterns local-name)
-            [(nothing) (left (bytes-append (varargs list #"Unbound exported pattern:" local-name)))]
-            [(just v)
-             (right (pattern-export exported-name v))]))
-      exports)))
+  : (List PatternExport)
+  (map
+    (lambda ([export : Export]) : PatternExport
+      (match-define (export local-name exported-name) export)
+      (case (dict-ref patterns local-name)
+          [(nothing) (panic (bytes-append (varargs list #"Unbound exported pattern:" local-name)))]
+          [(just v)
+           (pattern-export exported-name v)]))
+    exports))
