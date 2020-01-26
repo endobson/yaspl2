@@ -15,6 +15,7 @@ ALL_PACKAGES = [
     "//libraries/yaspl/languages",
     "//libraries/yaspl/conversions",
     "//libraries/yaspl/interpreter",
+    "//libraries/yaspl/frontend",
     "//libraries/yaspl/runtime",
     "//tools",
     "//tools/shell",

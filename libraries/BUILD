@@ -30,6 +30,7 @@ yaspl_bootstrap_binary(
         "//libraries/yaspl:top-level-objects-to-x86-64",
         "//libraries/yaspl:x86-64-assembly",
         "//libraries/yaspl:x86-64-runtime",
+        "//libraries/yaspl/frontend:errors",
     ],
 )
 
@@ -49,6 +50,7 @@ yaspl_bootstrap_binary(
         "//libraries/data:tuples",
         "//libraries/yaspl:parser",
         "//libraries/yaspl:top-level-objects-to-x86-64",
+        "//libraries/yaspl/frontend:errors",
     ],
 )
 
@@ -379,6 +381,7 @@ yaspl_bootstrap_library(
         "//libraries/yaspl:optimize-intermediate",
         "//libraries/yaspl:top-level-object-optimizer",
         "//libraries/yaspl:top-level-objects",
+        "//libraries/yaspl/frontend:errors",
         "//libraries/yaspl/languages:source-language",
     ],
 )

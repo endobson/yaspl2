@@ -83,6 +83,7 @@ yaspl_binary(
         "//libraries/prim-language:register-language",
         "//libraries/prim-language:simplify-register-language",
         "//libraries/yaspl:top-level-objects",
+        "//libraries/yaspl/frontend:errors",
         "//libraries/yaspl/languages:source-language",
     ],
 )
@@ -229,6 +230,7 @@ yaspl_binary(
         "//libraries/yaspl:var",
         "//libraries/yaspl:x86-64-assembly",
         "//libraries/yaspl:x86-64-assembly-printer",
+        "//libraries/yaspl/frontend:errors",
     ],
 )
 
