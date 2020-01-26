@@ -89,7 +89,7 @@
             type-check/expr
             attempt-result-based-unification
             type-check-errors->bytes)
-  (#:patterns type-check-error))
+  (#:patterns type-check-error local-type-check-error))
 (types
   (define-type TypeCheckErrors
     (type-check-errors
@@ -97,6 +97,11 @@
       [errors : (List TypeCheckError)]))
   (define-type TypeCheckError
     (type-check-error
+      [function : Bytes]
+      [message : Bytes]
+      [source : SourceSpan]))
+  (define-type LocalTypeCheckError
+    (local-type-check-error
       [message : Bytes]
       [source : SourceSpan])))
 
@@ -106,10 +111,12 @@
                         (interleave (map type-check-error->bytes errors) #"\n\n"))))
 
 (define (type-check-error->bytes [err : TypeCheckError]) : Bytes
-  (match-define (type-check-error message source) err)
+  (match-define (type-check-error function message source) err)
   (bytes-append
     (varargs list
-      #"Location: " (source-span->start-location-bytes source) #"\n" message)))
+      #"Location: " (source-span->start-location-bytes source) #"\n"
+      #"Function: " function #"\n"
+      message)))
 
 (define (imports->context [imports : Imports]) : Context
   (case imports
@@ -202,32 +209,33 @@
           [context : Context]) : (Maybe TypeCheckError)
   (match-define (function-definition name _ args result body) def)
   (case (type-check/function-args args context)
-    [(left v) (just v)]
+    [(left (local-type-check-error msg src))
+     (just (type-check-error name msg src))]
     [(right context)
      (case result
        [(source-span-annotated (type-constructor mod-name type-name _) src)
         (just (type-check-error
+                name
                 (bytes-append (varargs list
-                                       #"Function: " name #"\n"
                                        #"Return type cannot be a type constructor. Got: "
                                        (mod-name->bytes mod-name) #" " type-name))
                 src))]
 
        [(source-span-annotated result _)
         (case (type-check/block body context (just result))
-          [(left (type-check-error v src))
-           (just (type-check-error (bytes-append (varargs list #"Function: " name #"\n" v)) src))]
+          [(left (local-type-check-error msg src))
+           (just (type-check-error name msg src))]
           [(right _) (nothing)])])]))
 
 (define (check-expected [type : Type] [expected : (Maybe Type)] [source : SourceSpan])
-  : (Either TypeCheckError Type)
+  : (Either LocalTypeCheckError Type)
   (case expected
     [(nothing) (right type)]
     [(just ex-type)
      (if (type=? type ex-type)
          (right type)
          (left
-           (type-check-error
+           (local-type-check-error
              (bytes-append
                (varargs list
                  #"Types don't match:\nGot: "
@@ -238,7 +246,7 @@
 
 (define (type-check/begin-exprs
           [exprs : (List Expression)]
-          [context : Context]) : (Maybe TypeCheckError)
+          [context : Context]) : (Maybe LocalTypeCheckError)
   (case exprs
     [(empty)
      (nothing)]
@@ -302,11 +310,12 @@
 (define (type-check/expr
           [expr : Expression]
           [context : Context]
-          [expected-type : (Maybe Type)]) : (Either TypeCheckError Type)
+          [expected-type : (Maybe Type)]) : (Either LocalTypeCheckError Type)
   (case expr
     [(var-expr v src)
      (case (context-ref-value context v)
-       [(nothing) (left (type-check-error (bytes-append (varargs list #"Untyped variable: " v)) src))]
+       [(nothing)
+        (left (local-type-check-error (bytes-append (varargs list #"Untyped variable: " v)) src))]
        [(just t) (check-expected t expected-type src)])]
     [(int-literal _ src)
      (check-expected (int-type) expected-type src)]
@@ -326,7 +335,7 @@
              [(right f-type)
               (if (type=? t-type f-type)
                   (right t-type)
-                  (left (type-check-error #"Branches of if don't match" src)))])])])]
+                  (left (local-type-check-error #"Branches of if don't match" src)))])])])]
     [(begin-expr void-exprs last-expr _)
      (case (type-check/begin-exprs void-exprs context)
        [(just v) (left v)]
@@ -347,7 +356,7 @@
         (check-expected actual-type expected-type src)])]
     [(lambda-expr args maybe-return-type body src)
      (case
-       (ann (Either TypeCheckError (Maybe Type))
+       (ann (Either LocalTypeCheckError (Maybe Type))
          (case maybe-return-type
            [(just return-type)
             (right (just return-type))]
@@ -359,7 +368,8 @@
                  [(fun-type (empty) _ expected-body-type)
                   (right (just expected-body-type))]
                  [_
-                  (left (type-check-error #"Lambda can only match monomorphic function type." src))])])]))
+                  (left (local-type-check-error
+                          #"Lambda can only match monomorphic function type." src))])])]))
        [(left v) (left v)]
        [(right inner-expected-type)
         (case (type-check/function-args args context)
@@ -379,7 +389,7 @@
         (case (zip args arg-types)
           [(nothing)
            (left
-             (type-check-error
+             (local-type-check-error
                (bytes-append
                  (varargs list
                    #"Cannot apply function: wrong number of arguments."
@@ -428,7 +438,7 @@
               (case (unify constraints)
                 [(nothing)
                  (left
-                   (type-check-error
+                   (local-type-check-error
                      (bytes-append
                        (map
                          (lambda ([c : Constraint])
@@ -438,19 +448,19 @@
                 [(just uvar-dict)
                  (case (dict-ref uvar-dict u)
                    [(nothing)
-                    (left (type-check-error #"No binding for uvar in output of unification" src))]
+                    (left (local-type-check-error #"No binding for uvar in output of unification" src))]
                    [(just type)
                     (check-expected type expected-type src)])])])])]
        [(right t)
         (left
-          (type-check-error
+          (local-type-check-error
             (bytes-append
               (varargs list #"Cannot apply non function: " (print-sexp (type->sexp t))))
             src))])]
     [(varargs-app-expr _ (source-span-annotated op op-src) args src)
      (case (context-ref-static context op)
        [(nothing)
-        (left (type-check-error #"Unbound static" op-src))]
+        (left (local-type-check-error #"Unbound static" op-src))]
        [(just (varargs-info type-vars arg-type return-type))
         (match-define expected-arg-type : (Maybe Type)
           (case (attempt-result-based-unification type-vars return-type expected-type)
@@ -485,7 +495,7 @@
            (case (unify constraints)
              [(nothing)
               (left
-                (type-check-error
+                (local-type-check-error
                   (bytes-append
                     (map
                       (lambda ([c : Constraint])
@@ -495,7 +505,7 @@
              [(just uvar-dict)
               (case (dict-ref uvar-dict u)
                 [(nothing)
-                 (left (type-check-error #"No binding for uvar in output of unification" src))]
+                 (left (local-type-check-error #"No binding for uvar in output of unification" src))]
                 [(just type)
                  (check-expected type expected-type src)])])])])]
     [(case-expr op clauses src)
@@ -513,13 +523,13 @@
           [(right types)
            (case (set-split (set-add-all (make-set type-cmp) types))
              [(nothing)
-              (left (type-check-error #"Cannot have case expression with no clauses" src))]
+              (left (local-type-check-error #"Cannot have case expression with no clauses" src))]
              [(just (tuple2 type other-types))
               (if (set-empty? other-types)
                   (case (totality-check-patterns context (map case-clause-pattern clauses))
-                    [(just v) (left (type-check-error v src))]
+                    [(just v) (left (local-type-check-error v src))]
                     [(nothing) (right type)])
-                  (left (type-check-error
+                  (left (local-type-check-error
                           (bytes-append
                             (cons
                               #"Conflicting types in case clauses:\n"
@@ -533,7 +543,7 @@
 (define (type-check/block
           [body : Block]
           [context : Context]
-          [expected-type : (Maybe Type)]) : (Either TypeCheckError Type)
+          [expected-type : (Maybe Type)]) : (Either LocalTypeCheckError Type)
   (match-define (block defs expr) body)
   (type-check/block* defs expr context expected-type))
 
@@ -541,12 +551,12 @@
           [defs : (List BlockDefinition)]
           [body : Expression]
           [context : Context]
-          [expected-type : (Maybe Type)]) : (Either TypeCheckError Type)
+          [expected-type : (Maybe Type)]) : (Either LocalTypeCheckError Type)
   (case defs
     [(empty) (type-check/expr body context expected-type)]
     [(cons (match-def pattern def-expected-type expr) defs)
      (case (totality-check-patterns context (varargs list pattern))
-       [(just v) (left (type-check-error v (pattern-source-span pattern)))]
+       [(just v) (left (local-type-check-error v (pattern-source-span pattern)))]
        [(nothing)
         (case (type-check/expr expr context def-expected-type)
           [(left v) (left v)]
@@ -557,7 +567,7 @@
               (type-check/block* defs body context expected-type)])])])]))
 
 (define (type-check/pattern [pattern : Pattern] [context : Context] [arg-type : Type])
-  : (Either TypeCheckError Context)
+  : (Either LocalTypeCheckError Context)
   (case (type-check/pattern* pattern context arg-type (empty))
     [(left v) (left v)]
     [(right var-types)
@@ -565,23 +575,23 @@
 
 (define (type-check/pattern* [pattern : Pattern] [context : Context] [arg-type : Type]
                              [var-types : (List (Tuple2 Bytes Type))])
-  : (Either TypeCheckError (List (Tuple2 Bytes Type)))
+  : (Either LocalTypeCheckError (List (Tuple2 Bytes Type)))
   (case pattern
     [(bytes-pattern _ src)
      (if (type=? arg-type (bytes-type))
          (right var-types)
-         (left (type-check-error #"Cannot match _ against bytes literal" src)))]
+         (left (local-type-check-error #"Cannot match non-Bytes against bytes literal" src)))]
     [(int-pattern _ src)
      (if (type=? arg-type (int-type))
          (right var-types)
-         (left (type-check-error #"Cannot match _ against int literal" src)))]
+         (left (local-type-check-error #"Cannot match non-Int against int literal" src)))]
     [(variable-pattern v _)
      (right (cons (tuple2 v arg-type) var-types))]
     [(ignore-pattern _)
      (right var-types)]
     [(abstraction-pattern pattern-name sub-patterns src)
      (case (context-ref-pattern context pattern-name)
-       [(nothing) (left (type-check-error #"Unbound pattern" src))]
+       [(nothing) (left (local-type-check-error #"Unbound pattern" src))]
        [(just (pattern-info variant-name _ pat-mod-name pat-type-name type-vars input-field-types))
         (case arg-type
           [(abstract-type arg-mod-name arg-type-name arg-sub-types _)
@@ -598,7 +608,7 @@
                            input-field-types)])
                  (case (zip sub-patterns field-types)
                    [(nothing)
-                    (left (type-check-error
+                    (left (local-type-check-error
                             (bytes-append
                               (varargs list
                                 #"Number of fields doesn't match number of subpatterns:"
@@ -609,7 +619,7 @@
                             src))]
                    [(just sub-pattern-types)
                     (type-check/patterns* sub-pattern-types context var-types)]))
-               (left (type-check-error
+               (left (local-type-check-error
                        (bytes-append
                          (varargs list
                            #"Got pattern for different type:"
@@ -617,11 +627,11 @@
                            #" Expected: " (mod-name->bytes arg-mod-name) #" " arg-type-name
                            #" Got: " (mod-name->bytes pat-mod-name) #" " pat-type-name))
                        src)))]
-          [_ (left (type-check-error #"Abstraction pattern cannot match non abstract-type" src))])])]))
+          [_ (left (local-type-check-error #"Abstraction pattern cannot match non abstract-type" src))])])]))
 
 (define (type-check/patterns* [zipped : (List (Tuple2 Pattern Type))] [context : Context]
                               [var-types : (List (Tuple2 Bytes Type))])
-  : (Either TypeCheckError (List (Tuple2 Bytes Type)))
+  : (Either LocalTypeCheckError (List (Tuple2 Bytes Type)))
   (case zipped
     [(empty) (right var-types)]
     [(cons (tuple2 pat type) zipped)
@@ -635,7 +645,7 @@
           [body : Block]
           [context : Context]
           [argument-type : Type]
-          [expected-type : (Maybe Type)]) : (Either TypeCheckError Type)
+          [expected-type : (Maybe Type)]) : (Either LocalTypeCheckError Type)
   (case (type-check/pattern pattern context argument-type)
     [(left v) (left v)]
     [(right context)
@@ -643,13 +653,13 @@
 
 
 (define (type-check/function-args [args : (List FunctionArg)] [context : Context])
-  : (Either TypeCheckError Context)
+  : (Either LocalTypeCheckError Context)
   (case (find/maybe
-          (lambda ([arg : FunctionArg]) : (Maybe TypeCheckError)
+          (lambda ([arg : FunctionArg]) : (Maybe LocalTypeCheckError)
             (case arg
               [(function-arg pattern _type)
                (case (totality-check-patterns context (varargs list pattern))
-                 [(just v) (just (type-check-error v (pattern-source-span pattern)))]
+                 [(just v) (just (local-type-check-error v (pattern-source-span pattern)))]
                  [(nothing) (nothing)])]))
           args)
     [(just v) (left v)]
@@ -657,7 +667,7 @@
      (type-check/function-args* args context)]))
 
 (define (type-check/function-args* [args : (List FunctionArg)] [context : Context])
-  : (Either TypeCheckError Context)
+  : (Either LocalTypeCheckError Context)
   (case args
     [(empty) (right context)]
     [(cons (function-arg pattern arg-type) args)
@@ -670,23 +680,23 @@
           [def : StaticDefinition]
           [context : Context]) : (Maybe TypeCheckError)
   (case def
-    [(varargs-definition _ _ arg-type return-type
+    [(varargs-definition name _ arg-type return-type
                          (source-span-annotated cons-func cons-span)
                          (source-span-annotated empty-func empty-span))
      (case (context-ref-value context cons-func)
        [(nothing)
-        (just (type-check-error #"Unbound varargs cons function" cons-span))]
+        (just (type-check-error name #"Unbound varargs cons function" cons-span))]
        [(just cons-type)
         (if (instantiates-as? cons-type
                               (fun-type (empty) (varargs list arg-type return-type) return-type))
             (case (context-ref-value context empty-func)
               [(nothing)
-               (just (type-check-error #"Unbound varargs empty function" empty-span))]
+               (just (type-check-error name #"Unbound varargs empty function" empty-span))]
               [(just empty-type)
                (if (instantiates-as? empty-type (fun-type (empty) (empty) return-type))
                    (nothing)
-                   (just (type-check-error #"Varargs empty function has bad type" empty-span)))])
-            (just (type-check-error #"Varargs cons function has bad type" cons-span)))])]))
+                   (just (type-check-error name #"Varargs empty function has bad type" empty-span)))])
+            (just (type-check-error name #"Varargs cons function has bad type" cons-span)))])]))
 
 (define (type-vars->unification-vars [type-vars : (List Bytes)])
   : (Tuple2 (List (Tuple2 Bytes UnificationVar)) UnificationVarSource)
