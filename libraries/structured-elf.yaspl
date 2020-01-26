@@ -130,24 +130,23 @@
         (case (parse-elf-symbol-table symtab-section-header raw-contents)
           [(left v) (left v)]
           [(right symbols)
-           (extract-rights
-             (map
-               (lambda ([v : SymbolTableEntry]) : (Either Bytes ParsedSymbolTableEntry)
-                 (case v
-                   [(symbol-table-entry name-offset binding-info section-index value _size)
-                    (let ([name (read-null-terminated-bytes
-                                  raw-contents
-                                  (+ (section-header-section-offset strtab-section-header)
-                                     name-offset))])
-                      (if (= binding-info 3)
-                          (right (section-symbol-entry name))
-                          (if (= section-index 0)
-                              (right (undefined-symbol-entry name))
-                              ;; TODO handle const symbols correctly
-                              (if (= section-index 1)
-                                  (right (text-symbol-entry name value))
-                                  (right (const-symbol-entry name value))))))]))
-               symbols))])])]))
+           (map/failure
+             (lambda ([v : SymbolTableEntry]) : (Either Bytes ParsedSymbolTableEntry)
+               (case v
+                 [(symbol-table-entry name-offset binding-info section-index value _size)
+                  (let ([name (read-null-terminated-bytes
+                                raw-contents
+                                (+ (section-header-section-offset strtab-section-header)
+                                   name-offset))])
+                    (if (= binding-info 3)
+                        (right (section-symbol-entry name))
+                        (if (= section-index 0)
+                            (right (undefined-symbol-entry name))
+                            ;; TODO handle const symbols correctly
+                            (if (= section-index 1)
+                                (right (text-symbol-entry name value))
+                                (right (const-symbol-entry name value))))))]))
+             symbols)])])]))
 
 
 (define (all-symbols->defined-text-symbols [e : ElfFile] [all-symbols : (List ParsedSymbolTableEntry)])
@@ -197,35 +196,34 @@
      (case (parse-elf-relocations rela-section-header raw-contents)
        [(left v) (left v)]
        [(right relocations)
-        (extract-rights
-          (map
-            (lambda ([relocation-entry : RelocationEntry])
-              : (Either Bytes (Relocation ElfRelocationKind))
-              (case relocation-entry
-                [(relocation-entry offset type symbol-index value)
-                 (if (not (= type 2))
-                     (left #"Unknown relocation entry type")
-                 (if (not (= value (- 0 4)))
-                     (left (bytes-append
-                             (varargs list
-                               #"Bad relocation value for pc32 relocation: "
-                               (integer->decimal-bytes value))))
-                 (case (list-ref symbols symbol-index)
-                   [(nothing)
-                    (left (bytes-append (varargs list
-                      #"Bad symbol index: "
-                      (integer->decimal-bytes symbol-index)
-                      #", list size: "
-                      (integer->decimal-bytes (length symbols)))))]
-                   [(just parsed-entry)
-                    (match-define name
-                      (case parsed-entry
-                        [(section-symbol-entry name) name]
-                        [(undefined-symbol-entry name) name]
-                        [(text-symbol-entry name _) name]
-                        [(const-symbol-entry name _) name]))
-                    (right (relocation (elf-pc32-relocation) offset name))])))]))
-            relocations))])]))
+        (map/failure
+          (lambda ([relocation-entry : RelocationEntry])
+            : (Either Bytes (Relocation ElfRelocationKind))
+            (case relocation-entry
+              [(relocation-entry offset type symbol-index value)
+               (if (not (= type 2))
+                   (left #"Unknown relocation entry type")
+               (if (not (= value (- 0 4)))
+                   (left (bytes-append
+                           (varargs list
+                             #"Bad relocation value for pc32 relocation: "
+                             (integer->decimal-bytes value))))
+               (case (list-ref symbols symbol-index)
+                 [(nothing)
+                  (left (bytes-append (varargs list
+                    #"Bad symbol index: "
+                    (integer->decimal-bytes symbol-index)
+                    #", list size: "
+                    (integer->decimal-bytes (length symbols)))))]
+                 [(just parsed-entry)
+                  (match-define name
+                    (case parsed-entry
+                      [(section-symbol-entry name) name]
+                      [(undefined-symbol-entry name) name]
+                      [(text-symbol-entry name _) name]
+                      [(const-symbol-entry name _) name]))
+                  (right (relocation (elf-pc32-relocation) offset name))])))]))
+          relocations)])]))
 
 (define (elf-file->const-relocations [e : ElfFile] [symbols : (List ParsedSymbolTableEntry)])
   : (Either Bytes (List (Relocation ElfRelocationKind)))
@@ -238,51 +236,50 @@
      (case (parse-elf-relocations rela-section-header raw-contents)
        [(left v) (left v)]
        [(right relocations)
-        (extract-rights
-          (map
-            (lambda ([relocation-entry : RelocationEntry])
-              : (Either Bytes (Relocation ElfRelocationKind))
-              (case relocation-entry
-                [(relocation-entry offset 2 symbol-index value)
-                 (if (not (= value (- 0 4)))
-                     (left (bytes-append
-                             (varargs list
-                               #"Bad relocation value for pc32 relocation: "
-                               (integer->decimal-bytes value))))
-                     (case (list-ref symbols symbol-index)
-                       [(nothing)
-                        (left (bytes-append (varargs list
-                          #"Bad symbol index: "
-                          (integer->decimal-bytes symbol-index)
-                          #", list size: "
-                          (integer->decimal-bytes (length symbols)))))]
-                       [(just parsed-entry)
-                        (match-define name
-                          (case parsed-entry
-                            [(section-symbol-entry name) name]
-                            [(undefined-symbol-entry name) name]
-                            [(text-symbol-entry name _) name]
-                            [(const-symbol-entry name _) name]))
-                        (right (relocation (elf-pc32-relocation) offset name))]))]
-                [(relocation-entry offset 1 symbol-index value)
-                 (case (list-ref symbols symbol-index)
-                   [(nothing)
-                    (left (bytes-append (varargs list
-                      #"Bad symbol index: "
-                      (integer->decimal-bytes symbol-index)
-                      #", list size: "
-                      (integer->decimal-bytes (length symbols)))))]
-                   [(just parsed-entry)
-                    (match-define name
-                      (case parsed-entry
-                        [(section-symbol-entry name) name]
-                        [(undefined-symbol-entry name) name]
-                        [(text-symbol-entry name _) name]
-                        [(const-symbol-entry name _) name]))
-                    (right (relocation (elf-64-relocation value) offset name))])]
-                [(relocation-entry _ _ _ _)
-                 (left #"Unknown relocation kind")]))
-            relocations))])]))
+        (map/failure
+          (lambda ([relocation-entry : RelocationEntry])
+            : (Either Bytes (Relocation ElfRelocationKind))
+            (case relocation-entry
+              [(relocation-entry offset 2 symbol-index value)
+               (if (not (= value (- 0 4)))
+                   (left (bytes-append
+                           (varargs list
+                             #"Bad relocation value for pc32 relocation: "
+                             (integer->decimal-bytes value))))
+                   (case (list-ref symbols symbol-index)
+                     [(nothing)
+                      (left (bytes-append (varargs list
+                        #"Bad symbol index: "
+                        (integer->decimal-bytes symbol-index)
+                        #", list size: "
+                        (integer->decimal-bytes (length symbols)))))]
+                     [(just parsed-entry)
+                      (match-define name
+                        (case parsed-entry
+                          [(section-symbol-entry name) name]
+                          [(undefined-symbol-entry name) name]
+                          [(text-symbol-entry name _) name]
+                          [(const-symbol-entry name _) name]))
+                      (right (relocation (elf-pc32-relocation) offset name))]))]
+              [(relocation-entry offset 1 symbol-index value)
+               (case (list-ref symbols symbol-index)
+                 [(nothing)
+                  (left (bytes-append (varargs list
+                    #"Bad symbol index: "
+                    (integer->decimal-bytes symbol-index)
+                    #", list size: "
+                    (integer->decimal-bytes (length symbols)))))]
+                 [(just parsed-entry)
+                  (match-define name
+                    (case parsed-entry
+                      [(section-symbol-entry name) name]
+                      [(undefined-symbol-entry name) name]
+                      [(text-symbol-entry name _) name]
+                      [(const-symbol-entry name _) name]))
+                  (right (relocation (elf-64-relocation value) offset name))])]
+              [(relocation-entry _ _ _ _)
+               (left #"Unknown relocation kind")]))
+          relocations)])]))
 
 
 
