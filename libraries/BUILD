@@ -706,6 +706,7 @@ yaspl_bootstrap_library(
         "//libraries/data:list",
         "//libraries/data:list-multi-dict",
         "//libraries/data:maybe",
+        "//libraries/data:source-location",
         "//libraries/data:tuples",
         "//libraries/yaspl/languages:source-language",
     ],
@@ -729,6 +730,7 @@ yaspl_test(
         "//libraries/data:lifted-primitives",
         "//libraries/data:list",
         "//libraries/data:maybe",
+        "//libraries/data:source-location",
         "//libraries/yaspl/languages:source-language",
     ],
 )
@@ -1146,6 +1148,7 @@ yaspl_library(
         "//libraries/data:list",
         "//libraries/data:maybe",
         "//libraries/data:set",
+        "//libraries/data:source-location",
         "//libraries/data:tuples",
         "//libraries/yaspl/languages:source-language",
     ],
