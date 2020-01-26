@@ -74,44 +74,35 @@
               (right (f v1 v2 v3 v4))])])])]))
 
 (define (parse-imports [sexps : (List Sexp)]) : (Either SourceParseError (List Imports))
-  (case sexps
-    [(empty)
-     (right (empty))]
-    [(cons (brace-node (cons (node module-name module-name-src) import-elems) _) next-imports)
+  (map/failure parse-import sexps))
+
+(define (parse-import [sexp : Sexp]) : (Either SourceParseError Imports)
+  (case sexp
+    [(brace-node (cons (node module-name module-name-src) import-elems) _)
      (case (parse-module-name (source-span-annotated module-name module-name-src))
        [(left v) (left v)]
        [(right module-name)
-        (case (parse-import-elems module-name import-elems)
-          [(left v) (left v)]
-          [(right imports)
-           (case (parse-imports next-imports)
-             [(left v) (left v)]
-             [(right importss) (right (cons imports importss))])])])]
-    [(cons (node module-name module-name-src) next-imports)
+        (parse-import-elems module-name import-elems)])]
+    [(node module-name module-name-src)
      (case (parse-module-name (source-span-annotated module-name module-name-src))
        [(left v) (left v)]
        [(right module-name)
-        (case (parse-imports next-imports)
-          [(left err) (left err)]
-          [(right importss) (right (cons (full-imports module-name) importss))])])]
-    [(cons sexp _)
+        (right (full-imports module-name))])]
+    [sexp
      (left (source-parse-error #"Bad import form" (sexp-source-span sexp)))]))
 
 (define (parse-partial-import-items [sexps : (List Sexp)]) : (Either SourceParseError (List Import))
-  (parse-partial-import-items* sexps (empty)))
+  (map/failure parse-partial-import-item sexps))
 
-(define (parse-partial-import-items* [sexps : (List Sexp)] [acc : (List Import)])
-  : (Either SourceParseError (List Import))
-  (case sexps
-    [(empty)
-     (right (reverse acc))]
-    [(cons (symbol-sexp name _) sexps)
-     (parse-partial-import-items* sexps (cons (import name name) acc))]
-    [(cons (bracket-node (cons (symbol-sexp exported-name _) (cons (symbol-sexp local-name _) (empty)))
-                         _)
-           sexps)
-     (parse-partial-import-items* sexps (cons (import exported-name local-name) acc))]
-    [(cons sexp _)
+(define (parse-partial-import-item [sexp : Sexp])
+  : (Either SourceParseError Import)
+  (case sexp
+    [(symbol-sexp name _)
+     (right (import name name))]
+    [(bracket-node (cons (symbol-sexp exported-name _) (cons (symbol-sexp local-name _) (empty)))
+                   _)
+     (right (import exported-name local-name))]
+    [sexp
      (left (source-parse-error #"Bad input, invalid partial import item" (sexp-source-span sexp)))]))
 
 (define (parse-partial-imports-section [section : Bytes] [sexps : (List Sexp)])
@@ -128,22 +119,19 @@
     [_
      (right (tuple2 (empty) sexps))]))
 
-(define (parse-import-elems [mod-name : ModName] [sexps : (List Sexp)]) : (Either SourceParseError Imports)
+(define (parse-import-elems [mod-name : ModName] [sexps : (List Sexp)])
+  : (Either SourceParseError Imports)
   (case (parse-partial-imports-section #"types" sexps)
-    [(left v)
-     (left v)]
+    [(left v) (left v)]
     [(right (tuple2 types sexps))
      (case (parse-partial-imports-section #"values" sexps)
-       [(left v)
-        (left v)]
+       [(left v) (left v)]
        [(right (tuple2 values sexps))
         (case (parse-partial-imports-section #"patterns" sexps)
-          [(left v)
-           (left v)]
+          [(left v) (left v)]
           [(right (tuple2 patterns sexps))
            (case (parse-partial-imports-section #"statics" sexps)
-             [(left v)
-              (left v)]
+             [(left v) (left v)]
              [(right (tuple2 statics sexps))
               (case sexps
                 [(empty)
@@ -182,16 +170,16 @@
           (tuple2 export-sexps (empty))]))
      (case export-sexps
        [(empty)
-        (case (extract-rights (map parse-exported-symbol type-exports))
+        (case (map/failure parse-exported-symbol type-exports)
           [(left v) (left v)]
           [(right type-names)
-           (case (extract-rights (map parse-exported-symbol value-exports))
+           (case (map/failure parse-exported-symbol value-exports)
              [(left v) (left v)]
              [(right value-names)
-              (case (extract-rights (map parse-exported-symbol pattern-exports))
+              (case (map/failure parse-exported-symbol pattern-exports)
                 [(left v) (left v)]
                 [(right pattern-names)
-                 (case (extract-rights (map parse-exported-symbol static-exports))
+                 (case (map/failure parse-exported-symbol static-exports)
                    [(left v) (left v)]
                    [(right static-names)
                     (let ([convert (lambda ([name : Bytes]) (export name name))])
@@ -213,7 +201,7 @@
 (define (parse-types/top [sexp : Sexp]) : (Either SourceParseError (List TypeDefinition))
   (case sexp
     [(node (cons (symbol-sexp #"types" _) type-definitions) _)
-     (extract-rights (map parse-type-definition type-definitions))]
+     (map/failure parse-type-definition type-definitions)]
     [_ (left (source-parse-error #"Bad types" (sexp-source-span sexp)))]))
 
 (define (parse-type-definition [sexp : Sexp]) : (Either SourceParseError TypeDefinition)
@@ -225,7 +213,7 @@
         (case (extract-type-vars type-name/vars)
           [(left v) (left v)]
           [(right type-vars)
-           (case (extract-rights (map parse-variant variants))
+           (case (map/failure parse-variant variants)
              [(left v) (left v)]
              [(right variants)
               (right (type-definition type-name type-vars variants))])])])]
@@ -235,7 +223,7 @@
 (define (parse-variant [sexp : Sexp]) : (Either SourceParseError VariantDefinition)
   (case sexp
     [(node (cons (symbol-sexp variant-name _) fields) _)
-     (case (extract-rights (map parse-variant-field fields))
+     (case (map/failure parse-variant-field fields)
        [(left v) (left v)]
        [(right fields)
         (right (variant-definition variant-name fields))])]
@@ -265,7 +253,7 @@
     [(symbol-sexp _ _)
      (right (nothing))]
     [(node (cons _ type-var-sexps) _)
-     (case (extract-rights (map parse-type-var-symbol type-var-sexps))
+     (case (map/failure parse-type-var-symbol type-var-sexps)
        [(left v) (left v)]
        [(right type-vars)
         (right (just type-vars))])]
@@ -340,7 +328,7 @@
                              (empty) (cons arg1 (cons arg2 (cons arg3 (cons arg4 (empty)))))
                              result src))])])])])])]
     [(node (cons (symbol-sexp constructor cons-src) args) src)
-     (case (extract-rights (map parse-pre-type args))
+     (case (map/failure parse-pre-type args)
        [(left v) (left v)]
        [(right args)
         (right (type-app-pre-type (source-span-annotated constructor cons-src) args src))])]
@@ -409,7 +397,7 @@
                        (cons (symbol-sexp cons-name cons-name-src)
                              (cons (symbol-sexp empty-name empty-name-src)
                                    (empty))))))
-     (case (extract-rights (map parse-type-var-symbol type-vars))
+     (case (map/failure parse-type-var-symbol type-vars)
        [(left v) (left v)]
        [(right type-vars)
         (case (parse-pre-type arg-type)
@@ -441,10 +429,10 @@
                                     message))
              loc))])))
 
-  (case (extract-rights (map parse-type-var-symbol type-vars))
+  (case (map/failure parse-type-var-symbol type-vars)
     [(left v) (error v)]
     [(right type-vars)
-     (case (extract-rights (map parse-arg args))
+     (case (map/failure parse-arg args)
        [(left v) (error v)]
        [(right parsed-args)
         (case parts
@@ -551,11 +539,11 @@
         (left (source-parse-error #"Begin requires at least one expression" src))]
        [(cons last-expr exprs)
         (either-app3 begin-expr
-          (extract-rights (map (lambda ([s : Sexp]) (parse-expression #f s)) (reverse exprs)))
+          (map/failure (lambda ([s : Sexp]) (parse-expression #f s)) (reverse exprs))
           (parse-expression tail-position last-expr)
           (right/source-parse-error src))])]
     [(node (cons (symbol-sexp #"varargs" _) (cons (symbol-sexp f f-src) exprs)) src)
-     (case (extract-rights (map (lambda ([s : Sexp]) (parse-expression #f s)) exprs))
+     (case (map/failure (lambda ([s : Sexp]) (parse-expression #f s)) exprs)
        [(left v) (left v)]
        [(right exprs)
         (right (varargs-app-expr tail-position (source-span-annotated f f-src) exprs src))])]
@@ -564,8 +552,8 @@
     [(node (cons (symbol-sexp #"case" _) (cons expr clauses)) src)
      (either-app3 case-expr
        (parse-expression #f expr)
-       (extract-rights (map (lambda ([s : Sexp]) (parse-case-clause tail-position s))
-                            clauses))
+       (map/failure (lambda ([s : Sexp]) (parse-case-clause tail-position s))
+                    clauses)
        (right/source-parse-error src))]
     [(node (cons (symbol-sexp #"lambda" _) lambda-sexps) src)
      (parse-lambda-sexps lambda-sexps src)]
@@ -583,7 +571,7 @@
      (case (parse-expression #f op-expr)
        [(left v) (left v)]
        [(right op-expr)
-        (case (extract-rights (map (lambda ([s : Sexp]) (parse-expression #f s)) arg-exprs))
+        (case (map/failure (lambda ([s : Sexp]) (parse-expression #f s)) arg-exprs)
           [(left v) (left v)]
           [(right arg-exprs)
            (right (app-expr tail-position op-expr arg-exprs src))])])]
@@ -627,13 +615,13 @@
        [(left v) (left v)]
        [(right pre-type)
         (either-app4 lambda-expr
-          (extract-rights (map parse-arg arg+tys))
+          (map/failure parse-arg arg+tys)
           (right/source-parse-error (just pre-type))
           (parse-block #t body body*)
           (right/source-parse-error full-src))])]
     [(cons (node arg+tys _) (cons body body*))
      (either-app4 lambda-expr
-       (extract-rights (map parse-arg arg+tys))
+       (map/failure parse-arg arg+tys)
        (right/source-parse-error (ann (Maybe PreType) (nothing)))
        (parse-block #t body body*)
        (right/source-parse-error full-src))]
@@ -660,7 +648,7 @@
     [(node (cons (symbol-sexp name name-src) patterns) src)
      (either-app3 abstraction-pattern
        (right/source-parse-error (source-span-annotated name name-src))
-       (extract-rights (map parse-pattern patterns))
+       (map/failure parse-pattern patterns)
        (right/source-parse-error src))]
     [_ (left (source-parse-error #"Not a valid pattern" (sexp-source-span sexp)))]))
 
@@ -687,7 +675,7 @@
               (case (parse-types/top types)
                 [(left v) (left v)]
                 [(right types)
-                 (case (extract-rights (map parse-toplevel-definition definitions))
+                 (case (map/failure parse-toplevel-definition definitions)
                    [(left v) (left v)]
                    [(right defs)
                     (match-define (tuple2 fun-defs static-defs) (partition-eithers defs))
