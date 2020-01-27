@@ -238,8 +238,8 @@
     (lambda ([import : Import] [acc : (Tuple2 (List (SourceSpanAnnotated Bytes)) (BindingsState K))])
       (match-define (tuple2 unknowns s) acc)
       (match-define (import export-name/src local-name/src) import)
-      (match-define (source-span-annotated export-name export-src) export-name/src)
-      (match-define (source-span-annotated local-name local-src) local-name/src)
+      (match-define (source-span-annotated export-name _) export-name/src)
+      (match-define (source-span-annotated local-name _) local-name/src)
       (case (dict-ref exports export-name)
         [(nothing)
          (tuple2 (cons export-name/src unknowns) s)]
@@ -304,62 +304,53 @@
   (case me
     [(import-resolution-errors mod-name errors)
      (bytes-append
-       (map (lambda ([error : ImportResolutionError]) (import-resolution-error->bytes mod-name error))
-            errors))]))
+       (append
+         (varargs list
+           #"Errors resolving imports for module: " (mod-name->bytes mod-name) #"\n\n")
+         (map import-resolution-error->bytes errors)))]))
 
-(define (import-resolution-error->bytes [mod-name : ModName] [e : ImportResolutionError]) : Bytes
+(define (import-resolution-error->bytes [e : ImportResolutionError]) : Bytes
   (case e
-    [(non-existent-imports/module import-name _)
+    [(non-existent-imports/module import-name src)
      (bytes-append
-       (varargs list #"Missing import in " (mod-name->bytes mod-name)
-                     #". Could not find module: " (mod-name->bytes import-name) #"\n"))]
+       (varargs list 
+         (source-span->start-location-bytes src)
+         #": Could not find referenced module: " (mod-name->bytes import-name) #"\n"))]
     [(non-existent-imports/bindings import-name types values patterns statics)
-     (let ([warn-no-exports
-             (lambda ([kind : Bytes] [names : (List (SourceSpanAnnotated Bytes))]) : (JoinList Bytes)
-               (case names
-                 [(empty) (empty-jl)]
-                 [_
-                   (append-jl
-                     (varargs join-list #"  " kind #" imports:\n")
-                     (concat-map-jl/list
-                       (lambda ([name/src : (SourceSpanAnnotated Bytes)])
-                         (match-define (source-span-annotated name _) name/src)
-                         (varargs join-list #"    " name #"\n"))
-                       names))]))])
-        (bytes-append
-          (jl->list
-            (append-jl
-              (varargs join-list
-                #"Undefined imports in module " (mod-name->bytes mod-name) #" from module "
-                (mod-name->bytes import-name) #":\n")
-              (varargs append-jl*
-                (warn-no-exports #"Type" types)
-                (warn-no-exports #"Value" values)
-                (warn-no-exports #"Pattern" patterns)
-                (warn-no-exports #"Statics" statics))))))]
+     (match-define unexported-errors
+       (lambda ([kind : Bytes] [names : (List (SourceSpanAnnotated Bytes))]) : (JoinList Bytes)
+         (concat-map-jl/list
+           (lambda ([name/src : (SourceSpanAnnotated Bytes)])
+             (match-define (source-span-annotated name src) name/src)
+             (varargs join-list
+               (source-span->start-location-bytes src)
+               #": " name #" is not an exported " kind
+               #" from " (mod-name->bytes import-name) #"\n"))
+           names)))
+      (bytes-append
+        (jl->list
+          (varargs append-jl*
+            (unexported-errors #"type" types)
+            (unexported-errors #"value" values)
+            (unexported-errors #"pattern" patterns)
+            (unexported-errors #"static" statics))))]
     [(duplicate-imports types values patterns statics)
-     (let ([warn-duplicate-imports
-             (lambda ([kind : Bytes] [names : (List (SourceSpanAnnotated Bytes))]) : (JoinList Bytes)
-               (case names
-                 [(empty) (empty-jl)]
-                 [_
-                   (append-jl
-                     (varargs join-list #"  " kind #" imports:\n")
-                     (concat-map-jl/list
-                       (lambda ([name/src : (SourceSpanAnnotated Bytes)])
-                         (match-define (source-span-annotated name _) name/src)
-                         (varargs join-list #"    " name #"\n"))
-                       names))]))])
-        (bytes-append
-          (jl->list
-            (append-jl
-              (varargs join-list
-                #"Duplicate imports in module " (mod-name->bytes mod-name) #":\n")
-              (varargs append-jl*
-                (warn-duplicate-imports #"Type" types)
-                (warn-duplicate-imports #"Value" values)
-                (warn-duplicate-imports #"Pattern" patterns)
-                (warn-duplicate-imports #"Static" statics))))))]))
+     (match-define duplicate-import-errors
+       (lambda ([kind : Bytes] [names : (List (SourceSpanAnnotated Bytes))]) : (JoinList Bytes)
+         (concat-map-jl/list
+           (lambda ([name/src : (SourceSpanAnnotated Bytes)])
+             (match-define (source-span-annotated name src) name/src)
+             (varargs join-list
+               (source-span->start-location-bytes src)
+               #": a " kind #" binding for " name #" is already imported\n"))
+           names)))
+     (bytes-append
+       (jl->list
+         (varargs append-jl*
+           (duplicate-import-errors #"type" types)
+           (duplicate-import-errors #"value" values)
+           (duplicate-import-errors #"pattern" patterns)
+           (duplicate-import-errors #"static" statics))))]))
 
 (define (make-static-info [sigs : (IndexedSet ModuleSignature ModName)])
   : (Dict TopLevelName TopLevelSignature)
