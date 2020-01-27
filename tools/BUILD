@@ -32,6 +32,7 @@ yaspl_binary(
         "//libraries/data:list",
         "//libraries/data:maybe",
         "//libraries/data:set",
+        "//libraries/data:source-location",
         "//libraries/yaspl:parser",
         "//libraries/yaspl/languages:source-language",
     ],
