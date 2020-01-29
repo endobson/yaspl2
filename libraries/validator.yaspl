@@ -27,10 +27,10 @@
       [error : (List ModuleError)]))
   (define-type ModuleError
     (duplicate-module-bindings
-      [types : (List Bytes)]
-      [values : (List Bytes)]
-      [patterns : (List Bytes)]
-      [statics : (List Bytes)])
+      [types : (List (SourceSpanAnnotated Bytes))]
+      [values : (List (SourceSpanAnnotated Bytes))]
+      [patterns : (List (SourceSpanAnnotated Bytes))]
+      [statics : (List (SourceSpanAnnotated Bytes))])
     (undefined-exports
       [types : (List Bytes)]
       [values : (List Bytes)]
@@ -54,7 +54,7 @@
 
   (define-type BindingsState
     (bindings-state
-      [dupes : (List Bytes)]
+      [dupes : (List (SourceSpanAnnotated Bytes))]
       [env : (Set Bytes)])))
 
 (define (validate-module [mod : Module] [sigs : (IndexedSet ModuleSignature ModName)]) : (Maybe ModuleErrors)
@@ -178,7 +178,7 @@
                (nothing)]
               [(tuple2 (tuple2 types values) (tuple2 patterns statics))
                (just (function-error
-                       (function-definition-name def)
+                       (function-definition-name* def)
                        (free-variables types values patterns statics)))]))])
     (append
       (let ([free-types (free-types/type-definitions (module-types mod) type-env (empty))])
@@ -193,13 +193,14 @@
         validate-function-definition/free-variables
         (module-definitions mod)))))
 
-(define (add-bindings [bindings : (List Bytes)] [state : BindingsState])
+(define (add-bindings [bindings : (List (SourceSpanAnnotated Bytes))] [state : BindingsState])
   : BindingsState
   (foldl
-    (lambda ([name : Bytes] [state : BindingsState])
+    (lambda ([name/src : (SourceSpanAnnotated Bytes)] [state : BindingsState])
       (match-define (bindings-state dupes env) state)
+      (match-define (source-span-annotated name _) name/src)
       (if (set-member? env name)
-          (bindings-state (cons name dupes) env)
+          (bindings-state (cons name/src dupes) env)
           (bindings-state dupes (set-add env name))))
     bindings
     state))
@@ -242,23 +243,29 @@
        (initial-bindings-state
          (dict-keys imported-statics)))]))
 
-(define (types->accessor-names [types : (List TypeDefinition)]) : (List Bytes)
+(define (types->accessor-names [types : (List TypeDefinition)])
+  : (List (SourceSpanAnnotated Bytes))
   (append*
     (map
-      (lambda ([type : TypeDefinition]) : (List Bytes)
+      (lambda ([type : TypeDefinition]) : (List (SourceSpanAnnotated Bytes))
         (case type
           [(type-definition _ _ variants)
            (case variants
-             [(cons (variant-definition name fields) (empty))
+             [(cons (variant-definition (source-span-annotated name _) fields) (empty))
               (map
                 (lambda ([field : VariantField])
-                  (match-define (variant-field field-name _) field)
-                  (bytes-append (varargs list name #"-" field-name)))
+                  (match-define
+                    (variant-field (source-span-annotated field-name field-src) _)
+                    field)
+                  (source-span-annotated
+                    (bytes-append (varargs list name #"-" field-name))
+                    field-src))
                 fields)]
              [_ (empty)])]))
       types)))
 
-(define (types->constructor-names [types : (List TypeDefinition)]) : (List Bytes)
+(define (types->constructor-names [types : (List TypeDefinition)])
+  : (List (SourceSpanAnnotated Bytes))
   (append*
     (map
       (lambda ([type : TypeDefinition])
@@ -274,7 +281,7 @@
 
 (define (check-unique-bindings/function-definition [def : FunctionDefinition]) : (Maybe ModuleError)
   (case def
-    [(function-definition name _ fun-args _ body)
+    [(function-definition (source-span-annotated name _) _ fun-args _ body)
      (case (check-unique-bindings/args (function-args-bindings fun-args))
        [(just args)
         (just (function-error name (duplicate-bindings args)))]
@@ -385,14 +392,16 @@
   (case error
     [(duplicate-module-bindings types values patterns statics)
      (let ([warn-duplicates
-             (lambda ([kind : Bytes] [bindings : (List Bytes)]) : (JoinList Bytes)
+             (lambda ([kind : Bytes] [bindings : (List (SourceSpanAnnotated Bytes))]) : (JoinList Bytes)
                (case bindings
                  [(empty) (empty-jl)]
                  [_
                   (append-jl
                     (varargs join-list #"  " kind #" bindings:\n")
                     (concat-map-jl/list
-                      (lambda ([binding : Bytes]) (varargs join-list #"    " binding #"\n"))
+                      (lambda ([binding/src : (SourceSpanAnnotated Bytes)])
+                        (match-define (source-span-annotated binding _) binding/src)
+                        (varargs join-list #"    " binding #"\n"))
                       bindings))]))])
         (bytes-append
           (jl->list
