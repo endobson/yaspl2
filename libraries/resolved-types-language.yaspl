@@ -176,11 +176,11 @@
   (define-type TypeResolutionError
     (type-resolution-error [mod-name : ModName] [err : LocalTypeResolutionError]))
   (define-type LocalTypeResolutionError
-    (unbound-type-variable [variable : Bytes])
-    (type-constructor-bad-arg-kind)
-    (type-constructor-bad-number-of-args)
-    (type-constructor-bad-constructor [t : Type])
-    (function-definition-bad-arg-kind [t : Type])))
+    (unbound-type-variable [variable : Bytes] [source : SourceSpan])
+    (type-constructor-bad-arg-kind [source : SourceSpan])
+    (type-constructor-bad-number-of-args [source : SourceSpan])
+    (type-constructor-bad-constructor [t : Type] [source : SourceSpan])
+    (function-definition-bad-arg-kind [t : Type] [source : SourceSpan])))
 
 
 (define (resolve-types [mod : ri:Module]) : (Either TypeResolutionError Module)
@@ -344,7 +344,8 @@
               [(right type)
                (case (type->kind type)
                  [(fun-kind _ _)
-                  (left (function-definition-bad-arg-kind type))]
+                  (left (function-definition-bad-arg-kind
+                          type (pre-type-source-span pre-type)))]
                  [(star-kind)
                   (right (function-arg pattern type))]
                  [(prim64-kind)
@@ -521,10 +522,10 @@
 (define (pre-type->type [pre : PreType] [context : Context])
   : (Either LocalTypeResolutionError Type)
   (case pre
-    [(var-pre-type v _)
+    [(var-pre-type v src)
      (case (context-ref-type context v)
        [(nothing)
-        (left (unbound-type-variable v))]
+        (left (unbound-type-variable v src))]
        [(just v) (right v)])]
     [(fun-pre-type type-vars args result _)
      (match-define context (context-add-var-types context type-vars))
@@ -536,10 +537,10 @@
           [(left v) (left v)]
           [(right result)
            (right (fun-type type-vars args result))])])]
-    [(type-app-pre-type (source-span-annotated constructor _) args _)
+    [(type-app-pre-type (source-span-annotated constructor cons-src) args app-src)
      (case (context-ref-type context constructor)
        [(nothing)
-        (left (unbound-type-variable constructor))]
+        (left (unbound-type-variable constructor cons-src))]
        ;; TODO actually check that the kind of the argument types match the expected kinds
        [(just (type-constructor mod-name name arg-kinds))
         (case (zip args arg-kinds)
@@ -554,15 +555,15 @@
                           [(right t)
                            (if (kind=? kind (type->kind t))
                                (right t)
-                               (left (type-constructor-bad-arg-kind)))])]))
+                               (left (type-constructor-bad-arg-kind (pre-type-source-span pre))))])]))
                    args+kinds)
              [(left v) (left v)]
              [(right types)
               (right (abstract-type mod-name name types (star-kind)))])]
           [(nothing)
-           (left (type-constructor-bad-number-of-args))])]
+           (left (type-constructor-bad-number-of-args app-src))])]
        [(just t)
-        (left (type-constructor-bad-constructor t))])]))
+        (left (type-constructor-bad-constructor t cons-src))])]))
 
 (define (maybe-pre-type->maybe-type [t : (Maybe PreType)] [ctx : Context])
   : (Either LocalTypeResolutionError (Maybe Type))
@@ -585,19 +586,29 @@
   (match-define (type-resolution-error mod-name error) v)
   (match-define msg
     (case error
-      [(unbound-type-variable v)
-       (bytes-append (varargs list #"Unbound type variable: " v))]
-      [(type-constructor-bad-arg-kind)
-       #"Kind doesn't match in type constructor application"]
-      [(type-constructor-bad-number-of-args)
-       #"Number of arguments to type constructor doesn't match."]
-      [(type-constructor-bad-constructor type)
+      [(unbound-type-variable v src)
        (bytes-append (varargs list
-         #"Cannot apply non constructor type: "
-         (print-type type)))]
-      [(function-definition-bad-arg-kind type)
+         (source-span->start-location-bytes src)
+         #": Unbound type variable: " v #"\n"))]
+      [(type-constructor-bad-arg-kind src)
        (bytes-append (varargs list
-         #"Function argument type's kind must corespond to a value, got: "
-         (print-type type)))]))
+         (source-span->start-location-bytes src)
+         #": Kind doesn't match in type constructor application\n"))]
+      [(type-constructor-bad-number-of-args src)
+       (bytes-append (varargs list
+         (source-span->start-location-bytes src)
+         #": Number of arguments to type constructor doesn't match.\n"))]
+      [(type-constructor-bad-constructor type src)
+       (bytes-append (varargs list
+         (source-span->start-location-bytes src)
+         #": Cannot apply non constructor type: "
+         (print-type type)
+         #"\n"))]
+      [(function-definition-bad-arg-kind type src)
+       (bytes-append (varargs list
+         (source-span->start-location-bytes src)
+         #": Function argument type's kind must correspond to a value, got: "
+         (print-type type)
+         #"\n"))]))
   (bytes-append
-    (varargs list #"Error resolving types in " (mod-name->bytes mod-name) #":\n" msg)))
+    (varargs list #"Errors resolving types for module: " (mod-name->bytes mod-name) #"\n\n" msg)))
