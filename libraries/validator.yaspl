@@ -32,10 +32,10 @@
       [patterns : (List (SourceSpanAnnotated Bytes))]
       [statics : (List (SourceSpanAnnotated Bytes))])
     (undefined-exports
-      [types : (List Bytes)]
-      [values : (List Bytes)]
-      [patterns : (List Bytes)]
-      [statics : (List Bytes)])
+      [types : (List (SourceSpanAnnotated Bytes))]
+      [values : (List (SourceSpanAnnotated Bytes))]
+      [patterns : (List (SourceSpanAnnotated Bytes))]
+      [statics : (List (SourceSpanAnnotated Bytes))])
     (duplicate-exports
       [types : (List Bytes)]
       [values : (List Bytes)]
@@ -119,24 +119,27 @@
           [static-env : (Set Bytes)])
   : (List ModuleError)
   (match-define (module _ _ (exports types values patterns statics) _ _ _) mod)
-  (let ([check-exports
-          (lambda ([exports : (List Export)] [env : (Set Bytes)])
-            (set->list
-              (set-remove-all
-                (set-add-all (make-set bytes-cmp) (map export-local-name* exports))
-                (set->list env))))])
-
-    (case (tuple2
-            (tuple2
-              (check-exports types type-env)
-              (check-exports values value-env))
-            (tuple2
-              (check-exports patterns pattern-env)
-              (check-exports statics static-env)))
-      [(tuple2 (tuple2 (empty) (empty)) (tuple2 (empty) (empty)))
-       (empty)]
-      [(tuple2 (tuple2 types values) (tuple2 patterns statics))
-       (varargs list (undefined-exports types values patterns statics))])))
+  (match-define check-exports
+    (lambda ([exports : (List Export)] [env : (Set Bytes)])
+      (filter-map
+        (lambda ([e : Export]) : (Maybe (SourceSpanAnnotated Bytes))
+          (match-define (export name/src _) e)
+          (match-define (source-span-annotated name _) name/src)
+          (if (set-member? env name)
+              (nothing)
+              (just name/src)))
+        exports)))
+  (case (tuple2
+          (tuple2
+            (check-exports types type-env)
+            (check-exports values value-env))
+          (tuple2
+            (check-exports patterns pattern-env)
+            (check-exports statics static-env)))
+    [(tuple2 (tuple2 (empty) (empty)) (tuple2 (empty) (empty)))
+     (empty)]
+    [(tuple2 (tuple2 types values) (tuple2 patterns statics))
+     (varargs list (undefined-exports types values patterns statics))]))
 
 (define (validate-module/duplicate-exports [mod : Module])
   : (List ModuleError)
@@ -415,15 +418,17 @@
      (bytes-append (varargs list #"Module \"" (mod-name->bytes mod-name) #"\" already exists."))]
     [(undefined-exports types values patterns statics)
      (let ([warn-undefined-exports
-             (lambda ([kind : Bytes] [names : (List Bytes)]) : (JoinList Bytes)
+             (lambda ([kind : Bytes] [names : (List (SourceSpanAnnotated Bytes))]) : (JoinList Bytes)
                (case names
                  [(empty) (empty-jl)]
                  [_
-                   (append-jl
-                     (varargs join-list #"  " kind #" exports:\n")
-                     (concat-map-jl/list
-                       (lambda ([name : Bytes]) (varargs join-list #"    " name #"\n"))
-                       names))]))])
+                  (append-jl
+                    (varargs join-list #"  " kind #" exports:\n")
+                    (concat-map-jl/list
+                      (lambda ([binding/src : (SourceSpanAnnotated Bytes)])
+                        (match-define (source-span-annotated binding _) binding/src)
+                        (varargs join-list #"    " binding #"\n"))
+                      names))]))])
         (bytes-append
           (jl->list
             (append-jl
@@ -439,11 +444,11 @@
                (case names
                  [(empty) (empty-jl)]
                  [_
-                   (append-jl
-                     (varargs join-list #"  " kind #" exports:\n")
-                     (concat-map-jl/list
-                       (lambda ([name : Bytes]) (varargs join-list #"    " name #"\n"))
-                       names))]))])
+                  (append-jl
+                    (varargs join-list #"  " kind #" exports:\n")
+                    (concat-map-jl/list
+                      (lambda ([name : Bytes]) (varargs join-list #"    " name #"\n"))
+                      names))]))])
         (bytes-append
           (jl->list
             (append-jl
