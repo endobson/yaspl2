@@ -37,10 +37,10 @@
       [patterns : (List (SourceSpanAnnotated Bytes))]
       [statics : (List (SourceSpanAnnotated Bytes))])
     (duplicate-exports
-      [types : (List Bytes)]
-      [values : (List Bytes)]
-      [patterns : (List Bytes)]
-      [statics : (List Bytes)])
+      [types : (List (SourceSpanAnnotated Bytes))]
+      [values : (List (SourceSpanAnnotated Bytes))]
+      [patterns : (List (SourceSpanAnnotated Bytes))]
+      [statics : (List (SourceSpanAnnotated Bytes))])
     (non-unique-name)
     (function-error [name : Bytes] [error : FunctionError]))
   (define-type FunctionError
@@ -144,23 +144,23 @@
 (define (validate-module/duplicate-exports [mod : Module])
   : (List ModuleError)
   (match-define (module _ _ (exports types values patterns statics) _ _ _) mod)
-  (let ([check-exports
-          (lambda ([exports : (List Export)])
-            (find-duplicates
-              (multi-set-add-all
-                (make-multi-set bytes-cmp)
-                (map export-exported-name* exports))))])
-    (case (tuple2
-            (tuple2
-              (check-exports types)
-              (check-exports values))
-            (tuple2
-              (check-exports patterns)
-              (check-exports statics)))
-      [(tuple2 (tuple2 (empty) (empty)) (tuple2 (empty) (empty)))
-       (empty)]
-      [(tuple2 (tuple2 types values) (tuple2 patterns statics))
-       (varargs list (duplicate-exports types values patterns statics))])))
+  (match-define check-exports
+    (lambda ([exports : (List Export)])
+      (match-define (bindings-state dupes _)
+        (add-bindings (map export-exported-name exports)
+          (initial-bindings-state (make-set bytes-cmp))))
+      dupes))
+  (case (tuple2
+          (tuple2
+            (check-exports types)
+            (check-exports values))
+          (tuple2
+            (check-exports patterns)
+            (check-exports statics)))
+    [(tuple2 (tuple2 (empty) (empty)) (tuple2 (empty) (empty)))
+     (empty)]
+    [(tuple2 (tuple2 types values) (tuple2 patterns statics))
+     (varargs list (duplicate-exports types values patterns statics))]))
 
 (define (validate-module/free-variables
           [mod : Module]
@@ -440,14 +440,16 @@
                 (warn-undefined-exports #"Static" statics))))))]
     [(duplicate-exports types values patterns statics)
      (let ([warn-duplicate-exports
-             (lambda ([kind : Bytes] [names : (List Bytes)]) : (JoinList Bytes)
+             (lambda ([kind : Bytes] [names : (List (SourceSpanAnnotated Bytes))]) : (JoinList Bytes)
                (case names
                  [(empty) (empty-jl)]
                  [_
                   (append-jl
                     (varargs join-list #"  " kind #" exports:\n")
                     (concat-map-jl/list
-                      (lambda ([name : Bytes]) (varargs join-list #"    " name #"\n"))
+                      (lambda ([binding/src : (SourceSpanAnnotated Bytes)])
+                        (match-define (source-span-annotated binding _) binding/src)
+                        (varargs join-list #"    " binding #"\n"))
                       names))]))])
         (bytes-append
           (jl->list
