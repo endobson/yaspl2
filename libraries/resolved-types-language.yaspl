@@ -195,14 +195,12 @@
      (case (resolve-types/functions definitions ctx)
        [(left v) (error v)]
        [(right definitions)
-        (case (resolve-types/exports exports ctx)
+        (case (resolve-types/statics statics ctx)
           [(left v) (error v)]
-          [(right exports)
-           (case (resolve-types/statics statics ctx)
-             [(left v) (error v)]
-             [(right statics)
-              (match-define imports (resolve-types/imports imports))
-              (right (module name imports exports types definitions statics))])])])]))
+          [(right statics)
+           (match-define imports (resolve-types/imports imports))
+           (match-define exports (resolve-types/exports exports ctx))
+           (right (module name imports exports types definitions statics))])])]))
 
 (define (init-context [mod : ri:Module]) : Context
   (match-define (ri:module mod-name imports _ type-defs _ _) mod)
@@ -233,24 +231,21 @@
      (type-constructor mod-name name (map (lambda ([_v : Bytes]) (star-kind)) vars))]))
 
 (define (resolve-types/exports [e : ri:Exports] [ctx : Context])
-  : (Either LocalTypeResolutionError Exports)
+  : Exports
   (match-define (ri:exports types values patterns statics) e)
-  (case (resolve-types/type-exports types ctx)
-    [(left v) (left v)]
-    [(right types)
-     (right (exports types values patterns statics))]))
+  (match-define types (resolve-types/type-exports types ctx))
+  (exports types values patterns statics))
 
 (define (resolve-types/type-exports [exports : (List Export)] [ctx : Context])
-  : (Either LocalTypeResolutionError (List TypeExport))
-  (map/failure/env resolve-types/type-export exports ctx))
-
-(define (resolve-types/type-export [export : Export] [ctx : Context])
-  : (Either LocalTypeResolutionError TypeExport)
-  (match-define (export local-name exported-name) export)
-  (case (context-ref-type ctx local-name)
-    [(nothing) (left (unbound-type-variable local-name))]
-    [(just v)
-     (right (type-export exported-name v))]))
+  : (List TypeExport)
+  (map
+    (lambda ([export : Export]) : TypeExport
+      (match-define (export local-name exported-name) export)
+      (case (context-ref-type ctx local-name)
+        [(nothing) (panic #"Unbound export")]
+        [(just v)
+         (type-export exported-name v)]))
+    exports))
 
 (define (resolve-types/statics [statics : (List ri:StaticDefinition)] [ctx : Context])
   : (Either LocalTypeResolutionError (List StaticDefinition))
