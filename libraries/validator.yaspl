@@ -50,7 +50,12 @@
       [patterns : (List FreeVar)]
       [statics : (List FreeVar)])
     (duplicate-bindings
-      [names : (List Bytes)])))
+      [names : (List Bytes)]))
+
+  (define-type BindingsState
+    (bindings-state
+      [dupes : (List Bytes)]
+      [env : (Set Bytes)])))
 
 (define (validate-module [mod : Module] [sigs : (IndexedSet ModuleSignature ModName)]) : (Maybe ModuleErrors)
   (case (validate-module/duplicate-bindings mod)
@@ -75,22 +80,17 @@
 (define (validate-module/duplicate-bindings [mod : Module])
   : (Either ModuleError (Tuple2 (Tuple2 (Set Bytes) (Set Bytes))
                                 (Tuple2 (Set Bytes) (Set Bytes))))
-  (match-define env (module-environment mod))
-  (match-define pattern-env (module-pattern-environment mod))
-  (match-define type-env (module-type-environment mod))
-  (match-define static-env (module-static-environment mod))
-  (case (tuple2 (tuple2 (find-duplicates env) (find-duplicates pattern-env))
-                (tuple2 (find-duplicates type-env) (find-duplicates static-env)))
+  (match-define (bindings-state value-dupes value-env) (module-value-environment mod))
+  (match-define (bindings-state pattern-dupes pattern-env) (module-pattern-environment mod))
+  (match-define (bindings-state type-dupes type-env) (module-type-environment mod))
+  (match-define (bindings-state static-dupes static-env) (module-static-environment mod))
+  (case (tuple2 (tuple2 value-dupes pattern-dupes) (tuple2 type-dupes static-dupes))
     [(tuple2 (tuple2 (empty) (empty)) (tuple2 (empty) (empty)))
      (right (tuple2
-              (tuple2
-                (multi-set-keys type-env)
-                (multi-set-keys env))
-              (tuple2
-                (multi-set-keys pattern-env)
-                (multi-set-keys static-env))))]
-    [(tuple2 (tuple2 value-dups pattern-dups) (tuple2 type-dups static-dups))
-     (left (duplicate-module-bindings type-dups value-dups pattern-dups static-dups))]))
+              (tuple2 type-env value-env)
+              (tuple2 pattern-env static-env)))]
+    [_
+     (left (duplicate-module-bindings type-dupes value-dupes pattern-dupes static-dupes))]))
 
 (define (validate-module/unique-name [mod : Module] [sigs : (IndexedSet ModuleSignature ModName)])
   : (List ModuleError)
@@ -193,99 +193,79 @@
         validate-function-definition/free-variables
         (module-definitions mod)))))
 
-(define (module-type-environment [mod : Module]) : (MultiSet Bytes)
+(define (add-bindings [bindings : (List Bytes)] [state : BindingsState])
+  : BindingsState
+  (foldl
+    (lambda ([name : Bytes] [state : BindingsState])
+      (match-define (bindings-state dupes env) state)
+      (if (set-member? env name)
+          (bindings-state (cons name dupes) env)
+          (bindings-state dupes (set-add env name))))
+    bindings
+    state))
+
+(define (initial-bindings-state [env : (Set Bytes)]) : BindingsState
+  (bindings-state (empty) env))
+
+(define (module-type-environment [mod : Module]) : BindingsState
   (case mod
     [(module _ (imports imported-types _ _ _ _) _ types _ _)
-     (multi-set-add-all
-       (add-type-definitions-bindings types
-         (make-multi-set bytes-cmp))
-       (set->list (dict-keys imported-types)))]))
+     (add-bindings (map type-definition-name types)
+       (initial-bindings-state
+         (dict-keys imported-types)))]))
 
-
-(define (module-environment [mod : Module]) : (MultiSet Bytes)
+(define (module-value-environment [mod : Module]) : BindingsState
   (case mod
     [(module _ (imports _ imported-values _ _ _) _ types definitions _)
-     (multi-set-add-all
-       (add-constructor-bindings/types types
-         (add-accessor-bindings/types types
-           (add-definitions-bindings definitions
-             (make-multi-set bytes-cmp))))
-       (set->list (dict-keys imported-values)))]))
+     (add-bindings (types->constructor-names types)
+       (add-bindings (types->accessor-names types)
+         (add-bindings (map function-definition-name definitions)
+           (initial-bindings-state
+             (dict-keys imported-values)))))]))
 
-(define (module-pattern-environment [mod : Module]) : (MultiSet Bytes)
+(define (module-pattern-environment [mod : Module]) : BindingsState
   (case mod
     [(module _ (imports _ _ imported-patterns _ _) _ types _ _)
-     (multi-set-add-all
-       (add-constructor-bindings/types types
-         (make-multi-set bytes-cmp))
-       (set->list (dict-keys imported-patterns)))]))
+     (add-bindings (types->constructor-names types)
+       (initial-bindings-state
+         (dict-keys imported-patterns)))]))
 
-(define (module-static-environment [mod : Module]) : (MultiSet Bytes)
+(define (module-static-environment [mod : Module]) : BindingsState
   (case mod
     [(module _ (imports _ _ _ imported-statics _) _ _ _ statics)
-     (multi-set-add-all
-       (multi-set-add-all
-         (make-multi-set bytes-cmp)
-         (map
-           (lambda ([s : StaticDefinition])
-             (case s
-               [(varargs-definition name _ _ _ _ _)
-                name]))
-           statics))
-       (set->list (dict-keys imported-statics)))]))
+     (match-define static-definition-name
+       (lambda ([s : StaticDefinition])
+         (case s
+           [(varargs-definition name _ _ _ _ _)
+            name])))
+     (add-bindings (map static-definition-name statics)
+       (initial-bindings-state
+         (dict-keys imported-statics)))]))
 
-(define (add-definitions-bindings [defs : (List FunctionDefinition)] [env : (MultiSet Bytes)])
-  : (MultiSet Bytes)
-  (case defs
-    [(empty) env]
-    [(cons (function-definition name _ _ _ _) defs)
-     (add-definitions-bindings defs (multi-set-add env name))]))
+(define (types->accessor-names [types : (List TypeDefinition)]) : (List Bytes)
+  (append*
+    (map
+      (lambda ([type : TypeDefinition]) : (List Bytes)
+        (case type
+          [(type-definition _ _ variants)
+           (case variants
+             [(cons (variant-definition name fields) (empty))
+              (map
+                (lambda ([field : VariantField])
+                  (match-define (variant-field field-name _) field)
+                  (bytes-append (varargs list name #"-" field-name)))
+                fields)]
+             [_ (empty)])]))
+      types)))
 
-(define (add-accessor-bindings/types [types : (List TypeDefinition)] [env : (MultiSet Bytes)])
-  : (MultiSet Bytes)
-  (case types
-    [(empty) env]
-    [(cons (type-definition _ _ variants) types)
-     (add-accessor-bindings/types types (add-accessor-bindings/variants variants env))]))
-
-(define (add-constructor-bindings/types [types : (List TypeDefinition)] [env : (MultiSet Bytes)])
-  : (MultiSet Bytes)
-  (case types
-    [(empty) env]
-    [(cons (type-definition _ _ variants) types)
-     (add-constructor-bindings/types types (add-constructor-bindings/variants variants env))]))
-
-
-(define (add-type-definitions-bindings [types : (List TypeDefinition)] [env : (MultiSet Bytes)])
-  : (MultiSet Bytes)
-  (case types
-    [(empty) env]
-    [(cons (type-definition name _ _) types)
-     (add-type-definitions-bindings types (multi-set-add env name))]))
-
-(define (add-constructor-bindings/variants [variants : (List VariantDefinition)] [env : (MultiSet Bytes)])
-  : (MultiSet Bytes)
-  (case variants
-    [(empty) env]
-    [(cons (variant-definition name _) variants)
-     (add-constructor-bindings/variants variants (multi-set-add env name))]))
-
-
-(define (add-accessor-bindings/variants [variants : (List VariantDefinition)] [env : (MultiSet Bytes)])
-  : (MultiSet Bytes)
-  (case variants
-    [(cons (variant-definition name fields) (empty))
-     (add-variant-field-bindings name fields env)]
-    [_ env]))
-
-(define (add-variant-field-bindings [variant : Bytes]
-                                    [fields : (List VariantField)] [env : (MultiSet Bytes)])
-  : (MultiSet Bytes)
-  (case fields
-    [(empty) env]
-    [(cons (variant-field name _) fields)
-     (let ([acc-name (bytes-append (varargs list variant #"-" name))])
-       (add-variant-field-bindings variant fields (multi-set-add env acc-name)))]))
+(define (types->constructor-names [types : (List TypeDefinition)]) : (List Bytes)
+  (append*
+    (map
+      (lambda ([type : TypeDefinition])
+        (case type
+          [(type-definition _ _ variants)
+           (map variant-definition-name variants)]))
+      types)))
 
 (define (validate-module/unique-bindings [mod : Module]) : (List ModuleError)
   (filter-map
