@@ -1162,7 +1162,6 @@ yaspl_library(
         "//libraries/data:join-list",
         "//libraries/data:list",
         "//libraries/data:maybe",
-        "//libraries/data:source-location",
         "//libraries/data:tuples",
         "//libraries/yaspl/languages:source-language",
     ],

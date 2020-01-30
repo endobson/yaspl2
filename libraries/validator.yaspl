@@ -27,20 +27,20 @@
       [error : (List ModuleError)]))
   (define-type ModuleError
     (duplicate-module-bindings
-      [types : (List (SourceSpanAnnotated Bytes))]
-      [values : (List (SourceSpanAnnotated Bytes))]
-      [patterns : (List (SourceSpanAnnotated Bytes))]
-      [statics : (List (SourceSpanAnnotated Bytes))])
+      [types : (List Identifier)]
+      [values : (List Identifier)]
+      [patterns : (List Identifier)]
+      [statics : (List Identifier)])
     (undefined-exports
-      [types : (List (SourceSpanAnnotated Bytes))]
-      [values : (List (SourceSpanAnnotated Bytes))]
-      [patterns : (List (SourceSpanAnnotated Bytes))]
-      [statics : (List (SourceSpanAnnotated Bytes))])
+      [types : (List Identifier)]
+      [values : (List Identifier)]
+      [patterns : (List Identifier)]
+      [statics : (List Identifier)])
     (duplicate-exports
-      [types : (List (SourceSpanAnnotated Bytes))]
-      [values : (List (SourceSpanAnnotated Bytes))]
-      [patterns : (List (SourceSpanAnnotated Bytes))]
-      [statics : (List (SourceSpanAnnotated Bytes))])
+      [types : (List Identifier)]
+      [values : (List Identifier)]
+      [patterns : (List Identifier)]
+      [statics : (List Identifier)])
     (non-unique-name)
     (function-error [name : Bytes] [error : FunctionError]))
   (define-type FunctionError
@@ -54,7 +54,7 @@
 
   (define-type BindingsState
     (bindings-state
-      [dupes : (List (SourceSpanAnnotated Bytes))]
+      [dupes : (List Identifier)]
       [env : (Set Bytes)])))
 
 (define (validate-module [mod : Module] [sigs : (IndexedSet ModuleSignature ModName)]) : (Maybe ModuleErrors)
@@ -122,9 +122,9 @@
   (match-define check-exports
     (lambda ([exports : (List Export)] [env : (Set Bytes)])
       (filter-map
-        (lambda ([e : Export]) : (Maybe (SourceSpanAnnotated Bytes))
+        (lambda ([e : Export]) : (Maybe Identifier)
           (match-define (export name/src _) e)
-          (match-define (source-span-annotated name _) name/src)
+          (match-define (identifier name _) name/src)
           (if (set-member? env name)
               (nothing)
               (just name/src)))
@@ -196,12 +196,12 @@
         validate-function-definition/free-variables
         (module-definitions mod)))))
 
-(define (add-bindings [bindings : (List (SourceSpanAnnotated Bytes))] [state : BindingsState])
+(define (add-bindings [bindings : (List Identifier)] [state : BindingsState])
   : BindingsState
   (foldl
-    (lambda ([name/src : (SourceSpanAnnotated Bytes)] [state : BindingsState])
+    (lambda ([name/src : Identifier] [state : BindingsState])
       (match-define (bindings-state dupes env) state)
-      (match-define (source-span-annotated name _) name/src)
+      (match-define (identifier name _) name/src)
       (if (set-member? env name)
           (bindings-state (cons name/src dupes) env)
           (bindings-state dupes (set-add env name))))
@@ -246,29 +246,27 @@
        (initial-bindings-state
          (dict-keys imported-statics)))]))
 
-(define (types->accessor-names [types : (List TypeDefinition)])
-  : (List (SourceSpanAnnotated Bytes))
+(define (types->accessor-names [types : (List TypeDefinition)]) : (List Identifier)
   (append*
     (map
-      (lambda ([type : TypeDefinition]) : (List (SourceSpanAnnotated Bytes))
+      (lambda ([type : TypeDefinition]) : (List Identifier)
         (case type
           [(type-definition _ _ variants)
            (case variants
-             [(cons (variant-definition (source-span-annotated name _) fields) (empty))
+             [(cons (variant-definition (identifier name _) fields) (empty))
               (map
                 (lambda ([field : VariantField])
                   (match-define
-                    (variant-field (source-span-annotated field-name field-src) _)
+                    (variant-field (identifier field-name field-src) _)
                     field)
-                  (source-span-annotated
+                  (identifier
                     (bytes-append (varargs list name #"-" field-name))
                     field-src))
                 fields)]
              [_ (empty)])]))
       types)))
 
-(define (types->constructor-names [types : (List TypeDefinition)])
-  : (List (SourceSpanAnnotated Bytes))
+(define (types->constructor-names [types : (List TypeDefinition)]) : (List Identifier)
   (append*
     (map
       (lambda ([type : TypeDefinition])
@@ -284,7 +282,7 @@
 
 (define (check-unique-bindings/function-definition [def : FunctionDefinition]) : (Maybe ModuleError)
   (case def
-    [(function-definition (source-span-annotated name _) _ fun-args _ body)
+    [(function-definition (identifier name _) _ fun-args _ body)
      (case (check-unique-bindings/args (function-args-bindings fun-args))
        [(just args)
         (just (function-error name (duplicate-bindings args)))]
@@ -395,15 +393,15 @@
   (case error
     [(duplicate-module-bindings types values patterns statics)
      (let ([warn-duplicates
-             (lambda ([kind : Bytes] [bindings : (List (SourceSpanAnnotated Bytes))]) : (JoinList Bytes)
+             (lambda ([kind : Bytes] [bindings : (List Identifier)]) : (JoinList Bytes)
                (case bindings
                  [(empty) (empty-jl)]
                  [_
                   (append-jl
                     (varargs join-list #"  " kind #" bindings:\n")
                     (concat-map-jl/list
-                      (lambda ([binding/src : (SourceSpanAnnotated Bytes)])
-                        (match-define (source-span-annotated binding _) binding/src)
+                      (lambda ([binding/src : Identifier])
+                        (match-define (identifier binding _) binding/src)
                         (varargs join-list #"    " binding #"\n"))
                       bindings))]))])
         (bytes-append
@@ -418,15 +416,15 @@
      (bytes-append (varargs list #"Module \"" (mod-name->bytes mod-name) #"\" already exists."))]
     [(undefined-exports types values patterns statics)
      (let ([warn-undefined-exports
-             (lambda ([kind : Bytes] [names : (List (SourceSpanAnnotated Bytes))]) : (JoinList Bytes)
+             (lambda ([kind : Bytes] [names : (List Identifier)]) : (JoinList Bytes)
                (case names
                  [(empty) (empty-jl)]
                  [_
                   (append-jl
                     (varargs join-list #"  " kind #" exports:\n")
                     (concat-map-jl/list
-                      (lambda ([binding/src : (SourceSpanAnnotated Bytes)])
-                        (match-define (source-span-annotated binding _) binding/src)
+                      (lambda ([binding/src : Identifier])
+                        (match-define (identifier binding _) binding/src)
                         (varargs join-list #"    " binding #"\n"))
                       names))]))])
         (bytes-append
@@ -440,15 +438,15 @@
                 (warn-undefined-exports #"Static" statics))))))]
     [(duplicate-exports types values patterns statics)
      (let ([warn-duplicate-exports
-             (lambda ([kind : Bytes] [names : (List (SourceSpanAnnotated Bytes))]) : (JoinList Bytes)
+             (lambda ([kind : Bytes] [names : (List Identifier)]) : (JoinList Bytes)
                (case names
                  [(empty) (empty-jl)]
                  [_
                   (append-jl
                     (varargs join-list #"  " kind #" exports:\n")
                     (concat-map-jl/list
-                      (lambda ([binding/src : (SourceSpanAnnotated Bytes)])
-                        (match-define (source-span-annotated binding _) binding/src)
+                      (lambda ([binding/src : Identifier])
+                        (match-define (identifier binding _) binding/src)
                         (varargs join-list #"    " binding #"\n"))
                       names))]))])
         (bytes-append
