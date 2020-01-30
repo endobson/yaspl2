@@ -11,9 +11,9 @@
   (yaspl languages source-language)
 }
 (export
-  (#:types UnusedLocalBindings UnusedFunctionLocalBindings UnusedVariable)
-  (#:values module-unused-local-bindings unused-variable-name)
-  (#:patterns unused-local-bindings unused-function-local-bindings unused-variable))
+  (#:types UnusedLocalBindings UnusedFunctionLocalBindings)
+  (#:values module-unused-local-bindings)
+  (#:patterns unused-local-bindings unused-function-local-bindings))
 (types
   (define-type UnusedLocalBindings
     (unused-local-bindings
@@ -21,14 +21,10 @@
   (define-type UnusedFunctionLocalBindings
     (unused-function-local-bindings
       [function-name : Bytes]
-      [variables : (List UnusedVariable)]))
+      [variables : (List Identifier)]))
   (define-type State
     (state
-      [bindings : (List (Dict Bytes (Maybe UnusedVariable)))]))
-  (define-type UnusedVariable
-    (unused-variable
-      [name : Bytes]
-      [source : SourceSpan])))
+      [bindings : (List (Dict Bytes (Maybe Identifier)))])))
 
 
 (define (module-unused-local-bindings [mod : Module])
@@ -54,7 +50,7 @@
 
 
 (define (unused-local-bindings/expr [e : Expression] [state : State])
-  : (Tuple2 State (JoinList UnusedVariable))
+  : (Tuple2 State (JoinList Identifier))
   (case e
     [(int-literal _ _)
      (tuple2 state (empty-jl))]
@@ -82,12 +78,12 @@
      (unused-local-bindings/exprs (cons op args) state)]
     [(varargs-app-expr _tail-position _ args _)
      (unused-local-bindings/exprs args state)]
-    [(let-expr (identifier name name-src) expr body _)
+    [(let-expr id expr body _)
      (match-define (tuple2 state expr-unused)
        (unused-local-bindings/expr expr state))
      (match-define (tuple2 state body-unused)
        (unused-local-bindings/binding
-         (varargs list (unused-variable name name-src))
+         (varargs list id)
          state
          body))
      (tuple2 state (append-jl expr-unused body-unused))]
@@ -104,7 +100,7 @@
      (tuple2 state (append-jl clauses-unused expr-unused))]))
 
 (define (unused-local-bindings/exprs [es : (List Expression)] [state : State])
-  : (Tuple2 State (JoinList UnusedVariable))
+  : (Tuple2 State (JoinList Identifier))
   (case es
     [(empty) (tuple2 state (empty-jl))]
     [(cons e es)
@@ -115,7 +111,7 @@
      (tuple2 state (append-jl e-unused es-unused))]))
 
 (define (unused-local-bindings/clauses [cs : (List CaseClause)] [state : State])
-  : (Tuple2 State (JoinList UnusedVariable))
+  : (Tuple2 State (JoinList Identifier))
   (case cs
     [(empty) (tuple2 state (empty-jl))]
     [(cons c cs)
@@ -126,7 +122,7 @@
      (tuple2 state (append-jl c-unused cs-unused))]))
 
 (define (unused-local-bindings/clause [clause : CaseClause] [state : State])
-  : (Tuple2 State (JoinList UnusedVariable))
+  : (Tuple2 State (JoinList Identifier))
   (match-define (case-clause pattern body) clause)
   (match-define vars (pattern-bound-variables pattern (empty)))
   (unused-local-bindings/binding
@@ -135,30 +131,30 @@
     body))
 
 (define (function-args-bound-variables [args : (List FunctionArg)])
-  : (List UnusedVariable)
+  : (List Identifier)
   (foldl
-    (lambda ([arg : FunctionArg] [acc : (List UnusedVariable)])
+    (lambda ([arg : FunctionArg] [acc : (List Identifier)])
       (pattern-bound-variables (function-arg-pattern arg) acc))
     args
-    (ann (List UnusedVariable) (empty))))
+    (ann (List Identifier) (empty))))
 
-(define (pattern-bound-variables [p : Pattern] [acc : (List UnusedVariable)])
-  : (List UnusedVariable)
+(define (pattern-bound-variables [p : Pattern] [acc : (List Identifier)])
+  : (List Identifier)
   (case p
     [(bytes-pattern _ _) acc]
     [(int-pattern _ _) acc]
     [(ignore-pattern _) acc]
-    [(variable-pattern (identifier v src)) (cons (unused-variable v src) acc)]
+    [(variable-pattern id) (cons id acc)]
     [(abstraction-pattern _ pats _) (pattern-bound-variables/list pats acc)]))
 
-(define (pattern-bound-variables/list [ps : (List Pattern)] [acc : (List UnusedVariable)])
-  : (List UnusedVariable)
+(define (pattern-bound-variables/list [ps : (List Pattern)] [acc : (List Identifier)])
+  : (List Identifier)
   (case ps
     [(empty) acc]
     [(cons p ps) (pattern-bound-variables/list ps (pattern-bound-variables p acc))]))
 
 (define (unused-local-bindings/block [b : Block] [state : State])
-  : (Tuple2 State (JoinList UnusedVariable))
+  : (Tuple2 State (JoinList Identifier))
   (case b
     [(block (empty) expr)
      (unused-local-bindings/expr expr state)]
@@ -171,20 +167,20 @@
        (block defs body-expr))]))
 
 (define (unused-local-bindings/binding
-          [vars : (List UnusedVariable)]
+          [vars : (List Identifier)]
           [init-state : State]
           [body : Block])
-  : (Tuple2 State (JoinList UnusedVariable))
+  : (Tuple2 State (JoinList Identifier))
   (match-define (state bindings) init-state)
 
   (match-define inner-state
     (state
       (cons
         (foldl
-          (lambda ([v : UnusedVariable] [acc : (Dict Bytes (Maybe UnusedVariable))])
-            (dict-add acc (unused-variable-name v) (just v)))
+          (lambda ([v : Identifier] [acc : (Dict Bytes (Maybe Identifier))])
+            (dict-add acc (identifier-name v) (just v)))
           vars
-          (ann (Dict Bytes (Maybe UnusedVariable))
+          (ann (Dict Bytes (Maybe Identifier))
             (make-dict bytes-cmp)))
        bindings)))
 
@@ -192,7 +188,7 @@
     (unused-local-bindings/block body inner-state))
 
   (match-define (tuple2 frame outer-bindings)
-    : (Tuple2 (Dict Bytes (Maybe UnusedVariable)) (List (Dict Bytes (Maybe UnusedVariable))))
+    : (Tuple2 (Dict Bytes (Maybe Identifier)) (List (Dict Bytes (Maybe Identifier))))
     (case inner-state
       [(state (empty)) (panic #"State lost a frame")]
       [(state (cons frame outer-bindings))
@@ -200,7 +196,7 @@
 
   (match-define unused-vars
     (list->jl
-      (filter-map (lambda ([v : (Maybe UnusedVariable)]) v) (dict-values frame))))
+      (filter-map (lambda ([v : (Maybe Identifier)]) v) (dict-values frame))))
 
   (tuple2
     (state outer-bindings)
@@ -210,8 +206,8 @@
   (match-define (state bindings) s)
   (state (mark-var-used/bindings bindings v)))
 
-(define (mark-var-used/bindings [bindings : (List (Dict Bytes (Maybe UnusedVariable)))] [v : Bytes])
-  : (List (Dict Bytes (Maybe UnusedVariable)))
+(define (mark-var-used/bindings [bindings : (List (Dict Bytes (Maybe Identifier)))] [v : Bytes])
+  : (List (Dict Bytes (Maybe Identifier)))
   (case bindings
     [(empty) (empty)]
     [(cons frame bindings)
