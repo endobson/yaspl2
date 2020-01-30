@@ -201,7 +201,6 @@ yaspl_bootstrap_library(
         "//libraries/data:list",
         "//libraries/data:maybe",
         "//libraries/data:set",
-        "//libraries/data:source-location",
         "//libraries/yaspl/languages:source-language",
     ],
 )
