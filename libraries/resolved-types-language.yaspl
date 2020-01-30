@@ -19,6 +19,7 @@
       [Expression ri:Expression]
       [FunctionArg ri:FunctionArg]
       [FunctionDefinition ri:FunctionDefinition]
+      Identifier
       [Imports ri:Imports]
       [Module ri:Module]
       [Pattern ri:Pattern]
@@ -29,6 +30,7 @@
       [VariantField ri:VariantField]
     }
     {#:values
+      identifier
       pre-type-source-span
       [type-definition-name* ri:type-definition-name*]
     }
@@ -48,6 +50,7 @@
       fun-pre-type
       [function-arg ri:function-arg]
       [function-definition ri:function-definition]
+      identifier
       [if-expr ri:if-expr]
       [ignore-pattern ri:ignore-pattern]
       [imports ri:imports]
@@ -75,20 +78,20 @@
 (export
   (#:types Module Block BlockDefinition CaseClause Expression FunctionDefinition FunctionArg TypeDefinition
            VariantDefinition VariantField Exports TypeExport Imports Export Pattern
-           StaticDefinition TypeResolutionError)
+           StaticDefinition TypeResolutionError Identifier)
   (#:values resolve-types module-definitions module-imports module-name case-clause-pattern
             function-definition-name function-arg-pattern function-arg-type
             type-definition-name variant-definition-name variant-field-type
             variant-field-name var-expr int-literal case-expr case-clause bytes-literal boolean-literal
             block app-expr bytes-pattern ignore-pattern pattern-source-span exports
-            imports-patterns type-resolution-error->bytes)
+            imports-patterns identifier type-resolution-error->bytes)
   (#:patterns module annotated-expr app-expr type-export exports begin-expr block boolean-literal
               bytes-literal case-clause case-expr function-definition function-arg if-expr int-literal
               lambda-expr let-expr
               match-def type-definition var-expr varargs-app-expr
               variant-definition variant-field
               imports abstraction-pattern bytes-pattern export ignore-pattern int-pattern
-              variable-pattern varargs-definition))
+              variable-pattern varargs-definition identifier))
 (types
   (define-type Module
     (module [name : ModName]
@@ -136,13 +139,13 @@
     (int-literal [v : Int] [source : SourceSpan])
     (bytes-literal [v : Bytes] [source : SourceSpan])
     (boolean-literal [v : Boolean] [source : SourceSpan])
-    (var-expr [v : Bytes] [source : SourceSpan])
+    (var-expr [id : Identifier])
     (annotated-expr [t : Type] [e : Expression] [source : SourceSpan])
     (if-expr [cond : Expression] [true : Expression] [false : Expression] [source : SourceSpan])
     (begin-expr [exprs : (List Expression)] [last-expr : Expression] [source : SourceSpan])
     (app-expr [tail-position : Boolean] [op : Expression] [args : (List Expression)]
               [source : SourceSpan])
-    (varargs-app-expr [tail-position : Boolean] [op : (SourceSpanAnnotated Bytes)] [args : (List Expression)]
+    (varargs-app-expr [tail-position : Boolean] [op : Identifier] [args : (List Expression)]
                       [source : SourceSpan])
     (let-expr [name : Bytes] [expr : Expression] [body : Block] [source : SourceSpan])
     (lambda-expr [args : (List FunctionArg)] [type : (Maybe Type)] [body : Block] [source : SourceSpan])
@@ -178,7 +181,7 @@
   (define-type TypeResolutionError
     (type-resolution-error [mod-name : ModName] [err : LocalTypeResolutionError]))
   (define-type LocalTypeResolutionError
-    (unbound-type-variable [variable : Bytes] [source : SourceSpan])
+    (unbound-type-variable [id : Identifier])
     (type-constructor-bad-arg-kind [source : SourceSpan])
     (type-constructor-bad-number-of-args [source : SourceSpan])
     (type-constructor-bad-constructor [t : Type] [source : SourceSpan])
@@ -398,8 +401,8 @@
           [(right expr)
            (right (annotated-expr type expr src))])])]
     ;; Recur structurally
-    [(ri:var-expr v src)
-     (right (var-expr v src))]
+    [(ri:var-expr id)
+     (right (var-expr id))]
     [(ri:int-literal v src)
      (right (int-literal v src))]
     [(ri:bytes-literal v src)
@@ -425,7 +428,7 @@
           [(left v) (left v)]
           [(right last-expr)
            (right (begin-expr void-exprs last-expr src))])])]
-    [(ri:let-expr (source-span-annotated name _) expr body src)
+    [(ri:let-expr (identifier name _) expr body src)
      (case (resolve-types/expr expr ctx)
        [(left v) (left v)]
        [(right expr)
@@ -509,7 +512,7 @@
      (right (variable-pattern v src))]
     [(ri:ignore-pattern src)
      (right (ignore-pattern src))]
-    [(ri:abstraction-pattern (source-span-annotated name _) patterns src)
+    [(ri:abstraction-pattern (identifier name _) patterns src)
      (case (map/failure/env resolve-types/pattern patterns ctx)
        [(left v) (left v)]
        [(right patterns)
@@ -541,10 +544,11 @@
 (define (pre-type->type [pre : PreType] [context : Context])
   : (Either LocalTypeResolutionError Type)
   (case pre
-    [(var-pre-type v src)
+    [(var-pre-type id)
+     (match-define (identifier v _) id)
      (case (context-ref-type context v)
        [(nothing)
-        (left (unbound-type-variable v src))]
+        (left (unbound-type-variable id))]
        [(just v) (right v)])]
     [(fun-pre-type type-vars args result _)
      (match-define context (context-add-var-types context type-vars))
@@ -556,10 +560,11 @@
           [(left v) (left v)]
           [(right result)
            (right (fun-type type-vars args result))])])]
-    [(type-app-pre-type (source-span-annotated constructor cons-src) args app-src)
+    [(type-app-pre-type cons-id args app-src)
+     (match-define (identifier constructor cons-src) cons-id)
      (case (context-ref-type context constructor)
        [(nothing)
-        (left (unbound-type-variable constructor cons-src))]
+        (left (unbound-type-variable cons-id))]
        ;; TODO actually check that the kind of the argument types match the expected kinds
        [(just (type-constructor mod-name name arg-kinds))
         (case (zip args arg-kinds)
@@ -605,7 +610,7 @@
   (match-define (type-resolution-error mod-name error) v)
   (match-define msg
     (case error
-      [(unbound-type-variable v src)
+      [(unbound-type-variable (identifier v src))
        (bytes-append (varargs list
          (source-span->start-location-bytes src)
          #": Unbound type variable: " v #"\n"))]
