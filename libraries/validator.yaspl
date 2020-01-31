@@ -41,7 +41,7 @@
       [patterns : (List Identifier)]
       [statics : (List Identifier)])
     (non-unique-name
-      [mod-name : ModName])
+      [mod-name : (SourceSpanAnnotated ModName)])
     (function-error [name : Bytes] [error : FunctionError]))
   (define-type FunctionError
     (free-variables
@@ -59,7 +59,7 @@
 
 (define (validate-module [mod : Module] [sigs : (IndexedSet ModuleSignature ModName)]) : (Maybe ModuleErrors)
   (case (validate-module/duplicate-bindings mod)
-    [(left v) (just (module-errors (module-name mod) (varargs list v)))]
+    [(left v) (just (module-errors (module-name* mod) (varargs list v)))]
     [(right (tuple2 (tuple2 type-env env) (tuple2 pat-env static-env)))
      (case
        (append*
@@ -72,7 +72,7 @@
        [(empty)
         (nothing)]
        [errors
-        (just (module-errors (module-name mod) errors))])]))
+        (just (module-errors (module-name* mod) errors))])]))
 
 ;; Checks to make sure that there are no duplicate bindings.
 ;; If there are returns (left <error-message>), otherwise returns
@@ -94,12 +94,13 @@
 
 (define (validate-module/unique-name [mod : Module] [sigs : (IndexedSet ModuleSignature ModName)])
   : (List ModuleError)
-  (match-define name (module-name mod))
+  (match-define name/src (module-name mod))
+  (match-define (source-span-annotated name _) name/src)
   (case (indexed-set-ref sigs name)
     [(nothing)
      (empty)]
     [(just _)
-     (cons (non-unique-name name) (empty))]))
+     (cons (non-unique-name name/src) (empty))]))
 
 (define (validate-module/undefined-exports
           [mod : Module]
@@ -409,9 +410,10 @@
        (warn-duplicates #"value" values)
        (warn-duplicates #"pattern" patterns)
        (warn-duplicates #"static" statics))]
-    [(non-unique-name mod-name)
+    [(non-unique-name (source-span-annotated mod-name src))
      (varargs join-list
-       #"Module \"" (mod-name->bytes mod-name) #"\" already exists.")]
+       (source-span->start-location-bytes src)
+       #": Module \"" (mod-name->bytes mod-name) #"\" already exists.")]
     [(undefined-exports types values patterns statics)
      (match-define warn-undefined-exports
        (lambda ([kind : Bytes] [bindings : (List Identifier)]) : (JoinList Bytes)
