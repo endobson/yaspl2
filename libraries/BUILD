@@ -1182,7 +1182,6 @@ yaspl_bootstrap_library(
         "//libraries/data:join-list",
         "//libraries/data:list",
         "//libraries/data:maybe",
-        "//libraries/data:multi-set",
         "//libraries/data:set",
         "//libraries/data:source-location",
         "//libraries/data:tuples",

@@ -11,7 +11,6 @@
   (maybe)
   (module-name)
   (module-signature)
-  (multi-set)
   (prim)
   (resolved-imports-language)
   (set)
@@ -50,7 +49,7 @@
       [patterns : (List Identifier)]
       [statics : (List Identifier)])
     (duplicate-bindings
-      [names : (List Bytes)]))
+      [names : (List Identifier)]))
 
   (define-type BindingsState
     (bindings-state
@@ -99,17 +98,6 @@
      (empty)]
     [(just _)
      (cons (non-unique-name) (empty))]))
-
-(define (find-duplicates [ms : (MultiSet Bytes)]) : (List Bytes)
-  (find-duplicates/list (set->list (multi-set-keys ms)) ms))
-
-(define (find-duplicates/list [l : (List Bytes)] [ms : (MultiSet Bytes)]) : (List Bytes)
-  (case l
-    [(empty) (empty)]
-    [(cons e l)
-     (if (> (multi-set-count ms e) 1)
-       (cons e (find-duplicates/list l ms))
-       (find-duplicates/list l ms))]))
 
 (define (validate-module/undefined-exports
           [mod : Module]
@@ -291,14 +279,23 @@
           [(just args) (just (function-error name (duplicate-bindings args)))]
           [(nothing) (nothing)])])]))
 
-(define (check-unique-bindings/args [args : (List Bytes)]) : (Maybe (List Bytes))
-  (case (find-duplicates (multi-set-add-all (make-multi-set bytes-cmp) args))
-    [(empty)
+(define (check-unique-bindings/args [args : (List Identifier)]) : (Maybe (List Identifier))
+  (case 
+    (foldl
+      (lambda ([id : Identifier] [acc : (Tuple2 (Set Bytes) (List Identifier))])
+        (match-define (tuple2 names dupes) acc)
+        (match-define (identifier name _) id)
+        (if (set-member? names name)
+            (tuple2 names (cons id dupes))
+            (tuple2 (set-add names name) dupes)))
+      args
+      (ann (Tuple2 (Set Bytes) (List Identifier)) (tuple2 (make-set bytes-cmp) (empty))))
+    [(tuple2 _ (empty))
      (nothing)]
-    [dups
-     (just dups)]))
+    [(tuple2 _ dupes)
+     (just dupes)]))
 
-(define (check-unique-bindings/block [b : Block]) : (Maybe (List Bytes))
+(define (check-unique-bindings/block [b : Block]) : (Maybe (List Identifier))
   (case b
     [(block defs expr)
      (case (check-unique-bindings/block-definitions defs)
@@ -306,7 +303,7 @@
        [(nothing) (check-unique-bindings/expr expr)])]))
 
 (define (check-unique-bindings/block-definitions [defs : (List BlockDefinition)])
-  : (Maybe (List Bytes))
+  : (Maybe (List Identifier))
   (find/maybe
     (lambda ([def : BlockDefinition])
       (case def
@@ -317,7 +314,7 @@
             (check-unique-bindings/expr expr)])]))
     defs))
 
-(define (check-unique-bindings/expr [expr : Expression]) : (Maybe (List Bytes))
+(define (check-unique-bindings/expr [expr : Expression]) : (Maybe (List Identifier))
   (case expr
     [(int-literal _ _) (nothing)]
     [(bytes-literal _ _) (nothing)]
@@ -349,10 +346,10 @@
        [(nothing)
         (check-unique-bindings/clauses clauses)])]))
 
-(define (check-unique-bindings/exprs [exprs : (List Expression)]) : (Maybe (List Bytes))
+(define (check-unique-bindings/exprs [exprs : (List Expression)]) : (Maybe (List Identifier))
   (find/maybe check-unique-bindings/expr exprs))
 
-(define (check-unique-bindings/clauses [clauses : (List CaseClause)]) : (Maybe (List Bytes))
+(define (check-unique-bindings/clauses [clauses : (List CaseClause)]) : (Maybe (List Identifier))
   (find/maybe
     (lambda ([clause : CaseClause])
       (case clause
@@ -363,23 +360,23 @@
             (check-unique-bindings/block body)])]))
     clauses))
 
-(define (function-args-bindings [args : (List FunctionArg)]) : (List Bytes)
+(define (function-args-bindings [args : (List FunctionArg)]) : (List Identifier)
   (foldl
-    (lambda ([arg : FunctionArg] [acc : (List Bytes)])
+    (lambda ([arg : FunctionArg] [acc : (List Identifier)])
       (match-define (function-arg pattern _type) arg)
       (pattern-bindings* pattern acc))
     args
-    (ann (List Bytes) (empty))))
+    (ann (List Identifier) (empty))))
 
 
-(define (pattern-bindings [p : Pattern]) : (List Bytes)
+(define (pattern-bindings [p : Pattern]) : (List Identifier)
   (pattern-bindings* p (empty)))
-(define (pattern-bindings* [p : Pattern] [acc : (List Bytes)]) : (List Bytes)
+(define (pattern-bindings* [p : Pattern] [acc : (List Identifier)]) : (List Identifier)
   (case p
     [(bytes-pattern _ _) acc]
     [(int-pattern _ _) acc]
     [(ignore-pattern _) acc]
-    [(variable-pattern (identifier v _)) (cons v acc)]
+    [(variable-pattern v) (cons v acc)]
     [(abstraction-pattern _ pats _)
      (foldl pattern-bindings* pats acc)]))
 
@@ -487,4 +484,4 @@
      (bytes-append
        (append
          (varargs list #"Duplicate bindings in " (mod-name->bytes mod-name) #" in " function-name #": ")
-         (interleave dups #", ")))]))
+         (interleave (map identifier-name dups) #", ")))]))
