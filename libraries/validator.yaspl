@@ -40,7 +40,8 @@
       [values : (List Identifier)]
       [patterns : (List Identifier)]
       [statics : (List Identifier)])
-    (non-unique-name)
+    (non-unique-name
+      [mod-name : ModName])
     (function-error [name : Bytes] [error : FunctionError]))
   (define-type FunctionError
     (free-variables
@@ -93,11 +94,12 @@
 
 (define (validate-module/unique-name [mod : Module] [sigs : (IndexedSet ModuleSignature ModName)])
   : (List ModuleError)
-  (case (indexed-set-ref sigs (module-name mod))
+  (match-define name (module-name mod))
+  (case (indexed-set-ref sigs name)
     [(nothing)
      (empty)]
     [(just _)
-     (cons (non-unique-name) (empty))]))
+     (cons (non-unique-name name) (empty))]))
 
 (define (validate-module/undefined-exports
           [mod : Module]
@@ -384,104 +386,82 @@
   (case me
     [(module-errors mod-name errors)
      (bytes-append
-       (map (lambda ([error : ModuleError]) (module-error->bytes mod-name error)) errors))]))
-
-(define (module-error->bytes [mod-name : ModName] [error : ModuleError]) : Bytes
-  (case error
-    [(duplicate-module-bindings types values patterns statics)
-     (let ([warn-duplicates
-             (lambda ([kind : Bytes] [bindings : (List Identifier)]) : (JoinList Bytes)
-               (case bindings
-                 [(empty) (empty-jl)]
-                 [_
-                  (append-jl
-                    (varargs join-list #"  " kind #" bindings:\n")
-                    (concat-map-jl/list
-                      (lambda ([binding/src : Identifier])
-                        (match-define (identifier binding _) binding/src)
-                        (varargs join-list #"    " binding #"\n"))
-                      bindings))]))])
-        (bytes-append
-          (jl->list
-            (varargs append-jl*
-              (varargs join-list #"Duplicate bindings in module " (mod-name->bytes mod-name) #":\n")
-              (warn-duplicates #"Type" types)
-              (warn-duplicates #"Value" values)
-              (warn-duplicates #"Pattern" patterns)
-              (warn-duplicates #"Static" statics)))))]
-    [(non-unique-name)
-     (bytes-append (varargs list #"Module \"" (mod-name->bytes mod-name) #"\" already exists."))]
-    [(undefined-exports types values patterns statics)
-     (let ([warn-undefined-exports
-             (lambda ([kind : Bytes] [names : (List Identifier)]) : (JoinList Bytes)
-               (case names
-                 [(empty) (empty-jl)]
-                 [_
-                  (append-jl
-                    (varargs join-list #"  " kind #" exports:\n")
-                    (concat-map-jl/list
-                      (lambda ([binding/src : Identifier])
-                        (match-define (identifier binding _) binding/src)
-                        (varargs join-list #"    " binding #"\n"))
-                      names))]))])
-        (bytes-append
-          (jl->list
-            (append-jl
-              (varargs join-list #"Undefined exports in module " (mod-name->bytes mod-name) #":\n")
-              (varargs append-jl*
-                (warn-undefined-exports #"Type" types)
-                (warn-undefined-exports #"Value" values)
-                (warn-undefined-exports #"Pattern" patterns)
-                (warn-undefined-exports #"Static" statics))))))]
-    [(duplicate-exports types values patterns statics)
-     (let ([warn-duplicate-exports
-             (lambda ([kind : Bytes] [names : (List Identifier)]) : (JoinList Bytes)
-               (case names
-                 [(empty) (empty-jl)]
-                 [_
-                  (append-jl
-                    (varargs join-list #"  " kind #" exports:\n")
-                    (concat-map-jl/list
-                      (lambda ([binding/src : Identifier])
-                        (match-define (identifier binding _) binding/src)
-                        (varargs join-list #"    " binding #"\n"))
-                      names))]))])
-        (bytes-append
-          (jl->list
-            (append-jl
-              (varargs join-list #"Duplicate exports in module " (mod-name->bytes mod-name) #":\n")
-              (varargs append-jl*
-                (warn-duplicate-exports #"Type" types)
-                (warn-duplicate-exports #"Value" values)
-                (warn-duplicate-exports #"Pattern" patterns)
-                (warn-duplicate-exports #"Static" statics))))))]
-    [(function-error function-name (free-variables types values patterns statics))
-     (match-define warn-free-variables
-       (lambda ([kind : Bytes] [names : (List Identifier)]) : (JoinList Bytes)
-         (case names
-           [(empty) (empty-jl)]
-           [_
-             (append-jl
-               (varargs join-list #"  " kind #":\n")
-               (concat-map-jl/list
-                 (lambda ([v : Identifier])
-                   (match-define (identifier name src) v)
-                   (varargs join-list
-                     #"    " name
-                     #" [" (source-span->start-location-bytes src) #"]\n"))
-                 names))])))
-     (bytes-append
        (jl->list
          (append-jl
            (varargs join-list
-             #"Free variables in module " (mod-name->bytes mod-name) #" in function " function-name #":\n")
-           (varargs append-jl*
-             (warn-free-variables #"Types" types)
-             (warn-free-variables #"Values" values)
-             (warn-free-variables #"Patterns" patterns)
-             (warn-free-variables #"Statics" statics)))))]
-    [(function-error function-name (duplicate-bindings dups))
-     (bytes-append
-       (append
-         (varargs list #"Duplicate bindings in " (mod-name->bytes mod-name) #" in " function-name #": ")
-         (interleave (map identifier-name dups) #", ")))]))
+             #"Errors validating module: "  (mod-name->bytes mod-name) #"\n\n")
+           (concat-map-jl/list module-error->bytes errors))))]))
+
+(define (module-error->bytes [error : ModuleError]) : (JoinList Bytes)
+  (case error
+    [(duplicate-module-bindings types values patterns statics)
+     (match-define warn-duplicates
+       (lambda ([kind : Bytes] [bindings : (List Identifier)]) : (JoinList Bytes)
+         (concat-map-jl/list
+           (lambda ([id : Identifier])
+             (match-define (identifier name src) id)
+             (varargs join-list
+               (source-span->start-location-bytes src)
+               #": Duplicate " kind #" binding: " name #"\n"))
+           bindings)))
+     (varargs append-jl*
+       (warn-duplicates #"type" types)
+       (warn-duplicates #"value" values)
+       (warn-duplicates #"pattern" patterns)
+       (warn-duplicates #"static" statics))]
+    [(non-unique-name mod-name)
+     (varargs join-list
+       #"Module \"" (mod-name->bytes mod-name) #"\" already exists.")]
+    [(undefined-exports types values patterns statics)
+     (match-define warn-undefined-exports
+       (lambda ([kind : Bytes] [bindings : (List Identifier)]) : (JoinList Bytes)
+         (concat-map-jl/list
+           (lambda ([id : Identifier])
+             (match-define (identifier name src) id)
+             (varargs join-list
+               (source-span->start-location-bytes src)
+               #": " kind #" export of " name #" is unbound\n"))
+           bindings)))
+     (varargs append-jl*
+       (warn-undefined-exports #"Type" types)
+       (warn-undefined-exports #"Value" values)
+       (warn-undefined-exports #"Pattern" patterns)
+       (warn-undefined-exports #"Static" statics))]
+    [(duplicate-exports types values patterns statics)
+     (match-define warn-duplicate-exports
+       (lambda ([kind : Bytes] [bindings : (List Identifier)]) : (JoinList Bytes)
+         (concat-map-jl/list
+           (lambda ([id : Identifier])
+             (match-define (identifier name src) id)
+             (varargs join-list
+               (source-span->start-location-bytes src)
+               #": Duplicate " kind #" export of " name #"\n"))
+           bindings)))
+     (varargs append-jl*
+       (warn-duplicate-exports #"Type" types)
+       (warn-duplicate-exports #"Value" values)
+       (warn-duplicate-exports #"Pattern" patterns)
+       (warn-duplicate-exports #"Static" statics))]
+    [(function-error _ (free-variables types values patterns statics))
+     (match-define warn-free-variables
+       (lambda ([kind : Bytes] [bindings : (List Identifier)]) : (JoinList Bytes)
+         (concat-map-jl/list
+           (lambda ([id : Identifier])
+             (match-define (identifier name src) id)
+             (varargs join-list
+               (source-span->start-location-bytes src)
+               #": " name  #" is unbound as a " kind #"\n"))
+           bindings)))
+     (varargs append-jl*
+       (warn-free-variables #"type" types)
+       (warn-free-variables #"value" values)
+       (warn-free-variables #"pattern" patterns)
+       (warn-free-variables #"static" statics))]
+    [(function-error _ (duplicate-bindings dupes))
+     (concat-map-jl/list
+       (lambda ([id : Identifier])
+         (match-define (identifier name src) id)
+         (varargs join-list
+           (source-span->start-location-bytes src)
+           #": Duplicate binding of " name #"\n"))
+       dupes)]))
