@@ -58,6 +58,7 @@
       variant-constructor
     }
   }
+  (join-list)
   (list)
   (maybe)
   (module-name)
@@ -209,29 +210,34 @@
 
 (define (type-check/definition
           [def : FunctionDefinition]
-          [context : Context]) : (Maybe TypeCheckError)
+          [context : Context]) : (JoinList TypeCheckError)
   (match-define (function-definition name _ args result body) def)
+  (match-define add-name
+    (lambda ([local : LocalTypeCheckError])
+      (match-define (local-type-check-error msg src) local)
+      (type-check-error name msg src)))
+
   (case (type-check/function-args args context)
-    [(left (local-type-check-error msg src))
-     (just (type-check-error name msg src))]
+    [(left errors)
+     (map-jl add-name errors)]
     [(right context)
      (case result
        [(source-span-annotated (type-constructor mod-name type-name _) src)
-        (just (type-check-error
-                name
-                (bytes-append (varargs list
-                                       #"Return type cannot be a type constructor. Got: "
-                                       (mod-name->bytes mod-name) #" " type-name))
-                src))]
-
+        (single-jl
+          (type-check-error
+            name
+            (bytes-append (varargs list
+                                   #"Return type cannot be a type constructor. Got: "
+                                   (mod-name->bytes mod-name) #" " type-name))
+            src))]
        [(source-span-annotated result _)
         (case (type-check/block body context (just result))
-          [(left (local-type-check-error msg src))
-           (just (type-check-error name msg src))]
-          [(right _) (nothing)])])]))
+          [(left errors)
+           (map-jl add-name errors)]
+          [(right _) (empty-jl)])])]))
 
 (define (check-expected [type : Type] [expected : (Maybe Type)] [source : SourceSpan])
-  : (Either LocalTypeCheckError Type)
+  : (Either (JoinList LocalTypeCheckError) Type)
   (case expected
     [(nothing) (right type)]
     [(just ex-type)
@@ -248,12 +254,12 @@
 
 (define (type-check/begin-exprs
           [exprs : (List Expression)]
-          [context : Context]) : (Maybe LocalTypeCheckError)
-  (find/maybe
-    (lambda ([expr : Expression]) : (Maybe LocalTypeCheckError)
+          [context : Context]) : (JoinList LocalTypeCheckError)
+  (concat-map-jl/list
+    (lambda ([expr : Expression]) : (JoinList LocalTypeCheckError)
       (case (type-check/expr expr context (just (void-type)))
-       [(left v) (just v)]
-       [(right _) (nothing)]))
+       [(left v) v]
+       [(right _) (empty-jl)]))
     exprs))
 
 (define (attempt-result-based-unification
@@ -309,7 +315,8 @@
 (define (type-check/expr
           [expr : Expression]
           [context : Context]
-          [expected-type : (Maybe Type)]) : (Either LocalTypeCheckError Type)
+          [expected-type : (Maybe Type)])
+  : (Either (JoinList LocalTypeCheckError) Type)
   (case expr
     [(var-expr (identifier v src))
      (case (context-ref-value context v)
@@ -323,23 +330,22 @@
     [(boolean-literal _ src)
      (check-expected (boolean-type) expected-type src)]
     [(if-expr c t f src)
-     (case (type-check/expr c context (just (boolean-type)))
-       [(left v) (left v)]
-       [(right _)
-        (case (type-check/expr t context expected-type)
-          [(left v) (left v)]
-          [(right t-type)
-           (case (type-check/expr f context expected-type)
-             [(left v) (left v)]
-             [(right f-type)
-              (if (type=? t-type f-type)
-                  (right t-type)
-                  (local-type-check-error* #"Branches of if don't match" src))])])])]
+     (match-define c-v (type-check/expr c context (just (boolean-type))))
+     (match-define t-v (type-check/expr t context expected-type))
+     (match-define f-v (type-check/expr f context expected-type))
+
+     (add-errors
+       (extract-errors c-v)
+       (case (tuple2 t-v f-v)
+         [(tuple2 (right t-type) (right f-type)) 
+          (if (type=? t-type f-type)
+              (right t-type)
+              (local-type-check-error* #"Branches of if don't match" src))]
+         [_
+           (left (append-jl (extract-errors t-v) (extract-errors f-v)))]))]
     [(begin-expr void-exprs last-expr _)
-     (case (type-check/begin-exprs void-exprs context)
-       [(just v) (left v)]
-       [(nothing)
-        (type-check/expr last-expr context expected-type)])]
+     (match-define errors (type-check/begin-exprs void-exprs context))
+     (add-errors errors (type-check/expr last-expr context expected-type))]
     [(let-expr name expr body _)
      (case (type-check/expr expr context (nothing))
        [(left v) (left v)]
@@ -355,7 +361,7 @@
         (check-expected actual-type expected-type src)])]
     [(lambda-expr args maybe-return-type body src)
      (case
-       (ann (Either LocalTypeCheckError (Maybe Type))
+       (ann (Either (JoinList LocalTypeCheckError) (Maybe Type))
          (case maybe-return-type
            [(just return-type)
             (right (just return-type))]
@@ -398,7 +404,7 @@
            (match-define maybe-subst
              (attempt-result-based-unification type-vars result-type expected-type))
            (case
-             (map/failure
+             (map/join-failure
                (lambda ([arg : (Tuple2 Expression Type)])
                  (case arg
                    [(tuple2 arg type)
@@ -462,11 +468,10 @@
             [(nothing) (nothing)]
             [(just subst)
              (just (substitute-types arg-type subst))]))
-        (case
-          (map/failure
-            (lambda ([arg : Expression])
-              (type-check/expr arg context expected-arg-type))
-            args)
+        (case (map/join-failure
+                (lambda ([arg : Expression])
+                  (type-check/expr arg context expected-arg-type))
+                args)
           [(left v) (left v)]
           [(right actual-types)
            (match-define (tuple2 type-var-uvars s)
@@ -506,7 +511,7 @@
      (case (type-check/expr op context (nothing))
        [(left v) (left v)]
        [(right type)
-        (case (map/failure
+        (case (map/join-failure
                 (lambda ([clause : CaseClause])
                   (case clause
                     [(case-clause p body)
@@ -536,7 +541,8 @@
 (define (type-check/block
           [body : Block]
           [context : Context]
-          [expected-type : (Maybe Type)]) : (Either LocalTypeCheckError Type)
+          [expected-type : (Maybe Type)])
+  : (Either (JoinList LocalTypeCheckError) Type)
   (match-define (block defs expr) body)
   (type-check/block* defs expr context expected-type))
 
@@ -544,7 +550,8 @@
           [defs : (List BlockDefinition)]
           [body : Expression]
           [context : Context]
-          [expected-type : (Maybe Type)]) : (Either LocalTypeCheckError Type)
+          [expected-type : (Maybe Type)])
+  : (Either (JoinList LocalTypeCheckError) Type)
   (case defs
     [(empty) (type-check/expr body context expected-type)]
     [(cons (match-def pattern def-expected-type expr) defs)
@@ -560,28 +567,27 @@
               (type-check/block* defs body context expected-type)])])])]))
 
 (define (type-check/pattern [pattern : Pattern] [context : Context] [arg-type : Type])
-  : (Either LocalTypeCheckError Context)
-  (case (type-check/pattern* pattern context arg-type (empty))
+  : (Either (JoinList LocalTypeCheckError) Context)
+  (case (type-check/pattern* pattern context arg-type)
     [(left v) (left v)]
     [(right var-types)
-     (right (context-set-values context var-types))]))
+     (right (context-set-values context (jl->list var-types)))]))
 
-(define (type-check/pattern* [pattern : Pattern] [context : Context] [arg-type : Type]
-                             [var-types : (List (Tuple2 Bytes Type))])
-  : (Either LocalTypeCheckError (List (Tuple2 Bytes Type)))
+(define (type-check/pattern* [pattern : Pattern] [context : Context] [arg-type : Type])
+  : (Either (JoinList LocalTypeCheckError) (JoinList (Tuple2 Bytes Type)))
   (case pattern
     [(bytes-pattern _ src)
      (if (type=? arg-type (bytes-type))
-         (right var-types)
+         (right (empty-jl))
          (local-type-check-error* #"Cannot match non-Bytes against bytes literal" src))]
     [(int-pattern _ src)
      (if (type=? arg-type (int-type))
-         (right var-types)
+         (right (empty-jl))
          (local-type-check-error* #"Cannot match non-Int against int literal" src))]
     [(variable-pattern (identifier v _))
-     (right (cons (tuple2 v arg-type) var-types))]
+     (right (single-jl (tuple2 v arg-type)))]
     [(ignore-pattern _)
-     (right var-types)]
+     (right (empty-jl))]
     [(abstraction-pattern pattern-name sub-patterns src)
      (case (context-ref-pattern context pattern-name)
        [(nothing) (local-type-check-error* #"Unbound pattern" src)]
@@ -611,7 +617,7 @@
                           #" Subpatterns: " (integer->decimal-bytes (length sub-patterns))))
                       src)]
                    [(just sub-pattern-types)
-                    (type-check/patterns* sub-pattern-types context var-types)]))
+                    (type-check/patterns* sub-pattern-types context)]))
                (local-type-check-error*
                  (bytes-append
                    (varargs list
@@ -622,23 +628,23 @@
                  src))]
           [_ (local-type-check-error* #"Abstraction pattern cannot match non abstract-type" src)])])]))
 
-(define (type-check/patterns* [zipped : (List (Tuple2 Pattern Type))] [context : Context]
-                              [var-types : (List (Tuple2 Bytes Type))])
-  : (Either LocalTypeCheckError (List (Tuple2 Bytes Type)))
-  (case zipped
-    [(empty) (right var-types)]
-    [(cons (tuple2 pat type) zipped)
-     (case (type-check/pattern* pat context type var-types)
-       [(left v) (left v)]
-       [(right var-types)
-        (type-check/patterns* zipped context var-types)])]))
+(define (type-check/patterns* [zipped : (List (Tuple2 Pattern Type))] [context : Context])
+  : (Either (JoinList LocalTypeCheckError) (JoinList (Tuple2 Bytes Type)))
+  (case (map/join-failure
+          (lambda ([t : (Tuple2 Pattern Type)])
+            (match-define (tuple2 pat type) t)
+            (type-check/pattern* pat context type))
+          zipped)
+    [(left v) (left v)]
+    [(right ts) (right (concat-jl ts))]))
 
 (define (type-check/case-clause
           [pattern : Pattern]
           [body : Block]
           [context : Context]
           [argument-type : Type]
-          [expected-type : (Maybe Type)]) : (Either LocalTypeCheckError Type)
+          [expected-type : (Maybe Type)])
+  : (Either (JoinList LocalTypeCheckError) Type)
   (case (type-check/pattern pattern context argument-type)
     [(left v) (left v)]
     [(right context)
@@ -646,50 +652,48 @@
 
 
 (define (type-check/function-args [args : (List FunctionArg)] [context : Context])
-  : (Either LocalTypeCheckError Context)
-  (case (find/maybe
-          (lambda ([arg : FunctionArg]) : (Maybe LocalTypeCheckError)
-            (case arg
-              [(function-arg pattern _type)
-               (case (totality-check-patterns context (varargs list pattern))
-                 [(just v) (just (local-type-check-error v (pattern-source-span pattern)))]
-                 [(nothing) (nothing)])]))
+  : (Either (JoinList LocalTypeCheckError) Context)
+  (case (map/join-failure
+          (lambda ([arg : FunctionArg])
+            : (Either (JoinList LocalTypeCheckError) (JoinList (Tuple2 Bytes Type)))
+            (match-define (function-arg pattern arg-type) arg)
+            (case (totality-check-patterns context (varargs list pattern))
+              [(just v) (local-type-check-error* v (pattern-source-span pattern))]
+              [(nothing) 
+               (type-check/pattern* pattern context arg-type)]))
           args)
-    [(just v) (left v)]
-    [(nothing)
-     (type-check/function-args* args context)]))
-
-(define (type-check/function-args* [args : (List FunctionArg)] [context : Context])
-  : (Either LocalTypeCheckError Context)
-  (case args
-    [(empty) (right context)]
-    [(cons (function-arg pattern arg-type) args)
-     (case (type-check/pattern* pattern context arg-type (empty))
-       [(left v) (left v)]
-       [(right var-types)
-        (type-check/function-args* args (context-set-values context var-types))])]))
+    [(left v) (left v)]
+    [(right ts) (right (context-set-values context (jl->list (concat-jl ts))))]))
 
 (define (type-check/static-definition
           [def : StaticDefinition]
-          [context : Context]) : (Maybe TypeCheckError)
+          [context : Context])
+  : (JoinList TypeCheckError)
   (case def
     [(varargs-definition name _ arg-type return-type
                          (identifier cons-func cons-span)
                          (identifier empty-func empty-span))
-     (case (context-ref-value context cons-func)
-       [(nothing)
-        (just (type-check-error name #"Unbound varargs cons function" cons-span))]
-       [(just cons-type)
-        (if (instantiates-as? cons-type
-                              (fun-type (empty) (varargs list arg-type return-type) return-type))
-            (case (context-ref-value context empty-func)
-              [(nothing)
-               (just (type-check-error name #"Unbound varargs empty function" empty-span))]
-              [(just empty-type)
-               (if (instantiates-as? empty-type (fun-type (empty) (empty) return-type))
-                   (nothing)
-                   (just (type-check-error name #"Varargs empty function has bad type" empty-span)))])
-            (just (type-check-error name #"Varargs cons function has bad type" cons-span)))])]))
+     (append-jl
+       (case (context-ref-value context cons-func)
+         [(nothing)
+          (single-jl (type-check-error name #"Unbound varargs cons function" cons-span))]
+         [(just cons-type)
+          (if (instantiates-as?
+                cons-type
+                (fun-type (empty) (varargs list arg-type return-type) return-type))
+              (empty-jl)
+              (single-jl (type-check-error name #"Varargs cons function has bad type" 
+                                           cons-span)))])
+       (case (context-ref-value context empty-func)
+         [(nothing)
+          (single-jl (type-check-error name #"Unbound varargs empty function" empty-span))]
+         [(just empty-type)
+          (if (instantiates-as?
+                empty-type
+                (fun-type (empty) (empty) return-type))
+              (empty-jl)
+              (single-jl (type-check-error name #"Varargs empty function has bad type"
+                                           empty-span)))]))]))
 
 (define (type-vars->unification-vars [type-vars : (List Bytes)])
   : (Tuple2 (List (Tuple2 Bytes UnificationVar)) UnificationVarSource)
@@ -738,18 +742,46 @@
   (match-define (module name _ _ definitions _ _ statics) mod)
   (match-define context (create-context mod))
   (case
-    (append
-      (filter-map
-        (lambda ([def : FunctionDefinition]) (type-check/definition def context))
-        definitions)
-      (filter-map
-        (lambda ([def : StaticDefinition]) (type-check/static-definition def context))
-        statics))
+    (jl->list
+      (append-jl
+        (concat-map-jl/list
+          (lambda ([def : FunctionDefinition]) (type-check/definition def context))
+          definitions)
+        (concat-map-jl/list
+          (lambda ([def : StaticDefinition]) (type-check/static-definition def context))
+          statics)))
     [(empty)
      (right (convert-exports mod context))]
     [vs
      (left (type-check-errors name vs))]))
 
 (define [A] (local-type-check-error* [message : Bytes] [source : SourceSpan])
-  : (Either LocalTypeCheckError A)
-  (left (local-type-check-error message source)))
+  : (Either (JoinList LocalTypeCheckError) A)
+  (left (single-jl (local-type-check-error message source))))
+
+(define [A B] (map/join-failure
+                [f : (A -> (Either (JoinList LocalTypeCheckError) B))]
+                [vs : (List A)])
+  : (Either (JoinList LocalTypeCheckError) (List B))
+  (case (partition-eithers (map f vs))
+    [(tuple2 (empty) vs)
+     (right vs)]
+    [(tuple2 errors _)
+     (left (concat-jl errors))]))
+
+
+(define [A] (add-errors [errors : (JoinList LocalTypeCheckError)]
+                        [v : (Either (JoinList LocalTypeCheckError) A)])
+  : (Either (JoinList LocalTypeCheckError) A)
+  (case v
+    [(left errors2) (left (append-jl errors errors2))]
+    [(right v)
+     (if (empty-jl? errors)
+         (right v)
+         (left errors))]))
+
+(define [A] (extract-errors [v : (Either (JoinList LocalTypeCheckError) A)])
+  : (JoinList LocalTypeCheckError)
+  (case v
+    [(left errors) errors]
+    [(right _) (empty-jl)]))
