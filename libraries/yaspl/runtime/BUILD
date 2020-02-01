@@ -26,7 +26,9 @@ yaspl_test(
         "//libraries:stack-trace",
         "//libraries/data:bytes",
         "//libraries/data:either",
+        "//libraries/data:lifted-primitives",
         "//libraries/data:list",
+        "//libraries/data:numbers",
         "//libraries/data:tuples",
     ],
 )

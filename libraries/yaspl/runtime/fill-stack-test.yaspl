@@ -2,11 +2,13 @@
 #:import {
   (bytes)
   (either)
+  (data lifted-primitives)
   (io)
   (list)
   (machine-code)
   (prim)
   (stack-trace)
+  (numbers)
   (tuples)
 }
 (export
@@ -15,25 +17,35 @@
 
 (define (fill-stack-frame-a) : StackSnapshot
   (case (fill-stack-frame-b)
-    [(tuple2 ss _)
+    [(tuple2 _ ss)
      ss]))
 
-(define (fill-stack-frame-b) : (Tuple2 StackSnapshot Bytes)
-  (tuple2 (make-stack-snapshot) #""))
+(define (fill-stack-frame-b) : (Tuple2 Bytes StackSnapshot )
+  (tuple2 #"stuff" (make-stack-snapshot)))
 
 (define (osx-main [stdout : OutputPort]) : Int
   (match-define ss (fill-stack-frame-a))
-  (case (stack-snapshot->stack-trace ss)
-    [(left v)
-     (begin
-       (write-line v stdout)
-       1)]
-    [(right trace)
-     (match-define formatted-trace (format-stack-trace trace))
-     (begin
-       (write-line #"call-stack:" stdout)
-       (write-all-bytes formatted-trace stdout)
-       (if (= (length (bytes-split formatted-trace #"\n")) 5) 0 1))]))
+  (match-define (stack-snapshot start-address size buffer) ss)
+  (begin
+    (write-line (bytes-append (varargs list #"Size: " (integer->decimal-bytes size))) stdout)
+    (for-each
+      (lambda ([l : LiftedInt])
+        (match-define (lifted-int i) l)
+        (write-line (bytes-append (varargs list (integer->hex-bytes
+                                                  (u64->s64 (bytes-ref/u64-le buffer (* i 8))))))
+                    stdout))
+      (build-list size lifted-int))
+    (case (stack-snapshot->stack-trace ss)
+      [(left v)
+       (begin
+         (write-line v stdout)
+         1)]
+      [(right trace)
+       (match-define formatted-trace (format-stack-trace trace))
+       (begin
+         (write-line #"call-stack:" stdout)
+         (write-all-bytes formatted-trace stdout)
+         (if (= (length (bytes-split formatted-trace #"\n")) 5) 0 1))])))
 
 ;; TODO make this actually work
 (define (linux-main) : Int
