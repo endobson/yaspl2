@@ -25,6 +25,7 @@ yaspl_test(
         "//libraries:machine-code",
         "//libraries:stack-trace",
         "//libraries/data:bytes",
+        "//libraries/data:either",
         "//libraries/data:list",
         "//libraries/data:tuples",
     ],

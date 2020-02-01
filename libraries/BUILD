@@ -160,6 +160,7 @@ yaspl_library(
         ":mach-o",
         "//libraries/data:bytes",
         "//libraries/data:either",
+        "//libraries/data:join-list",
         "//libraries/data:list",
         "//libraries/data:maybe",
         "//libraries/data:numbers",

@@ -5,6 +5,7 @@
   (data red-black-tree)
   (either)
   (in-memory-mach-o)
+  (join-list)
   (list)
   (mach-o)
   (maybe)
@@ -13,8 +14,8 @@
   (tuples)
 }
 (export
-  (#:types StackSnapshot)
-  (#:values make-stack-snapshot stack-snapshot->stack-trace))
+  (#:types StackSnapshot StackTrace)
+  (#:values make-stack-snapshot stack-snapshot->stack-trace format-stack-trace))
 (types
   (define-type Address
     (address [v : Int]))
@@ -22,7 +23,18 @@
     (stack-snapshot
       [start-address : Int]
       [size : Int]
-      [buffer : Bytes])))
+      [buffer : Bytes]))
+  (define-type StackTrace
+    (stack-trace
+      [frames : (List StackFrame)]))
+  (define-type StackFrame
+    (stack-frame
+      [return-address : Int]
+      [function-info : (Maybe FrameFunctionInfo)]))
+  (define-type FrameFunctionInfo
+    (frame-function-info
+      [function-name : Bytes]
+      [function-start-address : Int])))
 
 (define (make-stack-snapshot) : StackSnapshot
   (match-define buffer (make-bytes 800))
@@ -63,25 +75,38 @@
   (match-define (address rv) r)
   (int-cmp lv rv))
 
-(define (stack-snapshot->stack-trace [ss : StackSnapshot]) : Bytes
+(define (format-stack-trace [trace : StackTrace]) : Bytes
+  (bytes-append
+    (jl->list
+      (concat-map-jl/list
+        (lambda ([frame : StackFrame])
+          (match-define (stack-frame addr func) frame)
+          (varargs append-jl*
+            (varargs join-list #"[" (integer->hex-bytes addr) #"] ")
+            (case func
+              [(nothing) (single-jl #"<no function>")]
+              [(just (frame-function-info name function-start))
+               (varargs join-list
+                 name #"+" (integer->decimal-bytes (- addr function-start)))])
+            (single-jl #"\n")))
+        (stack-trace-frames trace)))))
+
+(define (stack-snapshot->stack-trace [ss : StackSnapshot])
+  : (Either Bytes StackTrace)
   (case (read-mach-o/mem)
-    [(left v)
-     (bytes-append (varargs list #"Error: " v))]
+    [(left v) (left v)]
     [(right mach-o)
      (match-define symbol-map (make-symbol-map (read-symbol-table mach-o)))
-     (bytes-append
-       (map
-         (lambda ([addr : Address])
-           (case (rb-tree-infimum symbol-map addr)
-             [(nothing)
-              #"No function\n"]
-             [(just (tuple2 (address function-start) name))
-              (match-define (address v) addr)
-              (bytes-append
-                (varargs list
-                  #"["
-                  (integer->hex-bytes v)
-                  #"] "
-                  name #"+" (integer->decimal-bytes (- v function-start))
-                  #"\n")) ]))
-         (read-return-addresses ss)))]))
+     (right
+       (stack-trace
+         (map
+           (lambda ([addr : Address])
+             (match-define (address addr-v) addr)
+             (case (rb-tree-infimum symbol-map addr)
+               [(nothing)
+                (stack-frame addr-v (nothing))]
+               [(just (tuple2 (address function-start) name))
+                (stack-frame
+                  addr-v
+                  (just (frame-function-info name function-start)))]))
+           (read-return-addresses ss))))]))
