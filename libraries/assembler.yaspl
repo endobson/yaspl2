@@ -17,24 +17,19 @@
 }
 (export
   (#:values assemble-text-section assemble-const-section))
-(types
-  (define-type EMCCommand
-    (emc-mc [command : MCCommand])
-    (emc-global-symbol [name : Bytes])
-    (emc-align [alignment : Int])
-    (emc-local-symbol [name : Bytes])))
+(types)
 
-(define (fragments->mc-commands [fragments : (List TextFragment)]) : (List EMCCommand)
+(define (fragments->mc-commands [fragments : (List TextFragment)]) : (List MCCommand)
   (jl->list
     (concat-map-jl/list
-      (lambda ([fragment : TextFragment]) : (JoinList EMCCommand)
+      (lambda ([fragment : TextFragment]) : (JoinList MCCommand)
         (case fragment
           [(function-fragment fun-name sections)
            (match-define referenced-labels (sections->referenced-labels sections))
            (cons-jl
-             (emc-align 4) ;; Align to 16 bytes
+             (mc-align 4) ;; Align to 16 bytes
              (cons-jl
-               (emc-global-symbol fun-name)
+               (mc-global-symbol fun-name)
                (concat-map-jl/list
                  (lambda ([s : Section])
                    (case s
@@ -44,11 +39,11 @@
                           (case bb
                            [(basic-block block-name instructions)
                             (match-define commands
-                               (map-jl emc-mc (concat-map-jl instruction->mc-commands instructions)))
+                              (concat-map-jl instruction->mc-commands instructions))
                             (if (or (bytes=? block-name fun-name)
                                     (not (set-member? referenced-labels block-name)))
                                 commands
-                                (cons-jl (emc-local-symbol block-name) commands))]))
+                                (cons-jl (mc-local-symbol block-name) commands))]))
                         blocks)]))
                  sections)))]))
       fragments)))
@@ -106,7 +101,7 @@
        (apply-local-text-relocations relocs symbols text))]))
 
 (define (text-section-fold
-          [commands : (List EMCCommand)]
+          [commands : (List MCCommand)]
           [rev-global-symbols : (List DefinedSymbol)]
           [rev-local-symbols : (List DefinedSymbol)]
           [reversed-contents : (List Bytes)]
@@ -115,7 +110,7 @@
           [relocations : (List (Relocation AbstractRelocationKind))])
   : (ProgramSection AbstractRelocationKind)
   (case commands
-    [(cons (emc-mc (mc-bytes bytes)) commands)
+    [(cons (mc-bytes bytes) commands)
      (text-section-fold
        commands
        rev-global-symbols
@@ -124,7 +119,7 @@
        (+ offset (bytes-length bytes))
        max-alignment
        relocations)]
-    [(cons (emc-mc (mc-branch-relocation symbol)) commands)
+    [(cons (mc-branch-relocation symbol) commands)
      (text-section-fold
        commands
        rev-global-symbols
@@ -133,7 +128,7 @@
        (+ offset 4)
        max-alignment
        (cons (relocation (branch-relocation) offset symbol) relocations))]
-    [(cons (emc-mc (mc-call-relocation symbol)) commands)
+    [(cons (mc-call-relocation symbol) commands)
      (text-section-fold
        commands
        rev-global-symbols
@@ -142,7 +137,7 @@
        (+ offset 4)
        max-alignment
        (cons (relocation (call-relocation) offset symbol) relocations))]
-    [(cons (emc-mc (mc-load-relocation symbol)) commands)
+    [(cons (mc-load-relocation symbol) commands)
      (text-section-fold
        commands
        rev-global-symbols
@@ -151,7 +146,7 @@
        (+ offset 4)
        max-alignment
        (cons (relocation (load-relocation) offset symbol) relocations))]
-    [(cons (emc-global-symbol symbol) commands)
+    [(cons (mc-global-symbol symbol) commands)
      (text-section-fold
        commands
        (cons (defined-symbol symbol offset) rev-global-symbols)
@@ -160,7 +155,7 @@
        offset
        max-alignment
        relocations)]
-    [(cons (emc-local-symbol symbol) commands)
+    [(cons (mc-local-symbol symbol) commands)
      (text-section-fold
        commands
        rev-global-symbols
@@ -169,7 +164,7 @@
        offset
        max-alignment
        relocations)]
-    [(cons (emc-align alignment) commands)
+    [(cons (mc-align alignment) commands)
      (match-define aligned-offset (round-up offset (logical-shift-left 1 alignment)))
      (match-define reversed-contents
        (if (= aligned-offset offset)
