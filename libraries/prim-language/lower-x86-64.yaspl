@@ -12,6 +12,7 @@
     {#:types
       [BasicBlock l:BasicBlock]
       [FunctionDefinition l:FunctionDefinition]
+      [FunctionKind l:FunctionKind]
       [Instruction l:Instruction]
       [PointerOffsetScale l:PointerOffsetScale]
       [Terminal l:Terminal]
@@ -89,6 +90,7 @@
       [BasicBlock r:BasicBlock]
       [CallingConvention r:CallingConvention]
       [FunctionDefinition r:FunctionDefinition]
+      [FunctionKind r:FunctionKind]
       [Instruction r:Instruction]
       [PointerOffsetScale r:PointerOffsetScale]
       [Terminal r:Terminal]
@@ -616,27 +618,17 @@
      (tuple3 (empty) (ann-term (l:halt)) acc)]
     [(extended-terminal (r:tail-call f args))
      (match-define (tuple2 arg-insts arg-regs) (put-arguments-in-registers args))
+     (match-define (tuple2 kind-insts lowered-kind) (lower-function-kind f))
      (tuple3
        (append
          (append
            arg-insts
            (append
-             (case f
-               [(r:direct-call _) (empty)]
-               [(r:indirect-function-call _) (empty)]
-               [(r:closure-call c)
-                (varargs list (l:move (fixed-reg (r11)) (temporary-reg c)))]
-               [(r:syscall n) (varargs list (l:int-literal (fixed-reg (rax)) n))])
+             kind-insts
              (load-saved-registers saved-registers)))
          (varargs list
            (l:move (fixed-reg (rsp)) (fixed-reg (rbp)))))
-       (l:tail-call
-         (case f
-           [(r:direct-call f) (l:direct-call f)]
-           [(r:indirect-function-call f) (l:indirect-function-call (temporary-reg f))]
-           [(r:closure-call _) (l:closure-call (fixed-reg (r11)))]
-           [(r:syscall _) (l:syscall (fixed-reg (rax)))])
-         arg-regs)
+       (l:tail-call lowered-kind arg-regs)
        acc)]
     [(extended-terminal (r:jump (r:jump-target index args)))
      (tuple3
@@ -768,6 +760,22 @@
          (l:move (temporary-reg var) (fixed-reg reg))]))
     pairs))
 
+(define (lower-function-kind [f : r:FunctionKind])
+  : (Tuple2 (List (l:Instruction Reg)) (l:FunctionKind Reg))
+  (case f
+    [(r:direct-call f)
+     (tuple2 (empty) (l:direct-call f))]
+    [(r:indirect-function-call f)
+     (tuple2 (empty) (l:indirect-function-call (temporary-reg f)))]
+    [(r:closure-call c)
+     (tuple2
+       (varargs list (l:move (fixed-reg (r11)) (temporary-reg c)))
+       (l:closure-call (fixed-reg (r11))))]
+    [(r:syscall n)
+     (tuple2
+       (varargs list (l:int-literal (fixed-reg (rax)) n))
+       (l:syscall (fixed-reg (rax))))]))
+
 (define (lower-extended-instruction [i : ExtendedInstruction]) : (List (l:Instruction Reg))
   (case i
     [(extended-instruction i) (lower-register-instruction i)]
@@ -887,23 +895,15 @@
        (l:compare-memory (temporary-reg output) (fixed-reg (rcx)) (fixed-reg (rdi)) (fixed-reg (rsi))))]
     [(r:function-call-inst output f args)
      (match-define (tuple2 arg-insts arg-regs) (put-arguments-in-registers args))
+     (match-define (tuple2 kind-insts lowered-kind) (lower-function-kind f))
      (append
        arg-insts
        (append
-         (case f
-           [(r:direct-call _) (empty)]
-           [(r:indirect-function-call _) (empty)]
-           [(r:closure-call c)
-            (varargs list (l:move (fixed-reg (r11)) (temporary-reg c)))]
-           [(r:syscall n) (varargs list (l:int-literal (fixed-reg (rax)) n))])
+         kind-insts
          (varargs list
            (l:function-call-inst
              (fixed-reg (rax))
-             (case f
-               [(r:direct-call f) (l:direct-call f)]
-               [(r:indirect-function-call f) (l:indirect-function-call (temporary-reg f))]
-               [(r:closure-call _) (l:closure-call (fixed-reg (r11)))]
-               [(r:syscall _) (l:syscall (fixed-reg (rax)))])
+             lowered-kind
              arg-regs
              (call-conflicts))
            (l:move (temporary-reg output) (fixed-reg (rax))))))]))
