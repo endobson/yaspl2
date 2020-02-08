@@ -281,6 +281,9 @@
       (r10)
       (r11))))
 
+(define (call-argument-registers) : (List X8664Register)
+  (varargs list (rdi) (rsi) (rdx) (rcx) (r8) (r9)))
+
 
 (define (reg->bytes [reg : Reg]) : Bytes
   (case reg
@@ -462,7 +465,7 @@
                           [blocks : (IndexedSet ExtendedBasicBlock BlockNumber)]
                           [saved-registers : SavedRegisters])
   : (l:BasicBlock Reg)
-  (match-define arg-registers (varargs list (rdi) (rsi) (rdx) (rcx) (r8) (r9)))
+  (match-define arg-registers (call-argument-registers))
   (match-define overflow-arg-register (rax))
   (match-define save-register-instructions
     (save-saved-registers saved-registers))
@@ -612,8 +615,7 @@
     [(extended-terminal (r:halt))
      (tuple3 (empty) (ann-term (l:halt)) acc)]
     [(extended-terminal (r:tail-call f args))
-     (match-define (tuple2 arg-insts arg-regs)
-       (put-arguments-in-registers args (varargs list (rdi) (rsi) (rdx) (rcx) (r8) (r9))))
+     (match-define (tuple2 arg-insts arg-regs) (put-arguments-in-registers args))
      (tuple3
        (append
          (append
@@ -705,7 +707,11 @@
        (tuple2 (next-block-number (next-block-number next-block)) new-acc-blocks))]))
 
 ;; TODO make this not use the heap so that it can be used from the GC system
-(define (put-arguments-in-registers
+(define (put-arguments-in-registers [args : (List Var)])
+  : (Tuple2 (List (l:Instruction Reg)) (List Reg))
+  (put-arguments-in-registers* args (call-argument-registers)))
+
+(define (put-arguments-in-registers*
           [args : (List Var)]
           [regs : (List X8664Register)]) :
   (Tuple2 (List (l:Instruction Reg)) (List Reg))
@@ -726,7 +732,7 @@
      (case args
        [(empty) (tuple2 (empty) (empty))]
        [(cons arg args)
-        (case (put-arguments-in-registers args regs)
+        (case (put-arguments-in-registers* args regs)
           [(tuple2 arg-insts arg-regs)
            (tuple2
              (cons (l:move (fixed-reg reg) (temporary-reg arg)) arg-insts)
@@ -880,8 +886,7 @@
        (l:move (fixed-reg (rsi)) (temporary-reg v2))
        (l:compare-memory (temporary-reg output) (fixed-reg (rcx)) (fixed-reg (rdi)) (fixed-reg (rsi))))]
     [(r:function-call-inst output f args)
-     (match-define (tuple2 arg-insts arg-regs)
-       (put-arguments-in-registers args (varargs list (rdi) (rsi) (rdx) (rcx) (r8) (r9))))
+     (match-define (tuple2 arg-insts arg-regs) (put-arguments-in-registers args))
      (append
        arg-insts
        (append
