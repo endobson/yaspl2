@@ -11,6 +11,7 @@
   {(lowered-register-language)
     {#:types
       [BasicBlock l:BasicBlock]
+      [BlockMap l:BlockMap]
       [FunctionDefinition l:FunctionDefinition]
       [FunctionKind l:FunctionKind]
       [Instruction l:Instruction]
@@ -20,6 +21,7 @@
     }
     {#:values
       [basic-block l:basic-block]
+      [block-map-blocks l:block-map-blocks]
       [boolean-not l:boolean-not]
       [closure-call l:closure-call]
       [compare-mem-arg-ptr l:compare-mem-arg-ptr]
@@ -71,6 +73,10 @@
       [truncate-unsigned-int64->unsigned-int8 l:truncate-unsigned-int64->unsigned-int8]
       [unvalidated-block-map-add-block l:unvalidated-block-map-add-block]
       [validate-block-map l:validate-block-map]
+    }
+    {#:patterns
+      [basic-block l:basic-block]
+      [tail-call l:tail-call]
     }
   }
   (maybe)
@@ -437,10 +443,17 @@
   (case (l:validate-block-map new-blocks)
     [(left msg) (panic msg)]
     [(right validated-new-blocks)
-     (l:function-definition name 0 validated-new-blocks)]))
+     ;; Reserve enough temporaries for extra arguments and tail calls to functions with large number
+     ;; of arguments.
+     (match-define num-arg-temporaries
+       (max 0
+         (- (max (calling-convention-num-args convention)
+                 (max-tail-call-num-args validated-new-blocks))
+            (length (call-argument-registers)))))
 
-(define (args/registers [args : (List Var)] [registers : (List X8664Register)]
-                        [overflow-register : X8664Register])
+     (l:function-definition name num-arg-temporaries validated-new-blocks)]))
+
+(define (args/registers [args : (List Var)] [registers : (List X8664Register)])
   : (List (l:Instruction Reg))
   (case (zip/variable registers args)
     [(tuple2 paired-args leftover-args)
@@ -452,16 +465,14 @@
          paired-args)
        (map/indexed
          (lambda ([arg : Var] [index : Int])
-           (l:load-8byte (temporary-reg arg) (fixed-reg overflow-register) (* index 8)))
+           (l:load-8byte (temporary-reg arg) (fixed-reg (rbp)) (- 0 (* (+ index 1) 8))))
          leftover-args))]))
-
 
 (define (make-entry-block [convention : r:CallingConvention]
                           [blocks : (IndexedSet ExtendedBasicBlock BlockNumber)]
                           [saved-registers : SavedRegisters])
   : (l:BasicBlock Reg)
   (match-define arg-registers (call-argument-registers))
-  (match-define overflow-arg-register (rax))
   (match-define save-register-instructions
     (save-saved-registers saved-registers))
   (case convention
@@ -472,7 +483,7 @@
         (l:basic-block
           (append
             save-register-instructions
-            (args/registers args arg-registers overflow-arg-register))
+            (args/registers args arg-registers))
           (l:jump entry-block-num))])]
     [(r:closure-convention num-args entry-block-num num-free-vars)
      (case (indexed-set-ref blocks entry-block-num)
@@ -482,7 +493,7 @@
           (append
             save-register-instructions
             (append
-              (args/registers (take num-args args) arg-registers overflow-arg-register)
+              (args/registers (take num-args args) arg-registers)
               (case (zip (drop num-args args)
                          (build-list num-free-vars (lambda ([x : Int]) (lifted-int (* 8 (+ x 2))))))
                 [(nothing) (panic #"Wrong number of free vars")]
@@ -494,6 +505,27 @@
                         (l:load-8byte (temporary-reg v) (fixed-reg (r11)) offset)]))
                    free-vars+offsets)])))
           (l:jump entry-block-num))])]))
+
+(define (calling-convention-num-args [convention : r:CallingConvention])
+  : Int
+  (case convention
+    [(r:plain-function-convention num-args _)
+     num-args]
+    [(r:closure-convention num-args _ _)
+     num-args]))
+
+(define (max-tail-call-num-args [blocks : (l:BlockMap Reg)]) : Int
+  (case
+    (dict-fold
+      (l:block-map-blocks blocks)
+      (lambda ([num : BlockNumber] [b : (l:BasicBlock Reg)] [acc : LiftedInt])
+        (case b
+          [(l:basic-block _ (l:tail-call _ args))
+           (match-define (lifted-int acc-int) acc)
+           (lifted-int (max acc-int (length args)))]
+          [_ acc]))
+      (lifted-int 0))
+    [(lifted-int v) v]))
 
 (define (compute-saved-registers [next-var : VarNumber])
   : (Tuple2 SavedRegisters VarNumber)
@@ -606,17 +638,19 @@
     [(extended-terminal (r:halt))
      (tuple3 (empty) (l:halt) acc)]
     [(extended-terminal (r:tail-call f args))
-     (match-define (tuple2 arg-insts arg-regs) (put-arguments-in-registers args))
+     ;; Start counting at 1 8bytes above current stack pointer as the
+     ;; value at the stack pointer is already in use.
+     (match-define (tuple2 arg-insts arg-regs) (put-arguments-in-registers args 1))
      (match-define (tuple2 kind-insts lowered-kind) (lower-function-kind f))
      (tuple3
        (append
+         (varargs list
+           (l:move (fixed-reg (rsp)) (fixed-reg (rbp))))
          (append
            arg-insts
            (append
              kind-insts
-             (load-saved-registers saved-registers)))
-         (varargs list
-           (l:move (fixed-reg (rsp)) (fixed-reg (rbp)))))
+             (load-saved-registers saved-registers))))
        (l:tail-call lowered-kind arg-regs)
        acc)]
     [(extended-terminal (r:jump (r:jump-target index args)))
@@ -687,23 +721,10 @@
          (next-block-number next-block))
        (tuple2 (next-block-number (next-block-number next-block)) new-acc-blocks))]))
 
-;; TODO make this not use the heap so that it can be used from the GC system
-(define (put-arguments-in-registers [args : (List Var)])
+(define (put-arguments-in-registers [args : (List Var)] [initial-offset : Int])
   : (Tuple2 (List (l:Instruction Reg)) (List Reg))
-  (put-arguments-in-registers* args (call-argument-registers)))
-
-(define (put-arguments-in-registers*
-          [args : (List Var)]
-          [regs : (List X8664Register)]) :
-  (Tuple2 (List (l:Instruction Reg)) (List Reg))
-  (match-define (tuple2 paired-args leftover-args) (zip/variable regs args))
-  (match-define overflow-register (rax))
-  (match-define used-regs
-    (map
-      (lambda ([t : (Tuple2 X8664Register Var)])
-        (match-define (tuple2 reg var) t)
-        (fixed-reg reg))
-      paired-args))
+  (match-define (tuple2 paired-args leftover-args)
+    (zip/variable (call-argument-registers) args))
   (tuple2
     (append
       (map
@@ -711,20 +732,16 @@
           (match-define (tuple2 reg arg) t)
           (l:move (fixed-reg reg) (temporary-reg arg)))
         paired-args)
-      (case leftover-args
-        [(empty) (empty)]
-        [_
-         (cons
-           (l:int-literal (fixed-reg overflow-register) (* 8 (length leftover-args)))
-           (cons
-             (heap-allocate)
-             (map/indexed
-               (lambda ([arg : Var] [index : Int])
-                 (l:store-8byte (fixed-reg overflow-register) (* index 8) (temporary-reg arg)))
-               leftover-args)))]))
-    (case leftover-args
-      [(empty) used-regs]
-      [_ (cons (fixed-reg overflow-register) used-regs)])))
+      (map/indexed
+        (lambda ([arg : Var] [index : Int])
+          (l:store-8byte (fixed-reg (rsp)) (- 0 (* (+ initial-offset index) 8))
+                         (temporary-reg arg)))
+        leftover-args))
+    (map
+      (lambda ([t : (Tuple2 X8664Register Var)])
+        (match-define (tuple2 reg _var) t)
+        (fixed-reg reg))
+      paired-args)))
 
 (define (load-saved-registers [s : SavedRegisters]) : (List (l:Instruction Reg))
   (match-define (saved-registers pairs) s)
@@ -878,7 +895,9 @@
        (l:move (fixed-reg (rsi)) (temporary-reg v2))
        (l:compare-memory (temporary-reg output) (fixed-reg (rcx)) (fixed-reg (rdi)) (fixed-reg (rsi))))]
     [(r:function-call-inst output f args)
-     (match-define (tuple2 arg-insts arg-regs) (put-arguments-in-registers args))
+     ;; Start counting at 3 8bytes above current stack pointer to account for
+     ;; the RSP and RBP pushed during function call/entry code.
+     (match-define (tuple2 arg-insts arg-regs) (put-arguments-in-registers args 3))
      (match-define (tuple2 kind-insts lowered-kind) (lower-function-kind f))
      (append
        arg-insts
