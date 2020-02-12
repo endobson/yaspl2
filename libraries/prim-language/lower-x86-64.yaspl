@@ -442,25 +442,18 @@
 (define (args/registers [args : (List Var)] [registers : (List X8664Register)]
                         [overflow-register : X8664Register])
   : (List (l:Instruction Reg))
-  (case registers
-    [(empty)
-     (args/extra-registers args 0 overflow-register)]
-    [(cons reg registers)
-     (case args
-       [(empty) (empty)]
-       [(cons arg args)
-        (cons
-          (l:move (temporary-reg arg) (fixed-reg reg))
-          (args/registers args registers overflow-register))])]))
-
-(define (args/extra-registers [args : (List Var)] [offset : Int] [overflow-register : X8664Register])
-  : (List (l:Instruction Reg))
-  (case args
-    [(empty) (empty)]
-    [(cons arg args)
-     (cons
-       (l:load-8byte (temporary-reg arg) (fixed-reg overflow-register) offset)
-       (args/extra-registers args (+ offset 8) overflow-register))]))
+  (case (zip/variable registers args)
+    [(tuple2 paired-args leftover-args)
+     (append
+       (map
+         (lambda ([t : (Tuple2 X8664Register Var)])
+           (match-define (tuple2 reg arg) t)
+           (l:move (temporary-reg arg) (fixed-reg reg)))
+         paired-args)
+       (map/indexed
+         (lambda ([arg : Var] [index : Int])
+           (l:load-8byte (temporary-reg arg) (fixed-reg overflow-register) (* index 8)))
+         leftover-args))]))
 
 
 (define (make-entry-block [convention : r:CallingConvention]
@@ -707,40 +700,35 @@
           [args : (List Var)]
           [regs : (List X8664Register)]) :
   (Tuple2 (List (l:Instruction Reg)) (List Reg))
-  (case regs
-    [(empty)
-     (match-define overflow-register (rax))
-     (case args
-       [(empty) (tuple2 (empty) (empty))]
-       [_
-         (tuple2
+  (match-define (tuple2 paired-args leftover-args) (zip/variable regs args))
+  (match-define overflow-register (rax))
+  (match-define used-regs
+    (map
+      (lambda ([t : (Tuple2 X8664Register Var)])
+        (match-define (tuple2 reg var) t)
+        (fixed-reg reg))
+      paired-args))
+  (tuple2
+    (append
+      (map
+        (lambda ([t : (Tuple2 X8664Register Var)])
+          (match-define (tuple2 reg arg) t)
+          (l:move (fixed-reg reg) (temporary-reg arg)))
+        paired-args)
+      (case leftover-args
+        [(empty) (empty)]
+        [_
+         (cons
+           (l:int-literal (fixed-reg overflow-register) (* 8 (length leftover-args)))
            (cons
-             (l:int-literal (fixed-reg overflow-register) (* 8 (length args)))
-             (cons
-               (heap-allocate)
-               (put-arguments-in-memory args 0 overflow-register)))
-           (cons (fixed-reg overflow-register) (empty)))])]
-    [(cons reg regs)
-     (case args
-       [(empty) (tuple2 (empty) (empty))]
-       [(cons arg args)
-        (case (put-arguments-in-registers* args regs)
-          [(tuple2 arg-insts arg-regs)
-           (tuple2
-             (cons (l:move (fixed-reg reg) (temporary-reg arg)) arg-insts)
-             (cons (fixed-reg reg) arg-regs))])])]))
-
-(define (put-arguments-in-memory
-          [args : (List Var)]
-          [offset : Int]
-          [overflow-register : X8664Register]) :
-  (List (l:Instruction Reg))
-  (case args
-    [(empty) (empty)]
-    [(cons arg args)
-     (cons
-       (l:store-8byte (fixed-reg overflow-register) offset (temporary-reg arg))
-       (put-arguments-in-memory args (+ offset 8) overflow-register))]))
+             (heap-allocate)
+             (map/indexed
+               (lambda ([arg : Var] [index : Int])
+                 (l:store-8byte (fixed-reg overflow-register) (* index 8) (temporary-reg arg)))
+               leftover-args)))]))
+    (case leftover-args
+      [(empty) used-regs]
+      [_ (cons (fixed-reg overflow-register) used-regs)])))
 
 (define (load-saved-registers [s : SavedRegisters]) : (List (l:Instruction Reg))
   (match-define (saved-registers pairs) s)
