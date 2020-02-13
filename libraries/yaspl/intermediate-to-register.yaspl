@@ -33,6 +33,7 @@
       basic-block-number
       [bin-op-inst r:bin-op-inst]
       boolean-not
+      [closure-allocate-inst r:closure-allocate-inst]
       closure-call
       closure-convention
       compare-mem-arg-val
@@ -45,7 +46,6 @@
       [function-call-inst r:function-call-inst]
       [function-definition r:function-definition]
       [halt r:halt]
-      [heap-allocate-inst/static r:heap-allocate-inst/static]
       [int-literal r:int-literal]
       [jump r:jump]
       jump-target
@@ -290,16 +290,16 @@
     [(create-closure-expr name exprs)
      (match-define symbol (mangle-top-level-name name))
      (match-define (tuple2 closure-var acc) (fresh-var acc #"clos"))
+     (match-define (tuple2 descriptor-var acc) (fresh-var acc #"desc"))
      (match-define (tuple2 symbol-var acc) (fresh-var acc #"sym"))
      (match-define (tuple2 value-vars acc) (convert-exprs exprs env acc))
      (match-define acc
        (add-instructions
          acc
          (varargs list
-           (r:heap-allocate-inst/static closure-var (s32 (* (+ 2 (length exprs)) 8)))
+           (r:int-literal descriptor-var 0)
            (r:symbol-address-inst symbol-var symbol)
-           (r:pointer-set!-inst (eight-byte-mem-op) closure-var (fixed-pointer-offset 8) symbol-var))))
-     (match-define acc (fill-array closure-var 16 value-vars acc))
+           (r:closure-allocate-inst closure-var (cons descriptor-var (cons symbol-var value-vars))))))
      (tuple2 closure-var acc)]
     [(make-variant-expr (variant-construction-info tag descriptor-name indices) fields)
      (match-define (tuple2 variant-var acc) (fresh-var acc #"variant"))
@@ -488,20 +488,6 @@
         (match-define (tuple2 fresh-var acc) (fresh-var2 acc field-var))
         (match-define acc (add-instruction acc (r:variant-ref-inst fresh-var val runtime-index)))
         (extract-fields* val info (+ 1 index) field-vars (env-set env field-var fresh-var) acc)])]))
-
-(define (fill-array [base : Var] [offset : Int] [vars : (List Var)]
-                    [acc : Accumulator]) : Accumulator
-  (case vars
-    [(empty) acc]
-    [(cons var vars)
-     (fill-array
-       base
-       (+ offset 8)
-       vars
-       (add-instruction
-         acc
-         (r:pointer-set!-inst (eight-byte-mem-op) base (fixed-pointer-offset offset) var)))]))
-
 
 (define (convert-begin [exprs : (List Expression)] [env : Environment] [acc : Accumulator])
   : Accumulator
