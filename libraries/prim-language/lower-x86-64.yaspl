@@ -107,6 +107,7 @@
     {#:patterns
       [basic-block r:basic-block]
       [bin-op-inst r:bin-op-inst]
+      [block-call r:block-call]
       [boolean-not r:boolean-not]
       [closure-allocate-inst r:closure-allocate-inst]
       [closure-call r:closure-call]
@@ -122,7 +123,6 @@
       [eight-byte-scale r:eight-byte-scale]
       [fixed-pointer-offset r:fixed-pointer-offset]
       [function-allocate-inst r:function-allocate-inst]
-      [function-call-inst r:function-call-inst]
       [function-definition r:function-definition]
       [halt r:halt]
       [indirect-function-call r:indirect-function-call]
@@ -619,6 +619,15 @@
      (match-define (tuple2 args list) (move-args/dict* (dict-remove args src) src2 list))
      (tuple2 args (cons (l:move (temporary-reg src) (temporary-reg src2)) list))]))
 
+(define (find-block-arg [index : BlockNumber] 
+                        [blocks : (IndexedSet ExtendedBasicBlock BlockNumber)])
+  : Var
+  (case (indexed-set-ref blocks index)
+    [(just (extended-basic-block _ (cons arg (empty)) _ _))
+     arg]
+    [(nothing) (panic #"No block")]
+    [_ (panic #"Block has more than one arg block")]))
+
 (define (lower-extended-terminal
           [t : ExtendedTerminal]
           [blocks : (IndexedSet ExtendedBasicBlock BlockNumber)]
@@ -637,6 +646,25 @@
        acc)]
     [(extended-terminal (r:halt))
      (tuple3 (empty) (l:halt) acc)]
+    [(extended-terminal (r:block-call f args index))
+     ;; Start counting at 3 8bytes above current stack pointer to account for
+     ;; the RSP and RBP pushed during function call/entry code.
+     (match-define (tuple2 arg-insts arg-regs) (put-arguments-in-registers args 3))
+     (match-define (tuple2 kind-insts lowered-kind) (lower-function-kind f))
+     (tuple3
+       (append
+         arg-insts
+         (append
+           kind-insts
+           (varargs list
+             (l:function-call-inst
+               (fixed-reg (rax))
+               lowered-kind
+               arg-regs
+               (call-conflicts))
+             (l:move (temporary-reg (find-block-arg index blocks)) (fixed-reg (rax))))))
+       (l:jump index)
+       acc)]
     [(extended-terminal (r:tail-call f args))
      ;; Start counting at 1 8bytes above current stack pointer as the
      ;; value at the stack pointer is already in use.
@@ -898,24 +926,7 @@
        (l:move (fixed-reg (rcx)) (temporary-reg size))
        (l:move (fixed-reg (rdi)) (temporary-reg v1))
        (l:move (fixed-reg (rsi)) (temporary-reg v2))
-       (l:compare-memory (temporary-reg output) (fixed-reg (rcx)) (fixed-reg (rdi)) (fixed-reg (rsi))))]
-    [(r:function-call-inst output f args)
-     ;; Start counting at 3 8bytes above current stack pointer to account for
-     ;; the RSP and RBP pushed during function call/entry code.
-     (match-define (tuple2 arg-insts arg-regs) (put-arguments-in-registers args 3))
-     (match-define (tuple2 kind-insts lowered-kind) (lower-function-kind f))
-     (append
-       arg-insts
-       (append
-         kind-insts
-         (varargs list
-           (l:function-call-inst
-             (fixed-reg (rax))
-             lowered-kind
-             arg-regs
-             (call-conflicts))
-           (l:move (temporary-reg output) (fixed-reg (rax))))))]))
-
+       (l:compare-memory (temporary-reg output) (fixed-reg (rcx)) (fixed-reg (rdi)) (fixed-reg (rsi))))]))
 
 (define (extend-blocks [b : (IndexedSet r:BasicBlock BlockNumber)])
   : (IndexedSet ExtendedBasicBlock BlockNumber)

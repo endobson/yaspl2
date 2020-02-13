@@ -32,6 +32,7 @@
     {#:values
       basic-block-number
       [bin-op-inst r:bin-op-inst]
+      [block-call r:block-call]
       boolean-not
       [closure-allocate-inst r:closure-allocate-inst]
       closure-call
@@ -43,7 +44,6 @@
       direct-call
       eight-byte-mem-op
       fixed-pointer-offset
-      [function-call-inst r:function-call-inst]
       [function-definition r:function-definition]
       [halt r:halt]
       [int-literal r:int-literal]
@@ -169,31 +169,25 @@
      (match-define (tuple2 closure-var acc) (convert-expr op env acc))
      (match-define (tuple2 arg-vars acc) (convert-exprs args env acc))
      (match-define (tuple2 result-var acc) (fresh-var acc #"res"))
-     (if tail-position
-         (case (fresh-block-number acc)
-           [(tuple2 dead-block-num acc)
-            (match-define acc (add-terminal acc (r:tail-call (closure-call closure-var) arg-vars)))
-            ;; This result var is unscoped but should never be used.
-            (tuple2 result-var (start-block dead-block-num (empty) acc))])
-         (tuple2
-           result-var
-           (add-instruction
-             acc
-             (r:function-call-inst result-var (closure-call closure-var) arg-vars))))]
+     (match-define (tuple2 block-num acc) (fresh-block-number acc))
+     (match-define acc
+       (add-terminal acc
+                     (let ([fun (closure-call closure-var)])
+                       (if tail-position
+                           (r:tail-call fun arg-vars)
+                           (r:block-call fun arg-vars block-num)))))
+     (tuple2 result-var (start-block block-num (varargs list result-var) acc))]
     [(call-function-expr tail-position name args)
      (match-define (tuple2 arg-vars acc) (convert-exprs args env acc))
      (match-define (tuple2 result-var acc) (fresh-var acc #"res"))
-     (if tail-position
-         (case (fresh-block-number acc)
-           [(tuple2 dead-block-num acc)
-            (match-define acc
-              (add-terminal acc (r:tail-call (direct-call (mangle-top-level-name name)) arg-vars)))
-            (tuple2 result-var (start-block dead-block-num (varargs list result-var) acc))])
-         (tuple2
-           result-var
-           (add-instruction
-             acc
-             (r:function-call-inst result-var (direct-call (mangle-top-level-name name)) arg-vars))))]
+     (match-define (tuple2 block-num acc) (fresh-block-number acc))
+     (match-define acc
+       (add-terminal acc
+                     (let ([fun (direct-call (mangle-top-level-name name))])
+                       (if tail-position
+                           (r:tail-call fun arg-vars)
+                           (r:block-call fun arg-vars block-num)))))
+     (tuple2 result-var (start-block block-num (varargs list result-var) acc))]
     [(prim-numeric-bin-op op left right)
      (match-define (tuple2 left-var acc) (convert-expr left env acc))
      (match-define (tuple2 right-var acc) (convert-expr right env acc))
