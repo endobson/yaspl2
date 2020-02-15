@@ -24,10 +24,11 @@ yaspl_binary(
         ":prim-language",
         ":prim-language-parser",
         ":prim-to-register",
+        ":print-assigned-register-language",
         ":print-lowered-register-language",
         ":print-register-language",
         ":register-language",
-        ":simplify-lowered-register-language",
+        ":simplify-assigned-register-language",
         ":simplify-register-language",
         ":spill-lowered-register-language",
         "//libraries:io",
@@ -75,6 +76,12 @@ yaspl_bootstrap_binary(
         "//libraries/data:maybe",
         "//libraries/yaspl:x86-64-assembly",
     ],
+)
+
+yaspl_bootstrap_library(
+    name = "assigned-register-language",
+    srcs = ["assigned-register-language.yaspl"],
+    deps = [":lowered-register-language"],
 )
 
 yaspl_bootstrap_library(
@@ -127,6 +134,7 @@ yaspl_bootstrap_library(
     name = "color-lowered-register-language",
     srcs = ["color-lowered-register-language.yaspl"],
     deps = [
+        ":assigned-register-language",
         ":block-number",
         ":color-graph",
         ":lower-x86-64",
@@ -221,12 +229,12 @@ yaspl_bootstrap_library(
 )
 
 yaspl_bootstrap_library(
-    name = "lowered-register-language-to-x86-64",
-    srcs = ["lowered-register-language-to-x86-64.yaspl"],
+    name = "assigned-register-language-to-x86-64",
+    srcs = ["assigned-register-language-to-x86-64.yaspl"],
     deps = [
+        ":assigned-register-language",
         ":block-number",
         ":lower-x86-64",
-        ":lowered-register-language",
         "//libraries/data:bytes",
         "//libraries/data:dict",
         "//libraries/data:join-list",
@@ -311,6 +319,15 @@ yaspl_bootstrap_library(
         "//libraries/data:list",
         "//libraries/data:maybe",
         "//libraries/data:tuples",
+    ],
+)
+
+yaspl_library(
+    name = "print-assigned-register-language",
+    srcs = ["print-assigned-register-language.yaspl"],
+    deps = [
+        ":assigned-register-language",
+        ":print-lowered-register-language",
     ],
 )
 
@@ -402,13 +419,13 @@ yaspl_bootstrap_library(
     name = "register-language-compiler",
     srcs = ["register-language-compiler.yaspl"],
     deps = [
+        ":assigned-register-language-to-x86-64",
         ":color-lowered-register-language",
         ":lower-x86-64",
         ":lowered-register-language",
-        ":lowered-register-language-to-x86-64",
         ":register-language",
-        ":simplify-lowered-register-language",
-        ":simplify-lowered-register-language-x86-64",
+        ":simplify-assigned-register-language",
+        ":simplify-assigned-register-language-x86-64",
         "//libraries/data:dict",
         "//libraries/data:either",
         "//libraries/data:maybe",
@@ -431,11 +448,11 @@ yaspl_bootstrap_library(
 )
 
 yaspl_bootstrap_library(
-    name = "simplify-lowered-register-language",
-    srcs = ["simplify-lowered-register-language.yaspl"],
+    name = "simplify-assigned-register-language",
+    srcs = ["simplify-assigned-register-language.yaspl"],
     deps = [
+        ":assigned-register-language",
         ":block-number",
-        ":lowered-register-language",
         "//libraries/data:dict",
         "//libraries/data:either",
         "//libraries/data:list",
@@ -448,13 +465,13 @@ yaspl_bootstrap_library(
 )
 
 yaspl_bootstrap_library(
-    name = "simplify-lowered-register-language-x86-64",
-    srcs = ["simplify-lowered-register-language-x86-64.yaspl"],
+    name = "simplify-assigned-register-language-x86-64",
+    srcs = ["simplify-assigned-register-language-x86-64.yaspl"],
     deps = [
+        ":assigned-register-language",
         ":block-number",
         ":lower-x86-64",
         ":lowered-live-variables",
-        ":lowered-register-language",
         "//libraries/data:dict",
         "//libraries/data:either",
         "//libraries/data:list",
