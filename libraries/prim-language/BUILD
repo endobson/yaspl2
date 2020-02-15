@@ -17,10 +17,10 @@ yaspl_binary(
     srcs = ["prim-language-demo.yaspl"],
     deps = [
         ":color-graph",
+        ":color-lowered-register-language",
         ":lower-x86-64",
         ":lowered-live-variables",
         ":lowered-register-language",
-        ":lowered-register-language-to-x86-64",
         ":prim-language",
         ":prim-language-parser",
         ":prim-to-register",
@@ -124,6 +124,26 @@ yaspl_test(
 )
 
 yaspl_bootstrap_library(
+    name = "color-lowered-register-language",
+    srcs = ["color-lowered-register-language.yaspl"],
+    deps = [
+        ":block-number",
+        ":color-graph",
+        ":lower-x86-64",
+        ":lowered-live-variables",
+        ":lowered-register-language",
+        ":spill-lowered-register-language",
+        "//libraries/data:dict",
+        "//libraries/data:either",
+        "//libraries/data:list",
+        "//libraries/data:ordering",
+        "//libraries/data:tuples",
+        "//libraries/yaspl:math-operations",
+        "//libraries/yaspl:var",
+    ],
+)
+
+yaspl_bootstrap_library(
     name = "lower-x86-64",
     srcs = ["lower-x86-64.yaspl"],
     deps = [
@@ -209,11 +229,9 @@ yaspl_bootstrap_library(
         ":lowered-register-language",
         "//libraries/data:bytes",
         "//libraries/data:dict",
-        "//libraries/data:either",
         "//libraries/data:join-list",
         "//libraries/data:list",
         "//libraries/data:maybe",
-        "//libraries/data:ordering",
         "//libraries/yaspl:math-operations",
         "//libraries/yaspl:x86-64-assembly",
     ],
@@ -384,20 +402,17 @@ yaspl_bootstrap_library(
     name = "register-language-compiler",
     srcs = ["register-language-compiler.yaspl"],
     deps = [
-        ":color-graph",
+        ":color-lowered-register-language",
         ":lower-x86-64",
-        ":lowered-live-variables",
         ":lowered-register-language",
         ":lowered-register-language-to-x86-64",
         ":register-language",
         ":simplify-lowered-register-language",
         ":simplify-lowered-register-language-x86-64",
-        ":spill-lowered-register-language",
         "//libraries/data:dict",
         "//libraries/data:either",
         "//libraries/data:maybe",
         "//libraries/data:tuples",
-        "//libraries/yaspl:var",
         "//libraries/yaspl:x86-64-assembly",
     ],
 )

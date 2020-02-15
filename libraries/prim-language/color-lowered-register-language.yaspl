@@ -1,0 +1,70 @@
+#:module (color-lowered-register-language)
+#:import {
+  (block-number)
+  (color-graph)
+  (data ordering)
+  (dict)
+  (either)
+  (list)
+  (lower-x86-64)
+  (lowered-live-variables)
+  (lowered-register-language)
+  (prim)
+  (spill-lowered-register-language)
+  (tuples)
+  (yaspl math-operations)
+  (yaspl var)
+}
+(export
+  (#:types )
+  (#:values color-function assign-registers)
+  (#:patterns ))
+(types)
+
+(define (color-function [f : (FunctionDefinition Reg)])
+  : (Tuple2 (FunctionDefinition Reg) (Dict Var X8664Register))
+  (let ([live (live-variables f reg-cmp)])
+    (let ([live-outs (blocks->live-out-states live)])
+      (case (color-graph (initial-state live-outs))
+        [(left vs)
+         (color-function (spill-variables f vs))]
+        [(right assignments)
+         (tuple2 f assignments)]))))
+
+(define (assign-registers [f : (FunctionDefinition Reg)] [assignment : (Reg -> X8664Register)])
+  : (AssignedRegistersFunctionDefinition X8664Register)
+  (match-define (function-definition name extra-temporaries blocks) f)
+
+  (assigned-registers-function-definition
+    name
+    (add-entry-block
+      (varargs list
+        (push (rbp))
+        (move (rbp) (rsp))
+        (numeric-op-immediate (rsp) (sub-op) (s32 (* extra-temporaries 8))))
+      (rename-registers/block-map blocks assignment))))
+
+(define [Reg] (add-entry-block [insts : (List (Instruction Reg))] [blocks : (BlockMap Reg)]) :
+  (BlockMap Reg)
+  (case (add-entry-block* insts blocks)
+    [(left v) (panic v)]
+    [(right v) v]))
+
+(define [Reg] (add-entry-block* [insts : (List (Instruction Reg))] [blocks : (BlockMap Reg)]) :
+  (Either Bytes (BlockMap Reg))
+  (let ([new-entry-block
+          (next-block-number
+            (dict-fold
+              (block-map-blocks blocks)
+              (lambda ([x : BlockNumber] [_b : (BasicBlock Reg)] [acc : BlockNumber])
+                (case (block-number-cmp x acc)
+                  [(greater-than) x]
+                  [_ acc]))
+              (block-map-entry-block blocks)))])
+    (validate-block-map
+      (unvalidated-block-map-add-block
+        (unvalidated-block-map-set-entry
+          (block-map->unvalidated-block-map blocks)
+          new-entry-block)
+        new-entry-block
+        (basic-block insts (jump (block-map-entry-block blocks)))))))
