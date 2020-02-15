@@ -2,10 +2,31 @@
 #:import {
   {(assigned-register-language)
     {#:types
+      [BasicBlock ar:BasicBlock]
+      [BlockMap ar:BlockMap]
       [FunctionDefinition ar:FunctionDefinition]
+      Instruction
+      [Terminal ar:Terminal]
+      [UnvalidatedBlockMap ar:UnvalidatedBlockMap]
     }
     {#:values
+      [basic-block ar:basic-block]
+      [cond-jump/false-fall-through ar:cond-jump/false-fall-through]
+      [empty-unvalidated-block-map ar:empty-unvalidated-block-map]
+      [fall-through ar:fall-through]
       [function-definition ar:function-definition]
+      [halt ar:halt]
+      [jump ar:jump]
+      move
+      numeric-op-immediate
+      push
+      [return ar:return]
+      [tail-call ar:tail-call]
+      [unvalidated-block-map-add-block ar:unvalidated-block-map-add-block]
+      [unvalidated-block-map-blocks ar:unvalidated-block-map-blocks]
+      [unvalidated-block-map-entry-block ar:unvalidated-block-map-entry-block]
+      [unvalidated-block-map-set-entry ar:unvalidated-block-map-set-entry]
+      [validate-block-map ar:validate-block-map]
     }
   }
   (block-number)
@@ -16,7 +37,32 @@
   (list)
   (lower-x86-64)
   (lowered-live-variables)
-  (lowered-register-language)
+  {(lowered-register-language)
+    {#:types
+      [BasicBlock l:BasicBlock]
+      [FunctionDefinition l:FunctionDefinition]
+      [Terminal l:Terminal]
+      [UnvalidatedBlockMap l:UnvalidatedBlockMap]
+    }
+    {#:values
+      [block-map->unvalidated-block-map l:block-map->unvalidated-block-map]
+      rename-registers/condition
+      rename-registers/function-kind
+      rename-registers/instruction
+      [unvalidated-block-map-blocks l:unvalidated-block-map-blocks]
+      [unvalidated-block-map-entry-block l:unvalidated-block-map-entry-block]
+    }
+    {#:patterns
+      [basic-block l:basic-block]
+      [cond-jump/false-fall-through l:cond-jump/false-fall-through]
+      [fall-through l:fall-through]
+      [function-definition l:function-definition]
+      [halt l:halt]
+      [jump l:jump]
+      [return l:return]
+      [tail-call l:tail-call]
+    }
+  }
   (prim)
   (spill-lowered-register-language)
   (tuples)
@@ -29,8 +75,8 @@
   (#:patterns ))
 (types)
 
-(define (color-function [f : (FunctionDefinition Reg)])
-  : (Tuple2 (FunctionDefinition Reg) (Dict Var X8664Register))
+(define (color-function [f : (l:FunctionDefinition Reg)])
+  : (Tuple2 (l:FunctionDefinition Reg) (Dict Var X8664Register))
   (let ([live (live-variables f reg-cmp)])
     (let ([live-outs (blocks->live-out-states live)])
       (case (color-graph (initial-state live-outs))
@@ -39,9 +85,9 @@
         [(right assignments)
          (tuple2 f assignments)]))))
 
-(define (assign-registers [f : (FunctionDefinition Reg)] [assignment : (Reg -> X8664Register)])
+(define (assign-registers [f : (l:FunctionDefinition Reg)] [assignment : (Reg -> X8664Register)])
   : (ar:FunctionDefinition X8664Register)
-  (match-define (function-definition name extra-temporaries blocks) f)
+  (match-define (l:function-definition name extra-temporaries blocks) f)
 
   (ar:function-definition
     name
@@ -50,29 +96,74 @@
         (push (rbp))
         (move (rbp) (rsp))
         (numeric-op-immediate (rsp) (sub-op) (s32 (* extra-temporaries 8))))
-      (rename-registers/block-map blocks assignment))))
+      (assign-registers/unvalidated-block-map
+        (l:block-map->unvalidated-block-map blocks)
+        assignment))))
 
-(define [Reg] (add-entry-block [insts : (List (Instruction Reg))] [blocks : (BlockMap Reg)]) :
-  (BlockMap Reg)
+(define [Reg] (add-entry-block [insts : (List (Instruction Reg))]
+                               [blocks : (ar:UnvalidatedBlockMap Reg)]) :
+  (ar:BlockMap Reg)
   (case (add-entry-block* insts blocks)
     [(left v) (panic v)]
     [(right v) v]))
 
-(define [Reg] (add-entry-block* [insts : (List (Instruction Reg))] [blocks : (BlockMap Reg)]) :
-  (Either Bytes (BlockMap Reg))
+(define [Reg] (add-entry-block* [insts : (List (Instruction Reg))]
+                                [blocks : (ar:UnvalidatedBlockMap Reg)]) :
+  (Either Bytes (ar:BlockMap Reg))
   (let ([new-entry-block
           (next-block-number
             (dict-fold
-              (block-map-blocks blocks)
-              (lambda ([x : BlockNumber] [_b : (BasicBlock Reg)] [acc : BlockNumber])
+              (ar:unvalidated-block-map-blocks blocks)
+              (lambda ([x : BlockNumber] [_b : (ar:BasicBlock Reg)] [acc : BlockNumber])
                 (case (block-number-cmp x acc)
                   [(greater-than) x]
                   [_ acc]))
-              (block-map-entry-block blocks)))])
-    (validate-block-map
-      (unvalidated-block-map-add-block
-        (unvalidated-block-map-set-entry
-          (block-map->unvalidated-block-map blocks)
+              (ar:unvalidated-block-map-entry-block blocks)))])
+    (ar:validate-block-map
+      (ar:unvalidated-block-map-add-block
+        (ar:unvalidated-block-map-set-entry
+          blocks
           new-entry-block)
         new-entry-block
-        (basic-block insts (jump (block-map-entry-block blocks)))))))
+        (ar:basic-block insts (ar:jump (ar:unvalidated-block-map-entry-block blocks)))))))
+
+(define [RegA RegB] (assign-registers/unvalidated-block-map
+                      [block-map : (l:UnvalidatedBlockMap RegA)]
+                      [rename : (RegA -> RegB)]) : (ar:UnvalidatedBlockMap RegB)
+  (dict-fold
+    (l:unvalidated-block-map-blocks block-map)
+    (lambda ([num : BlockNumber] [b : (l:BasicBlock RegA)] [acc : (ar:UnvalidatedBlockMap RegB)])
+      (ar:unvalidated-block-map-add-block acc num (assign-registers/block b rename)))
+    (ann
+      (ar:UnvalidatedBlockMap RegB)
+      (ar:empty-unvalidated-block-map
+        (l:unvalidated-block-map-entry-block block-map)))))
+
+(define [RegA RegB] (assign-registers/block
+                      [b : (l:BasicBlock RegA)]
+                      [rename : (RegA -> RegB)]) : (ar:BasicBlock RegB)
+  (match-define (l:basic-block instructions terminal) b)
+  (ar:basic-block
+    (map
+      (lambda ([i : (Instruction RegA)])
+        (rename-registers/instruction i rename))
+      instructions)
+    (assign-registers/terminal terminal rename)))
+
+
+(define [RegA RegB] (assign-registers/terminal
+                      [t : (l:Terminal RegA)]
+                      [rename : (RegA -> RegB)]) : (ar:Terminal RegB)
+  (case t
+    [(l:return r)
+     (ar:return (rename r))]
+    [(l:halt)
+     (ar:halt)]
+    [(l:tail-call f args)
+     (ar:tail-call (rename-registers/function-kind f rename) (map rename args))]
+    [(l:jump block)
+     (ar:jump block)]
+    [(l:fall-through block)
+     (ar:fall-through block)]
+    [(l:cond-jump/false-fall-through condition true false)
+     (ar:cond-jump/false-fall-through (rename-registers/condition condition rename) true false)]))

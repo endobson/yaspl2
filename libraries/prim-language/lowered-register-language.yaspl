@@ -3,7 +3,6 @@
   (block-number)
   (dict)
   (either)
-  (find-chains)
   (list)
   (maybe)
   (prim)
@@ -19,16 +18,15 @@
            PointerOffsetScale RegOrS32 RegOrS8)
   (#:values function-definition return jump cond-jump/false-fall-through move basic-block
             numeric-op-inst comparison-op-inst logical-op-inst int-literal basic-block-terminal
-            rename-registers/block-map
             rename-registers/instruction
-            function-definition-name terminal-next-blocks empty-unvalidated-block-map block-map-blocks
-            unvalidated-block-map-map unvalidated-block-map-map/acc
-            unvalidated-block-map-set-entry unvalidated-block-map-add-block
-            unvalidated-block-map-remove-block block-map->unvalidated-block-map
-            unvalidated-block-map-filter validate-block-map
-            fall-through block-map-block-chains block-map-predecessors block-map-fall-through
+            rename-registers/condition
+            rename-registers/function-kind
+            function-definition-name terminal-next-blocks empty-unvalidated-block-map
+            block-map-blocks unvalidated-block-map-blocks
+            unvalidated-block-map-map/acc unvalidated-block-map-add-block
+            block-map->unvalidated-block-map validate-block-map
             negated-reg-condition reg-condition comparison-condition
-            block-map-entry-block store-8byte store-8byte/scaled
+            unvalidated-block-map-entry-block block-map-entry-block store-8byte store-8byte/scaled
             store-8byte-repeated store-8byte/immediate load-8byte load-8byte/scaled push pop
             load-zero-extended-byte load-zero-extended-byte/scaled
             store-least-significant-byte store-least-significant-byte/scaled
@@ -161,29 +159,6 @@
   (define-type FixedUnaryOp
     (boolean-not)))
 
-(define [RegA RegB] (rename-registers/block-map
-                      [b : (BlockMap RegA)]
-                      [rename : (RegA -> RegB)]) : (BlockMap RegB)
-  (match-define (block-map entry-block blocks pred fall-through) b)
-  (block-map
-    entry-block
-    (dict-value-map
-      blocks
-      (lambda ([b : (BasicBlock RegA)]) (rename-registers/block b rename)))
-    pred
-    fall-through))
-
-(define [RegA RegB] (rename-registers/block
-                      [b : (BasicBlock RegA)]
-                      [rename : (RegA -> RegB)]) : (BasicBlock RegB)
-  (match-define (basic-block instructions terminal) b)
-  (basic-block
-    (map
-      (lambda ([i : (Instruction RegA)])
-        (rename-registers/instruction i rename))
-      instructions)
-    (rename-registers/terminal terminal rename)))
-
 (define [RegA RegB] (rename-registers/instruction
                       [i : (Instruction RegA)]
                       [rename : (RegA -> RegB)]) : (Instruction RegB)
@@ -261,30 +236,16 @@
     [(closure-call c) (closure-call (rename c))]
     [(syscall n) (syscall (rename n))]))
 
-(define [RegA RegB] (rename-registers/terminal
-                      [t : (Terminal RegA)]
-                      [rename : (RegA -> RegB)]) : (Terminal RegB)
-  (case t
-    [(return r)
-     (return (rename r))]
-    [(halt)
-     (halt)]
-    [(tail-call f args)
-     (tail-call (rename-registers/function-kind f rename) (map rename args))]
-    [(jump block)
-     (jump block)]
-    [(fall-through block)
-     (fall-through block)]
-    [(cond-jump/false-fall-through condition true false)
-     (cond-jump/false-fall-through
-       (case condition
-         [(reg-condition reg) (reg-condition (rename reg))]
-         [(negated-reg-condition reg) (negated-reg-condition (rename reg))]
-         [(comparison-condition op args)
-          (comparison-condition op (rename-registers/compare-args args rename))]
-         [(memory-compare-condition negated? size reg1 reg2)
-          (memory-compare-condition negated? (rename size) (rename reg1) (rename reg2))])
-       true false)]))
+(define [RegA RegB] (rename-registers/condition
+                      [condition : (Condition RegA)]
+                      [rename : (RegA -> RegB)]) : (Condition RegB)
+  (case condition
+    [(reg-condition reg) (reg-condition (rename reg))]
+    [(negated-reg-condition reg) (negated-reg-condition (rename reg))]
+    [(comparison-condition op args)
+     (comparison-condition op (rename-registers/compare-args args rename))]
+    [(memory-compare-condition negated? size reg1 reg2)
+     (memory-compare-condition negated? (rename size) (rename reg1) (rename reg2))]))
 
 (define [RegA RegB] (rename-registers/compare-args
                       [args : (CompareArgs RegA)]
@@ -331,12 +292,6 @@
                          (make-unique-dict block-number-cmp block-number-cmp)
                          (make-set-multi-dict block-number-cmp block-number-cmp)))
 
-(define [Reg] (unvalidated-block-map-set-entry [uv : (UnvalidatedBlockMap Reg)]
-                                               [entry-block : BlockNumber])
-  : (UnvalidatedBlockMap Reg)
-  (match-define (unvalidated-block-map _ blocks pred fall-through missing) uv)
-  (unvalidated-block-map entry-block blocks pred fall-through missing))
-
 (define [Reg] (unvalidated-block-map-add-block
                 [uv : (UnvalidatedBlockMap Reg)]
                 [index : BlockNumber]
@@ -376,47 +331,6 @@
                        (set-multi-dict-remove missing pred index))
                      missing)))))))]))
 
-(define [Reg] (unvalidated-block-map-remove-block
-                [uv : (UnvalidatedBlockMap Reg)]
-                [index : BlockNumber]) : (UnvalidatedBlockMap Reg)
-  (match-define (unvalidated-block-map entry-block blocks pred fall-through missing) uv)
-  (case (dict-ref blocks index)
-    [(nothing) (panic #"No existing block")]
-    [(just block)
-     (let ([next-blocks (terminal-next-blocks (basic-block-terminal block))])
-       (let ([new-blocks (dict-remove blocks index)])
-         (let ([new-predecessors
-                (set-fold
-                  next-blocks
-                  (lambda ([target : BlockNumber] [pred : (SetMultiDict BlockNumber BlockNumber)])
-                    (set-multi-dict-remove pred target index))
-                  pred)])
-         (unvalidated-block-map
-           entry-block
-           new-blocks
-           new-predecessors
-           (unique-dict-remove fall-through index)
-           (set-fold
-             (set-multi-dict-ref/empty new-predecessors index)
-             (lambda ([pred : BlockNumber] [missing : (SetMultiDict BlockNumber BlockNumber)])
-               (set-multi-dict-add missing pred index))
-             (set-fold
-               next-blocks
-               (lambda ([target : BlockNumber] [missing : (SetMultiDict BlockNumber BlockNumber)])
-                 (set-multi-dict-remove missing index target))
-               missing))))))]))
-
-
-(define [Reg] (unvalidated-block-map-map
-                [uv : (UnvalidatedBlockMap Reg)]
-                [f : (BlockNumber (BasicBlock Reg) -> (BasicBlock Reg))]) : (UnvalidatedBlockMap Reg)
-  (match-define (unvalidated-block-map entry-block blocks _ _ _) uv)
-  (dict-fold
-    blocks
-    (lambda ([index : BlockNumber] [block : (BasicBlock Reg)] [acc : (UnvalidatedBlockMap Reg)])
-      (unvalidated-block-map-add-block acc index (f index block)))
-    (ann (UnvalidatedBlockMap Reg) (empty-unvalidated-block-map entry-block))))
-
 (define [Reg Acc] (unvalidated-block-map-map/acc
                     [uv : (UnvalidatedBlockMap Reg)]
                     [f : (BlockNumber (BasicBlock Reg) Acc -> (Tuple2 (BasicBlock Reg) Acc))]
@@ -434,29 +348,6 @@
     (tuple2
       (ann (UnvalidatedBlockMap Reg) (empty-unvalidated-block-map entry-block))
       acc)))
-
-
-
-(define [Reg] (unvalidated-block-map-filter
-                [uv : (UnvalidatedBlockMap Reg)]
-                [f : (BlockNumber (BasicBlock Reg) -> Boolean)]) : (UnvalidatedBlockMap Reg)
-  (match-define (unvalidated-block-map _ blocks _ _ _) uv)
-  (dict-fold
-    blocks
-    (lambda ([index : BlockNumber] [block : (BasicBlock Reg)] [acc : (UnvalidatedBlockMap Reg)])
-      (if (f index block)
-          acc
-          (unvalidated-block-map-remove-block acc index)))
-    uv))
-
-(define [Reg] (block-map-block-chains [bm : (BlockMap Reg)]) : (List (List BlockNumber))
-  (match-define (block-map entry-block blocks _ fall-through) bm)
-  (sort
-    (find-chains (dict-keys blocks) fall-through)
-    (lambda ([chain-a : (List BlockNumber)] [_chain-b : (List BlockNumber)])
-      (case (findf (lambda ([elem : BlockNumber]) (block-number=? elem entry-block)) chain-a)
-        [(nothing) #f]
-        [(just _) #t]))))
 
 (define [Reg] (terminal-next-blocks [t : (Terminal Reg)]) : (Set BlockNumber)
   (set-add-all

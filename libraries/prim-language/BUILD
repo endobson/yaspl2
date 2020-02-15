@@ -81,7 +81,19 @@ yaspl_bootstrap_binary(
 yaspl_bootstrap_library(
     name = "assigned-register-language",
     srcs = ["assigned-register-language.yaspl"],
-    deps = [":lowered-register-language"],
+    deps = [
+        ":block-number",
+        ":lowered-register-language",
+        "//libraries/algorithms:find-chains",
+        "//libraries/data:dict",
+        "//libraries/data:either",
+        "//libraries/data:list",
+        "//libraries/data:maybe",
+        "//libraries/data:set",
+        "//libraries/data:set-multi-dict",
+        "//libraries/data:tuples",
+        "//libraries/data:unique-dict",
+    ],
 )
 
 yaspl_bootstrap_library(
@@ -196,7 +208,6 @@ yaspl_bootstrap_library(
     srcs = ["lowered-register-language.yaspl"],
     deps = [
         ":block-number",
-        "//libraries/algorithms:find-chains",
         "//libraries/data:dict",
         "//libraries/data:either",
         "//libraries/data:list",
@@ -327,7 +338,14 @@ yaspl_library(
     srcs = ["print-assigned-register-language.yaspl"],
     deps = [
         ":assigned-register-language",
+        ":block-number",
         ":print-lowered-register-language",
+        "//libraries/data:bytes",
+        "//libraries/data:dict",
+        "//libraries/data:join-list",
+        "//libraries/data:list",
+        "//libraries/data:numbers",
+        "//libraries/yaspl:math-operations",
     ],
 )
 
