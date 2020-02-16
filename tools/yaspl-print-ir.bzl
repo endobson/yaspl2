@@ -9,7 +9,7 @@ def _yaspl_print_ir_impl(target, ctx):
   input_signatures = target[yaspl_provider].input_signatures
 
   args = ctx.actions.args()
-  args.add(directory)
+  args.add(directory.path)
   args.add(src_file)
   args.add_all(input_signatures)
 
