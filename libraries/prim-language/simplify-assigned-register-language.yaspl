@@ -6,10 +6,11 @@
   (either)
   (list)
   (maybe)
+  (panic)
   (prim)
   (set)
   (set-multi-dict)
-  (unique-dict)
+  (tuples)
   (yaspl math-operations)
 }
 
@@ -176,43 +177,47 @@
      [(left msg) (panic msg)]
      [(right v) v]))
 
-(define [Reg] (construct-combined-block [prefix : (List (Instruction Reg))] [block : BlockNumber]
+
+(define [Reg] (construct-combined-block [index : BlockNumber]
                                         [blocks : (BlockMap Reg)]) : (BasicBlock Reg)
-  (case (dict-ref (block-map-blocks blocks) block)
+  (construct-combined-block* (empty) index blocks))
+
+(define [Reg] (construct-combined-block*
+                [prefix : (List (Instruction Reg))] [index : BlockNumber]
+                [blocks : (BlockMap Reg)]) : (BasicBlock Reg)
+  (case (dict-ref (block-map-blocks blocks) index)
     [(nothing) (panic #"Block not found")]
     [(just (basic-block next-insts term))
      (case term
        [(fall-through t)
         (if (= 1 (set-multi-dict-ref/count (block-map-predecessors blocks) t))
-            (construct-combined-block (append prefix next-insts) t blocks)
+            (construct-combined-block* (append prefix next-insts) t blocks)
             (basic-block (append prefix next-insts) term))]
        [_
         (basic-block (append prefix next-insts) term)])]))
 
 
-(define [Reg] (remove-single-fallthrough-targets [blocks : (BlockMap Reg)])
-  : (UnvalidatedBlockMap Reg)
-  (set-fold
-    (unique-dict-reverse-keys (block-map-fall-through blocks))
-    (lambda ([block : BlockNumber] [acc : (UnvalidatedBlockMap Reg)]) : (UnvalidatedBlockMap Reg)
-      (if (= 1 (set-multi-dict-ref/count (block-map-predecessors blocks) block))
-          (case (unique-dict-reverse-ref (block-map-fall-through blocks) block)
-            [(nothing) (panic #"Missing block")]
-            [(just block-num)
-             (case (dict-ref (block-map-blocks blocks) block-num)
-               [(nothing) (panic #"Missing block")]
-               [(just (basic-block _ (fall-through _)))
-                (unvalidated-block-map-remove-block acc block)]
-               [_ acc])])
-          acc))
-    (block-map->unvalidated-block-map blocks)))
-
 (define [Reg] (collapse-single-fallthroughs [blocks : (BlockMap Reg)])
   : (BlockMap Reg)
   (case (validate-block-map
-          (unvalidated-block-map-map
-            (remove-single-fallthrough-targets blocks)
-            (lambda ([int : BlockNumber] [_ : (BasicBlock Reg)]) : (BasicBlock Reg)
-              (construct-combined-block (empty) int blocks))))
+          (unvalidated-block-map-filter-map
+            (block-map->unvalidated-block-map blocks)
+            (lambda ([index : BlockNumber] [_ : (BasicBlock Reg)]) : (Maybe (BasicBlock Reg))
+              ;; We keep the block if it doesn't have exactly one predecessor
+              ;; that falls through to it.
+              (match-define keep
+                (let ([preds (set-multi-dict-ref/empty (block-map-predecessors blocks) index)])
+                  (case (set-split preds)
+                    [(nothing) #t]
+                    [(just (tuple2 pred preds))
+                     (if (not (set-empty? preds))
+                         #t
+                         (case (dict-ref (block-map-blocks blocks) pred)
+                           [(nothing) (panic/boolean #"Block not found")]
+                           [(just (basic-block _ (fall-through _))) #f]
+                           [_ #t]))])))
+              (if keep
+                  (just (construct-combined-block index blocks))
+                  (nothing)))))
     [(left msg) (panic msg)]
     [(right v) v]))

@@ -471,13 +471,14 @@ yaspl_bootstrap_library(
     deps = [
         ":assigned-register-language",
         ":block-number",
+        "//libraries:panic",
         "//libraries/data:dict",
         "//libraries/data:either",
         "//libraries/data:list",
         "//libraries/data:maybe",
         "//libraries/data:set",
         "//libraries/data:set-multi-dict",
-        "//libraries/data:unique-dict",
+        "//libraries/data:tuples",
         "//libraries/yaspl:math-operations",
     ],
 )
