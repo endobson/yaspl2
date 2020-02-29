@@ -20,7 +20,6 @@ yaspl_bootstrap_library(
     srcs = ["elf-writer.yaspl"],
     deps = [
         "//libraries:io",
-        "//libraries:panic",
         "//libraries:structured-elf",
         "//libraries:structured-native-code",
         "//libraries/data:aligned-bytes",

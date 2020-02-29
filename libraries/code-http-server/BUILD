@@ -56,7 +56,6 @@ yaspl_library(
     name = "register",
     srcs = ["register.yaspl"],
     deps = [
-        "//libraries:panic",
         "//libraries/algorithms:depth-first-search",
         "//libraries/data:bytes",
         "//libraries/data:dict",
