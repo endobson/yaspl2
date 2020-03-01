@@ -230,7 +230,6 @@ yaspl_bootstrap_library(
         "//libraries/data:either",
         "//libraries/data:list",
         "//libraries/data:maybe",
-        "//libraries/data:set",
         "//libraries/data:set-multi-dict",
         "//libraries/data:tuples",
         "//libraries/yaspl:math-operations",
@@ -338,14 +337,9 @@ yaspl_library(
     srcs = ["print-assigned-register-language.yaspl"],
     deps = [
         ":assigned-register-language",
-        ":block-number",
         ":print-lowered-register-language",
         "//libraries/data:bytes",
-        "//libraries/data:dict",
         "//libraries/data:join-list",
-        "//libraries/data:list",
-        "//libraries/data:numbers",
-        "//libraries/yaspl:math-operations",
     ],
 )
 
