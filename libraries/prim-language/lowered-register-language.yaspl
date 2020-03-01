@@ -66,14 +66,13 @@
   (define-type (BlockMap Reg)
     (block-map
       [entry-block : BlockNumber]
-      [blocks : (Dict BlockNumber (BasicBlock Reg))]
-      [predecessors : (SetMultiDict BlockNumber BlockNumber)]))
+      [blocks : (Dict BlockNumber (BasicBlock Reg))]))
 
   (define-type (UnvalidatedBlockMap Reg)
     (unvalidated-block-map
       [entry-block : BlockNumber]
       [blocks : (Dict BlockNumber (BasicBlock Reg))]
-      [predecessors : (SetMultiDict BlockNumber BlockNumber)]
+      ;; Tracks the set of incoming edges to a missing block number
       [missing-edges : (SetMultiDict BlockNumber BlockNumber)]))
 
 
@@ -269,29 +268,28 @@
 
 
 (define [Reg] (validate-block-map [uv : (UnvalidatedBlockMap Reg)]) : (Either Bytes (BlockMap Reg))
-  (match-define (unvalidated-block-map entry-block blocks pred missing) uv)
+  (match-define (unvalidated-block-map entry-block blocks missing) uv)
   (if (set-multi-dict-empty? missing)
       (if (dict-has-key? blocks entry-block)
-          (right (block-map entry-block blocks pred))
+          (right (block-map entry-block blocks))
           (left #"No entry block"))
       (left #"Some blocks are missing")))
 
 
 (define [Reg] (block-map->unvalidated-block-map [bm : (BlockMap Reg)]) : (UnvalidatedBlockMap Reg)
-  (match-define (block-map entry-block blocks pred) bm)
-  (unvalidated-block-map entry-block blocks pred
+  (match-define (block-map entry-block blocks) bm)
+  (unvalidated-block-map entry-block blocks
                          (make-set-multi-dict block-number-cmp block-number-cmp)))
 
 (define [Reg] (empty-unvalidated-block-map [entry-block : BlockNumber]) : (UnvalidatedBlockMap Reg)
   (unvalidated-block-map entry-block (make-dict block-number-cmp)
-                         (make-set-multi-dict block-number-cmp block-number-cmp)
                          (make-set-multi-dict block-number-cmp block-number-cmp)))
 
 (define [Reg] (unvalidated-block-map-add-block
                 [uv : (UnvalidatedBlockMap Reg)]
                 [index : BlockNumber]
                 [block : (BasicBlock Reg)]) : (UnvalidatedBlockMap Reg)
-  (match-define (unvalidated-block-map entry-block blocks pred missing) uv)
+  (match-define (unvalidated-block-map entry-block blocks missing) uv)
   (case (dict-ref blocks index)
     [(just _) (panic #"Existing block")]
     [(nothing)
@@ -302,26 +300,17 @@
        new-blocks
        (set-fold
          next-blocks
-         (lambda ([target : BlockNumber] [pred : (SetMultiDict BlockNumber BlockNumber)])
-           (set-multi-dict-add pred target index))
-         pred)
-       (set-fold
-         next-blocks
          (lambda ([target : BlockNumber] [missing : (SetMultiDict BlockNumber BlockNumber)])
            (if (dict-has-key? new-blocks target)
                missing
-               (set-multi-dict-add missing index target)))
-         (set-fold
-           (set-multi-dict-ref/empty pred index)
-           (lambda ([pred : BlockNumber] [missing : (SetMultiDict BlockNumber BlockNumber)])
-             (set-multi-dict-remove missing pred index))
-           missing)))]))
+               (set-multi-dict-add missing target index)))
+         (set-multi-dict-remove-all missing index)))]))
 
 (define [Reg Acc] (unvalidated-block-map-map/acc
                     [uv : (UnvalidatedBlockMap Reg)]
                     [f : (BlockNumber (BasicBlock Reg) Acc -> (Tuple2 (BasicBlock Reg) Acc))]
                     [acc : Acc]) : (Tuple2 (UnvalidatedBlockMap Reg) Acc)
-  (match-define (unvalidated-block-map entry-block blocks _ _) uv)
+  (match-define (unvalidated-block-map entry-block blocks _) uv)
   (dict-fold
     blocks
     (lambda ([index : BlockNumber] [block : (BasicBlock Reg)] [acc : (Tuple2 (UnvalidatedBlockMap Reg) Acc)])
