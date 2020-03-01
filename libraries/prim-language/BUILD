@@ -80,17 +80,7 @@ yaspl_bootstrap_binary(
 yaspl_bootstrap_library(
     name = "assigned-register-language",
     srcs = ["assigned-register-language.yaspl"],
-    deps = [
-        ":block-number",
-        ":lowered-register-language",
-        "//libraries/data:dict",
-        "//libraries/data:either",
-        "//libraries/data:list",
-        "//libraries/data:maybe",
-        "//libraries/data:set",
-        "//libraries/data:set-multi-dict",
-        "//libraries/data:tuples",
-    ],
+    deps = [":lowered-register-language"],
 )
 
 yaspl_bootstrap_library(
