@@ -91,8 +91,7 @@
 
 (define [Reg] (remove-unused-blocks [blocks : (BlockMap Reg)])
   : (BlockMap Reg)
-  (let ([live-blocks (set-add (find-live-blocks (block-map-blocks blocks))
-                              (block-map-entry-block blocks))])
+  (let ([live-blocks (find-reachable-blocks blocks)])
     (case (validate-block-map
             (unvalidated-block-map-filter
               (block-map->unvalidated-block-map blocks)
@@ -101,24 +100,27 @@
       [(left msg) (panic msg)]
       [(right v) v])))
 
-(define [Reg] (find-live-blocks
-                [blocks : (Dict BlockNumber (BasicBlock Reg))])
+(define [Reg] (find-reachable-blocks
+                [blocks : (BlockMap Reg)])
   : (Set BlockNumber)
-  (foldl
-    (lambda ([b : (BasicBlock Reg)] [acc : (Set BlockNumber)])
-      (case b
-        [(basic-block _ (jump target))
-         (set-add acc target)]
-        [(basic-block _ (cond-jump _ t f))
-         (set-add (set-add acc t) f)]
-        [(basic-block _ (return _))
-         acc]
-        [(basic-block _ (tail-call _ _))
-         acc]
-        [(basic-block _ (halt))
-         acc]))
-    (dict-values blocks)
-    (make-set block-number-cmp)))
+  (find-reachable-blocks* (block-map-blocks blocks)
+                          (varargs list (block-map-entry-block blocks))
+                          (make-set block-number-cmp)))
+
+(define [Reg] (find-reachable-blocks*
+                [blocks : (Dict BlockNumber (BasicBlock Reg))]
+                [to-visit : (List BlockNumber)]
+                [seen : (Set BlockNumber)])
+  : (Set BlockNumber)
+  (case to-visit
+    [(empty) seen]
+    [(cons n to-visit)
+     (if (set-member? seen n)
+         (find-reachable-blocks* blocks to-visit seen)
+         (case (dict-ref/panic blocks n)
+           [(basic-block _ term)
+            (find-reachable-blocks*
+              blocks (append (set->list (terminal-next-blocks term)) to-visit) (set-add seen n))]))]))
 
 (define [Reg] (remove-no-op-instructions
                 [reg=? : (Reg Reg -> Boolean)]
