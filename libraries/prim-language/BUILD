@@ -105,6 +105,37 @@ yaspl_bootstrap_library(
 )
 
 yaspl_bootstrap_library(
+    name = "chained-register-language",
+    srcs = ["chained-register-language.yaspl"],
+    deps = [
+        ":assigned-register-language",
+        ":block-number",
+        ":lowered-register-language",
+        "//libraries/data:dict",
+        "//libraries/data:lifted-primitives",
+        "//libraries/data:list",
+        "//libraries/data:set",
+        "//libraries/data:tuples",
+    ],
+)
+
+yaspl_bootstrap_library(
+    name = "chained-register-language-to-x86-64",
+    srcs = ["chained-register-language-to-x86-64.yaspl"],
+    deps = [
+        ":assigned-register-language",
+        ":block-number",
+        ":chained-register-language",
+        ":lower-x86-64",
+        "//libraries/data:bytes",
+        "//libraries/data:join-list",
+        "//libraries/data:list",
+        "//libraries/yaspl:math-operations",
+        "//libraries/yaspl:x86-64-assembly",
+    ],
+)
+
+yaspl_bootstrap_library(
     name = "color-graph",
     srcs = ["color-graph.yaspl"],
     deps = [
@@ -235,22 +266,6 @@ yaspl_bootstrap_library(
         "//libraries/data:set",
         "//libraries/data:tuples",
         "//libraries/data:undirected-graph",
-    ],
-)
-
-yaspl_bootstrap_library(
-    name = "assigned-register-language-to-x86-64",
-    srcs = ["assigned-register-language-to-x86-64.yaspl"],
-    deps = [
-        ":assigned-register-language",
-        ":block-number",
-        ":lower-x86-64",
-        "//libraries/data:bytes",
-        "//libraries/data:dict",
-        "//libraries/data:join-list",
-        "//libraries/data:list",
-        "//libraries/yaspl:math-operations",
-        "//libraries/yaspl:x86-64-assembly",
     ],
 )
 
@@ -434,7 +449,8 @@ yaspl_bootstrap_library(
     name = "register-language-compiler",
     srcs = ["register-language-compiler.yaspl"],
     deps = [
-        ":assigned-register-language-to-x86-64",
+        ":chained-register-language-to-x86-64",
+        ":chained-register-language",
         ":color-lowered-register-language",
         ":lower-x86-64",
         ":lowered-register-language",

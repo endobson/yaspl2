@@ -1,0 +1,279 @@
+#:module (chained-register-language)
+#:import {
+  {(assigned-register-language)
+    {#:types
+      [BasicBlock a:BasicBlock]
+      [BlockMap a:BlockMap]
+      [FunctionDefinition a:FunctionDefinition]
+    }
+    {#:values
+      [basic-block-terminal a:basic-block-terminal]
+      [block-map-blocks a:block-map-blocks]
+      [block-map-entry-block a:block-map-entry-block]
+      [terminal-next-blocks a:terminal-next-blocks]
+    }
+    {#:patterns
+      [basic-block a:basic-block]
+      [cond-jump/false-fall-through a:cond-jump/false-fall-through]
+      [fall-through a:fall-through]
+      [function-definition a:function-definition]
+      [halt a:halt]
+      [jump a:jump]
+      [return a:return]
+      [tail-call a:tail-call]
+    }
+  }
+  (block-number)
+  (data lifted-primitives)
+  (dict)
+  (list)
+  {(lowered-register-language)
+    {#:types
+      Condition
+      FunctionKind
+      Instruction
+    }
+    {#:values
+      negate-condition
+    }
+  }
+  (prim)
+  (set)
+  (tuples)
+}
+(export
+  (#:types FunctionDefinition Chain ChainTerminal BasicBlock BlockTerminal)
+  (#:values layout-function-definition)
+  (#:patterns function-definition chain basic-block
+              return halt jump tail-call cond-jump fall-through))
+
+(types
+  (define-type (FunctionDefinition Reg)
+    (function-definition
+      [name : Bytes]
+      [chains : (List (Chain Reg))]))
+  (define-type (Chain Reg)
+    (chain
+      [blocks : (List (BasicBlock Reg))]
+      [terminal : (ChainTerminal Reg)]))
+  (define-type (ChainTerminal Reg)
+    (return [reg : Reg])
+    (halt)
+    (tail-call [f : (FunctionKind Reg)] [args : (List Reg)])
+    (jump [block : BlockNumber]))
+  (define-type (BasicBlock Reg)
+    (basic-block
+      [number : BlockNumber]
+      [instructions : (List (Instruction Reg))]
+      [terminal : (BlockTerminal Reg)]))
+  (define-type (BlockTerminal Reg)
+    (fall-through)
+    (cond-jump [c : (Condition Reg)] [target : BlockNumber]))
+
+  (define-type (PendingChain Reg)
+    (pending-chain
+      [next-block : BlockNumber]
+      [rev-blocks : (List (BasicBlock Reg))])))
+
+(define [Reg] (layout-function-definition [f : (a:FunctionDefinition Reg)])
+  : (FunctionDefinition Reg)
+  (match-define (a:function-definition name blocks) f)
+  (function-definition name (make-chains blocks)))
+
+(define [Reg] (make-chains [bm : (a:BlockMap Reg)])
+  : (List (Chain Reg))
+  (match-define back-edge-map (compute-back-edge-map bm))
+  (match-define prev-counts (compute-prev-counts bm back-edge-map))
+  (reverse
+    (make-chains/start-new-chain
+      bm
+      prev-counts
+      back-edge-map
+      (varargs list (a:block-map-entry-block bm))
+      (ann (List (Chain Reg)) (empty)))))
+
+(define [Reg] (compute-back-edge-map [bm : (a:BlockMap Reg)])
+  : (Dict BlockNumber (Set BlockNumber))
+  (compute-back-edge-map*
+    bm
+    (ann (Dict BlockNumber (Set BlockNumber)) (make-dict block-number-cmp))
+    (make-set block-number-cmp)
+    (varargs list (a:block-map-entry-block bm))))
+
+(define [Reg] (compute-back-edge-map*
+                [bm : (a:BlockMap Reg)]
+                [back-edges : (Dict BlockNumber (Set BlockNumber))]
+                [seen-nodes : (Set BlockNumber)]
+                [remaining-nodes : (List BlockNumber)])
+  : (Dict BlockNumber (Set BlockNumber))
+  (case remaining-nodes
+    [(empty) back-edges]
+    [(cons n remaining-nodes)
+     (if (dict-has-key? back-edges n)
+         (compute-back-edge-map* bm back-edges seen-nodes remaining-nodes)
+         (let ([new-seen-nodes (set-add seen-nodes n)])
+           (match-define next-nodes
+             (a:terminal-next-blocks (a:basic-block-terminal (dict-ref/panic (a:block-map-blocks bm) n))))
+           (match-define back-edges
+             (dict-add back-edges n
+                       (set-filter next-nodes (lambda ([next-node : BlockNumber])
+                                                (set-member? new-seen-nodes next-node)))))
+           (match-define back-edges
+             (compute-back-edge-map*
+               bm back-edges new-seen-nodes (set->list next-nodes)))
+           (compute-back-edge-map*
+             bm back-edges seen-nodes remaining-nodes)))]))
+
+(define [Reg] (compute-prev-counts 
+                [bm : (a:BlockMap Reg)]
+                [back-edge-map : (Dict BlockNumber (Set BlockNumber))])
+  : (Dict BlockNumber LiftedInt)
+  (dict-fold
+    (a:block-map-blocks bm)
+    (lambda ([src : BlockNumber] [b : (a:BasicBlock Reg)] [counts : (Dict BlockNumber LiftedInt)])
+      (match-define back-edges (dict-ref/panic back-edge-map src))
+      (foldl
+        (lambda ([dest : BlockNumber] [counts : (Dict BlockNumber LiftedInt)])
+          (if (set-member? back-edges dest)
+              counts
+              (dict-update
+                counts
+                dest
+                (lambda ([x : LiftedInt])
+                  (match-define (lifted-int v) x)
+                  (lifted-int (+ v 1)))
+                (lifted-int 0))))
+        (set->list (a:terminal-next-blocks (a:basic-block-terminal b)))
+        counts))
+    (ann (Dict BlockNumber LiftedInt) (make-dict block-number-cmp))))
+          
+
+(define [Reg] (make-chains/continue-chain
+                [bm : (a:BlockMap Reg)]
+                [prev-counts : (Dict BlockNumber LiftedInt)]
+                [back-edge-map : (Dict BlockNumber (Set BlockNumber))]
+                [current : BlockNumber]
+                [current-chain : (PendingChain Reg)]
+                [possible-starts : (List BlockNumber)]
+                [chains : (List (Chain Reg))])
+  : (List (Chain Reg))
+  (match-define b (dict-ref/panic (a:block-map-blocks bm) current))
+  (match-define next-blocks
+    (set->list (a:terminal-next-blocks (a:basic-block-terminal b))))
+  (match-define (tuple2 prev-counts new-starts)
+    (decrement-prev-counts prev-counts (dict-ref/panic back-edge-map current) next-blocks
+                           (empty)))
+  (case new-starts 
+    [(empty)
+     (make-chains/start-new-chain
+       bm prev-counts back-edge-map possible-starts
+       (cons (finish-chain current-chain b) chains))]
+    [(cons next other-starts)
+     (make-chains/continue-chain
+       bm prev-counts back-edge-map 
+       next 
+       (add-block current-chain b next) 
+       (append other-starts possible-starts)
+       chains)]))
+
+(define [Reg] (make-chains/start-new-chain
+                [bm : (a:BlockMap Reg)]
+                [prev-counts : (Dict BlockNumber LiftedInt)]
+                [back-edge-map : (Dict BlockNumber (Set BlockNumber))]
+                [starts : (List BlockNumber)]
+                [chains : (List (Chain Reg))])
+  : (List (Chain Reg))
+  (case starts
+    [(empty) chains]
+    [(cons start starts)
+     (make-chains/continue-chain
+       bm prev-counts back-edge-map start (initial-chain start)
+       starts chains)]))
+
+
+(define (decrement-prev-counts
+          [prev-counts : (Dict BlockNumber LiftedInt)]
+          [back-edges : (Set BlockNumber)]
+          [next-blocks : (List BlockNumber)]
+          [new-starts : (List BlockNumber)])
+  : (Tuple2 (Dict BlockNumber LiftedInt) (List BlockNumber))
+  (case next-blocks
+    [(empty) (tuple2 prev-counts (reverse new-starts))]
+    [(cons b next-blocks)
+     (match-define (tuple2 prev-counts new-starts)
+       (if (set-member? back-edges b)
+           (tuple2 prev-counts new-starts)
+           (case (dict-ref/panic prev-counts b)
+             [(lifted-int count)
+              (match-define new-count (- count 1))
+              (tuple2
+                (dict-set prev-counts b (lifted-int new-count))
+                (if (= new-count 0)
+                    (cons b new-starts)
+                    new-starts))])))
+     (decrement-prev-counts prev-counts back-edges next-blocks new-starts)]))
+
+(define [Reg] (initial-chain [num : BlockNumber]) : (PendingChain Reg)
+  (pending-chain num (empty)))
+
+(define [Reg] (add-block 
+                [chain : (PendingChain Reg)]
+                [b : (a:BasicBlock Reg)]
+                [fall-through-block : BlockNumber])
+  : (PendingChain Reg)
+  (match-define (pending-chain block-num rev-blocks) chain)
+  (match-define (a:basic-block insts term) b)
+  (match-define block-term : (BlockTerminal Reg)
+    (case term
+      [(a:halt) (panic #"Cannot have fallthrough after halt")]
+      [(a:return _) (panic #"Cannot have fallthrough after return")]
+      [(a:tail-call _ _) (panic #"Cannot have fallthrough after tail-call")]
+      [(a:jump n)
+       (if (block-number=? n fall-through-block)
+           (fall-through)
+           (panic #"Cannot fall through"))]
+      [(a:fall-through n)
+       (if (block-number=? n fall-through-block)
+           (fall-through)
+           (panic #"Cannot fall through"))]
+      [(a:cond-jump/false-fall-through c t f)
+       (if (block-number=? f fall-through-block)
+           (cond-jump c t)
+           (if (block-number=? t fall-through-block)
+               (cond-jump (negate-condition c) f)
+               (panic #"Cannot fall through")))]))
+  (pending-chain
+    fall-through-block
+    (cons
+      (basic-block block-num insts block-term)
+      rev-blocks)))
+
+
+(define [Reg] (finish-chain 
+                [p-chain : (PendingChain Reg)]
+                [b : (a:BasicBlock Reg)])
+  : (Chain Reg)
+  (match-define (pending-chain block-num rev-blocks) p-chain)
+  (match-define (a:basic-block insts term) b)
+  (match-define (tuple2 block-term chain-term)
+    : (Tuple2 (BlockTerminal Reg) (ChainTerminal Reg))
+    (case term
+      [(a:halt)
+       (tuple2 (fall-through) (halt))]
+      [(a:return reg)
+       (tuple2 (fall-through) (return reg))]
+      [(a:tail-call f args)
+       (tuple2 (fall-through) (tail-call f args))]
+      [(a:jump n)
+       (tuple2 (fall-through) (jump n))]
+      [(a:fall-through n)
+       (tuple2 (fall-through) (jump n))]
+      [(a:cond-jump/false-fall-through c t f)
+       (tuple2 (cond-jump c t) (jump f))]))
+    
+  (chain
+    (reverse
+      (cons
+        (basic-block block-num insts block-term)
+        rev-blocks))
+    chain-term))

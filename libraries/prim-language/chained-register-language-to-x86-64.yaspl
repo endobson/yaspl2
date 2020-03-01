@@ -1,9 +1,28 @@
-#:module (assigned-register-language-to-x86-64)
+#:module (chained-register-language-to-x86-64)
 #:import {
   (assigned-register-language)
   (block-number)
   (bytes)
-  (dict)
+  {(chained-register-language)
+    {#:types
+      [BasicBlock c:BasicBlock]
+      [BlockTerminal c:BlockTerminal]
+      [Chain c:Chain]
+      [ChainTerminal c:ChainTerminal]
+      [FunctionDefinition c:FunctionDefinition]
+    }
+    {#:patterns
+      [basic-block c:basic-block]
+      [chain c:chain]
+      [cond-jump c:cond-jump]
+      [fall-through c:fall-through]
+      [function-definition c:function-definition]
+      [halt c:halt]
+      [jump c:jump]
+      [return c:return]
+      [tail-call c:tail-call]
+    }
+  }
   (join-list)
   (list)
   {(lower-x86-64)
@@ -59,6 +78,7 @@
       imm8
       imulq
       imulq/imm*
+      instruction-fragment
       je
       jg
       jge
@@ -67,7 +87,7 @@
       jmp
       jmp/indirect
       jne
-      [label-fragment a:label-fragment]
+      label-fragment
       leaq/rip-rel
       mem
       movb
@@ -138,36 +158,34 @@
   }
 }
 (export
-  (#:values function-definition->assembly-fragment))
+  (#:values chained-function-definition->assembly-fragment))
 (types)
 
-(define (function-definition->assembly-fragment
-          [f : (FunctionDefinition X8664Register)]) : TextFragment
-  (match-define (function-definition name blocks) f)
+(define (chained-function-definition->assembly-fragment
+          [f : (c:FunctionDefinition X8664Register)]) : TextFragment
+  (match-define (c:function-definition name chains) f)
   (match-define block-prefix (bytes-append (varargs list name #"_")))
-  (match-define block-chains (block-map-block-chains blocks))
   (function-fragment name
     (cons-jl
       ;; The first chain is always the entry point so add the label for the function
       ;; right before it.
-      (a:label-fragment name)
+      (label-fragment name)
       (concat-map-jl/list
-        (lambda ([chain : (List BlockNumber)])
-          (concat-map-jl/list
-            (lambda ([block-num : BlockNumber])
-              (convert-block block-prefix block-num 
-                (dict-ref/panic (block-map-blocks blocks) block-num)))
-            chain))
-        block-chains))))
+        (lambda ([chain : (c:Chain X8664Register)])
+          (match-define (c:chain blocks term) chain)
+          (append-jl
+            (concat-map-jl/list
+              (lambda ([block : (c:BasicBlock X8664Register)])
+                (match-define (c:basic-block block-num insts term) block)
+                (a:named-block
+                  (make-block-label block-prefix block-num)
+                  (append-jl
+                    (concat-map-jl/list convert-instruction insts)
+                    (convert-block-terminal block-prefix term))))
+              blocks)
+            (convert-chain-terminal block-prefix term)))
+        chains))))
 
-(define (convert-block [block-prefix : Bytes] [block-num : BlockNumber]
-                       [b : (BasicBlock X8664Register)])
-  : (JoinList a:TextFragmentPart)
-  (match-define (basic-block instructions terminal) b)
-  (a:named-block
-    (make-block-label block-prefix block-num)
-    (append-jl (concat-map-jl/list convert-instruction instructions)
-               (convert-terminal block-prefix terminal))))
 
 (define (make-block-label [block-prefix : Bytes] [block-num : BlockNumber]) : Bytes
   (bytes-append (varargs list block-prefix (block-number->bytes block-num))))
@@ -369,45 +387,52 @@
        (sete (convert-register/8 out))
        (movzbq (r8m-reg (convert-register/8 out)) (convert-register out)))]))
 
-(define (convert-terminal [block-prefix : Bytes] [t : (Terminal X8664Register)]) : (JoinList a:Instruction)
-  (case t
-    ;; TODO investigating making this not have a register
-    [(return _)
-     (varargs join-list
-       (popq (r64m-reg (a:rbp)))
-       (ret))]
-    [(halt)
-     (single-jl (ud2))]
-    [(tail-call f _)
-     (append-jl
+(define (convert-chain-terminal [block-prefix : Bytes] [t : (c:ChainTerminal X8664Register)])
+  : (JoinList a:TextFragmentPart)
+  (map-jl
+    instruction-fragment
+    (case t
+      [(c:return _)
        (varargs join-list
-         (popq (r64m-reg (a:rbp))))
-       (case f
-         [(syscall _)
-          ;; This really isn't a tail call but since syscalls cannot call more it is ok.
-          (varargs join-list
-            (a:syscall)
-            (ret))]
-         [(direct-call f)
-          (single-jl (jmp f))]
-         [(indirect-function-call f)
-          (single-jl (jmp/indirect (r64m-reg (convert-register f))))]
-         [(closure-call c)
-          (single-jl (jmp/indirect (r64m-mem (mem (convert-register c) 8))))]))]
-    [(jump block-num)
-     (single-jl (jmp (make-block-label block-prefix block-num)))]
-    [(fall-through _block-num)
+         (popq (r64m-reg (a:rbp)))
+         (ret))]
+      [(c:halt)
+       (single-jl (ud2))]
+      [(c:tail-call f _)
+       (append-jl
+         (varargs join-list
+           (popq (r64m-reg (a:rbp))))
+         (case f
+           [(syscall _)
+            ;; This really isn't a tail call but since syscalls cannot call more it is ok.
+            (varargs join-list
+              (a:syscall)
+              (ret))]
+           [(direct-call f)
+            (single-jl (jmp f))]
+           [(indirect-function-call f)
+            (single-jl (jmp/indirect (r64m-reg (convert-register f))))]
+           [(closure-call c)
+            (single-jl (jmp/indirect (r64m-mem (mem (convert-register c) 8))))]))]
+      [(c:jump block-num)
+       (single-jl (jmp (make-block-label block-prefix block-num)))])))
+
+
+(define (convert-block-terminal [block-prefix : Bytes]
+                                [t : (c:BlockTerminal X8664Register)])
+  : (JoinList a:Instruction)
+  (case t
+    [(c:fall-through)
      (empty-jl)]
-    [(cond-jump/false-fall-through (reg-condition c) t-block-num _f-block-num)
+    [(c:cond-jump (reg-condition c) t-block-num)
      (varargs join-list
        (test (convert-register c) (convert-register c))
        (jne (make-block-label block-prefix t-block-num)))]
-    [(cond-jump/false-fall-through (negated-reg-condition c) t-block-num _f-block-num)
+    [(c:cond-jump (negated-reg-condition c) t-block-num)
      (varargs join-list
        (test (convert-register c) (convert-register c))
        (je (make-block-label block-prefix t-block-num)))]
-    [(cond-jump/false-fall-through (comparison-condition c (compare-s64 reg-mem1 reg-imm2))
-                                   t-block-num _f-block-num)
+    [(c:cond-jump (comparison-condition c (compare-s64 reg-mem1 reg-imm2)) t-block-num)
      (varargs join-list
        (cmpq
          (case reg-imm2
@@ -424,8 +449,7 @@
          [(less-than-or-equal-op) jle]
          [(greater-than-or-equal-op) jge])
         (make-block-label block-prefix t-block-num)))]
-    [(cond-jump/false-fall-through (comparison-condition c (compare-s8 reg-mem1 reg-imm2))
-                                   t-block-num _f-block-num)
+    [(c:cond-jump (comparison-condition c (compare-s8 reg-mem1 reg-imm2)) t-block-num)
      (varargs join-list
        (cmpb
          (case reg-imm2
@@ -443,7 +467,7 @@
          [(greater-than-or-equal-op) jge])
         (make-block-label block-prefix t-block-num)))]
     ;; TODO check that these are the right registers
-    [(cond-jump/false-fall-through (memory-compare-condition negated? _ _ _) t-block-num _f-block-num)
+    [(c:cond-jump (memory-compare-condition negated? _ _ _) t-block-num)
      (varargs join-list
        (repe-cmpsb)
        ((if negated? jne je) (make-block-label block-prefix t-block-num)))]))
