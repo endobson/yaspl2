@@ -6,11 +6,9 @@
   (either)
   (list)
   (maybe)
-  (panic)
+  (multi-set)
   (prim)
   (set)
-  (set-multi-dict)
-  (tuples)
   (yaspl math-operations)
 }
 
@@ -151,44 +149,44 @@
 
 
 (define [Reg] (construct-combined-block [index : BlockNumber]
-                                        [blocks : (BlockMap Reg)]) : (BasicBlock Reg)
-  (construct-combined-block* (empty) index blocks))
+                                        [blocks : (BlockMap Reg)]
+                                        [pred-counts : (MultiSet BlockNumber)]) : (BasicBlock Reg)
+  (construct-combined-block* (empty) index blocks pred-counts))
 
 (define [Reg] (construct-combined-block*
                 [prefix : (List (Instruction Reg))] [index : BlockNumber]
-                [blocks : (BlockMap Reg)]) : (BasicBlock Reg)
+                [blocks : (BlockMap Reg)]
+                [pred-counts : (MultiSet BlockNumber)]) : (BasicBlock Reg)
   (match-define (basic-block next-insts term)
     (dict-ref/panic (block-map-blocks blocks) index))
+  (match-define insts (append prefix next-insts))
   (case term
     [(jump t)
-     (if (= 1 (set-multi-dict-ref/count (block-map-predecessors blocks) t))
-         (construct-combined-block* (append prefix next-insts) t blocks)
-         (basic-block (append prefix next-insts) term))]
+     (if (= 1 (multi-set-count pred-counts t))
+         (construct-combined-block* insts t blocks pred-counts)
+         (basic-block insts term))]
     [_
-     (basic-block (append prefix next-insts) term)]))
+     (basic-block insts term)]))
 
 
 (define [Reg] (collapse-jumps [blocks : (BlockMap Reg)])
   : (BlockMap Reg)
+  (match-define pred-counts (compute-block-map-predecessor-counts blocks))
   (case (validate-block-map
-          (unvalidated-block-map-filter-map
+          (unvalidated-block-map-map
             (block-map->unvalidated-block-map blocks)
-            (lambda ([index : BlockNumber] [_ : (BasicBlock Reg)]) : (Maybe (BasicBlock Reg))
-              ;; We keep the block if it doesn't have exactly one predecessor
-              ;; that jumps to it.
-              (match-define keep
-                (let ([preds (set-multi-dict-ref/empty (block-map-predecessors blocks) index)])
-                  (case (set-split preds)
-                    [(nothing) #t]
-                    [(just (tuple2 pred preds))
-                     (if (not (set-empty? preds))
-                         #t
-                         (case (dict-ref (block-map-blocks blocks) pred)
-                           [(nothing) (panic/boolean #"Block not found")]
-                           [(just (basic-block _ (jump _))) #f]
-                           [_ #t]))])))
-              (if keep
-                  (just (construct-combined-block index blocks))
-                  (nothing)))))
+            (lambda ([index : BlockNumber] [_ : (BasicBlock Reg)])
+              (construct-combined-block index blocks pred-counts))))
     [(left msg) (panic msg)]
     [(right v) v]))
+
+(define [Reg] (compute-block-map-predecessor-counts [bm : (BlockMap Reg)])
+  : (MultiSet BlockNumber)
+  (dict-fold
+    (block-map-blocks bm)
+    (lambda ([_ : BlockNumber] [b : (BasicBlock Reg)] [acc : (MultiSet BlockNumber)])
+      : (MultiSet BlockNumber)
+      (multi-set-add-all acc (set->list (terminal-next-blocks (basic-block-terminal b)))))
+    (multi-set-add
+      (make-multi-set block-number-cmp)
+      (block-map-entry-block bm))))
