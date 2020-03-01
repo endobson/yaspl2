@@ -8,11 +8,11 @@
   (set)
 }
 (export
-  (#:types Section BasicBlock Instruction Register Register64 Register8 AssemblyFragments
-           TextFragment ConstFragment ConstFragmentPart
+  (#:types Instruction Register Register64 Register8 AssemblyFragments
+           TextFragment TextFragmentPart ConstFragment ConstFragmentPart
            Scale Reg64Mem Reg64MemImm Reg8Mem Reg8MemImm MemoryArgument Displacement)
   (#:values function-fragment address-fragment closure-fragment bytes-fragment
-            basic-block section assembly-fragments section-blocks const-fragment
+            named-block assembly-fragments const-fragment label-fragment instruction-fragment
             rax rdi rsi rdx rcx rbx r8 r9 r64mi-imm-s32* r64mi-imm-s8 movq movq/imm*
             addq subq orq andq al dil sil
             dl cl bl r8b r9b r11 r12 r13 r10b r11b r12b r13b r14b r15b bpl cmpb cmpq sete movzbq
@@ -25,9 +25,9 @@
             r64m-reg r64m-mem r8m-reg r8m-mem mem
             imm64/s32 imm8 scaled
             register8 register64
-            sections->referenced-labels)
+            compute-referenced-labels)
   (#:patterns function-fragment address-fragment bytes-fragment const-fragment
-              assembly-fragments basic-block section
+              assembly-fragments label-fragment instruction-fragment
               r64mi-reg r64mi-mem r64mi-imm-s32 r64mi-imm-s8 r64m-reg r64m-mem
               r8mi-reg r8mi-mem r8mi-imm-s8 r8m-reg r8m-mem
               mem-direct mem-sib-direct mem-sib-displaced mem-displaced mem-scaled
@@ -49,19 +49,18 @@
       [const-fragments : (List ConstFragment)]))
 
   (define-type TextFragment
-    (function-fragment [name : Bytes] [sections : (List Section)]))
+    (function-fragment [name : Bytes] [body : (JoinList TextFragmentPart)]))
   (define-type ConstFragment
     ;; alignment is the number of bits that need to be zero
     (const-fragment [name : Bytes] [alignment : Int] [parts : (List ConstFragmentPart)]))
+  (define-type TextFragmentPart
+    (label-fragment [name : Bytes])
+    (instruction-fragment [value : Instruction]))
   (define-type ConstFragmentPart
     (address-fragment [value : Bytes] [addend : Int])
     (bytes-fragment [value : Bytes]))
 
 
-  (define-type Section
-    (section [blocks : (List BasicBlock)]))
-  (define-type BasicBlock
-    (basic-block [name : Bytes] [instructions : (JoinList Instruction)]))
   (define-type Instruction
     (addq [rmi : Reg64MemImm] [rm : Reg64Mem])
     (andq [rmi : Reg64MemImm] [rm : Reg64Mem])
@@ -244,22 +243,19 @@
 (define (scaled [r : Register64] [scale : Scale] [index : Register64] [offset : Int]) : MemoryArgument
   (mem-scaled r scale index (displacement offset)))
 
-(define (sections->referenced-labels [sections : (List Section)]) : (Set Bytes)
-  (foldl
-    (lambda ([s : Section] [acc : (Set Bytes)])
-      (case s
-        [(section blocks)
-         (foldl
-           (lambda ([b : BasicBlock] [acc : (Set Bytes)])
-              (case b
-                [(basic-block _name instructions)
-                 (set-add-all
-                   acc
-                   (filter-map instruction->referenced-label (jl->list instructions)))]))
-           blocks
-           acc)]))
-    sections
-    (make-set bytes-cmp)))
+(define (compute-referenced-labels [parts : (JoinList TextFragmentPart)]) : (Set Bytes)
+  (set-add-all
+    (make-set bytes-cmp)
+    (jl->list
+      (concat-map-jl
+        (lambda ([p : TextFragmentPart]) : (JoinList Bytes)
+          (case p
+            [(label-fragment _) (empty-jl)]
+            [(instruction-fragment i)
+             (case (instruction->referenced-label i)
+               [(nothing) (empty-jl)]
+               [(just l) (single-jl l)])]))
+        parts))))
 
 (define (instruction->referenced-label [inst : Instruction]) : (Maybe Bytes)
   (case inst
@@ -407,3 +403,9 @@
   (const-fragment name 3 (varargs list
                                   (address-fragment descriptor 0)
                                   (address-fragment value 0))))
+
+(define (named-block [name : Bytes] [instructions : (JoinList Instruction)])
+  : (JoinList TextFragmentPart)
+  (cons-jl
+    (label-fragment name)
+    (map-jl instruction-fragment instructions)))

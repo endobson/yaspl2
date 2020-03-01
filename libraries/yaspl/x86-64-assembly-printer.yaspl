@@ -460,14 +460,14 @@
 
 (define (text-fragment->commands [frag : TextFragment]) : (JoinList AssemblyCommand)
   (case frag
-    [(function-fragment name sections)
+    [(function-fragment name parts)
      (cons-jl
        (directive-cmd (text-section-directive))
        (cons-jl
          (directive-cmd (alignment-directive 4 (u8 #xCC)))
          (cons-jl
            (directive-cmd (global-directive name))
-           (sections->commands name sections))))]))
+           (parts->commands name parts))))]))
 
 (define (const-fragment->commands [frag : ConstFragment]) : (JoinList AssemblyCommand)
   (match-define (const-fragment name align parts) frag)
@@ -487,35 +487,20 @@
              (directive-cmd (ascii-directive value))]))
         parts))))
 
-
-
-(define (sections->commands [function-name : Bytes] [sections : (List Section)]) : (JoinList AssemblyCommand)
-  (match-define referenced-labels (set-add (sections->referenced-labels sections) function-name))
-  (foldl
-    (lambda ([s : Section] [acc : (JoinList AssemblyCommand)])
-      (case s
-        [(section blocks)
-         (append-jl
-           (basic-blocks->commands blocks referenced-labels)
-           acc)]))
-    ;; This reverse is because the function header is added as a section instead of a block
-    ;; in the first section.
-    (reverse sections)
-    (ann (JoinList AssemblyCommand) (empty-jl))))
-
-(define (basic-blocks->commands [blocks : (List BasicBlock)] [referenced-labels : (Set Bytes)])
+(define (parts->commands [function-name : Bytes]
+                         [parts : (JoinList TextFragmentPart)])
   : (JoinList AssemblyCommand)
-  (case blocks
-    [(empty) (empty-jl)]
-    [(cons (basic-block name instructions) blocks)
-     (append-jl
-       (let ([commands (map-jl instruction-cmd instructions)])
+  (match-define referenced-labels (set-add (compute-referenced-labels parts) function-name))
+  (concat-map-jl
+    (lambda ([p : TextFragmentPart]) : (JoinList AssemblyCommand)
+      (case p
+        [(label-fragment name)
          (if (set-member? referenced-labels name)
-             (cons-jl
-               (directive-cmd (label-directive name))
-               commands)
-             commands))
-       (basic-blocks->commands blocks referenced-labels))]))
+             (single-jl (directive-cmd (label-directive name)))
+             (empty-jl))]
+        [(instruction-fragment inst)
+         (single-jl (instruction-cmd inst))]))
+    parts))
 
 (define (text-commands->scope-commands [cmds : (List AssemblyCommand)]) : (List AssemblyCommand)
   (text-commands->scope-commands* cmds (empty) (make-set bytes-cmp)))
