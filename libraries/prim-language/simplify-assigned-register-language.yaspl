@@ -27,13 +27,11 @@
   (function-definition
     name
     (remove-unused-blocks
-      (collapse-single-fallthroughs
-        (add-unambiguous-fall-through
-          (remove-unused-blocks
-            (collapse-trivial-blocks
-              (remove-no-op-instructions reg=? blocks))))))))
+      (collapse-jumps
+        (remove-unused-blocks
+          (collapse-trivial-blocks
+            (remove-no-op-instructions reg=? blocks)))))))
 
-;; TODO support collapsing trivial fall-through blocks
 (define [Reg] (collapse-trivial-blocks [blocks : (BlockMap Reg)])
   : (BlockMap Reg)
   (let ([replacements (find-trivial-blocks (block-map-blocks blocks))])
@@ -55,28 +53,17 @@
  (case terminal
    [(jump i)
     (jump (collapse-trivial-blocks/jump i (make-set block-number-cmp) replacements))]
-   [(fall-through i)
-    (collapse-trivial-blocks/fall-through i replacements)]
    [(return r)
     (return r)]
    [(halt)
     (halt)]
    [(tail-call f args)
     (tail-call f args)]
-   [(cond-jump/false-fall-through c t f)
-    (cond-jump/false-fall-through
+   [(cond-jump c t f)
+    (cond-jump
       c
       (collapse-trivial-blocks/jump t (make-set block-number-cmp) replacements)
       f)]))
-
-(define [Reg] (collapse-trivial-blocks/fall-through
-                [block : BlockNumber]
-                [replacements : (Dict BlockNumber BlockNumber)])
-  : (Terminal Reg)
-  (case (dict-ref replacements block)
-    [(nothing) (fall-through block)]
-    [(just new-block)
-     (jump (collapse-trivial-blocks/jump new-block (make-set block-number-cmp) replacements))]))
 
 (define (collapse-trivial-blocks/jump
           [block : BlockNumber]
@@ -122,9 +109,7 @@
       (case b
         [(basic-block _ (jump target))
          (set-add acc target)]
-        [(basic-block _ (fall-through target))
-         (set-add acc target)]
-        [(basic-block _ (cond-jump/false-fall-through _ t f))
+        [(basic-block _ (cond-jump _ t f))
          (set-add (set-add acc t) f)]
         [(basic-block _ (return _))
          acc]
@@ -162,21 +147,6 @@
      (= 0 (s32->s64 amount))]
     [_ #f]))
 
-(define [Reg] (add-unambiguous-fall-through [blocks : (BlockMap Reg)])
-   : (BlockMap Reg)
-   (case (validate-block-map
-           (unvalidated-block-map-map
-             (block-map->unvalidated-block-map blocks)
-             (lambda ([_block-num : BlockNumber] [b : (BasicBlock Reg)]) : (BasicBlock Reg)
-               (case b
-                 [(basic-block insts (jump target))
-                  (if (= 1 (set-multi-dict-ref/count (block-map-predecessors blocks) target))
-                      (basic-block insts (fall-through target))
-                      b)]
-                 [_ b]))))
-     [(left msg) (panic msg)]
-     [(right v) v]))
-
 
 (define [Reg] (construct-combined-block [index : BlockNumber]
                                         [blocks : (BlockMap Reg)]) : (BasicBlock Reg)
@@ -188,7 +158,7 @@
   (match-define (basic-block next-insts term)
     (dict-ref/panic (block-map-blocks blocks) index))
   (case term
-    [(fall-through t)
+    [(jump t)
      (if (= 1 (set-multi-dict-ref/count (block-map-predecessors blocks) t))
          (construct-combined-block* (append prefix next-insts) t blocks)
          (basic-block (append prefix next-insts) term))]
@@ -196,14 +166,14 @@
      (basic-block (append prefix next-insts) term)]))
 
 
-(define [Reg] (collapse-single-fallthroughs [blocks : (BlockMap Reg)])
+(define [Reg] (collapse-jumps [blocks : (BlockMap Reg)])
   : (BlockMap Reg)
   (case (validate-block-map
           (unvalidated-block-map-filter-map
             (block-map->unvalidated-block-map blocks)
             (lambda ([index : BlockNumber] [_ : (BasicBlock Reg)]) : (Maybe (BasicBlock Reg))
               ;; We keep the block if it doesn't have exactly one predecessor
-              ;; that falls through to it.
+              ;; that jumps to it.
               (match-define keep
                 (let ([preds (set-multi-dict-ref/empty (block-map-predecessors blocks) index)])
                   (case (set-split preds)
@@ -213,7 +183,7 @@
                          #t
                          (case (dict-ref (block-map-blocks blocks) pred)
                            [(nothing) (panic/boolean #"Block not found")]
-                           [(just (basic-block _ (fall-through _))) #f]
+                           [(just (basic-block _ (jump _))) #f]
                            [_ #t]))])))
               (if keep
                   (just (construct-combined-block index blocks))

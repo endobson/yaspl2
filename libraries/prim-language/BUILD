@@ -83,7 +83,6 @@ yaspl_bootstrap_library(
     deps = [
         ":block-number",
         ":lowered-register-language",
-        "//libraries/algorithms:find-chains",
         "//libraries/data:dict",
         "//libraries/data:either",
         "//libraries/data:list",
@@ -91,7 +90,6 @@ yaspl_bootstrap_library(
         "//libraries/data:set",
         "//libraries/data:set-multi-dict",
         "//libraries/data:tuples",
-        "//libraries/data:unique-dict",
     ],
 )
 
@@ -245,7 +243,6 @@ yaspl_bootstrap_library(
         "//libraries/data:set",
         "//libraries/data:set-multi-dict",
         "//libraries/data:tuples",
-        "//libraries/data:unique-dict",
         "//libraries/yaspl:math-operations",
     ],
 )
@@ -449,8 +446,8 @@ yaspl_bootstrap_library(
     name = "register-language-compiler",
     srcs = ["register-language-compiler.yaspl"],
     deps = [
-        ":chained-register-language-to-x86-64",
         ":chained-register-language",
+        ":chained-register-language-to-x86-64",
         ":color-lowered-register-language",
         ":lower-x86-64",
         ":lowered-register-language",
