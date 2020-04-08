@@ -182,10 +182,10 @@
     (type-resolution-error [mod-name : ModName] [err : LocalTypeResolutionError]))
   (define-type LocalTypeResolutionError
     (unbound-type-variable [id : Identifier])
+    (non-value-kind [t : Type] [source : SourceSpan])
     (type-constructor-bad-arg-kind [source : SourceSpan])
     (type-constructor-bad-number-of-args [source : SourceSpan])
-    (type-constructor-bad-constructor [t : Type] [source : SourceSpan])
-    (function-definition-bad-arg-kind [t : Type] [source : SourceSpan])))
+    (type-constructor-bad-constructor [t : Type] [source : SourceSpan])))
 
 
 (define (resolve-types [mod : ri:Module]) : (Either TypeResolutionError Module)
@@ -273,10 +273,10 @@
            (identifier name _)
            type-vars arg-type return-type cons-func empty-func)
          (match-define ctx (context-add-var-types ctx type-vars))
-         (case (pre-type->type arg-type ctx)
+         (case (pre-type->value-type arg-type ctx)
            [(left v) (left v)]
            [(right arg-type)
-            (case (pre-type->type return-type ctx)
+            (case (pre-type->value-type return-type ctx)
               [(left v) (left v)]
               [(right return-type)
                (right (varargs-definition name type-vars arg-type return-type cons-func
@@ -321,7 +321,7 @@
 (define (resolve-types/variant-field [def : ri:VariantField] [ctx : Context])
   : (Either LocalTypeResolutionError VariantField)
   (match-define (ri:variant-field (identifier name _) type) def)
-  (case (pre-type->type type ctx)
+  (case (pre-type->value-type type ctx)
     [(left v) (left v)]
     [(right type)
      (right (variant-field name type))]))
@@ -340,7 +340,7 @@
   (case (resolve-types/args args ctx)
     [(left v) (left v)]
     [(right args)
-     (case (pre-type->type return-pre-type ctx)
+     (case (pre-type->value-type return-pre-type ctx)
        [(left v) (left v)]
        [(right return-type)
         (case (resolve-types/block body ctx)
@@ -354,22 +354,14 @@
   : (Either LocalTypeResolutionError (List FunctionArg))
   (map/failure
     (lambda ([arg : ri:FunctionArg]) : (Either LocalTypeResolutionError FunctionArg)
-      (case arg
-        [(ri:function-arg pattern pre-type)
-         (case (resolve-types/pattern pattern ctx)
+      (match-define (ri:function-arg pattern pre-type) arg)
+      (case (resolve-types/pattern pattern ctx)
+        [(left v) (left v)]
+        [(right pattern)
+         (case (pre-type->value-type pre-type ctx)
            [(left v) (left v)]
-           [(right pattern)
-            (case (pre-type->type pre-type ctx)
-              [(left v) (left v)]
-              [(right type)
-               (case (type->kind type)
-                 [(fun-kind _ _)
-                  (left (function-definition-bad-arg-kind
-                          type (pre-type-source-span pre-type)))]
-                 [(star-kind)
-                  (right (function-arg pattern type))]
-                 [(prim64-kind)
-                  (right (function-arg pattern type))])])])]))
+           [(right type)
+            (right (function-arg pattern type))])]))
     args))
 
 (define (resolve-types/exprs [exprs : (List ri:Expression)] [ctx : Context])
@@ -383,7 +375,7 @@
      (case (resolve-types/args args ctx)
        [(left v) (left v)]
        [(right args)
-        (case (maybe-pre-type->maybe-type maybe-return-type ctx)
+        (case (maybe-pre-type->maybe-value-type maybe-return-type ctx)
           [(left v) (left v)]
           [(right maybe-return-type)
            (case (resolve-types/block body ctx)
@@ -391,7 +383,7 @@
              [(right body)
               (right (lambda-expr args maybe-return-type body src))])])])]
     [(ri:annotated-expr pre-type expr src)
-     (case (pre-type->type pre-type ctx)
+     (case (pre-type->value-type pre-type ctx)
        [(left v) (left v)]
        [(right type)
         (case (resolve-types/expr expr ctx)
@@ -484,7 +476,7 @@
            (case (resolve-types/pattern pattern ctx)
              [(left v) (left v)]
              [(right pattern)
-              (case (maybe-pre-type->maybe-type type ctx)
+              (case (maybe-pre-type->maybe-value-type type ctx)
                 [(left v) (left v)]
                 [(right type)
                  (case (resolve-types/expr expr ctx)
@@ -550,7 +542,7 @@
        [(just v) (right v)])]
     [(fun-pre-type type-vars args result _)
      (match-define context (context-add-var-types context type-vars))
-     (match-define recur (lambda ([pre : PreType]) (pre-type->type pre context)))
+     (match-define recur (lambda ([pre : PreType]) (pre-type->value-type pre context)))
      (case (map/failure recur args)
        [(left v) (left v)]
        [(right args)
@@ -587,14 +579,28 @@
        [(just t)
         (left (type-constructor-bad-constructor t cons-src))])]))
 
-(define (maybe-pre-type->maybe-type [t : (Maybe PreType)] [ctx : Context])
+(define (maybe-pre-type->maybe-value-type [t : (Maybe PreType)] [ctx : Context])
   : (Either LocalTypeResolutionError (Maybe Type))
   (case t
     [(nothing) (right (nothing))]
     [(just t)
-     (case (pre-type->type t ctx)
+     (case (pre-type->value-type t ctx)
        [(left v) (left v)]
        [(right t) (right (just t))])]))
+
+(define (pre-type->value-type [pre-type : PreType] [ctx : Context])
+  : (Either LocalTypeResolutionError Type)
+  (case (pre-type->type pre-type ctx)
+    [(left v) (left v)]
+    [(right type)
+     (case (type->kind type)
+       [(fun-kind _ _)
+        (left (non-value-kind type (pre-type-source-span pre-type)))]
+       [(star-kind)
+        (right type)]
+       [(prim64-kind)
+        (right type)])]))
+
 
 (define (pattern-source-span [p : Pattern]) : SourceSpan
   (case p
@@ -612,6 +618,12 @@
        (bytes-append (varargs list
          (source-span->start-location-bytes src)
          #": Unbound type variable: " v #"\n"))]
+      [(non-value-kind type src)
+       (bytes-append (varargs list
+         (source-span->start-location-bytes src)
+         #": Type's kind must correspond to a value, got: "
+         (print-type type)
+         #"\n"))]
       [(type-constructor-bad-arg-kind src)
        (bytes-append (varargs list
          (source-span->start-location-bytes src)
@@ -624,12 +636,6 @@
        (bytes-append (varargs list
          (source-span->start-location-bytes src)
          #": Cannot apply non constructor type: "
-         (print-type type)
-         #"\n"))]
-      [(function-definition-bad-arg-kind type src)
-       (bytes-append (varargs list
-         (source-span->start-location-bytes src)
-         #": Function argument type's kind must correspond to a value, got: "
          (print-type type)
          #"\n"))]))
   (bytes-append
