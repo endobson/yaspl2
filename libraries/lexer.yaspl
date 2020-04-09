@@ -21,9 +21,9 @@
               bytes-lexeme boolean-lexeme
               keyword-lexeme))
 (types
-  (define-type Lexer
+  (define-type (Lexer V)
     (lexer [ctx : LexerContext] [pos : Int]
-           [impl : (LexerContext Int -> InnerResult)]))
+           [impl : (LexerContext Int -> (InnerResult V))]))
   (define-type LexerContext
     (lexer-context
       [bytes : Bytes]
@@ -47,13 +47,13 @@
     (decimal-number-lexeme [v : Bytes])
     (hexadecimal-number-lexeme [v : Bytes]))
 
-  (define-type InnerResult
-    (lex-result/inner [v : (SourceSpanAnnotated Lexeme)] [next-pos : Int])
+  (define-type (InnerResult V)
+    (lex-result/inner [v : (SourceSpanAnnotated V)] [next-pos : Int])
     (end-of-input/inner [v : SourceSpan])
     (bad-input/inner [v : Bytes] [source : SourceSpan]))
 
-  (define-type Result
-    (lex-result [v : (SourceSpanAnnotated Lexeme)] [next : Lexer])
+  (define-type (Result V)
+    (lex-result [v : (SourceSpanAnnotated V)] [next : (Lexer V)])
     (end-of-input [v : SourceSpan])
     (bad-input [v : Bytes] [source : SourceSpan])))
 
@@ -80,7 +80,7 @@
     (or (and (<= 97 v) (< v 123))
         (and (<= 65 v) (< v 91)))))
 
-(define (lexer-remaining-input [lexer : Lexer]) : Bytes
+(define [V] (lexer-remaining-input [lexer : (Lexer V)]) : Bytes
   (match-define (lexer (lexer-context b _ _) pos _) lexer)
   (subbytes b pos (bytes-length b)))
 
@@ -97,69 +97,69 @@
                      end-line (+ (- end end-line-start) 1))])]))
 
 (define (lexeme* [ctx : LexerContext] [start : Int] [end : Int] [l : Lexeme])
-  : InnerResult
+  : (InnerResult Lexeme)
   (lex-result/inner
     (source-span-annotated l (lexer-context-get-span ctx start end))
     end))
 
 (define (symbol-lexeme* [ctx : LexerContext] [start : Int] [end : Int])
-  : InnerResult
+  : (InnerResult Lexeme)
   (lexeme* ctx start end 
     (symbol-lexeme (subbytes (lexer-context-bytes ctx) start end))))
 
 (define (comment-lexeme* [ctx : LexerContext] [start : Int] [end : Int])
-  : InnerResult
+  : (InnerResult Lexeme)
   (lexeme* ctx start end (comment-lexeme)))
 
 ;; Boolean lexemes are always two characters
 (define (boolean-lexeme* [ctx : LexerContext] [v : Boolean] [end : Int])
-  : InnerResult
+  : (InnerResult Lexeme)
   (lexeme* ctx (- end 2) end (boolean-lexeme v)))
 
 ;; Need to adjust for #: at begining
 (define (keyword-lexeme* [ctx : LexerContext] [start : Int] [end : Int])
-  : InnerResult
+  : (InnerResult Lexeme)
   (lexeme* ctx (- start 2) end 
     (keyword-lexeme (subbytes (lexer-context-bytes ctx) start end))))
 
 ;; Need to adjust for #" at begining.
 (define (bytes-lexeme* [ctx : LexerContext] [v : Bytes] [start : Int] [end : Int])
-  : InnerResult
+  : (InnerResult Lexeme)
   (lexeme* ctx (- start 2) end (bytes-lexeme v)))
 
 (define (decimal-number-lexeme* [ctx : LexerContext] [start : Int] [end : Int])
-  : InnerResult
+  : (InnerResult Lexeme)
   (lexeme* ctx start end 
     (decimal-number-lexeme (subbytes (lexer-context-bytes ctx) start end))))
 
 ;; Need to adjust for #x at the begining
 (define (hexadecimal-number-lexeme* [ctx : LexerContext] [start : Int] [end : Int])
-  : InnerResult
+  : (InnerResult Lexeme)
   (lexeme* ctx (- start 2) end 
     (hexadecimal-number-lexeme (subbytes (lexer-context-bytes ctx) start end))))
 
 (define (left-paren-lexeme* [ctx : LexerContext] [start : Int] [end : Int])
-  : InnerResult
+  : (InnerResult Lexeme)
   (lexeme* ctx start end (left-paren-lexeme)))
 
 (define (right-paren-lexeme* [ctx : LexerContext] [start : Int] [end : Int])
-  : InnerResult
+  : (InnerResult Lexeme)
   (lexeme* ctx start end (right-paren-lexeme)))
 
 (define (left-bracket-lexeme* [ctx : LexerContext] [start : Int] [end : Int])
-  : InnerResult
+  : (InnerResult Lexeme)
   (lexeme* ctx start end (left-bracket-lexeme)))
 
 (define (right-bracket-lexeme* [ctx : LexerContext] [start : Int] [end : Int])
-  : InnerResult
+  : (InnerResult Lexeme)
   (lexeme* ctx start end (right-bracket-lexeme)))
 
 (define (left-brace-lexeme* [ctx : LexerContext] [start : Int] [end : Int])
-  : InnerResult
+  : (InnerResult Lexeme)
   (lexeme* ctx start end (left-brace-lexeme)))
 
 (define (right-brace-lexeme* [ctx : LexerContext] [start : Int] [end : Int])
-  : InnerResult
+  : (InnerResult Lexeme)
   (lexeme* ctx start end (right-brace-lexeme)))
 
 ;; Symbol ok values
@@ -218,7 +218,7 @@
 (define (back-slash? [v : U8]) : Boolean
   (= (u8->s64 v) 92))
 
-(define (lex-symbol [ctx : LexerContext] [start : Int] [cur : Int]) : InnerResult
+(define (lex-symbol [ctx : LexerContext] [start : Int] [cur : Int]) : (InnerResult Lexeme)
   (match-define bytes (lexer-context-bytes ctx))
   (if (= (bytes-length bytes) cur)
       (symbol-lexeme* ctx start cur)
@@ -226,7 +226,7 @@
           (lex-symbol ctx start (+ 1 cur))
           (symbol-lexeme* ctx start cur))))
 
-(define (lex-after-hash [ctx : LexerContext] [pos : Int]) : InnerResult
+(define (lex-after-hash [ctx : LexerContext] [pos : Int]) : (InnerResult Lexeme)
   (match-define bytes (lexer-context-bytes ctx))
   (if (= (bytes-length bytes) pos)
       (bad-input/inner #"Input ended with hash" (lexer-context-get-span ctx (- pos 1) pos))
@@ -246,7 +246,7 @@
                                 #"Unsupported character after hash"
                                 (lexer-context-get-span ctx (- pos 1) next-pos)))))))))))
 
-(define (lex-keyword [ctx : LexerContext] [start : Int] [cur : Int]) : InnerResult
+(define (lex-keyword [ctx : LexerContext] [start : Int] [cur : Int]) : (InnerResult Lexeme)
   (match-define bytes (lexer-context-bytes ctx))
   (if (= (bytes-length bytes) cur)
       (keyword-lexeme* ctx start cur)
@@ -254,7 +254,7 @@
           (lex-keyword ctx start (+ 1 cur))
           (keyword-lexeme* ctx start cur))))
 
-(define (lex-bytes [ctx : LexerContext] [start : Int] [cur : Int]) : InnerResult
+(define (lex-bytes [ctx : LexerContext] [start : Int] [cur : Int]) : (InnerResult Lexeme)
   (match-define bytes (lexer-context-bytes ctx))
   (if (= (bytes-length bytes) cur)
       (bad-input/inner #"Input ended in the middle of bytes literal"
@@ -287,7 +287,7 @@
                                                   (integer->hex-bytes (u8->s64 byte))))
                       (lexer-context-get-span ctx cur (+ cur 1)))))))))
 
-(define (lex-decimal [ctx : LexerContext] [start : Int] [cur : Int]) : InnerResult
+(define (lex-decimal [ctx : LexerContext] [start : Int] [cur : Int]) : (InnerResult Lexeme)
   (match-define bytes (lexer-context-bytes ctx))
   (if (= (bytes-length bytes) cur)
       (decimal-number-lexeme* ctx start cur)
@@ -295,7 +295,7 @@
           (lex-decimal ctx start (+ 1 cur))
           (decimal-number-lexeme* ctx start cur))))
 
-(define (lex-hexadecimal [ctx : LexerContext] [start : Int] [cur : Int]) : InnerResult
+(define (lex-hexadecimal [ctx : LexerContext] [start : Int] [cur : Int]) : (InnerResult Lexeme)
   (match-define bytes (lexer-context-bytes ctx))
   (if (= (bytes-length bytes) cur)
       (hexadecimal-number-lexeme* ctx start cur)
@@ -303,7 +303,7 @@
           (lex-hexadecimal ctx start (+ 1 cur))
           (hexadecimal-number-lexeme* ctx start cur))))
 
-(define (lex-line-comment [ctx : LexerContext] [start : Int] [pos : Int]) : InnerResult
+(define (lex-line-comment [ctx : LexerContext] [start : Int] [pos : Int]) : (InnerResult Lexeme)
   (match-define bytes (lexer-context-bytes ctx))
   (if (= (bytes-length bytes) pos)
       (comment-lexeme* ctx start pos)
@@ -312,21 +312,22 @@
           (lex-line-comment ctx start (+ 1 pos)))))
 
 
-(define (make-sexp-lexer [sbytes : SourcedBytes]) : Lexer
+(define (make-sexp-lexer [sbytes : SourcedBytes]) : (Lexer Lexeme)
   (make-lexer sbytes sexp-lexer/impl))
 
-(define (make-lexer [sbytes : SourcedBytes] [impl : (LexerContext Int -> InnerResult)]) : Lexer
+(define [V] (make-lexer [sbytes : SourcedBytes] [impl : (LexerContext Int -> (InnerResult V))])
+  : (Lexer V)
   (match-define (sourced-bytes source contents) sbytes)
   (lexer (lexer-context contents source (make-line-start-map contents)) 0 impl))
 
-(define (run-lexer [l : Lexer]) : Result
+(define [V] (run-lexer [l : (Lexer V)]) : (Result V)
   (match-define (lexer ctx pos impl) l)
   (case (impl ctx pos)
     [(lex-result/inner v next-pos) (lex-result v (lexer ctx next-pos impl))]
     [(end-of-input/inner v) (end-of-input v)]
     [(bad-input/inner v source) (bad-input v source)]))
 
-(define (sexp-lexer/impl [ctx : LexerContext] [pos : Int]) : InnerResult
+(define (sexp-lexer/impl [ctx : LexerContext] [pos : Int]) : (InnerResult Lexeme)
   (match-define bytes (lexer-context-bytes ctx))
   (if (= pos (bytes-length bytes))
       (end-of-input/inner (lexer-context-get-span ctx pos pos))
