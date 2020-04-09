@@ -12,7 +12,7 @@
 }
 (export
   (#:types Lexer Result Lexeme)
-  (#:values make-lexer run-lexer lexer-remaining-input)
+  (#:values make-lexer make-sexp-lexer run-lexer lexer-remaining-input)
   (#:patterns end-of-input bad-input lex-result
               symbol-lexeme decimal-number-lexeme hexadecimal-number-lexeme
               left-paren-lexeme right-paren-lexeme
@@ -22,7 +22,8 @@
               keyword-lexeme))
 (types
   (define-type Lexer
-    (lexer [ctx : LexerContext] [pos : Int]))
+    (lexer [ctx : LexerContext] [pos : Int]
+           [impl : (LexerContext Int -> InnerResult)]))
   (define-type LexerContext
     (lexer-context
       [bytes : Bytes]
@@ -56,12 +57,6 @@
     (end-of-input [v : SourceSpan])
     (bad-input [v : Bytes] [source : SourceSpan])))
 
-(define (inner-result->result [ir : InnerResult] [ctx : LexerContext]) : Result
-  (case ir
-    [(lex-result/inner v next-pos) (lex-result v (lexer ctx next-pos))]
-    [(end-of-input/inner v) (end-of-input v)]
-    [(bad-input/inner v source) (bad-input v source)]))
-
 (define (decimal-start-byte? [v : U8]) : Boolean
   (digit? v))
 (define (decimal-continue-byte? [v : U8]) : Boolean
@@ -86,7 +81,7 @@
         (and (<= 65 v) (< v 91)))))
 
 (define (lexer-remaining-input [lexer : Lexer]) : Bytes
-  (match-define (lexer (lexer-context b _ _) pos) lexer)
+  (match-define (lexer (lexer-context b _ _) pos _) lexer)
   (subbytes b pos (bytes-length b)))
 
 (define (lexer-context-get-span [ctx : LexerContext] [start : Int] [end : Int])
@@ -316,17 +311,22 @@
           (comment-lexeme* ctx start pos)
           (lex-line-comment ctx start (+ 1 pos)))))
 
-(define (make-lexer [sbytes : SourcedBytes]) : Lexer
+
+(define (make-sexp-lexer [sbytes : SourcedBytes]) : Lexer
+  (make-lexer sbytes sexp-lexer/impl))
+
+(define (make-lexer [sbytes : SourcedBytes] [impl : (LexerContext Int -> InnerResult)]) : Lexer
   (match-define (sourced-bytes source contents) sbytes)
-  (lexer (lexer-context contents source (make-line-start-map contents)) 0))
+  (lexer (lexer-context contents source (make-line-start-map contents)) 0 impl))
 
-(define (run-lexer [lexer : Lexer]) : Result
-  (run (lexer-ctx lexer) (lexer-pos lexer)))
+(define (run-lexer [l : Lexer]) : Result
+  (match-define (lexer ctx pos impl) l)
+  (case (impl ctx pos)
+    [(lex-result/inner v next-pos) (lex-result v (lexer ctx next-pos impl))]
+    [(end-of-input/inner v) (end-of-input v)]
+    [(bad-input/inner v source) (bad-input v source)]))
 
-(define (run [ctx : LexerContext] [pos : Int]) : Result
-  (inner-result->result (run/inner ctx pos) ctx))
-
-(define (run/inner [ctx : LexerContext] [pos : Int]) : InnerResult
+(define (sexp-lexer/impl [ctx : LexerContext] [pos : Int]) : InnerResult
   (match-define bytes (lexer-context-bytes ctx))
   (if (= pos (bytes-length bytes))
       (end-of-input/inner (lexer-context-get-span ctx pos pos))
@@ -346,7 +346,7 @@
                                 (if (= byte 125)
                                     (right-brace-lexeme* ctx pos next-pos)
                                     (if (or (newline? byte/u8) (space? byte/u8))
-                                        (run/inner ctx next-pos)
+                                        (sexp-lexer/impl ctx next-pos)
                                         (if (symbol-start-byte? byte/u8)
                                             (lex-symbol ctx pos next-pos)
                                             (if (decimal-start-byte? byte/u8)
