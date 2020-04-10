@@ -262,6 +262,7 @@ yaspl_library(
         "//libraries:io",
         "//libraries:lexer",
         "//libraries:module-name",
+        "//libraries:sexp-lexer",
         "//libraries:sexp-parser",
         "//libraries/data:bytes",
         "//libraries/data:either",

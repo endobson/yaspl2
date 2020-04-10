@@ -312,29 +312,10 @@ yaspl_bootstrap_library(
     name = "lexer",
     srcs = ["lexer.yaspl"],
     deps = [
-        ":byte-escapes",
         "//libraries/data:bytes",
-        "//libraries/data:either",
-        "//libraries/data:list",
         "//libraries/data:maybe",
-        "//libraries/data:numbers",
         "//libraries/data:range-map",
         "//libraries/data:source-location",
-    ],
-)
-
-yaspl_test(
-    name = "lexer-test",
-    size = "small",
-    srcs = ["lexer-test.yaspl"],
-    deps = [
-        ":lexer",
-        ":yunit",
-        "//libraries/data:bytes",
-        "//libraries/data:list",
-        "//libraries/data:maybe",
-        "//libraries/data:source-location",
-        "//libraries/data:tuples",
     ],
 )
 
@@ -769,9 +750,37 @@ yaspl_bootstrap_library(
         "//libraries/data:lifted-primitives",
         "//libraries/data:list",
         "//libraries/data:maybe",
-        "//libraries/data:source-location",
         "//libraries/data:tuples",
         "//libraries/yaspl:var",
+    ],
+)
+
+yaspl_bootstrap_library(
+    name = "sexp-lexer",
+    srcs = ["sexp-lexer.yaspl"],
+    deps = [
+        ":byte-escapes",
+        ":lexer",
+        "//libraries/data:bytes",
+        "//libraries/data:either",
+        "//libraries/data:list",
+        "//libraries/data:numbers",
+        "//libraries/data:source-location",
+    ],
+)
+
+yaspl_test(
+    name = "sexp-lexer-test",
+    size = "small",
+    srcs = ["sexp-lexer-test.yaspl"],
+    deps = [
+        ":sexp-lexer",
+        ":yunit",
+        "//libraries/data:bytes",
+        "//libraries/data:list",
+        "//libraries/data:maybe",
+        "//libraries/data:source-location",
+        "//libraries/data:tuples",
     ],
 )
 
@@ -779,7 +788,7 @@ yaspl_bootstrap_library(
     name = "sexp-parser",
     srcs = ["sexp-parser.yaspl"],
     deps = [
-        ":lexer",
+        ":sexp-lexer",
         "//libraries/data:bytes",
         "//libraries/data:either",
         "//libraries/data:lifted-primitives",
