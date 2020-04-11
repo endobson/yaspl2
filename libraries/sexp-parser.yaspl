@@ -22,11 +22,11 @@
     (paren))
 
   (define-type SexpResult
-    (sexp-result [v : Sexp] [lexer : (Lexer Lexeme)])
+    (sexp-result [v : Sexp] [lexer : (Lexer Token)])
     (sexp-result-eof [source : SourceSpan])
     (sexp-result-error [e : SexpError]))
   (define-type InnerSexpResult
-    (inner-sexp-result [v : Sexp] [lexer : (Lexer Lexeme)])
+    (inner-sexp-result [v : Sexp] [lexer : (Lexer Token)])
     (inner-sexp-result-error [e : SexpError]))
 
   (define-type SexpError
@@ -35,7 +35,7 @@
 (define (parse-sexps [sbytes : SourcedBytes]) : (Either SexpError (SourceSpanAnnotated (List Sexp)))
   (parse-sexps/acc (make-sexp-lexer sbytes) (empty)))
 
-(define (parse-sexps/acc [lexer : (Lexer Lexeme)] [acc : (List Sexp)])
+(define (parse-sexps/acc [lexer : (Lexer Token)] [acc : (List Sexp)])
   : (Either SexpError (SourceSpanAnnotated (List Sexp)))
   (let ([val (loop lexer)])
     (case val
@@ -66,10 +66,10 @@
              (left (sexp-error (bytes-append (varargs list #"Leftovers: Bad input: " v)) loc))]
             [(end-of-input _)
              (right v)])]))))
-(define (parse-sexp [lexer : (Lexer Lexeme)]) : SexpResult
+(define (parse-sexp [lexer : (Lexer Token)]) : SexpResult
   (loop lexer))
 
-(define (loop [lexer : (Lexer Lexeme)]) : SexpResult
+(define (loop [lexer : (Lexer Token)]) : SexpResult
   (let ([val (run-lexer lexer)])
     (case val
       [(end-of-input loc) (sexp-result-eof loc)]
@@ -78,30 +78,30 @@
          (sexp-error (bytes-append (varargs list #"Unable to lex input: " v)) loc))]
       [(lex-result (source-span-annotated v source) lexer)
        (case v
-         [(decimal-number-lexeme bytes)
+         [(decimal-number-token bytes)
           (case (decimal-bytes->integer bytes)
-            [(nothing) (panic #"decimal-number-lexeme didn't contain a decimal number")]
+            [(nothing) (panic #"decimal-number-token didn't contain a decimal number")]
             [(just (lifted-int n))
              (sexp-result (number-sexp n source) lexer)])]
-         [(hexadecimal-number-lexeme bytes)
+         [(hexadecimal-number-token bytes)
           (case (hexadecimal-bytes->integer bytes)
-            [(nothing) (panic #"hexadecimal-number-lexeme didn't contain a hexadecimal number")]
+            [(nothing) (panic #"hexadecimal-number-token didn't contain a hexadecimal number")]
             [(just (lifted-int n))
              (sexp-result (number-sexp n source) lexer)])]
-         [(symbol-lexeme bytes) (sexp-result (symbol-sexp bytes source) lexer)]
-         [(bytes-lexeme bytes) (sexp-result (bytes-sexp bytes source) lexer)]
-         [(keyword-lexeme bytes) (sexp-result (keyword-sexp bytes source) lexer)]
-         [(boolean-lexeme bool) (sexp-result (boolean-sexp bool source) lexer)]
-         [(left-paren-lexeme)
+         [(symbol-token bytes) (sexp-result (symbol-sexp bytes source) lexer)]
+         [(bytes-token bytes) (sexp-result (bytes-sexp bytes source) lexer)]
+         [(keyword-token bytes) (sexp-result (keyword-sexp bytes source) lexer)]
+         [(boolean-token bool) (sexp-result (boolean-sexp bool source) lexer)]
+         [(left-paren-token)
           (inner-sexp-result->sexp-result (node-loop (empty) source (paren) lexer))]
-         [(left-bracket-lexeme)
+         [(left-bracket-token)
           (inner-sexp-result->sexp-result (node-loop (empty) source (bracket) lexer))]
-         [(left-brace-lexeme)
+         [(left-brace-token)
           (inner-sexp-result->sexp-result (node-loop (empty) source (brace) lexer))]
-         [(comment-lexeme) (loop lexer)]
-         [(right-bracket-lexeme) (sexp-result-error (sexp-error #"Unexpected ]." source))]
-         [(right-brace-lexeme) (sexp-result-error (sexp-error #"Unexpected }." source))]
-         [(right-paren-lexeme) (sexp-result-error (sexp-error #"Unexpected )." source))])])))
+         [(comment-token) (loop lexer)]
+         [(right-bracket-token) (sexp-result-error (sexp-error #"Unexpected ]." source))]
+         [(right-brace-token) (sexp-result-error (sexp-error #"Unexpected }." source))]
+         [(right-paren-token) (sexp-result-error (sexp-error #"Unexpected )." source))])])))
 
 (define (inner-sexp-result->sexp-result [v : InnerSexpResult]) : SexpResult
   (case v
@@ -109,7 +109,7 @@
     [(inner-sexp-result-error e) (sexp-result-error e)]))
 
 (define (node-loop [vals : (List Sexp)] [source-start : SourceSpan]
-                   [paren-style : ParenStyle] [lexer : (Lexer Lexeme)])
+                   [paren-style : ParenStyle] [lexer : (Lexer Token)])
   : InnerSexpResult
   (let ([val (run-lexer lexer)])
     (case val
@@ -128,52 +128,52 @@
            source))]
       [(lex-result (source-span-annotated v source) lexer)
         (case v
-          [(comment-lexeme)
+          [(comment-token)
            (node-loop vals source-start paren-style lexer)]
-          [(symbol-lexeme bytes)
+          [(symbol-token bytes)
            (node-loop (cons (symbol-sexp bytes source) vals) source-start paren-style lexer)]
-          [(decimal-number-lexeme bytes)
+          [(decimal-number-token bytes)
            (case (decimal-bytes->integer bytes)
-             [(nothing) (panic #"decimal-number-lexeme didn't contain a decimal number")]
+             [(nothing) (panic #"decimal-number-token didn't contain a decimal number")]
              [(just (lifted-int n))
               (node-loop (cons (number-sexp n source) vals) source-start paren-style lexer)])]
-          [(hexadecimal-number-lexeme bytes)
+          [(hexadecimal-number-token bytes)
            (case (hexadecimal-bytes->integer bytes)
-             [(nothing) (panic #"hexadecimal-number-lexeme didn't contain a hexadecimal number")]
+             [(nothing) (panic #"hexadecimal-number-token didn't contain a hexadecimal number")]
              [(just (lifted-int n))
               (node-loop (cons (number-sexp n source) vals) source-start paren-style lexer)])]
-          [(bytes-lexeme bytes)
+          [(bytes-token bytes)
            (node-loop (cons (bytes-sexp bytes source) vals) source-start paren-style lexer)]
-          [(keyword-lexeme bytes)
+          [(keyword-token bytes)
            (node-loop (cons (keyword-sexp bytes source) vals) source-start paren-style lexer)]
-          [(boolean-lexeme bool)
+          [(boolean-token bool)
            (node-loop (cons (boolean-sexp bool source) vals) source-start paren-style lexer)]
-          [(left-paren-lexeme)
+          [(left-paren-token)
             (case (node-loop (empty) source (paren) lexer)
               [(inner-sexp-result v lexer)
                (node-loop (cons v vals) source-start paren-style lexer)]
               [(inner-sexp-result-error e) (inner-sexp-result-error e)])]
-          [(left-bracket-lexeme)
+          [(left-bracket-token)
             (case (node-loop (empty) source (bracket) lexer)
               [(inner-sexp-result v lexer)
                (node-loop (cons v vals) source-start paren-style lexer)]
               [(inner-sexp-result-error e) (inner-sexp-result-error e)])]
-          [(left-brace-lexeme)
+          [(left-brace-token)
             (case (node-loop (empty) source (brace) lexer)
               [(inner-sexp-result v lexer)
                (node-loop (cons v vals) source-start paren-style lexer)]
               [(inner-sexp-result-error e) (inner-sexp-result-error e)])]
-          [(right-bracket-lexeme)
+          [(right-bracket-token)
            (case paren-style
              [(bracket)
               (inner-sexp-result (bracket-node (reverse vals) (full-span source-start source)) lexer)]
              [_ (inner-sexp-result-error (sexp-error #"Unexpected ]." source))])]
-          [(right-brace-lexeme)
+          [(right-brace-token)
            (case paren-style
              [(brace)
               (inner-sexp-result (brace-node (reverse vals) (full-span source-start source)) lexer)]
              [_ (inner-sexp-result-error (sexp-error #"Unexpected }." source))])]
-          [(right-paren-lexeme)
+          [(right-paren-token)
            (case paren-style
              [(paren)
               (inner-sexp-result (node (reverse vals) (full-span source-start source)) lexer)]
