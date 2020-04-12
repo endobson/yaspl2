@@ -9,6 +9,7 @@
       Block
       BlockDefinition
       CaseClause
+      CondClause
       DatatypeDefinition
       Export
       Expression
@@ -36,6 +37,8 @@
       bytes-pattern
       case-clause
       case-expr
+      cond-clause
+      cond-expr
       export
       exports
       function-arg
@@ -333,6 +336,27 @@
               (local-type-check-error* #"Branches of if don't match" src))]
          [_
            (left (append-jl (extract-errors t-v) (extract-errors f-v)))]))]
+    [(cond-expr clauses final _)
+     (match-define final-result (type-check/block final context expected-type))
+     (match-define clauses-results
+       (concat-map-jl/list
+         (lambda ([clause : CondClause]) : (JoinList LocalTypeCheckError)
+           (match-define (cond-clause test body clause-src) clause)
+           (match-define clause-result
+             (add-errors
+               (extract-errors (type-check/expr test context (just (boolean-type))))
+               (type-check/block body context expected-type)))
+           (case (tuple2 clause-result final-result)
+             [(tuple2 (right clause-type) (right final-type))
+              (if (type=? clause-type final-type)
+                  (empty-jl)
+                  (single-jl (local-type-check-error
+                               #"Branch of cond clause doesn't match final clause"
+                               clause-src)))]
+             [_
+              (extract-errors clause-result)]))
+         clauses))
+     (add-errors clauses-results final-result)]
     [(begin-expr void-exprs last-expr _)
      (match-define errors (type-check/begin-exprs void-exprs context))
      (add-errors errors (type-check/expr last-expr context expected-type))]
