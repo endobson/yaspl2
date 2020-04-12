@@ -40,7 +40,7 @@
   (match-define
     (function-definition (identifier name _) _type-vars _args _return-type body)
     fun)
-  (match-define (tuple2 _state unused)
+  (match-define (tuple2 unused _state)
     (unused-local-bindings/block body (state (empty))))
   (case (jl->list unused)
     [(empty) (nothing)]
@@ -49,28 +49,28 @@
 
 
 (define (unused-local-bindings/expr [e : Expression] [state : State])
-  : (Tuple2 State (JoinList Identifier))
+  : (Tuple2 (JoinList Identifier) State)
   (case e
     [(int-literal _ _)
-     (tuple2 state (empty-jl))]
+     (tuple2 (empty-jl) state)]
     [(bytes-literal _ _)
-     (tuple2 state (empty-jl))]
+     (tuple2 (empty-jl) state)]
     [(boolean-literal _ _)
-     (tuple2 state (empty-jl))]
+     (tuple2 (empty-jl) state)]
     [(var-expr (identifier v _))
-     (tuple2 (mark-var-used state v) (empty-jl))]
+     (tuple2 (empty-jl) (mark-var-used state v))]
     [(annotated-expr _type e _)
      (unused-local-bindings/expr e state)]
     [(if-expr cond true false _)
-     (match-define (tuple2 state cond-unused)
+     (match-define (tuple2 cond-unused state)
        (unused-local-bindings/expr cond state))
-     (match-define (tuple2 state true-unused)
+     (match-define (tuple2 true-unused state)
        (unused-local-bindings/expr true state))
-     (match-define (tuple2 state false-unused)
+     (match-define (tuple2 false-unused state)
        (unused-local-bindings/expr false state))
      (tuple2
-       state
-       (append-jl cond-unused (append-jl true-unused false-unused)))]
+       (append-jl cond-unused (append-jl true-unused false-unused))
+       state)]
     [(begin-expr exprs last-expr _)
      (unused-local-bindings/exprs (cons last-expr exprs) state)]
     [(app-expr _tail-position op args _)
@@ -78,50 +78,50 @@
     [(varargs-app-expr _tail-position _ args _)
      (unused-local-bindings/exprs args state)]
     [(let-expr id expr body _)
-     (match-define (tuple2 state expr-unused)
+     (match-define (tuple2 expr-unused state)
        (unused-local-bindings/expr expr state))
-     (match-define (tuple2 state body-unused)
+     (match-define (tuple2 body-unused state)
        (unused-local-bindings/binding
          (varargs list id)
          state
          body))
-     (tuple2 state (append-jl expr-unused body-unused))]
+     (tuple2 (append-jl expr-unused body-unused) state)]
     [(lambda-expr args _type body _)
      (unused-local-bindings/binding
        (function-args-bound-variables args)
        state
        body)]
     [(case-expr expr clauses _)
-     (match-define (tuple2 state expr-unused)
+     (match-define (tuple2 expr-unused state)
        (unused-local-bindings/expr expr state))
-     (match-define (tuple2 state clauses-unused)
+     (match-define (tuple2 clauses-unused state)
        (unused-local-bindings/clauses clauses state))
-     (tuple2 state (append-jl clauses-unused expr-unused))]))
+     (tuple2 (append-jl clauses-unused expr-unused) state)]))
 
 (define (unused-local-bindings/exprs [es : (List Expression)] [state : State])
-  : (Tuple2 State (JoinList Identifier))
+  : (Tuple2 (JoinList Identifier) State)
   (case es
-    [(empty) (tuple2 state (empty-jl))]
+    [(empty) (tuple2 (empty-jl) state)]
     [(cons e es)
-     (match-define (tuple2 state e-unused)
+     (match-define (tuple2 e-unused state)
        (unused-local-bindings/expr e state))
-     (match-define (tuple2 state es-unused)
+     (match-define (tuple2 es-unused state)
        (unused-local-bindings/exprs es state))
-     (tuple2 state (append-jl e-unused es-unused))]))
+     (tuple2 (append-jl e-unused es-unused) state)]))
 
 (define (unused-local-bindings/clauses [cs : (List CaseClause)] [state : State])
-  : (Tuple2 State (JoinList Identifier))
+  : (Tuple2 (JoinList Identifier) State)
   (case cs
-    [(empty) (tuple2 state (empty-jl))]
+    [(empty) (tuple2 (empty-jl) state)]
     [(cons c cs)
-     (match-define (tuple2 state c-unused)
+     (match-define (tuple2 c-unused state)
        (unused-local-bindings/clause c state))
-     (match-define (tuple2 state cs-unused)
+     (match-define (tuple2 cs-unused state)
        (unused-local-bindings/clauses cs state))
-     (tuple2 state (append-jl c-unused cs-unused))]))
+     (tuple2 (append-jl c-unused cs-unused) state)]))
 
 (define (unused-local-bindings/clause [clause : CaseClause] [state : State])
-  : (Tuple2 State (JoinList Identifier))
+  : (Tuple2 (JoinList Identifier) State)
   (match-define (case-clause pattern body) clause)
   (match-define vars (pattern-bound-variables pattern (empty)))
   (unused-local-bindings/binding
@@ -153,25 +153,25 @@
     [(cons p ps) (pattern-bound-variables/list ps (pattern-bound-variables p acc))]))
 
 (define (unused-local-bindings/block [b : Block] [state : State])
-  : (Tuple2 State (JoinList Identifier))
+  : (Tuple2 (JoinList Identifier) State)
   (case b
     [(block (empty) expr)
      (unused-local-bindings/expr expr state)]
     [(block (cons (match-def pat _type expr) defs) body-expr)
-     (match-define (tuple2 state expr-unused)
+     (match-define (tuple2 expr-unused state)
        (unused-local-bindings/expr expr state))
      (case (unused-local-bindings/binding
              (pattern-bound-variables pat (empty))
              state
              (block defs body-expr))
-       [(tuple2 state body-unused)
-        (tuple2 state (append-jl expr-unused body-unused))])]))
+       [(tuple2 body-unused state)
+        (tuple2 (append-jl expr-unused body-unused) state)])]))
 
 (define (unused-local-bindings/binding
           [vars : (List Identifier)]
           [init-state : State]
           [body : Block])
-  : (Tuple2 State (JoinList Identifier))
+  : (Tuple2 (JoinList Identifier) State)
   (match-define (state bindings) init-state)
 
   (match-define inner-state
@@ -185,7 +185,7 @@
             (make-dict bytes-cmp)))
        bindings)))
 
-  (match-define (tuple2 inner-state body-unused)
+  (match-define (tuple2 body-unused inner-state)
     (unused-local-bindings/block body inner-state))
 
   (match-define (tuple2 frame outer-bindings)
@@ -200,8 +200,8 @@
       (filter-map (lambda ([v : (Maybe Identifier)]) v) (dict-values frame))))
 
   (tuple2
-    (state outer-bindings)
-    (append-jl unused-vars body-unused)))
+    (append-jl unused-vars body-unused)
+    (state outer-bindings)))
 
 (define (mark-var-used [s : State] [v : Bytes]) : State
   (match-define (state bindings) s)
