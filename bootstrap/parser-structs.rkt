@@ -31,6 +31,8 @@
 (struct ann& expression& (type expr) #:transparent)
 (struct case& expression& (expr clauses) #:transparent)
 (struct case-clause& (pattern body) #:transparent)
+(struct cond& expression& (clauses final-body) #:transparent)
+(struct cond-clause& (test body) #:transparent)
 ;; args+tys : (List (List Symbol PreType))
 ;; return : (U PreType #f)
 (struct lambda& expression& (args+tys return body) #:transparent)

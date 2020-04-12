@@ -66,6 +66,13 @@
        (recur expr)]
       [(lambda& (list (list args _) ...) _ (block& defs body))
        (recur/block (set-union env (list->set args)) defs body)]
+      [(cond& clauses (block& final-defs final-body))
+       (for ([clause (in-list clauses)])
+         (match clause
+           [(cond-clause& test (block& defs body))
+            (recur test)
+            (recur/block env defs body)]))
+       (recur/block env final-defs final-body)]
       [(case& expr clauses)
        (recur expr)
        (for ([clause (in-list clauses)])
@@ -632,6 +639,14 @@
      ;; TODO check that these match
      (type-check true type)
      (type-check false type)]
+    [(cond& clauses (block& final-defs final-body))
+     ;; TODO check that the clauses match the final clause
+     (for ([clause (in-list clauses)])
+       (match clause
+         [(cond-clause& test (block& defs body))
+          (type-check test (boolean-ty))
+          (type-check/block env defs body type)]))
+     (type-check/block env final-defs final-body type)]
     [(begin& first-expr exprs)
      (match (cons first-expr exprs)
        [(list exprs ... last-expr)

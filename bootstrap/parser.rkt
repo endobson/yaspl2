@@ -168,6 +168,12 @@
     [(? symbol? sym) (variable& sym)]
     [`(if ,cond ,true ,false)
      (if& (parse cond) (parse true) (parse false))]
+    [`(cond [,tests . ,bodies] ... [else . ,final-body])
+      (cond&
+        (for/list ([test (in-list tests)]
+                   [body (in-list bodies)])
+          (cond-clause& (parse-expression test) (parse-block body)))
+        (parse-block final-body))]
     [(list 'begin first-expr exprs ...)
      (begin& (parse first-expr) (map parse exprs))]
     [(list 'varargs (? symbol? name) exprs ...)

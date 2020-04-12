@@ -235,6 +235,15 @@
      #`(if #,(racketize-expr env cond)
            #,(racketize-expr env true)
            #,(racketize-expr env false))]
+    [(cond& clauses (block& final-defs final-body))
+     #`(cond
+         #,@(for/list ([clause (in-list clauses)])
+              (match clause
+                [(cond-clause& test (block& defs body))
+                 #`[#,(racketize-expr env test)
+                    #,(racketize-block env defs body)]]))
+         [else
+          #,(racketize-block env final-defs final-body)])]
     [(begin& first-expr exprs)
      #`(begin #,@(map (λ (e) (racketize-expr env e)) (cons first-expr exprs)))]
     [(ann& _ expr)
