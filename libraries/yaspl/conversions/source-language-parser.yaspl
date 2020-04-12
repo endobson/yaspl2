@@ -531,6 +531,25 @@
           (right/source-parse-error src))]
        [_
         (left (source-parse-error #"If: requires exactly three expressions" src))])]
+    [(node (cons (symbol-sexp #"if" _) exprs) src)
+     (case exprs
+       [(cons cond (cons true (cons false (empty))))
+        (either-app4 if-expr
+          (parse-expression #f cond)
+          (parse-expression tail-position true)
+          (parse-expression tail-position false)
+          (right/source-parse-error src))]
+       [_
+        (left (source-parse-error #"If: requires exactly three expressions" src))])]
+    [(node (cons (symbol-sexp #"cond" _) clauses) src)
+     (case (reverse clauses)
+       [(empty)
+        (left (source-parse-error #"Cond requires at least one clause" src))]
+       [(cons final-clause clauses)
+        (either-app3 cond-expr
+          (map/failure (lambda ([s : Sexp]) (parse-cond-clause tail-position s)) (reverse clauses))
+          (parse-final-cond-clause tail-position final-clause)
+          (right/source-parse-error src))])]
     [(node (cons (symbol-sexp #"begin" _) exprs) src)
      (case (reverse exprs)
        [(empty)
@@ -626,7 +645,22 @@
     [_
      (left (source-parse-error #"Lambda: couldn't be parsed" full-src))]))
 
+(define (parse-cond-clause [tail-position : Boolean] [sexp : Sexp])
+  : (Either SourceParseError CondClause)
+  (case sexp
+    [(bracket-node (cons test (cons body body*)) src)
+     (either-app3 cond-clause
+       (parse-expression #f test)
+       (parse-block tail-position body body*)
+       (right/source-parse-error src))]
+    [_ (left (source-parse-error #"Not a valid cond clause" (sexp-source-span sexp)))]))
 
+(define (parse-final-cond-clause [tail-position : Boolean] [sexp : Sexp])
+  : (Either SourceParseError Block)
+  (case sexp
+    [(bracket-node (cons (symbol-sexp #"else" _) (cons body body*)) _)
+     (parse-block tail-position body body*)]
+    [_ (left (source-parse-error #"Not a valid final cond clause" (sexp-source-span sexp)))]))
 
 (define (parse-case-clause [tail-position : Boolean] [sexp : Sexp]) : (Either SourceParseError CaseClause)
   (case sexp
