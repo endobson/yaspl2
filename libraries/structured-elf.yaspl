@@ -114,7 +114,8 @@
          (log2 (section-header-section-addr-align const-section-header))))]))
 
 (define (log2 [v : Int]) : Int
-  (if (= v 1) 0
+  (if (= v 1)
+      0
       (+ 1 (log2 (quotient v 2)))))
 
 
@@ -134,18 +135,21 @@
              (lambda ([v : SymbolTableEntry]) : (Either Bytes ParsedSymbolTableEntry)
                (case v
                  [(symbol-table-entry name-offset binding-info section-index value _size)
-                  (let ([name (read-null-terminated-bytes
-                                raw-contents
-                                (+ (section-header-section-offset strtab-section-header)
-                                   name-offset))])
-                    (if (= binding-info 3)
-                        (right (section-symbol-entry name))
-                        (if (= section-index 0)
-                            (right (undefined-symbol-entry name))
-                            ;; TODO handle const symbols correctly
-                            (if (= section-index 1)
-                                (right (text-symbol-entry name value))
-                                (right (const-symbol-entry name value))))))]))
+                  (match-define name
+                    (read-null-terminated-bytes
+                      raw-contents
+                      (+ (section-header-section-offset strtab-section-header)
+                         name-offset)))
+                  (cond
+                    [(= binding-info 3)
+                     (right (section-symbol-entry name))]
+                    [(= section-index 0)
+                     (right (undefined-symbol-entry name))]
+                    [(= section-index 1)
+                     (right (text-symbol-entry name value))]
+                    ;; TODO handle const symbols correctly
+                    [else
+                     (right (const-symbol-entry name value))])]))
              symbols)])])]))
 
 
@@ -201,28 +205,30 @@
             : (Either Bytes (Relocation ElfRelocationKind))
             (case relocation-entry
               [(relocation-entry offset type symbol-index value)
-               (if (not (= type 2))
-                   (left #"Unknown relocation entry type")
-               (if (not (= value (- 0 4)))
-                   (left (bytes-append
-                           (varargs list
-                             #"Bad relocation value for pc32 relocation: "
-                             (integer->decimal-bytes value))))
-               (case (list-ref symbols symbol-index)
-                 [(nothing)
-                  (left (bytes-append (varargs list
-                    #"Bad symbol index: "
-                    (integer->decimal-bytes symbol-index)
-                    #", list size: "
-                    (integer->decimal-bytes (length symbols)))))]
-                 [(just parsed-entry)
-                  (match-define name
-                    (case parsed-entry
-                      [(section-symbol-entry name) name]
-                      [(undefined-symbol-entry name) name]
-                      [(text-symbol-entry name _) name]
-                      [(const-symbol-entry name _) name]))
-                  (right (relocation (elf-pc32-relocation) offset name))])))]))
+               (cond
+                 [(not (= type 2))
+                  (left #"Unknown relocation entry type")]
+                 [(not (= value (- 0 4)))
+                  (left (bytes-append
+                          (varargs list
+                            #"Bad relocation value for pc32 relocation: "
+                            (integer->decimal-bytes value))))]
+                 [else
+                  (case (list-ref symbols symbol-index)
+                    [(nothing)
+                     (left (bytes-append (varargs list
+                       #"Bad symbol index: "
+                       (integer->decimal-bytes symbol-index)
+                       #", list size: "
+                       (integer->decimal-bytes (length symbols)))))]
+                    [(just parsed-entry)
+                     (match-define name
+                       (case parsed-entry
+                         [(section-symbol-entry name) name]
+                         [(undefined-symbol-entry name) name]
+                         [(text-symbol-entry name _) name]
+                         [(const-symbol-entry name _) name]))
+                     (right (relocation (elf-pc32-relocation) offset name))])])]))
           relocations)])]))
 
 (define (elf-file->const-relocations [e : ElfFile] [symbols : (List ParsedSymbolTableEntry)])

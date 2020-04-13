@@ -40,61 +40,72 @@
 ;; Counts the number of extra bytes because of escapes
 (define (count-extra-bytes [src : Bytes] [src-offset : Int] [src-end : Int] [extra-bytes : Int])
   : (Either Bytes LiftedInt)
-  (if (= src-offset src-end)
-      (right (lifted-int extra-bytes))
-      (let ([byte (bytes-ref src src-offset)])
-        (if (back-slash? byte)
-            (if (= (+ src-offset 1) src-end)
-                (left #"Bad escape: last character is \\")
-                (let ([escape-start (bytes-ref src (+ src-offset 1))])
-                  (if (or (double-quote? escape-start)
-                          (or (back-slash? escape-start)
-                              (or (n? escape-start)
-                                  (r? escape-start))))
-                      (count-extra-bytes src (+ src-offset 2) src-end (+ extra-bytes 1))
-                      (if (x? escape-start)
-                          (if (>= (+ src-offset 3) src-end)
-                              (left #"Bad escape: not enough characters after hex escape")
-                              (count-extra-bytes src (+ src-offset 4) src-end (+ extra-bytes 3)))
-                          (left #"Bad escape: not a valid escape sequence")))))
-            (count-extra-bytes src (+ src-offset 1) src-end extra-bytes)))))
+  (cond
+    [(= src-offset src-end)
+     (right (lifted-int extra-bytes))]
+    [else
+     (match-define byte (bytes-ref src src-offset))
+     (cond
+       [(not (back-slash? byte))
+        (count-extra-bytes src (+ src-offset 1) src-end extra-bytes)]
+       [(= (+ src-offset 1) src-end)
+        (left #"Bad escape: last character is \\")]
+       [else
+         (match-define escape-start (bytes-ref src (+ src-offset 1)))
+         (cond
+           [(or (double-quote? escape-start)
+                (or (back-slash? escape-start)
+                    (or (n? escape-start)
+                        (r? escape-start))))
+            (count-extra-bytes src (+ src-offset 2) src-end (+ extra-bytes 1))]
+           [(not (x? escape-start))
+            (left #"Bad escape: not a valid escape sequence")]
+           [(>= (+ src-offset 3) src-end)
+            (left #"Bad escape: not enough characters after hex escape")]
+           [else
+            (count-extra-bytes src (+ src-offset 4) src-end (+ extra-bytes 3))])])]))
 
 (define (unescape-bytes*
           [src : Bytes] [src-offset : Int] [src-end : Int] [dest : Bytes] [dest-offset : Int])
   : (Either Bytes Bytes)
-  (if (= src-offset src-end)
-      (right dest)
-      (let ([byte (bytes-ref src src-offset)])
-        (if (back-slash? byte)
-            (let ([src-offset (+ 1 src-offset)])
-              (let ([byte (bytes-ref src src-offset)])
-                (if (double-quote? byte)
-                    (begin
-                      (bytes-set! dest dest-offset byte)
-                      (unescape-bytes* src (+ 1 src-offset) src-end dest (+ 1 dest-offset)))
-                    (if (n? byte)
-                        (begin
-                          (bytes-set! dest dest-offset (u8 10)) ;; newline
-                          (unescape-bytes* src (+ 1 src-offset) src-end dest (+ 1 dest-offset)))
-                        (if (back-slash? byte)
-                            (begin
-                              (bytes-set! dest dest-offset (u8 92)) ;; backslash
-                              (unescape-bytes* src (+ 1 src-offset) src-end dest (+ 1 dest-offset)))
-                            (if (r? byte)
-                                (begin
-                                  (bytes-set! dest dest-offset (u8 13)) ;; carriage return
-                                  (unescape-bytes* src (+ 1 src-offset) src-end dest (+ 1 dest-offset)))
-                                (if (x? byte)
-                                    (case (hexadecimal-bytes->integer
-                                            (subbytes src (+ src-offset 1) (+ src-offset 3)))
-                                      [(nothing)
-                                       (left #"Bad hexadecimal escape")]
-                                      [(just (lifted-int v))
-                                       (begin
-                                         (bytes-set! dest dest-offset (u8 v))
-                                         (unescape-bytes* src (+ 3 src-offset) src-end dest
-                                                          (+ 1 dest-offset)))])
-                                    (left #"Unknown escape"))))))))
-            (begin
-              (bytes-set! dest dest-offset byte)
-              (unescape-bytes* src (+ 1 src-offset) src-end dest (+ 1 dest-offset)))))))
+  (cond
+    [(= src-offset src-end)
+     (right dest)]
+    [else
+      (match-define byte (bytes-ref src src-offset))
+      (cond
+        [(not (back-slash? byte))
+         (begin
+           (bytes-set! dest dest-offset byte)
+           (unescape-bytes* src (+ 1 src-offset) src-end dest (+ 1 dest-offset)))]
+        [else
+          (match-define src-offset (+ 1 src-offset))
+          (match-define byte (bytes-ref src src-offset))
+          (cond
+            [(double-quote? byte)
+             (begin
+               (bytes-set! dest dest-offset byte)
+               (unescape-bytes* src (+ 1 src-offset) src-end dest (+ 1 dest-offset)))]
+            [(n? byte)
+             (begin
+               (bytes-set! dest dest-offset (u8 10)) ;; newline
+               (unescape-bytes* src (+ 1 src-offset) src-end dest (+ 1 dest-offset)))]
+            [(back-slash? byte)
+             (begin
+               (bytes-set! dest dest-offset (u8 92)) ;; backslash
+               (unescape-bytes* src (+ 1 src-offset) src-end dest (+ 1 dest-offset)))]
+            [(r? byte)
+             (begin
+               (bytes-set! dest dest-offset (u8 13)) ;; carriage return
+               (unescape-bytes* src (+ 1 src-offset) src-end dest (+ 1 dest-offset)))]
+            [(x? byte)
+             (case (hexadecimal-bytes->integer (subbytes src (+ src-offset 1) (+ src-offset 3)))
+               [(nothing)
+                (left #"Bad hexadecimal escape")]
+               [(just (lifted-int v))
+                (begin
+                  (bytes-set! dest dest-offset (u8 v))
+                  (unescape-bytes* src (+ 3 src-offset) src-end dest
+                                   (+ 1 dest-offset)))])]
+            [else
+             (left #"Unknown escape")])])]))

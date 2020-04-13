@@ -119,63 +119,69 @@
 
 (define (parse-load-command [bytes : Bytes] [offset : Int])
   : (Either Bytes (Tuple2 MachOLoadCommand LiftedInt))
-  (if (< offset 0)
-    (left #"Load command cannot start at a negative index.")
-    (if (< (bytes-length bytes) (+ offset 8))
-        (left #"Not enough bytes to parse load command header")
-        (let ([number (bytes-ref/quad-le bytes (+ offset 0))])
-          (let ([command-size (bytes-ref/quad-le bytes (+ offset 4))])
-            (if (< command-size 8)
-                (left #"Command size not big enough to parse")
-                (if (< (bytes-length bytes) (+ offset command-size))
-                    (left (bytes-append
-                            (varargs
-                            list
-                            #"Not enough bytes to parse load command content: Offset: "
-                            (integer->decimal-bytes offset)
-                            #" Command size: "
-                            (integer->decimal-bytes command-size)
-                            #" Buffer size: "
-                            (integer->decimal-bytes (bytes-length bytes)))))
-                    (let ([command-buffer (subbytes bytes (+ offset 8) (+ offset command-size))])
-                      (case
-                        (case number
-                          [#x02 (parse-lc-symbol-table command-buffer)]
-                          [#x19 (parse-lc-load-segment64 command-buffer)]
-                          [#x24 (parse-lc-version-min-macosx command-buffer)]
-                          [#x29 (parse-lc-data-in-code command-buffer)]
-                          [#x05 (parse-lc-unix-thread command-buffer)]
-                          [x (ann (Either Bytes MachOLoadCommand)
-                               (left (bytes-append
-                                     (varargs list
-                                       #"Unknown load command: #x"
-                                       (integer->hex-bytes x)
-                                       #" Offset: #x"
-                                       (integer->hex-bytes offset)))))])
-                        [(left v) (left v)]
-                        [(right command)
-                         (right (tuple2 command (lifted-int (+ offset command-size))))])))))))))
+  (cond
+    [(< offset 0)
+     (left #"Load command cannot start at a negative index.")]
+    [(< (bytes-length bytes) (+ offset 8))
+     (left #"Not enough bytes to parse load command header")]
+    [else
+      (match-define number (bytes-ref/quad-le bytes (+ offset 0)))
+      (match-define command-size (bytes-ref/quad-le bytes (+ offset 4)))
+      (cond
+        [(< command-size 8)
+         (left #"Command size not big enough to parse")]
+        [(< (bytes-length bytes) (+ offset command-size))
+         (left (bytes-append
+                 (varargs
+                 list
+                 #"Not enough bytes to parse load command content: Offset: "
+                 (integer->decimal-bytes offset)
+                 #" Command size: "
+                 (integer->decimal-bytes command-size)
+                 #" Buffer size: "
+                 (integer->decimal-bytes (bytes-length bytes)))))]
+        [else
+         (match-define command-buffer (subbytes bytes (+ offset 8) (+ offset command-size)))
+         (case
+           (case number
+             [#x02 (parse-lc-symbol-table command-buffer)]
+             [#x19 (parse-lc-load-segment64 command-buffer)]
+             [#x24 (parse-lc-version-min-macosx command-buffer)]
+             [#x29 (parse-lc-data-in-code command-buffer)]
+             [#x05 (parse-lc-unix-thread command-buffer)]
+             [x (ann (Either Bytes MachOLoadCommand)
+                  (left (bytes-append
+                        (varargs list
+                          #"Unknown load command: #x"
+                          (integer->hex-bytes x)
+                          #" Offset: #x"
+                          (integer->hex-bytes offset)))))])
+           [(left v) (left v)]
+           [(right command)
+            (right (tuple2 command (lifted-int (+ offset command-size))))])])]))
 
 
 
 (define (parse-lc-load-segment64 [bytes : Bytes]) : (Either Bytes MachOLoadCommand)
-  (if (< (bytes-length bytes) #x40)
-      (left #"Too short lc-load-segment64")
-      (let ([num-sections (bytes-ref/quad-le bytes #x38)])
-        (if (not (= (bytes-length bytes) (+ #x40 (* num-sections #x50))))
-            (left #"Wrong length lc-load-segment64")
-            (right
-              (lc-load-segment64
-                (load-segment64
-                  (read-16-byte-name bytes #x00 0)
-                  (bytes-ref/u64-le bytes #x10)
-                  (bytes-ref/u64-le bytes #x18)
-                  (bytes-ref/u64-le bytes #x20)
-                  (bytes-ref/u64-le bytes #x28)
-                  (u32 (bytes-ref/quad-le bytes #x30))
-                  (u32 (bytes-ref/quad-le bytes #x34))
-                  (u32 (bytes-ref/quad-le bytes #x3c))
-                  (parse-section64s num-sections #x40 bytes))))))))
+  (cond
+    [(< (bytes-length bytes) #x40)
+     (left #"Too short lc-load-segment64")]
+    [else
+     (match-define num-sections (bytes-ref/quad-le bytes #x38))
+     (if (not (= (bytes-length bytes) (+ #x40 (* num-sections #x50))))
+         (left #"Wrong length lc-load-segment64")
+         (right
+           (lc-load-segment64
+             (load-segment64
+               (read-16-byte-name bytes #x00 0)
+               (bytes-ref/u64-le bytes #x10)
+               (bytes-ref/u64-le bytes #x18)
+               (bytes-ref/u64-le bytes #x20)
+               (bytes-ref/u64-le bytes #x28)
+               (u32 (bytes-ref/quad-le bytes #x30))
+               (u32 (bytes-ref/quad-le bytes #x34))
+               (u32 (bytes-ref/quad-le bytes #x3c))
+               (parse-section64s num-sections #x40 bytes)))))]))
 
 (define (parse-section64s [amount : Int] [offset : Int] [bytes : Bytes]) : (List Section64)
   (if (= amount 0)
@@ -202,11 +208,13 @@
 
 
 (define (read-16-byte-name [bytes : Bytes] [init-offset : Int] [num-chars : Int]) : Bytes
-  (if (= num-chars 16)
-      (subbytes bytes init-offset (+ init-offset num-chars))
-      (if (= (u8->s64 (bytes-ref bytes (+ init-offset num-chars))) 0)
-          (subbytes bytes init-offset (+ init-offset num-chars))
-          (read-16-byte-name bytes init-offset (+ 1 num-chars)))))
+  (cond
+    [(= num-chars 16)
+     (subbytes bytes init-offset (+ init-offset num-chars))]
+    [(= (u8->s64 (bytes-ref bytes (+ init-offset num-chars))) 0)
+     (subbytes bytes init-offset (+ init-offset num-chars))]
+    [else
+     (read-16-byte-name bytes init-offset (+ 1 num-chars))]))
 
 (define (parse-lc-symbol-table [bytes : Bytes]) : (Either Bytes MachOLoadCommand)
   (if (not (= (bytes-length bytes) #x10))
@@ -263,20 +271,22 @@
 
 
 (define (parse-lc-version-min-macosx [bytes : Bytes]) : (Either Bytes MachOLoadCommand)
-  (if (not (= (bytes-length bytes) #x08))
-      (left #"Wrong length lc-version-min-macosx")
-      (if (or (not (= (u8->s64 (bytes-ref bytes 3)) 0))
-              (not (= (u8->s64 (bytes-ref bytes 7)) 0)))
-          (left #"Not yet supported version min")
-          (right
-            (lc-version-min-macosx
-              (version-min
-                (bytes-ref bytes #x02)
-                (bytes-ref bytes #x01)
-                (bytes-ref bytes #x00)
-                (bytes-ref bytes #x06)
-                (bytes-ref bytes #x05)
-                (bytes-ref bytes #x04)))))))
+  (cond
+    [(not (= (bytes-length bytes) #x08))
+     (left #"Wrong length lc-version-min-macosx")]
+    [(or (not (= (u8->s64 (bytes-ref bytes 3)) 0))
+         (not (= (u8->s64 (bytes-ref bytes 7)) 0)))
+     (left #"Not yet supported version min")]
+    [else
+     (right
+       (lc-version-min-macosx
+         (version-min
+           (bytes-ref bytes #x02)
+           (bytes-ref bytes #x01)
+           (bytes-ref bytes #x00)
+           (bytes-ref bytes #x06)
+           (bytes-ref bytes #x05)
+           (bytes-ref bytes #x04))))]))
 
 (define (parse-load-commands [amount : Int] [bytes : Bytes] [offset : Int])
   : (Either Bytes (Tuple2 (List MachOLoadCommand) LiftedInt))

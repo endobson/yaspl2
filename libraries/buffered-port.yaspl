@@ -30,34 +30,36 @@
 (define (read-crlf-line/loop [bport : BufferedPort] [acc : Bytes] [acc-pos : Int] [prev-cr : Boolean]) : LineResult
   (case bport
     [(buffered-port buffer pos limit port)
-     (if (= pos limit)
-         (case (refill-buffer buffer port)
-           [(nothing)
-            (let ([actual-pos (if prev-cr (- acc-pos 1) acc-pos)])
-              (line-result
-                (subbytes acc 0 actual-pos)
-                #t
-                (buffered-port buffer 0 0 port)))]
-           [(just bport)
-            (read-crlf-line/loop bport acc acc-pos prev-cr)])
-         (if (and prev-cr (= (u8->s64 (bytes-ref buffer pos)) 10)) ;; 10 is newline
+     (cond
+       [(= pos limit)
+        (case (refill-buffer buffer port)
+          [(nothing)
+           (let ([actual-pos (if prev-cr (- acc-pos 1) acc-pos)])
              (line-result
-               (subbytes acc 0 (- acc-pos 1))
-               #f
-               (buffered-port buffer (+ 1 pos) limit port))
-             (case (find-cr buffer pos limit)
-               [(character-search-result new-pos found-cr)
-                (let ([new-acc-pos (+ acc-pos (- new-pos pos))])
-                  (begin
-                    (if (>= new-acc-pos (bytes-length acc))
-                        (panic/void #"read-crlf-line: Need to implement growing buffer.")
-                        (void))
-                    (bytes-copy! buffer pos new-pos acc acc-pos)
-                    (read-crlf-line/loop
-                      (buffered-port buffer new-pos limit port)
-                      acc
-                      new-acc-pos
-                      found-cr)))])))]))
+               (subbytes acc 0 actual-pos)
+               #t
+               (buffered-port buffer 0 0 port)))]
+          [(just bport)
+           (read-crlf-line/loop bport acc acc-pos prev-cr)])]
+       [(and prev-cr (= (u8->s64 (bytes-ref buffer pos)) 10)) ;; 10 is newline
+        (line-result
+          (subbytes acc 0 (- acc-pos 1))
+          #f
+          (buffered-port buffer (+ 1 pos) limit port))]
+       [else
+        (case (find-cr buffer pos limit)
+          [(character-search-result new-pos found-cr)
+           (let ([new-acc-pos (+ acc-pos (- new-pos pos))])
+             (begin
+               (if (>= new-acc-pos (bytes-length acc))
+                   (panic/void #"read-crlf-line: Need to implement growing buffer.")
+                   (void))
+               (bytes-copy! buffer pos new-pos acc acc-pos)
+               (read-crlf-line/loop
+                 (buffered-port buffer new-pos limit port)
+                 acc
+                 new-acc-pos
+                 found-cr)))])])]))
 
 (define (refill-buffer [buffer : Bytes] [port : InputPort]) : (Maybe BufferedPort)
   (let ([num-bytes (read-bytes buffer port 0 (bytes-length buffer))])
@@ -66,8 +68,10 @@
         (just (buffered-port buffer 0 num-bytes port)))))
 
 (define (find-cr [buffer : Bytes] [pos : Int] [limit : Int]) : CharacterSearchResult
-  (if (= pos limit)
-      (character-search-result limit #f)
-      (if (= (u8->s64 (bytes-ref buffer pos)) 13) ;; 13 is carriage-return
-          (character-search-result (+ 1 pos) #t)
-          (find-cr buffer (+ 1 pos) limit))))
+  (cond
+    [(= pos limit)
+     (character-search-result limit #f)]
+    [(= (u8->s64 (bytes-ref buffer pos)) 13) ;; 13 is carriage-return
+     (character-search-result (+ 1 pos) #t)]
+    [else
+     (find-cr buffer (+ 1 pos) limit)]))
