@@ -8,10 +8,10 @@ yaspl_bootstrap_library(
     name = "errors",
     srcs = ["errors.yaspl"],
     deps = [
-        "//libraries:resolved-imports-language",
         "//libraries:resolved-types-language",
         "//libraries:source-to-intermediate-language",
         "//libraries:validator",
+        "//libraries/yaspl/conversions:resolve-imports",
     ],
 )
 

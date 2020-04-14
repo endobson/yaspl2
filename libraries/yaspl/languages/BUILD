@@ -8,6 +8,21 @@ package(
 )
 
 yaspl_bootstrap_library(
+    name = "resolved-imports-language",
+    srcs = ["resolved-imports-language.yaspl"],
+    deps = [
+        "//libraries:module-name",
+        "//libraries:module-signature",
+        "//libraries:top-level-name",
+        "//libraries:types",
+        "//libraries/data:dict",
+        "//libraries/data:list",
+        "//libraries/data:source-location",
+        "//libraries/yaspl/languages:source-language",
+    ],
+)
+
+yaspl_bootstrap_library(
     name = "source-language",
     srcs = ["source-language.yaspl"],
     deps = [

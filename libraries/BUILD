@@ -348,7 +348,6 @@ yaspl_bootstrap_library(
         ":module-name",
         ":module-signature",
         ":prim-implementation",
-        ":resolved-imports-language",
         ":resolved-types-language",
         ":source-to-intermediate-language",
         ":validator",
@@ -362,6 +361,7 @@ yaspl_bootstrap_library(
         "//libraries/yaspl:optimize-intermediate",
         "//libraries/yaspl:top-level-object-optimizer",
         "//libraries/yaspl:top-level-objects",
+        "//libraries/yaspl/conversions:resolve-imports",
         "//libraries/yaspl/frontend:errors",
         "//libraries/yaspl/languages:source-language",
     ],
@@ -672,57 +672,12 @@ yaspl_test(
 )
 
 yaspl_bootstrap_library(
-    name = "resolved-imports-language",
-    srcs = ["resolved-imports-language.yaspl"],
-    deps = [
-        ":module-name",
-        ":module-signature",
-        ":top-level-name",
-        ":types",
-        "//libraries/data:bytes",
-        "//libraries/data:dict",
-        "//libraries/data:either",
-        "//libraries/data:indexed-set",
-        "//libraries/data:join-list",
-        "//libraries/data:list",
-        "//libraries/data:list-multi-dict",
-        "//libraries/data:maybe",
-        "//libraries/data:source-location",
-        "//libraries/data:tuples",
-        "//libraries/yaspl/languages:source-language",
-    ],
-)
-
-yaspl_test(
-    name = "resolved-imports-language-test",
-    size = "small",
-    srcs = ["resolved-imports-language-test.yaspl"],
-    deps = [
-        ":module-name",
-        ":module-signature",
-        ":resolved-imports-language",
-        ":top-level-name",
-        ":variant-info",
-        ":yunit",
-        "//libraries/data:bytes",
-        "//libraries/data:dict",
-        "//libraries/data:either",
-        "//libraries/data:indexed-set",
-        "//libraries/data:lifted-primitives",
-        "//libraries/data:list",
-        "//libraries/data:maybe",
-        "//libraries/data:source-location",
-        "//libraries/yaspl/languages:source-language",
-    ],
-)
-
-yaspl_bootstrap_library(
     name = "resolved-types-language",
     srcs = ["resolved-types-language.yaspl"],
     deps = [
         ":module-name",
         ":module-signature",
-        ":resolved-imports-language",
+        "//libraries/yaspl/languages:resolved-imports-language",
         ":top-level-name",
         ":types",
         "//libraries/data:bytes",
@@ -1186,7 +1141,7 @@ yaspl_bootstrap_library(
         ":free-variables",
         ":module-name",
         ":module-signature",
-        ":resolved-imports-language",
+        "//libraries/yaspl/languages:resolved-imports-language",
         "//libraries/data:bytes",
         "//libraries/data:dict",
         "//libraries/data:either",
