@@ -1,8 +1,3 @@
-load(
-    "//libraries:yaspl.bzl",
-    "yaspl_library",
-)
-
 package(
     default_visibility = ["//visibility:public"],
 )
