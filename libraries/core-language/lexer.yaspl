@@ -11,13 +11,13 @@
 }
 (export
   (#:types Token Result Lexer)
-  (#:values make-sexp-lexer run-lexer)
+  (#:values make-core-lexer run-lexer)
   (#:patterns end-of-input bad-input lex-result
               symbol-token decimal-number-token hexadecimal-number-token
               left-paren-token right-paren-token
               left-brace-token right-brace-token
               left-bracket-token right-bracket-token comment-token
-              bytes-token boolean-token
+              bytes-token
               keyword-token))
 (types
   (define-type Token
@@ -25,9 +25,9 @@
     (right-paren-token)
     (left-bracket-token)
     (right-bracket-token)
-    (left-angle-bracket-token)
-    (right-angle-bracket-token)
-    
+    (left-brace-token)
+    (right-brace-token)
+
     (less-than-token)
     (less-than-equal-token)
     (greater-than-token)
@@ -36,7 +36,7 @@
 
     (assignment-token)
     (pointer-assignment-token)
-	
+
     (logical-and-token)
     (logical-or-token)
 
@@ -109,35 +109,22 @@
   : (InnerResult Token)
   (token* ctx start end (right-brace-token)))
 
-;; Symbol ok values
-;; (set-ok! 33)
-;; (set-ok! 36 38)
-;; (set-ok! 42 43)
-;; (set-ok! 45 47)
-;; ;(set-ok! 48 57) ;; Only for continue bytes
-;; (set-ok! 58)
-;; (set-ok! 60 90)
-;; (set-ok! 94 95)
-;; (set-ok! 97 122)
-;; (set-ok! 126)
-
 ;; Make this saner
 (define (symbol-start-byte? [v : U8]) : Boolean
-  (let ([valid #"                                 !  $%&   *+ -./          : <=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ   ^_ abcdefghijklmnopqrstuvwxyz   ~ "])
+  (let ([valid #"                                                                 ABCDEFGHIJKLMNOPQRSTUVWXYZ      abcdefghijklmnopqrstuvwxyz     "])
     (let ([index (u8->s64 v)])
       (and (<= index 127)
            (not (= (u8->s64 (bytes-ref valid index)) 32))))))
 
 ;; Make this saner
 (define (symbol-continue-byte? [v : U8]) : Boolean
-  (let ([valid #"                                 !  $%&   *+ -./0123456789: <=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ   ^_ abcdefghijklmnopqrstuvwxyz   ~ "])
+  (let ([valid #"                                                0123456789       ABCDEFGHIJKLMNOPQRSTUVWXYZ    _ abcdefghijklmnopqrstuvwxyz     "])
     (let ([index (u8->s64 v)])
       (and (<= index 127)
            (not (= (u8->s64 (bytes-ref valid index)) 32))))))
 
 (define (keyword-continue-byte? [v : U8]) : Boolean
-  (or (math-symbol? v)
-      (letter? v)))
+  (letter? v))
 
 (define (bytes-continue-byte? [v : U8]) : Boolean
   (let ([int (u8->s64 v)])
@@ -154,13 +141,6 @@
       (let ([v (u8->s64 v)])
         (or (and (<= 65 v) (<= v 70))
             (and (<= 97 v) (<= v 102))))))
-
-(define (math-symbol? [v : U8]) : Boolean
-  (let ([v (u8->s64 v)])
-    (or (= v 42)
-        (or (= v 43)
-            (or (= v 45)
-                (= v 47))))))
 
 (define (letter? [v : U8]) : Boolean
   (let ([v (u8->s64 v)])
@@ -188,142 +168,159 @@
 (define (back-slash? [v : U8]) : Boolean
   (= (u8->s64 v) 92))
 
+
 (define (lex-symbol [ctx : LexerContext] [start : Int] [cur : Int]) : (InnerResult Token)
   (match-define bytes (lexer-context-bytes ctx))
-  (if (= (bytes-length bytes) cur)
-      (symbol-token* ctx start cur)
-      (if (symbol-continue-byte? (bytes-ref bytes cur))
-          (lex-symbol ctx start (+ 1 cur))
-          (symbol-token* ctx start cur))))
+  (cond
+    [(= (bytes-length bytes) cur)
+     (symbol-token* ctx start cur)]
+    [(symbol-continue-byte? (bytes-ref bytes cur))
+     (lex-symbol ctx start (+ 1 cur))]
+    [else
+     (symbol-token* ctx start cur)]))
 
-(define (lex-after-hash [ctx : LexerContext] [pos : Int]) : (InnerResult token)
+(define (lex-after-hash [ctx : LexerContext] [pos : Int]) : (InnerResult Token)
   (match-define bytes (lexer-context-bytes ctx))
-  (if (= (bytes-length bytes) pos)
-      (bad-input/inner #"Input ended with hash" (lexer-context-get-span ctx (- pos 1) pos))
-      (let ([byte (bytes-ref bytes pos)])
-        (let ([next-pos (+ 1 pos)])
-          (if (colon? byte)
-              (lex-keyword ctx next-pos next-pos)
-              (if (double-quote? byte)
-                  (lex-bytes ctx next-pos next-pos)
-                  (if (= (u8->s64 byte) 116)
-                      (boolean-token* ctx #t next-pos)
-                      (if (= (u8->s64 byte) 102)
-                          (boolean-token* ctx #f next-pos)
-                          (if (= (u8->s64 byte) 120)
-                              (lex-hexadecimal ctx next-pos next-pos)
-                              (bad-input/inner
-                                #"Unsupported character after hash"
-                                (lexer-context-get-span ctx (- pos 1) next-pos)))))))))))
+  (cond
+    [(= (bytes-length bytes) pos)
+     (bad-input/inner #"Input ended with hash" (lexer-context-get-span ctx (- pos 1) pos))]
+    [else
+     (match-define byte (bytes-ref bytes pos))
+     (match-define next-pos (+ 1 pos))
+     (cond
+      [(colon? byte)
+       (lex-keyword ctx next-pos next-pos)]
+      [(double-quote? byte)
+       (lex-bytes ctx next-pos next-pos)]
+      [(= (u8->s64 byte) 120)
+       (lex-hexadecimal ctx next-pos next-pos)]
+      [else
+       (bad-input/inner
+         #"Unsupported character after hash"
+         (lexer-context-get-span ctx (- pos 1) next-pos))])]))
 
-(define (lex-keyword [ctx : LexerContext] [start : Int] [cur : Int]) : (InnerResult token)
+(define (lex-keyword [ctx : LexerContext] [start : Int] [cur : Int]) : (InnerResult Token)
   (match-define bytes (lexer-context-bytes ctx))
-  (if (= (bytes-length bytes) cur)
-      (keyword-token* ctx start cur)
-      (if (keyword-continue-byte? (bytes-ref bytes cur))
-          (lex-keyword ctx start (+ 1 cur))
-          (keyword-token* ctx start cur))))
+  (cond
+    [(= (bytes-length bytes) cur)
+     (keyword-token* ctx start cur)]
+    [(keyword-continue-byte? (bytes-ref bytes cur))
+     (lex-keyword ctx start (+ 1 cur))]
+    [else
+     (keyword-token* ctx start cur)]))
 
-(define (lex-bytes [ctx : LexerContext] [start : Int] [cur : Int]) : (InnerResult token)
+(define (lex-bytes [ctx : LexerContext] [start : Int] [cur : Int]) : (InnerResult Token)
   (match-define bytes (lexer-context-bytes ctx))
-  (if (= (bytes-length bytes) cur)
-      (bad-input/inner #"Input ended in the middle of bytes literal"
-                       (lexer-context-get-span ctx (- start 2) cur))
-      (let ([byte (bytes-ref bytes cur)])
-        (if (back-slash? byte)
-            (let ([cur (+ 1 cur)])
-              (let ([byte (bytes-ref bytes cur)])
-                (if (= (bytes-length bytes) cur)
-                    (bad-input/inner #"Input ended with backslash"
-                                     (lexer-context-get-span ctx (- start 2) cur))
-                    (if (or (or (double-quote? byte)
-                                (back-slash? byte))
-                            (or (= (u8->s64 byte) 110) ;; n
-                                (or (= (u8->s64 byte) 114) ;; r
-                                    (= (u8->s64 byte) 120)))) ;; x
-                        (lex-bytes ctx start (+ 1 cur))
-                        (bad-input/inner #"Unknown character after backslash"
-                                         (lexer-context-get-span ctx (- cur 1) (+ cur 1)))))))
-            (if (bytes-continue-byte? byte)
+  (cond
+    [(= (bytes-length bytes) cur)
+     (bad-input/inner #"Input ended in the middle of bytes literal"
+                      (lexer-context-get-span ctx (- start 2) cur))]
+    [else
+     (match-define byte (bytes-ref bytes cur))
+     (cond
+       [(back-slash? byte)
+        (cond
+          [(= (bytes-length bytes) (+ 1 cur))
+           (bad-input/inner #"Input ended with backslash"
+                            (lexer-context-get-span ctx (- start 2) (+ 1 cur)))]
+          [else
+            (match-define cur (+ 1 cur))
+            (match-define byte (bytes-ref bytes cur))
+            (if (or (or (double-quote? byte)
+                        (back-slash? byte))
+                    (or (= (u8->s64 byte) 110) ;; n
+                        (or (= (u8->s64 byte) 114) ;; r
+                            (= (u8->s64 byte) 120)))) ;; x
                 (lex-bytes ctx start (+ 1 cur))
-                (if (double-quote? byte)
-                    (case (unescape-bytes (subbytes bytes start cur))
-                      [(left _) (bad-input/inner #"Bytes literal couldn't be unescaped"
-                                                 (lexer-context-get-span ctx (- start 2) (+ cur 1)))]
-                      [(right v)
-                       (bytes-token* ctx v start (+ 1 cur))])
-                    (bad-input/inner
-                      (bytes-append (varargs list #"Unsupported character in bytes literal: #x"
-                                                  (integer->hex-bytes (u8->s64 byte))))
-                      (lexer-context-get-span ctx cur (+ cur 1)))))))))
+                (bad-input/inner #"Unknown character after backslash"
+                                 (lexer-context-get-span ctx (- cur 1) (+ cur 1))))])]
+       [(bytes-continue-byte? byte)
+        (lex-bytes ctx start (+ 1 cur))]
+       [(double-quote? byte)
+        (case (unescape-bytes (subbytes bytes start cur))
+          [(left _) (bad-input/inner #"Bytes literal couldn't be unescaped"
+                                     (lexer-context-get-span ctx (- start 2) (+ cur 1)))]
+          [(right v)
+           (bytes-token* ctx v start (+ 1 cur))])]
+       [else
+        (bad-input/inner
+          (bytes-append (varargs list #"Unsupported character in bytes literal: #x"
+                                      (integer->hex-bytes (u8->s64 byte))))
+          (lexer-context-get-span ctx cur (+ cur 1)))])]))
 
-(define (lex-decimal [ctx : LexerContext] [start : Int] [cur : Int]) : (InnerResult token)
+(define (lex-decimal [ctx : LexerContext] [start : Int] [cur : Int]) : (InnerResult Token)
   (match-define bytes (lexer-context-bytes ctx))
-  (if (= (bytes-length bytes) cur)
-      (decimal-number-token* ctx start cur)
-      (if (decimal-continue-byte? (bytes-ref bytes cur))
-          (lex-decimal ctx start (+ 1 cur))
-          (decimal-number-token* ctx start cur))))
+  (cond
+    [(= (bytes-length bytes) cur)
+     (decimal-number-token* ctx start cur)]
+    [(decimal-continue-byte? (bytes-ref bytes cur))
+     (lex-decimal ctx start (+ 1 cur))]
+    [else
+     (decimal-number-token* ctx start cur)]))
 
-(define (lex-hexadecimal [ctx : LexerContext] [start : Int] [cur : Int]) : (InnerResult token)
+(define (lex-hexadecimal [ctx : LexerContext] [start : Int] [cur : Int]) : (InnerResult Token)
   (match-define bytes (lexer-context-bytes ctx))
-  (if (= (bytes-length bytes) cur)
-      (hexadecimal-number-token* ctx start cur)
-      (if (hexadecimal-byte? (bytes-ref bytes cur))
-          (lex-hexadecimal ctx start (+ 1 cur))
-          (hexadecimal-number-token* ctx start cur))))
+  (cond
+    [(= (bytes-length bytes) cur)
+     (hexadecimal-number-token* ctx start cur)]
+    [(hexadecimal-byte? (bytes-ref bytes cur))
+     (lex-hexadecimal ctx start (+ 1 cur))]
+    [else
+     (hexadecimal-number-token* ctx start cur)]))
 
-(define (lex-line-comment [ctx : LexerContext] [start : Int] [pos : Int]) : (InnerResult token)
+(define (lex-line-comment [ctx : LexerContext] [start : Int] [pos : Int]) : (InnerResult Token)
   (match-define bytes (lexer-context-bytes ctx))
-  (if (= (bytes-length bytes) pos)
-      (comment-token* ctx start pos)
-      (if (newline? (bytes-ref bytes pos))
-          (comment-token* ctx start pos)
-          (lex-line-comment ctx start (+ 1 pos)))))
+  (cond
+    [(= (bytes-length bytes) pos)
+     (comment-token* ctx start pos)]
+    [(newline? (bytes-ref bytes pos))
+     (comment-token* ctx start pos)]
+    [else
+     (lex-line-comment ctx start (+ 1 pos))]))
 
-
-(define (make-sexp-lexer [sbytes : SourcedBytes]) : (Lexer token)
+(define (make-core-lexer [sbytes : SourcedBytes]) : (Lexer Token)
   (make-lexer sbytes sexp-lexer/impl))
 
-(define (sexp-lexer/impl [ctx : LexerContext] [pos : Int]) : (InnerResult token)
+(define (sexp-lexer/impl [ctx : LexerContext] [pos : Int]) : (InnerResult Token)
   (match-define bytes (lexer-context-bytes ctx))
-  (if (= pos (bytes-length bytes))
-      (end-of-input/inner (lexer-context-get-span ctx pos pos))
-      (let ([byte/u8 (bytes-ref bytes pos)])
-        (let ([next-pos (+ pos 1)])
-          (let ([byte (u8->s64 byte/u8)])
-            (if (= byte 40)
-                (left-paren-token* ctx pos next-pos)
-                (if (= byte 41)
-                    (right-paren-token* ctx pos next-pos)
-                    (if (= byte 91)
-                        (left-bracket-token* ctx pos next-pos)
-                        (if (= byte 93)
-                            (right-bracket-token* ctx pos next-pos)
-                            (if (= byte 123)
-                                (left-brace-token* ctx pos next-pos)
-                                (if (= byte 125)
-                                    (right-brace-token* ctx pos next-pos)
-                                    (if (or (newline? byte/u8) (space? byte/u8))
-                                        (sexp-lexer/impl ctx next-pos)
-                                        (if (symbol-start-byte? byte/u8)
-                                            (lex-symbol ctx pos next-pos)
-                                            (if (decimal-start-byte? byte/u8)
-                                                (lex-decimal ctx pos next-pos)
-                                                (if (hash? byte/u8)
-                                                    (lex-after-hash ctx next-pos)
-                                                    (if (semi-colon? byte/u8)
-                                                        (lex-line-comment ctx pos next-pos)
-                                                        (if (double-quote? byte/u8)
-                                                            (bad-input/inner
-                                                              #"String literals not supported"
-                                                              (lexer-context-get-span
-                                                                ctx pos next-pos))
-                                                            (bad-input/inner
-                                                              (bytes-append
-                                                                (varargs list
-                                                                  #"Unsupported character at start "
-                                                                  #"of token: #x"
-                                                                  (integer->hex-bytes byte)))
-                                                               (lexer-context-get-span
-                                                                 ctx pos next-pos)))))))))))))))))))
+  (cond
+    [(= pos (bytes-length bytes))
+     (end-of-input/inner (lexer-context-get-span ctx pos pos))]
+    [else
+      (match-define byte/u8 (bytes-ref bytes pos))
+      (match-define next-pos (+ pos 1))
+      (match-define byte (u8->s64 byte/u8))
+      (cond
+       [(= byte 40)
+        (left-paren-token* ctx pos next-pos)]
+       [(= byte 41)
+        (right-paren-token* ctx pos next-pos)]
+       [(= byte 91)
+        (left-bracket-token* ctx pos next-pos)]
+       [(= byte 93)
+        (right-bracket-token* ctx pos next-pos)]
+       [(= byte 123)
+        (left-brace-token* ctx pos next-pos)]
+       [(= byte 125)
+        (right-brace-token* ctx pos next-pos)]
+       [(or (newline? byte/u8) (space? byte/u8))
+        (sexp-lexer/impl ctx next-pos)]
+       [(symbol-start-byte? byte/u8)
+        (lex-symbol ctx pos next-pos)]
+       [(decimal-start-byte? byte/u8)
+        (lex-decimal ctx pos next-pos)]
+       [(hash? byte/u8)
+        (lex-after-hash ctx next-pos)]
+       [(semi-colon? byte/u8)
+        (lex-line-comment ctx pos next-pos)]
+       [(double-quote? byte/u8)
+        (bad-input/inner
+          #"String literals not supported"
+          (lexer-context-get-span ctx pos next-pos))]
+       [else
+        (bad-input/inner
+          (bytes-append
+            (varargs list
+              #"Unsupported character at start of lexeme: #x"
+              (integer->hex-bytes byte)))
+          (lexer-context-get-span ctx pos next-pos))])]))
