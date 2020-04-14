@@ -14,7 +14,6 @@ yaspl_bootstrap_library(
     deps = [
         "//libraries:module-name",
         "//libraries:module-signature",
-        "//libraries/yaspl/languages:resolved-imports-language",
         "//libraries:top-level-name",
         "//libraries:types",
         "//libraries/data:bytes",
@@ -26,6 +25,7 @@ yaspl_bootstrap_library(
         "//libraries/data:maybe",
         "//libraries/data:source-location",
         "//libraries/data:tuples",
+        "//libraries/yaspl/languages:resolved-imports-language",
         "//libraries/yaspl/languages:source-language",
     ],
 )
@@ -35,9 +35,9 @@ yaspl_test(
     size = "small",
     srcs = ["resolve-imports-test.yaspl"],
     deps = [
+        ":resolve-imports",
         "//libraries:module-name",
         "//libraries:module-signature",
-        "//libraries/yaspl/languages:resolved-imports-language",
         "//libraries:top-level-name",
         "//libraries:variant-info",
         "//libraries:yunit",
@@ -49,8 +49,26 @@ yaspl_test(
         "//libraries/data:list",
         "//libraries/data:maybe",
         "//libraries/data:source-location",
-        "//libraries/yaspl/conversions:resolve-imports",
+        "//libraries/yaspl/languages:resolved-imports-language",
         "//libraries/yaspl/languages:source-language",
+    ],
+)
+
+yaspl_bootstrap_library(
+    name = "resolve-types",
+    srcs = ["resolve-types.yaspl"],
+    deps = [
+        "//libraries:module-name",
+        "//libraries:types",
+        "//libraries/data:bytes",
+        "//libraries/data:dict",
+        "//libraries/data:either",
+        "//libraries/data:list",
+        "//libraries/data:maybe",
+        "//libraries/data:source-location",
+        "//libraries/data:tuples",
+        "//libraries/yaspl/languages:resolved-imports-language",
+        "//libraries/yaspl/languages:resolved-types-language",
     ],
 )
 

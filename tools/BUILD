@@ -189,7 +189,6 @@ yaspl_binary(
         "//libraries:module-name",
         "//libraries:module-signature",
         "//libraries:prim-implementation",
-        "//libraries:resolved-types-language",
         "//libraries:source-to-intermediate-language",
         "//libraries:validator",
         "//libraries/data:either",
@@ -198,6 +197,7 @@ yaspl_binary(
         "//libraries/data:maybe",
         "//libraries/formats:xml",
         "//libraries/yaspl/conversions:resolve-imports",
+        "//libraries/yaspl/conversions:resolve-types",
         "//libraries/yaspl/debug:intermediate-to-html",
     ],
 )

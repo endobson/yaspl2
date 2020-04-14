@@ -348,7 +348,6 @@ yaspl_bootstrap_library(
         ":module-name",
         ":module-signature",
         ":prim-implementation",
-        ":resolved-types-language",
         ":source-to-intermediate-language",
         ":validator",
         "//libraries/data:bytes",
@@ -362,6 +361,7 @@ yaspl_bootstrap_library(
         "//libraries/yaspl:top-level-object-optimizer",
         "//libraries/yaspl:top-level-objects",
         "//libraries/yaspl/conversions:resolve-imports",
+        "//libraries/yaspl/conversions:resolve-types",
         "//libraries/yaspl/frontend:errors",
         "//libraries/yaspl/languages:source-language",
     ],
@@ -373,7 +373,6 @@ yaspl_bootstrap_library(
     deps = [
         ":module-name",
         ":module-signature",
-        ":resolved-types-language",
         ":top-level-name",
         ":types",
         ":variant-info",
@@ -383,6 +382,7 @@ yaspl_bootstrap_library(
         "//libraries/data:list",
         "//libraries/data:maybe",
         "//libraries/data:tuples",
+        "//libraries/yaspl/languages:resolved-types-language",
     ],
 )
 
@@ -672,25 +672,6 @@ yaspl_test(
 )
 
 yaspl_bootstrap_library(
-    name = "resolved-types-language",
-    srcs = ["resolved-types-language.yaspl"],
-    deps = [
-        ":module-name",
-        ":module-signature",
-        "//libraries/yaspl/languages:resolved-imports-language",
-        ":top-level-name",
-        ":types",
-        "//libraries/data:bytes",
-        "//libraries/data:dict",
-        "//libraries/data:either",
-        "//libraries/data:list",
-        "//libraries/data:maybe",
-        "//libraries/data:source-location",
-        "//libraries/data:tuples",
-    ],
-)
-
-yaspl_bootstrap_library(
     name = "resolved-vars-language",
     srcs = ["resolved-vars-language.yaspl"],
     deps = [
@@ -854,7 +835,6 @@ yaspl_bootstrap_library(
         ":intermediate-language",
         ":module-name",
         ":module-signature",
-        ":resolved-types-language",
         ":resolved-vars-language",
         ":top-level-name",
         ":type-checker",
@@ -870,6 +850,7 @@ yaspl_bootstrap_library(
         "//libraries/data:set",
         "//libraries/data:tuples",
         "//libraries/yaspl:var",
+        "//libraries/yaspl/languages:resolved-types-language",
     ],
 )
 
@@ -923,13 +904,13 @@ yaspl_bootstrap_library(
     name = "totality-checker",
     srcs = ["totality-checker.yaspl"],
     deps = [
-        ":resolved-types-language",
         ":type-checker-context",
         "//libraries/data:bytes",
         "//libraries/data:either",
         "//libraries/data:list",
         "//libraries/data:maybe",
         "//libraries/data:tuples",
+        "//libraries/yaspl/languages:resolved-types-language",
     ],
 )
 
@@ -1035,7 +1016,6 @@ yaspl_test(
     name = "type-checker-test",
     srcs = ["type-checker-test.yaspl"],
     deps = [
-        ":resolved-types-language",
         ":type-checker",
         ":type-checker-context",
         ":types",
@@ -1049,6 +1029,7 @@ yaspl_test(
         "//libraries/data:maybe",
         "//libraries/data:source-location",
         "//libraries/data:tuples",
+        "//libraries/yaspl/languages:resolved-types-language",
     ],
 )
 
@@ -1141,7 +1122,6 @@ yaspl_bootstrap_library(
         ":free-variables",
         ":module-name",
         ":module-signature",
-        "//libraries/yaspl/languages:resolved-imports-language",
         "//libraries/data:bytes",
         "//libraries/data:dict",
         "//libraries/data:either",
@@ -1152,6 +1132,7 @@ yaspl_bootstrap_library(
         "//libraries/data:set",
         "//libraries/data:source-location",
         "//libraries/data:tuples",
+        "//libraries/yaspl/languages:resolved-imports-language",
     ],
 )
 
