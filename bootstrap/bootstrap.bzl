@@ -2,7 +2,6 @@ load("@minimal_racket//:racket.bzl", "racket_binary", "racket_library")
 
 # Macros to reduce boilerplate on simmilar rules in bootstrapping
 def bootstrap_binary(name, source_files):
-  assembly_name = name + ".s"
   object_name = name + ".o"
   racket_src_name = name + "_rkt.rkt"
   racket_lib_name = name + "_rkt"
@@ -52,28 +51,14 @@ def bootstrap_binary(name, source_files):
 
   native.genrule(
       name = "gen_" + name,
-      outs = [assembly_name],
-      cmd = select({
-        "//conditions:darwin":
-            "$(location %s) assembly-osx $@" % racket_bin_name,
-        "//conditions:linux_x86_64":
-            "$(location %s) assembly-linux $@" % racket_bin_name,
-       }),
-      tools = [racket_bin_name],
-  )
-
-  native.genrule(
-      name = "assemble_" + name,
-      srcs = [assembly_name],
       outs = [object_name],
       cmd = select({
-        "//conditions:host_and_target_darwin":
-           "as $(location %s) -o $(location %s)"
-           % (assembly_name, object_name),
-        "//conditions:host_and_target_linux_x86_64":
-           "as $(location %s) -o $(location %s)"
-           % (assembly_name, object_name),
+        "//conditions:darwin":
+            "$(location %s) osx $@" % racket_bin_name,
+        "//conditions:linux_x86_64":
+            "$(location %s) linux $@" % racket_bin_name,
        }),
+      tools = [racket_bin_name],
   )
 
   native.genrule(
