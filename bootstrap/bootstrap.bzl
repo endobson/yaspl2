@@ -7,21 +7,28 @@ def bootstrap_binary(name, source_files):
   racket_lib_name = name + "_rkt"
   racket_bin_name = name + "_bin"
   short_name = name.replace("bootstrap_", "")
-  source_file_list = (source_files
-   .replace("//", "../")
-   .replace(":", "/")
-   .replace("_library_files", ".src.list"))
+  module_name = short_name.replace("_", "-") + "-main"
+  source_file_list = source_files.replace("_library_files", ".src.list")
 
   racket_contents = """
 #lang racket/base
 
 (require
   "bootstrap-compiler.rkt"
-  racket/runtime-path)
+  racket/cmdline)
 
-(define-runtime-path source-list-file "%s")
-(run-bootstrap-compiler source-list-file #"%s-main")
-""" % (source_file_list, short_name.replace("_", "-"))
+(define source-list* #f)
+(define main* #f)
+(command-line 
+  #:once-each
+  ("--source-list" source-list "Relative path to file with list of source files." 
+   (set! source-list* source-list))
+  ("--main" main "Module name containing main function." 
+   (set! main* (string->bytes/utf-8 main)))
+  #:args args (current-command-line-arguments (list->vector args)))
+
+(run-bootstrap-compiler source-list* main*)
+"""
 
   native.genrule(
       name = "racketize_" + name,
@@ -40,24 +47,26 @@ def bootstrap_binary(name, source_files):
   racket_binary(
       name = racket_bin_name,
       main_module = racket_src_name,
-      data = [
-          source_files,
-      ],
       deps = [
           racket_lib_name,
       ],
   )
-
 
   native.genrule(
       name = "gen_" + name,
       outs = [object_name],
       cmd = select({
         "//conditions:darwin":
-            "$(location %s) osx $@" % racket_bin_name,
+            "$(execpath %s) --source-list $(execpath %s) --main %s osx $@" %
+            (racket_bin_name, source_file_list, module_name),
         "//conditions:linux_x86_64":
-            "$(location %s) linux $@" % racket_bin_name,
+            "$(execpath %s) --source-list $(execpath %s) --main %s linux $@" %
+            (racket_bin_name, source_file_list, module_name),
        }),
+      srcs = [
+          source_files,
+          source_file_list,
+      ],
       tools = [racket_bin_name],
   )
 

@@ -53,7 +53,7 @@ def _lib_impl(ctx):
   ]
 
 def _src_impl(ctx):
-  output_list = ctx.actions.declare_file("%s.list" % ctx.attr.name)
+  output_list = ctx.outputs.list
 
   transitive_srcs = depset(
     direct = ctx.files.srcs,
@@ -196,6 +196,7 @@ yaspl_srcs = rule(
     "srcs": attr.label_list(
       allow_files=_yaspl_src_file_extensions,
     ),
+    "list": attr.output(),
     "deps": attr.label_list(
       providers = [yaspl_src_provider],
     )
@@ -260,6 +261,7 @@ def _relative_label(label_string, suffix):
 def _bootstrap_inner(name, srcs, deps):
   yaspl_srcs(
     name=name + ".src",
+    list=name + ".src.list",
     srcs=srcs,
     deps=[_relative_label(dep, ".src") for dep in deps],
   )

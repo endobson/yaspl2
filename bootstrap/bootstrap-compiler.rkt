@@ -21,7 +21,7 @@
       (build-path src-root (bytes->path file))))
   (define source-files
     (for/list ([file (in-list (file->bytes-lines file-list-file))])
-      (path->bytes (build-path src-root (bytes->path file)))))
+      file))
   (define prim-files
     (list
       (path->bytes (build-path src-root "libraries/yaspl/runtime/fill-stack.prim"))
