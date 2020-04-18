@@ -29,14 +29,15 @@
 
   (define-values (modules signatures) (load-modules compiler-files))
 
-  (match-define (vector output-format output-file)
-    (vector-map
+  (match-define args
+    (map
       string->bytes/utf-8
-      (current-command-line-arguments)))
+      (vector->list
+        (current-command-line-arguments))))
 
 
   (let ([result (run-program modules signatures (module-name& '(compiler-main)) 'main #:stdin #""
-                             #:args `(,output-format ,output-file ,main-function ,@source-files ,@prim-files))])
+                             #:args `(,@args ,main-function ,@source-files ,@prim-files))])
     (write-bytes (program-result-stdout result) (current-output-port))
     (write-bytes (program-result-stderr result) (current-error-port))
     (when (program-result-error-info result)

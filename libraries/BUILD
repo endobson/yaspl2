@@ -16,6 +16,7 @@ yaspl_bootstrap_binary(
     deps = [
         ":compiler_lib",
         ":io",
+        ":linker_lib",
         ":machine-code-writer",
         ":module-name",
         ":system-abi",
