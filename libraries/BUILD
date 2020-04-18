@@ -16,9 +16,9 @@ yaspl_bootstrap_binary(
     deps = [
         ":compiler_lib",
         ":io",
-        ":system-abi",
         ":machine-code-writer",
         ":module-name",
+        ":system-abi",
         ":top-level-name",
         "//libraries/data:bytes",
         "//libraries/data:either",
@@ -40,9 +40,9 @@ yaspl_bootstrap_binary(
     deps = [
         ":compiler_lib",
         ":io",
-        ":system-abi",
         ":machine-code-writer",
         ":module-signature-serialization",
+        ":system-abi",
         "//libraries/data:bytes",
         "//libraries/data:either",
         "//libraries/data:list",
@@ -78,12 +78,12 @@ yaspl_bootstrap_binary(
     srcs = ["main-stub-main.yaspl"],
     deps = [
         ":io",
-        ":system-abi",
         ":machine-code-writer",
         ":module-signature",
         ":module-signature-serialization",
         ":prim-implementation",
         ":prim-types",
+        ":system-abi",
         ":types",
         "//libraries/data:bytes",
         "//libraries/data:dict",
@@ -335,7 +335,6 @@ yaspl_bootstrap_library(
         "//libraries/data:maybe",
         "//libraries/formats:elf-writer",
         "//libraries/yaspl:x86-64-assembly",
-        "//libraries/yaspl:x86-64-assembly-printer",
     ],
 )
 

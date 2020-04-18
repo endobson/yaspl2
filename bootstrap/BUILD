@@ -1,4 +1,4 @@
-load("@minimal_racket//:racket.bzl", "racket_library", "racket_binary")
+load("@minimal_racket//:racket.bzl", "racket_binary", "racket_library")
 load(":bootstrap.bzl", "bootstrap_binary")
 
 package(
@@ -91,18 +91,18 @@ racket_library(
 )
 
 racket_library(
-   name = "bootstrapper-main",
-   srcs = ["bootstrapper-main.rkt"],
-   deps = [
-    ":bootstrap-compiler",
-   ],
+    name = "bootstrapper-main",
+    srcs = ["bootstrapper-main.rkt"],
+    deps = [
+        ":bootstrap-compiler",
+    ],
 )
 
 racket_binary(
     name = "bootstrapper",
     main_module = "bootstrapper-main.rkt",
     deps = [
-      ":bootstrapper-main",
+        ":bootstrapper-main",
     ],
 )
 

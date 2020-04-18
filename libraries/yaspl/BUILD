@@ -182,8 +182,8 @@ yaspl_bootstrap_library(
     deps = [
         ":intermediate-to-register",
         ":x86-64-assembly",
-        "//libraries:system-abi",
         "//libraries:prim-implementation",
+        "//libraries:system-abi",
         "//libraries:top-level-name",
         "//libraries/data:bytes",
         "//libraries/data:join-list",

@@ -22,8 +22,8 @@ yaspl_test(
     srcs = ["fill-stack-test.yaspl"],
     deps = [
         "//libraries:io",
-        "//libraries:system-abi",
         "//libraries:stack-trace",
+        "//libraries:system-abi",
         "//libraries/data:bytes",
         "//libraries/data:either",
         "//libraries/data:lifted-primitives",
