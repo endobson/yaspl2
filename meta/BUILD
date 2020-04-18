@@ -40,6 +40,12 @@ yaspl_lint_rule(
     ],
 )
 
+sh_test(
+    name = "lint-test",
+    srcs = ["lint-test.sh"],
+    data = [":lint.lint"],
+)
+
 yaspl_clean_up_imports_rule(
     name = "clean_up_imports",
     deps = [
