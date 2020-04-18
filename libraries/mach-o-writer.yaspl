@@ -6,7 +6,6 @@
   (data lifted-primitives)
   (either)
   (io)
-  (linker)
   (list)
   (mach-o)
   (maybe)
@@ -135,6 +134,57 @@
        [(just acc)
         (make-symbol-table-lookup* entries acc)])]))
 
+(define (find-symbol-entry [symbol : Bytes] [symbols : (IndexedSet SymbolTableEntry Bytes)])
+  : (Either Bytes SymbolTableEntry)
+  (case (indexed-set-ref symbols symbol)
+    [(nothing) (left (bytes-append (varargs list #"Couldn't find symbol: " symbol)))]
+    [(just entry) (right entry)]))
+
+(define (apply-u64-absolute-relocation
+          [section : Bytes]
+          [offset : Int]
+          [value : Int]) : Void
+  (bytes-set!/u64-le
+    section
+    offset
+    (u64 (+ (u64->s64 (bytes-ref/u64-le section offset))
+         value))))
+
+(define (apply-s32-pc-relative-relocation
+          [section : Bytes]
+          [offset : Int]
+          [addr : Int]
+          [section-start-addr : Int]) : Void
+  ;; We adjust the value by 4 because the PC differs by 4 from the start of the relocated value,
+  ;; when the calculation is done.
+  (bytes-set!/s32-le
+    section
+    offset
+    (s32
+      (+ (bytes-ref/quad-le section offset)
+         (- addr (+ (+ offset 4) section-start-addr))))))
+
+(define (apply-mach-o-relocations
+          [rels : (List (Relocation MachORelocationKind))]
+          [symbols : (IndexedSet SymbolTableEntry Bytes)]
+          [section-contents : Bytes]
+          [section-start-addr : Int]) : (Maybe Bytes)
+  (case rels
+    [(empty) (nothing)]
+    [(cons (relocation rel-kind offset symbol) rels)
+     (case (find-symbol-entry symbol symbols)
+       [(left msg) (just msg)]
+       [(right entry)
+        (match-define value (u64->s64 (symbol-table-entry-value entry)))
+        (begin
+          (case rel-kind
+            [(mach-o-branch-relocation)
+             (apply-s32-pc-relative-relocation section-contents offset value section-start-addr)]
+            [(mach-o-signed-relocation)
+             (apply-s32-pc-relative-relocation section-contents offset value section-start-addr)]
+            [(mach-o-unsigned-relocation)
+             (apply-u64-absolute-relocation section-contents offset value)])
+          (apply-mach-o-relocations rels symbols section-contents section-start-addr))])]))
 
 (define (write-mach-o-executable
           [text-section : (ProgramSection MachORelocationKind)]

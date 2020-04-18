@@ -420,22 +420,6 @@ yaspl_bootstrap_library(
     ],
 )
 
-yaspl_bootstrap_library(
-    name = "linker_lib",
-    srcs = ["linker.yaspl"],
-    deps = [
-        ":mach-o",
-        ":structured-mach-o",
-        ":structured-native-code",
-        "//libraries/data:bytes",
-        "//libraries/data:either",
-        "//libraries/data:indexed-set",
-        "//libraries/data:list",
-        "//libraries/data:maybe",
-        "//libraries/data:ordering",
-    ],
-)
-
 yaspl_library(
     name = "mach",
     srcs = ["mach.yaspl"],
@@ -518,7 +502,6 @@ yaspl_bootstrap_library(
     srcs = ["mach-o-writer.yaspl"],
     deps = [
         ":io",
-        ":linker_lib",
         ":mach-o",
         ":panic",
         ":structured-mach-o",
