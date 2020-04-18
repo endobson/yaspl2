@@ -6,18 +6,16 @@ def bootstrap_binary(name, source_files):
   object_name = name + ".o"
   module_name = name.replace("bootstrap_", "").replace("_", "-") + "-main"
   source_file_list = source_files.replace("_library_files", ".src.list")
+  os = select({
+    "//conditions:darwin": "osx",
+    "//conditions:linux_x86_64": "linux",
+  })
 
   native.genrule(
       name = "gen_" + name,
       outs = [object_name],
-      cmd = select({
-        "//conditions:darwin":
-            "$(execpath %s) --source-list $(execpath %s) --main %s osx $@" %
-            (bootstrapper, source_file_list, module_name),
-        "//conditions:linux_x86_64":
-            "$(execpath %s) --source-list $(execpath %s) --main %s linux $@" %
-            (bootstrapper, source_file_list, module_name),
-       }),
+      cmd = "$(execpath %s) --source-list $(execpath %s) --main %s " %
+            (bootstrapper, source_file_list, module_name) + os + " $@",
       srcs = [
           source_files,
           source_file_list,
