@@ -239,6 +239,7 @@ yaspl_library(
     srcs = ["linter.yaspl"],
     deps = [
         "//libraries:io",
+        "//libraries:lexer",
         "//libraries:module-header-lint",
         "//libraries:module-name",
         "//libraries:module-signature",

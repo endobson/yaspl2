@@ -5,6 +5,7 @@
   (data source-location)
   (either)
   (io)
+  (lexer)
   (list)
   (module-header-lint)
   (module-name)
@@ -27,7 +28,8 @@
       [unused-bindings : UnusedBindings]
       [unused-local-bindings : UnusedLocalBindings]
       [unused-dependencies : (List ModName)]
-      [header-violations : ModuleHeaderLintViolations])))
+      [header-violations : ModuleHeaderLintViolations]
+      [whitespace-issues : (List Bytes)])))
 
 
 (define (indent [bytes : Bytes]) : Bytes
@@ -94,7 +96,8 @@
        (empty)
        (module-header-lint-violations
          (empty)
-         (empty)))
+         (empty))
+       (empty))
      (void)]
     [(lint-results
        src-file-path
@@ -103,7 +106,8 @@
        unused-dependencies
        (module-header-lint-violations
          unsorted-modules
-         unsorted-bindings))
+         unsorted-bindings)
+       whitespace-issues)
      (begin
       (write-line src-file-path output)
       (write-unused-imports-section unused-imports output)
@@ -129,7 +133,62 @@
       (write-results-section #"Unused dependencies:" (map mod-name->bytes unused-dependencies) output)
       (write-results-section #"Unsorted modules:" (map mod-name->bytes unsorted-modules) output)
 
-      (write-results-section #"Unsorted bindings:" unsorted-bindings output))]))
+      (write-results-section #"Unsorted bindings:" unsorted-bindings output)
+      (write-results-section #"Whitespace issues:" whitespace-issues output))]))
+
+
+(define (newline? [v : U8]) : Boolean
+  (= (u8->s64 v) 10))
+(define (space? [v : U8]) : Boolean
+  (= (u8->s64 v) 32))
+
+(define (line-lexer-impl [ctx : LexerContext] [pos : Int]) : (InnerResult Bytes)
+  (match-define bytes (lexer-context-bytes ctx))
+  (if (= pos (bytes-length bytes))
+      (end-of-input/inner (lexer-context-get-span ctx pos pos))
+      (line-lexer-impl* ctx pos pos)))
+
+(define (line-lexer-impl* [ctx : LexerContext] [line-start : Int] [pos : Int]) : (InnerResult Bytes)
+  (match-define bytes (lexer-context-bytes ctx))
+  (cond
+    [(= pos (bytes-length bytes))
+     (lex-result/inner
+       (source-span-annotated (subbytes bytes line-start pos)
+                              (lexer-context-get-span ctx line-start pos))
+       pos)]
+    [(newline? (bytes-ref bytes pos))
+     (match-define pos (+ 1 pos))
+     (lex-result/inner
+       (source-span-annotated (subbytes bytes line-start pos)
+                              (lexer-context-get-span ctx line-start pos))
+       pos)]
+    [else
+      (line-lexer-impl* ctx line-start (+ 1 pos))]))
+
+
+(define (find-whitespace-issues [file-name : Bytes]) : (List Bytes)
+  (match-define sourced-bytes (sourced-bytes-from-file file-name))
+  (match-define lexer (make-lexer sourced-bytes line-lexer-impl))
+  (find-whitespace-issues* lexer))
+
+(define (find-whitespace-issues* [lexer : (Lexer Bytes)]) : (List Bytes)
+  (case (run-lexer lexer)
+    [(bad-input msg _) (panic msg)]
+    [(end-of-input _) (empty)]
+    [(lex-result (source-span-annotated line src) lexer)
+     (match-define length (bytes-length line))
+     (cond
+       [(not (newline? (bytes-ref line (- length 1))))
+        (varargs list #"No newline at end of file.")]
+       [(= length 1)
+        (find-whitespace-issues* lexer)]
+       [(space? (bytes-ref line (- length 2)))
+        (varargs list
+          (bytes-append
+            (varargs list #"Trailing space at end of line: ["
+                     (source-span->start-location-bytes src) #"]")))]
+       [else
+        (find-whitespace-issues* lexer)])]))
 
 (define (lint-module [module-file : Bytes] [signatures : (List Bytes)]) : (Either Bytes LintResults)
   (case (parse-module-file module-file)
@@ -154,4 +213,5 @@
                          (make-set mod-name-cmp)
                          (map module-signature-name (indexed-set->list signatures)))
                        (map imports-module-name (module-imports module))))
-                   (find-header-violations module))))])]))
+                   (find-header-violations module)
+                   (find-whitespace-issues module-file))))])]))
