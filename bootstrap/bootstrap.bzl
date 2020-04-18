@@ -1,14 +1,14 @@
 load("@minimal_racket//:racket.bzl", "racket_binary", "racket_library")
 
-# Macros to reduce boilerplate on simmilar rules in bootstrapping
+# Macros to reduce boilerplate on similar rules in bootstrapping
 def bootstrap_binary(name, source_files):
   bootstrapper = "//bootstrap:bootstrapper"
   object_name = name + ".o"
   module_name = name.replace("bootstrap_", "").replace("_", "-") + "-main"
   source_file_list = source_files.replace("_library_files", ".src.list")
   os = select({
-    "//conditions:darwin": "osx",
-    "//conditions:linux_x86_64": "linux",
+    "@bazel_tools//src/conditions:darwin": "osx",
+    "@bazel_tools//src/conditions:linux_x86_64": "linux",
   })
 
   native.genrule(
