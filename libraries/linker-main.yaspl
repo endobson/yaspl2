@@ -1,57 +1,16 @@
 #:module (linker-main)
 #:import {
   (bytes)
-  (either)
-  {(formats elf)
-    {#:types
-      ElfFile
-    }
-    {#:values
-      read-elf
-    }
-  }
-  (formats elf-writer)
   (io)
+  (linker)
   (list)
-  {(mach-o)
-    {#:types
-      MachOFile
-    }
-    {#:values
-      read-mach-o
-    }
-  }
-  (mach-o-writer)
+  (machine-code-writer)
   (maybe)
   (prim)
-  (structured-elf)
-  (structured-mach-o)
-  (structured-native-code)
 }
 (export
   (#:values main))
-(types
-  (define-type Platform
-    (mach-osx)
-    (elf-linux)))
-
-(define (read-mach-o-files [object-files : (List Bytes)]) : (Either Bytes (List MachOFile))
-  (map/failure
-    (lambda ([input-path : Bytes])
-      (call-with-input-file input-path
-        (lambda ([input-file : InputPort])
-          (read-mach-o input-file))))
-    object-files))
-
-
-(define (read-elf-files [object-files : (List Bytes)]) : (Either Bytes (List ElfFile))
-  (map/failure
-    (lambda ([input-path : Bytes])
-      (call-with-input-file input-path
-        (lambda ([input-file : InputPort])
-          (read-elf input-file))))
-    object-files))
-
+(types)
 
 (define (run [args : Bytes]) : (Maybe Bytes)
   (case (args->list args)
@@ -61,33 +20,11 @@
      (just #"No platform name supplied.")]
     [(cons _ (cons _ (empty)))
      (just #"No output executable file name supplied.")]
-    [(cons _ (cons platform-bytes (cons output-file-name object-files)))
-     (case
-       (ann (Either Bytes Platform)
-         (case platform-bytes
-           [#"osx" (right (mach-osx))]
-           [#"linux" (right (elf-linux))]
-           [_ (left #"Unknown platform")]))
-       [(left v) (just v)]
-       [(right (mach-osx))
-        (case (read-mach-o-files object-files)
-          [(left v) (just v)]
-          [(right mach-o-files)
-           (case (map/failure parse-mach-o mach-o-files)
-             [(left v) (just v)]
-             [(right parsed-mach-o-files)
-              (write-mach-o-executable
-                (combine-sections (map parsed-mach-o-text-section parsed-mach-o-files))
-                (combine-sections (map parsed-mach-o-const-section parsed-mach-o-files))
-                output-file-name)])])]
-       [(right (elf-linux))
-        (case (read-elf-files object-files)
-          [(left v) (just v)]
-          [(right elf-files)
-           (case (map/failure parse-elf elf-files)
-             [(left v) (just v)]
-             [(right parsed-elf-files)
-              (write-elf-executable parsed-elf-files output-file-name)])])])]))
+    [(cons _ (cons abi (cons output-file-name object-files)))
+     (case (parse-system-abi abi)
+       [(nothing) (just #"Unknown abi")]
+       [(just abi)
+        (link-files object-files abi output-file-name)])]))
 
 (define (main [args : Bytes] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Int
   (case (run args)

@@ -1,0 +1,77 @@
+#:module (linker)
+#:import {
+  (either)
+  {(formats elf)
+    {#:types
+      ElfFile
+    }
+    {#:values
+      read-elf
+    }
+  }
+  (formats elf-writer)
+  (io)
+  (list)
+  {(mach-o)
+    {#:types
+      MachOFile
+    }
+    {#:values
+      read-mach-o
+    }
+  }
+  (mach-o-writer)
+  (maybe)
+  (prim)
+  (structured-elf)
+  (structured-mach-o)
+  (structured-native-code)
+  (system-abi)
+}
+(export
+  (#:values link-files))
+(types)
+
+
+(define (read-mach-o-files [object-files : (List Bytes)]) : (Either Bytes (List MachOFile))
+  (map/failure
+    (lambda ([input-path : Bytes])
+      (call-with-input-file input-path
+        (lambda ([input-file : InputPort])
+          (read-mach-o input-file))))
+    object-files))
+
+
+(define (read-elf-files [object-files : (List Bytes)]) : (Either Bytes (List ElfFile))
+  (map/failure
+    (lambda ([input-path : Bytes])
+      (call-with-input-file input-path
+        (lambda ([input-file : InputPort])
+          (read-elf input-file))))
+    object-files))
+
+
+(define (link-files [object-files : (List Bytes)] [abi : SystemAbi]
+                    [output-file-name : Bytes])
+  : (Maybe Bytes)
+  (case abi
+    [(osx-abi)
+     (case (read-mach-o-files object-files)
+       [(left v) (just v)]
+       [(right mach-o-files)
+        (case (map/failure parse-mach-o mach-o-files)
+          [(left v) (just v)]
+          [(right parsed-mach-o-files)
+           (write-mach-o-executable
+             (combine-sections (map parsed-mach-o-text-section parsed-mach-o-files))
+             (combine-sections (map parsed-mach-o-const-section parsed-mach-o-files))
+             output-file-name)])])]
+    [(linux-abi)
+     (case (read-elf-files object-files)
+       [(left v) (just v)]
+       [(right elf-files)
+        (case (map/failure parse-elf elf-files)
+          [(left v) (just v)]
+          [(right parsed-elf-files)
+           (write-elf-executable parsed-elf-files output-file-name)])])]))
+

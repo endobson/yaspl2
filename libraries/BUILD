@@ -59,17 +59,11 @@ yaspl_bootstrap_binary(
     srcs = ["linker-main.yaspl"],
     deps = [
         ":io",
-        ":mach-o",
-        ":mach-o-writer",
-        ":structured-elf",
-        ":structured-mach-o",
-        ":structured-native-code",
+        ":linker_lib",
+        ":machine-code-writer",
         "//libraries/data:bytes",
-        "//libraries/data:either",
         "//libraries/data:list",
         "//libraries/data:maybe",
-        "//libraries/formats:elf",
-        "//libraries/formats:elf-writer",
     ],
 )
 
@@ -416,6 +410,25 @@ yaspl_bootstrap_library(
         "//libraries/data:list",
         "//libraries/data:maybe",
         "//libraries/yaspl:var",
+    ],
+)
+
+yaspl_bootstrap_library(
+    name = "linker_lib",
+    srcs = ["linker.yaspl"],
+    deps = [
+        ":io",
+        ":mach-o",
+        ":mach-o-writer",
+        ":structured-elf",
+        ":structured-mach-o",
+        ":structured-native-code",
+        ":system-abi",
+        "//libraries/data:either",
+        "//libraries/data:list",
+        "//libraries/data:maybe",
+        "//libraries/formats:elf",
+        "//libraries/formats:elf-writer",
     ],
 )
 
