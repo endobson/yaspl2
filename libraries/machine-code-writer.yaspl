@@ -4,53 +4,34 @@
   (formats elf-writer)
   (io)
   (mach-o-writer)
-  (machine-code)
+  (system-abi)
   (maybe)
   (prim)
   (yaspl x86-64-assembly)
   (yaspl x86-64-assembly-printer)
 }
 (export
-  (#:values write-library-machine-code machine-code-output-format-abi
-            parse-machine-code-output-format))
+  (#:values write-library-object-file parse-system-abi))
 (types)
 
-(define (parse-machine-code-output-format [v : Bytes]) : (Maybe MachineCodeOutputFormat)
+(define (parse-system-abi [v : Bytes]) : (Maybe SystemAbi)
   (case v
-    [#"osx" (just (object-format (osx-abi)))]
-    [#"linux" (just (object-format (linux-abi)))]
-    [#"assembly-osx" (just (assembly-format (osx-abi)))]
-    [#"assembly-linux" (just (assembly-format (linux-abi)))]
+    [#"osx" (just (osx-abi))]
+    [#"linux" (just (linux-abi))]
     [_ (nothing)]))
 
-(define (machine-code-output-format-abi [mc : MachineCodeOutputFormat]) : SystemAbi
-  (case mc
-    [(object-format abi) abi]
-    [(assembly-format abi) abi]))
-
-(define (write-library-machine-code
+(define (write-library-object-file
           [fragments : AssemblyFragments]
-          [format : MachineCodeOutputFormat]
+          [abi : SystemAbi]
           [output-file-name : Bytes])
   : Void
-  (case format
-    [(object-format abi)
-     (match-define (assembly-fragments text-fragments const-fragments) fragments)
-     (match-define text-section (assemble-text-section text-fragments))
-     (match-define const-section (assemble-const-section const-fragments))
-     (case abi
-       [(osx-abi)
-        (write-mach-o-library text-section const-section output-file-name)]
-       [(linux-abi)
-        (call-with-output-file/void output-file-name
-           (lambda ([output-port : OutputPort])
-             (write-all-bytes (serialize-elf-library text-section const-section) output-port)))])]
-    [(assembly-format abi)
+  (match-define (assembly-fragments text-fragments const-fragments) fragments)
+  (match-define text-section (assemble-text-section text-fragments))
+  (match-define const-section (assemble-const-section const-fragments))
+  (case abi
+    [(osx-abi)
+     (write-mach-o-library text-section const-section output-file-name)]
+    [(linux-abi)
      (call-with-output-file/void output-file-name
         (lambda ([output-port : OutputPort])
-          (write-fragments
-            (case abi
-              [(osx-abi) (osx-assembly-style)]
-              [(linux-abi) (linux-assembly-style)])
-            fragments
-            output-port)))]))
+          (write-all-bytes (serialize-elf-library text-section const-section) output-port)))]))

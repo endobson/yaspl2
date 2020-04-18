@@ -22,7 +22,7 @@ yaspl_test(
     srcs = ["fill-stack-test.yaspl"],
     deps = [
         "//libraries:io",
-        "//libraries:machine-code",
+        "//libraries:system-abi",
         "//libraries:stack-trace",
         "//libraries/data:bytes",
         "//libraries/data:either",

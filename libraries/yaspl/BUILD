@@ -182,7 +182,7 @@ yaspl_bootstrap_library(
     deps = [
         ":intermediate-to-register",
         ":x86-64-assembly",
-        "//libraries:machine-code",
+        "//libraries:system-abi",
         "//libraries:prim-implementation",
         "//libraries:top-level-name",
         "//libraries/data:bytes",
@@ -198,7 +198,7 @@ yaspl_test(
     deps = [
         ":x86-64-assembly",
         ":x86-64-runtime",
-        "//libraries:machine-code",
+        "//libraries:system-abi",
         "//libraries:yunit",
         "//libraries/data:bytes",
         "//libraries/data:join-list",
