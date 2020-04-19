@@ -709,6 +709,7 @@ yaspl_test(
         ":sexp-lexer",
         ":yunit",
         "//libraries/data:bytes",
+        "//libraries/data:lifted-primitives",
         "//libraries/data:list",
         "//libraries/data:maybe",
         "//libraries/data:source-location",

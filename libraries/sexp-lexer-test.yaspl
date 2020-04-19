@@ -1,6 +1,7 @@
 #:module (sexp-lexer-test)
 #:import {
   (bytes)
+  (data lifted-primitives)
   (data source-location)
   (list)
   (maybe)
@@ -22,18 +23,21 @@
     [(end-of-input _) (just (reverse tokens))]
     [(bad-input _ _) (nothing)]))
 
-(define (count-tokens [bytes : Bytes] [expected-count : Int]) : (-> Boolean)
+(define (count-tokens [bytes : Bytes] [expected-count : Int]) : (-> (Maybe FailedAssertion))
   (lambda ()
-    (case (lex-all bytes)
-      [(nothing) #f]
-      [(just tokens) (= (length tokens) expected-count)])))
+    ((expect-equal (eq/maybe (eq/int)))
+     (case (lex-all bytes)
+       [(nothing) (nothing)]
+       [(just tokens) (just (lifted-int (length tokens)))])
+     (just (lifted-int expected-count)))))
 
-(define (check-source-location [bytes : Bytes] [expected-span : SourceSpan]) : (-> Boolean)
+(define (check-source-location [bytes : Bytes] [expected-span : SourceSpan])
+  : (-> (Maybe FailedAssertion))
   (lambda ()
     (case (lex-all bytes)
       [(just (cons (source-span-annotated _ actual-span) (empty)))
-       (source-span=? actual-span expected-span)]
-      [_ #f])))
+       (expect-equal/boolean (source-span=? actual-span expected-span) #t)]
+      [_ (just (failure #"Unable to lex"))])))
 
 
 (define (lex-eof [bytes : Bytes]) : (Maybe SourceSpan)
@@ -44,12 +48,13 @@
     [(end-of-input loc) (just loc)]
     [(bad-input _ _) (nothing)]))
 
-(define (check-source-location/eof [bytes : Bytes] [expected-span : SourceSpan]) : (-> Boolean)
+(define (check-source-location/eof [bytes : Bytes] [expected-span : SourceSpan])
+  : (-> (Maybe FailedAssertion))
   (lambda ()
     (case (lex-eof bytes)
       [(just actual-span)
-       (source-span=? actual-span expected-span)]
-      [(nothing) #f])))
+       (expect-equal/boolean (source-span=? actual-span expected-span) #t)]
+      [_ (just (failure #"Unable to lex to eof"))])))
 
 (define (lex-bad-input [bytes : Bytes]) : (Maybe (Tuple2 Bytes SourceSpan))
   (lex-bad-input/run (make-sexp-lexer (sourced-bytes (unnamed-source) bytes))))
@@ -59,68 +64,71 @@
     [(end-of-input _) (nothing)]
     [(bad-input v loc) (just (tuple2 v loc))]))
 
-(define (check-bad-input [bytes : Bytes] [expected-message : Bytes] [expected-span : SourceSpan]) : (-> Boolean)
+(define (check-bad-input [bytes : Bytes] [expected-message : Bytes] [expected-span : SourceSpan])
+  : (-> (Maybe FailedAssertion))
   (lambda ()
     (case (lex-bad-input bytes)
       [(just (tuple2 actual-message actual-span))
-       (and (bytes=? actual-message expected-message)
-            (source-span=? actual-span expected-span))]
-      [(nothing) #f])))
+       (expect-equal/boolean
+         (and (bytes=? actual-message expected-message)
+              (source-span=? actual-span expected-span))
+         #t)]
+      [(nothing) (just (failure #"Unable to lex to bad input"))])))
 
 (define (main [args : Bytes] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Int
   (yunit/main stderr
     (varargs list
-      (test-case #"left parens" (count-tokens #"((((" 4))
-      (test-case #"matching parens" (count-tokens #"()()()" 6))
-      (test-case #"unmatched parens" (count-tokens #"(()" 3))
-      (test-case #"symbol" (count-tokens #"aaaa" 1))
-      (test-case #"keyword" (count-tokens #"#:foo" 1))
-      (test-case #"bytes" (count-tokens #"#\"foo\"" 1))
-      (test-case #"comment" (count-tokens #"a;.&\na" 3))
-      (test-case #"bytes next char" (count-tokens #"#\"foo\"a" 2))
-      (test-case #"paren source-location"
+      (new-test-case #"left parens" (count-tokens #"((((" 4))
+      (new-test-case #"matching parens" (count-tokens #"()()()" 6))
+      (new-test-case #"unmatched parens" (count-tokens #"(()" 3))
+      (new-test-case #"symbol" (count-tokens #"aaaa" 1))
+      (new-test-case #"keyword" (count-tokens #"#:foo" 1))
+      (new-test-case #"bytes" (count-tokens #"#\"foo\"" 1))
+      (new-test-case #"comment" (count-tokens #"a;.&\na" 3))
+      (new-test-case #"bytes next char" (count-tokens #"#\"foo\"a" 2))
+      (new-test-case #"paren source-location"
         (check-source-location #" (\n" (source-span (unnamed-source) 1 2 1 3)))
-      (test-case #"brace source-location"
+      (new-test-case #"brace source-location"
         (check-source-location #"\n]\n" (source-span (unnamed-source) 2 1 2 2)))
-      (test-case #"symbol source-location"
+      (new-test-case #"symbol source-location"
         (check-source-location #"abc" (source-span (unnamed-source) 1 1 1 4)))
-      (test-case #"keyword source-location"
+      (new-test-case #"keyword source-location"
         (check-source-location #"\n#:abc " (source-span (unnamed-source) 2 1 2 6)))
-      (test-case #"bytes source-location"
+      (new-test-case #"bytes source-location"
         (check-source-location #"#\"abc\"" (source-span (unnamed-source) 1 1 1 7)))
-      (test-case #"decimal number source-location"
+      (new-test-case #"decimal number source-location"
         (check-source-location #" 34" (source-span (unnamed-source) 1 2 1 4)))
-      (test-case #"hex number source-location"
+      (new-test-case #"hex number source-location"
         (check-source-location #"\n \n#x1ab" (source-span (unnamed-source) 3 1 3 6)))
-      (test-case #"comment source-location"
+      (new-test-case #"comment source-location"
         (check-source-location #"  ;abc\n" (source-span (unnamed-source) 1 3 1 7)))
-      (test-case #"comment eof source-location"
+      (new-test-case #"comment eof source-location"
         (check-source-location #"\n \n;abcd" (source-span (unnamed-source) 3 1 3 6)))
-      (test-case #"eof source-location"
+      (new-test-case #"eof source-location"
         (check-source-location/eof #"\n \n;" (source-span (unnamed-source) 3 2 3 2)))
 
-      (test-case #"unclosed hash"
+      (new-test-case #"unclosed hash"
         (check-bad-input #"#"
           #"Input ended with hash" (source-span (unnamed-source) 1 1 1 2)))
-      (test-case #"unknown character after hash"
+      (new-test-case #"unknown character after hash"
         (check-bad-input #"#z"
           #"Unsupported character after hash" (source-span (unnamed-source) 1 1 1 3)))
-      (test-case #"unmatched quotes"
+      (new-test-case #"unmatched quotes"
         (check-bad-input #"#\"foo"
           #"Input ended in the middle of bytes literal" (source-span (unnamed-source) 1 1 1 6)))
-      (test-case #"no char after backslash in quotes"
+      (new-test-case #"no char after backslash in quotes"
         (check-bad-input #"#\"\\"
           #"Input ended with backslash" (source-span (unnamed-source) 1 1 1 4)))
-      (test-case #"unknown char after backslash in quotes"
+      (new-test-case #"unknown char after backslash in quotes"
         (check-bad-input #"#\"\\z"
           #"Unknown character after backslash" (source-span (unnamed-source) 1 3 1 5)))
-      (test-case #"unsupported char in bytes"
+      (new-test-case #"unsupported char in bytes"
         (check-bad-input #"#\"\xFF"
           #"Unsupported character in bytes literal: #xFF" (source-span (unnamed-source) 1 3 1 4)))
-      (test-case #"string literal"
+      (new-test-case #"string literal"
         (check-bad-input #"\"\""
           #"String literals not supported" (source-span (unnamed-source) 1 1 1 2)))
-      (test-case #"bad start char"
+      (new-test-case #"bad start char"
         (check-bad-input #"\xFF"
           #"Unsupported character at start of lexeme: #xFF" (source-span (unnamed-source) 1 1 1 2)))
       )))
