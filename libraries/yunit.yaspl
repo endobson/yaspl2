@@ -12,7 +12,7 @@
 }
 (export
   (#:types TestCase FailedAssertion)
-  (#:values yunit/main test-case new-test-case failure
+  (#:values yunit/main new-test-case failure
             and-check check-dict=?
             expect-equal expect-not-equal
             eq/bytes eq/int eq/list
@@ -20,7 +20,6 @@
             expect-equal/bytes expect-equal/boolean expect-equal/int))
 (types
   (define-type TestCase
-    (test-case [name : Bytes] [run : (-> Boolean)])
     (new-test-case [name : Bytes] [run : (-> (Maybe FailedAssertion))]))
 
   (define-type (EqualityUtil A)
@@ -29,7 +28,6 @@
       [print : (A -> Bytes)]))
 
   (define-type FailedAssertion
-    (silent-failure)
     (failure [message : Bytes])))
 
 (define [A B] (check-dict=?
@@ -153,34 +151,25 @@
          [failure failure])])))
 
 (define (run-test-cases [tests : (List TestCase)]) : (List (Tuple2 Bytes FailedAssertion))
-  (case tests
-    [(empty) (empty)]
-    [(cons (test-case name action) tests)
-     (if (action)
-         (run-test-cases tests)
-         (cons (tuple2 name (silent-failure)) (run-test-cases tests)))]
-    [(cons (new-test-case name action) tests)
-     (case (action)
-       [(nothing) (run-test-cases tests)]
-       [(just f)
-        (cons (tuple2 name f) (run-test-cases tests))])]))
+  (filter-map
+    (lambda ([t : TestCase]) : (Maybe (Tuple2 Bytes FailedAssertion))
+      (match-define (new-test-case name action) t)
+      (case (action)
+        [(nothing) (nothing)]
+        [(just f) (just (tuple2 name f))]))
+    tests))
 
 (define (write-indented-lines [lines : (List (Tuple2 Bytes FailedAssertion))] [out : OutputPort]) : Void
-  (case lines
-    [(empty) (void)]
-    [(cons line lines)
-     (begin
-       (write-all-bytes #"  " out)
-       (case line
-         [(tuple2 name f)
-          (begin
-            (write-all-bytes name out)
-            (write-all-bytes #": " out)
-            (case f
-              [(silent-failure) (void)]
-              [(failure m) (write-all-bytes m out)]))])
-       (newline out)
-       (write-indented-lines lines out))]))
+  (for-each
+    (lambda ([line : (Tuple2 Bytes FailedAssertion)])
+      (match-define (tuple2 name (failure m)) line)
+      (begin
+        (write-all-bytes #"  " out)
+        (write-all-bytes name out)
+        (write-all-bytes #": " out)
+        (write-all-bytes m out)
+        (newline out)))
+    lines))
 
 (define (yunit/main [stderr : OutputPort] [tests : (List TestCase)]) : Int
   (case (run-test-cases tests)
