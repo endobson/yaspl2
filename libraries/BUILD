@@ -870,6 +870,7 @@ yaspl_test(
     deps = [
         ":yunit",
         "//libraries/data:list",
+        "//libraries/data:maybe",
     ],
 )
 
