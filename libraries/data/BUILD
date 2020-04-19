@@ -184,6 +184,7 @@ yaspl_test(
         ":list",
         ":maybe",
         ":tuples",
+        "//libraries:sexp-printer",
         "//libraries:yunit",
     ],
 )
