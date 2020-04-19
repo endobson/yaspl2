@@ -739,9 +739,9 @@ yaspl_test(
     deps = [
         ":sexp-parser",
         ":yunit",
-        "//libraries/data:bytes",
         "//libraries/data:either",
         "//libraries/data:list",
+        "//libraries/data:maybe",
         "//libraries/data:source-location",
     ],
 )
@@ -766,9 +766,9 @@ yaspl_test(
         ":sexp-parser",
         ":sexp-printer",
         ":yunit",
-        "//libraries/data:bytes",
         "//libraries/data:either",
         "//libraries/data:list",
+        "//libraries/data:maybe",
         "//libraries/data:source-location",
     ],
 )
