@@ -148,6 +148,7 @@ yaspl_bootstrap_library(
     srcs = ["lifted-primitives.yaspl"],
     deps = [
         ":ordering",
+        ":tuples",
     ],
 )
 
@@ -338,6 +339,7 @@ yaspl_test(
     deps = [
         ":bytes",
         ":list",
+        ":maybe",
         ":set",
         "//libraries:yunit",
     ],

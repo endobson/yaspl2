@@ -141,9 +141,9 @@ yaspl_test(
     deps = [
         ":byte-escapes",
         ":yunit",
-        "//libraries/data:bytes",
         "//libraries/data:either",
         "//libraries/data:list",
+        "//libraries/data:maybe",
     ],
 )
 
@@ -1147,9 +1147,12 @@ yaspl_library(
     srcs = ["yunit.yaspl"],
     deps = [
         ":io",
+        "//libraries/data:bytes",
         "//libraries/data:dict",
+        "//libraries/data:lifted-primitives",
         "//libraries/data:list",
         "//libraries/data:maybe",
+        "//libraries/data:numbers",
         "//libraries/data:tuples",
     ],
 )
