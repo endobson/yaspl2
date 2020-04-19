@@ -15,11 +15,18 @@
   (#:values yunit/main test-case new-test-case failure
             and-check check-dict=?
             expect-equal expect-not-equal
+            eq/bytes eq/int eq/list
+            eq/boolean eq/maybe eq/tuple2
             expect-equal/bytes expect-equal/boolean expect-equal/int))
 (types
   (define-type TestCase
     (test-case [name : Bytes] [run : (-> Boolean)])
     (new-test-case [name : Bytes] [run : (-> (Maybe FailedAssertion))]))
+
+  (define-type (EqualityUtil A)
+    (equality-util
+      [=? : (A A -> Boolean)]
+      [print : (A -> Bytes)]))
 
   (define-type FailedAssertion
     (silent-failure)
@@ -52,9 +59,10 @@
                    (nothing)
                    (just (failure #"Values don't match at key")))])))))))
 
-(define [A] (expect-equal [=? : (A A -> Boolean)] [print : (A -> Bytes)])
+(define [A] (expect-equal [eq-util : (EqualityUtil A)])
   : (A A -> (Maybe FailedAssertion))
   (lambda ([actual : A] [expected : A])
+    (match-define (equality-util =? print) eq-util)
     (if (=? actual expected)
         (nothing)
         (just (failure
@@ -62,9 +70,10 @@
                   (varargs list #"Value Mismatch: Actual: " (print actual)
                                 #" Expected: " (print expected))))))))
 
-(define [A] (expect-not-equal [=? : (A A -> Boolean)] [print : (A -> Bytes)])
+(define [A] (expect-not-equal [eq-util : (EqualityUtil A)])
   : (A A -> (Maybe FailedAssertion))
   (lambda ([actual : A] [expected : A])
+    (match-define (equality-util =? print) eq-util)
     (if (=? actual expected)
         (just (failure
                 (bytes-append
@@ -72,25 +81,66 @@
                                 #" Expected: " (print expected)))))
         (nothing))))
 
+(define (eq/bytes) : (EqualityUtil Bytes)
+  (equality-util bytes=? (lambda ([x : Bytes]) (bytes-append (varargs list #"#\"" x #"\"")))))
+
+(define (eq/int) : (EqualityUtil LiftedInt)
+  (equality-util lifted-int=? (lambda ([(lifted-int x) : LiftedInt])
+                                (integer->decimal-bytes x))))
+
+(define (eq/boolean) : (EqualityUtil LiftedBoolean)
+  (equality-util lifted-boolean=?
+                 (lambda ([l : LiftedBoolean])
+                   (case l
+                     [(lifted-true) #"true"]
+                     [(lifted-false) #"false"]))))
+
+(define [A] (eq/list [elem-util : (EqualityUtil A)])
+  : (EqualityUtil (List A))
+  (match-define (equality-util elem=? print-elem) elem-util)
+  (equality-util
+    (list=? elem=?)
+    (lambda ([l : (List A)]) : Bytes
+      (bytes-append
+        (cons #"("
+          (append
+            (interleave (map print-elem l) #" ")
+            (varargs list #")")))))))
+
+(define [A] (eq/maybe [elem-util : (EqualityUtil A)])
+  : (EqualityUtil (Maybe A))
+  (match-define (equality-util elem=? print-elem) elem-util)
+  (equality-util
+    (maybe=? elem=?)
+    (lambda ([v : (Maybe A)]) : Bytes
+      (case v
+        [(nothing) #"(nothing)"]
+        [(just e)
+         (bytes-append (varargs list #"(just " (print-elem e) #")"))]))))
+
+(define [A B] (eq/tuple2 [a-util : (EqualityUtil A)] [b-util : (EqualityUtil B)])
+  : (EqualityUtil (Tuple2 A B))
+  (match-define (equality-util a=? print-a) a-util)
+  (match-define (equality-util b=? print-b) b-util)
+  (equality-util
+    (tuple2=? a=? b=?)
+    (lambda ([v : (Tuple2 A B)]) : Bytes
+      (case v
+        [(tuple2 a b)
+         (bytes-append (varargs list #"(tuple2 " (print-a a) #" " (print-b b) #")"))]))))
 
 (define (expect-equal/bytes [actual : Bytes] [expected : Bytes])
   : (Maybe FailedAssertion)
-  ((expect-equal bytes=? (lambda ([x : Bytes]) (bytes-append (varargs list #"#\"" x #"\""))))
-   actual expected))
+  ((expect-equal (eq/bytes)) actual expected))
 
 (define (expect-equal/int [actual : Int] [expected : Int])
   : (Maybe FailedAssertion)
-  ((expect-equal lifted-int=? (lambda ([(lifted-int x) : LiftedInt])
-                                (integer->decimal-bytes x)))
+  ((expect-equal (eq/int))
    (lifted-int actual) (lifted-int expected)))
 
 (define (expect-equal/boolean [actual : Boolean] [expected : Boolean])
   : (Maybe FailedAssertion)
-  ((expect-equal lifted-boolean=?
-                 (lambda ([l : LiftedBoolean])
-                   (case l
-                     [(lifted-true) #"true"]
-                     [(lifted-false) #"false"])))
+  ((expect-equal (eq/boolean))
    (lifted-boolean actual) (lifted-boolean expected)))
 
 (define (and-check [checks : (List (-> (Maybe FailedAssertion)))]) : (-> (Maybe FailedAssertion))

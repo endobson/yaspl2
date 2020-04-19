@@ -179,12 +179,10 @@ yaspl_test(
     name = "list-test",
     srcs = ["list-test.yaspl"],
     deps = [
-        ":bytes",
         ":lifted-primitives",
         ":list",
         ":maybe",
         ":tuples",
-        "//libraries:sexp-printer",
         "//libraries:yunit",
     ],
 )
