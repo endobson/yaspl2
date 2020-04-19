@@ -1134,6 +1134,7 @@ yaspl_library(
         ":io",
         "//libraries/data:bytes",
         "//libraries/data:dict",
+        "//libraries/data:either",
         "//libraries/data:lifted-primitives",
         "//libraries/data:list",
         "//libraries/data:maybe",

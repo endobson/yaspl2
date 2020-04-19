@@ -122,6 +122,7 @@ yaspl_library(
 yaspl_bootstrap_library(
     name = "either",
     srcs = ["either.yaspl"],
+    deps = [":tuples"],
 )
 
 yaspl_bootstrap_library(

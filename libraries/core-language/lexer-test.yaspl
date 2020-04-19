@@ -1,35 +1,39 @@
 #:module (core-language lexer-test)
 #:import {
-  (bytes)
+  (core-language lexer)
+  (data lifted-primitives)
   (data source-location)
+  (either)
   (list)
   (maybe)
   (prim)
-  (core-language lexer)
-  (tuples)
   (yunit)
 }
 (export
   (#:values main))
 (types)
 
-(define (lex-all [bytes : Bytes]) : (Maybe (List (SourceSpanAnnotated Token)))
+(define (lex-all [bytes : Bytes]) : (Either Bytes (List (SourceSpanAnnotated Token)))
   (lex-all/run (make-core-lexer (sourced-bytes (unnamed-source) bytes)) (empty)))
+
 (define (lex-all/run [lexer : (Lexer Token)] [tokens : (List (SourceSpanAnnotated Token))])
-  : (Maybe (List (SourceSpanAnnotated Token)))
+  : (Either Bytes (List (SourceSpanAnnotated Token)))
   (case (run-lexer lexer)
     [(lex-result v lexer) (lex-all/run lexer (cons v tokens))]
-    [(end-of-input _) (just (reverse tokens))]
-    [(bad-input _ _) (nothing)]))
+    [(end-of-input _) (right (reverse tokens))]
+    [(bad-input msg _) (left msg)]))
 
-(define (count-lexemes [bytes : Bytes] [expected-count : Int]) : (-> Boolean)
+(define (count-tokens [bytes : Bytes] [expected-count : Int]) : (-> (Maybe FailedAssertion))
   (lambda ()
-    (case (lex-all bytes)
-      [(nothing) #f]
-      [(just lexemes) (= (length lexemes) expected-count)])))
+    ((expect-equal (eq/either (eq/bytes) (eq/int)))
+     (case (lex-all bytes)
+       [(left msg) (left msg)]
+       [(right tokens) (right (lifted-int (length tokens)))])
+     (right (lifted-int expected-count)))))
 
 (define (main [args : Bytes] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Int
   (yunit/main stderr
     (varargs list
-      (test-case #"parens" (count-lexemes #"()[]<>{}" 8))
+      (test-case #"parens" (count-tokens #"()[]<>{}" 8))
+      (test-case #"comparisions" (count-tokens #"< == >" 3))
       )))

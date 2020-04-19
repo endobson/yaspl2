@@ -13,7 +13,6 @@ test_suite(
     testonly = 0,
 )
 
-
 yaspl_library(
     name = "lexer",
     srcs = ["lexer.yaspl"],
@@ -28,23 +27,20 @@ yaspl_library(
     ],
 )
 
-
 yaspl_test(
     name = "lexer-test",
     size = "small",
     srcs = ["lexer-test.yaspl"],
     deps = [
         ":lexer",
-        "//libraries:sexp-lexer",
         "//libraries:yunit",
-        "//libraries/data:bytes",
+        "//libraries/data:either",
+        "//libraries/data:lifted-primitives",
         "//libraries/data:list",
         "//libraries/data:maybe",
         "//libraries/data:source-location",
-        "//libraries/data:tuples",
     ],
 )
-
 
 filegroup(
     name = "package_binaries",
