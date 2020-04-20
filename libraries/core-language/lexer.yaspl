@@ -39,6 +39,10 @@
 
     (logical-and-token)
     (logical-or-token)
+    (plus-token)
+    (minus-token)
+    (division-token)
+    (multiplication-token)
 
     (comment-token)
     (symbol-token [v : Bytes])
@@ -129,6 +133,22 @@
   : (InnerResult Token)
   (token* ctx start end (equal-equal-token)))
 
+(define (plus-token* [ctx : LexerContext] [start : Int] [end : Int])
+  : (InnerResult Token)
+  (token* ctx start end (plus-token)))
+
+(define (minus-token* [ctx : LexerContext] [start : Int] [end : Int])
+  : (InnerResult Token)
+  (token* ctx start end (plus-token)))
+
+(define (multiplication-token* [ctx : LexerContext] [start : Int] [end : Int])
+  : (InnerResult Token)
+  (token* ctx start end (multiplication-token)))
+
+(define (division-token* [ctx : LexerContext] [start : Int] [end : Int])
+  : (InnerResult Token)
+  (token* ctx start end (division-token)))
+
 ;; Make this saner
 (define (symbol-start-byte? [v : U8]) : Boolean
   (let ([valid #"                                                                 ABCDEFGHIJKLMNOPQRSTUVWXYZ      abcdefghijklmnopqrstuvwxyz     "])
@@ -188,6 +208,52 @@
 (define (back-slash? [v : U8]) : Boolean
   (= (u8->s64 v) 92))
 
+(define (less-than? [v : U8]) : Boolean
+  (= (u8->s64 v) 60))
+
+(define (equals-sign? [v : U8]) : Boolean
+  (= (u8->s64 v) 61))
+
+(define (greater-than? [v : U8]) : Boolean
+  (= (u8->s64 v) 62))
+
+(define (left-paren? [v : U8]) : Boolean
+  (= (u8->s64 v) 40))
+
+(define (right-paren? [v : U8]) : Boolean
+  (= (u8->s64 v) 41))
+
+(define (left-bracket? [v : U8]) : Boolean
+  (= (u8->s64 v) 91))
+
+(define (right-bracket? [v : U8]) : Boolean
+  (= (u8->s64 v) 93))
+
+(define (left-brace? [v : U8]) : Boolean
+  (= (u8->s64 v) 123))
+
+(define (right-brace? [v : U8]) : Boolean
+  (= (u8->s64 v) 125))
+
+(define (multiplication-sign? [v : U8]) : Boolean
+  (= (u8->s64 v) 42))
+
+(define (plus-sign? [v : U8]) : Boolean
+  (= (u8->s64 v) 43))
+
+(define (comma? [v : U8]) : Boolean
+  (= (u8->s64 v) 44))
+
+(define (minus-sign? [v : U8]) : Boolean
+  (= (u8->s64 v) 45))
+
+(define (period? [v : U8]) : Boolean
+  (= (u8->s64 v) 46))
+
+(define (forward-slash? [v : U8]) : Boolean
+  (= (u8->s64 v) 47))
+
+
 
 (define (lex-symbol [ctx : LexerContext] [start : Int] [cur : Int]) : (InnerResult Token)
   (match-define bytes (lexer-context-bytes ctx))
@@ -225,15 +291,18 @@
     [(= (bytes-length bytes) pos)
      (bad-input/inner #"Input ended with equal" (lexer-context-get-span ctx start pos))]
     [else
-     (match-define byte (u8->s64 (bytes-ref bytes pos)))
+     (match-define byte (bytes-ref bytes pos))
      (match-define next-pos (+ 1 pos))
      (cond
-      [(= byte 61)
+      [(equals-sign? byte)
        (equal-equal-token* ctx start next-pos)]
       [else
        (bad-input/inner
-         #"Unsupported character after equal"
-         (lexer-context-get-span ctx (- pos 1) next-pos))])]))
+         (bytes-append
+           (varargs list
+             #"Unsupported character after equal: #x" 
+             (integer->hex-bytes (u8->s64 byte))))
+         (lexer-context-get-span ctx start next-pos))])]))
 
 (define (lex-keyword [ctx : LexerContext] [start : Int] [cur : Int]) : (InnerResult Token)
   (match-define bytes (lexer-context-bytes ctx))
@@ -323,39 +392,46 @@
     [(= pos (bytes-length bytes))
      (end-of-input/inner (lexer-context-get-span ctx pos pos))]
     [else
-      (match-define byte/u8 (bytes-ref bytes pos))
+      (match-define byte (bytes-ref bytes pos))
       (match-define next-pos (+ pos 1))
-      (match-define byte (u8->s64 byte/u8))
       (cond
-       [(= byte 40)
+       [(left-paren? byte)
         (left-paren-token* ctx pos next-pos)]
-       [(= byte 41)
+       [(right-paren? byte)
         (right-paren-token* ctx pos next-pos)]
-       [(= byte 91)
+       [(left-bracket? byte)
         (left-bracket-token* ctx pos next-pos)]
-       [(= byte 93)
+       [(right-bracket? byte)
         (right-bracket-token* ctx pos next-pos)]
-       [(= byte 123)
+       [(left-brace? byte)
         (left-brace-token* ctx pos next-pos)]
-       [(= byte 125)
+       [(right-brace? byte)
         (right-brace-token* ctx pos next-pos)]
-       [(= byte 60)
+       [(less-than? byte)
         (less-than-token* ctx pos next-pos)]
-       [(= byte 62)
+       [(greater-than? byte)
         (greater-than-token* ctx pos next-pos)]
-       [(= byte 61)
+       [(equals-sign? byte)
         (lex-after-equal ctx pos next-pos)]
-       [(or (newline? byte/u8) (space? byte/u8))
+       [(plus-sign? byte)
+        (plus-token* ctx pos next-pos)]
+       [(minus-sign? byte)
+        (minus-token* ctx pos next-pos)]
+       [(multiplication-sign? byte)
+        (multiplication-token* ctx pos next-pos)]
+       [(forward-slash? byte)
+        (division-token* ctx pos next-pos)]
+       [(or (newline? byte) (space? byte))
         (sexp-lexer/impl ctx next-pos)]
-       [(symbol-start-byte? byte/u8)
+       [(symbol-start-byte? byte)
         (lex-symbol ctx pos next-pos)]
-       [(decimal-start-byte? byte/u8)
+       [(decimal-start-byte? byte)
         (lex-decimal ctx pos next-pos)]
-       [(hash? byte/u8)
+       [(hash? byte)
         (lex-after-hash ctx next-pos)]
-       [(semi-colon? byte/u8)
+       [(semi-colon? byte)
         (lex-line-comment ctx pos next-pos)]
-       [(double-quote? byte/u8)
+       [(double-quote? byte)
         (bad-input/inner
           #"String literals not supported"
           (lexer-context-get-span ctx pos next-pos))]
@@ -364,5 +440,5 @@
           (bytes-append
             (varargs list
               #"Unsupported character at start of lexeme: #x"
-              (integer->hex-bytes byte)))
+              (integer->hex-bytes (u8->s64 byte))))
           (lexer-context-get-span ctx pos next-pos))])]))
