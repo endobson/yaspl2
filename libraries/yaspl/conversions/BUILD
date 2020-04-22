@@ -9,6 +9,25 @@ package(
 )
 
 yaspl_bootstrap_library(
+    name = "expand-datatypes",
+    srcs = ["expand-datatypes.yaspl"],
+    deps = [
+        "//libraries:module-name",
+        "//libraries:module-signature",
+        "//libraries:types",
+        "//libraries:variant-info",
+        "//libraries/data:bytes",
+        "//libraries/data:dict",
+        "//libraries/data:lifted-primitives",
+        "//libraries/data:list",
+        "//libraries/data:maybe",
+        "//libraries/data:tuples",
+        "//libraries/yaspl/languages:expanded-datatypes-language",
+        "//libraries/yaspl/languages:resolved-types-language",
+    ],
+)
+
+yaspl_bootstrap_library(
     name = "resolve-imports",
     srcs = ["resolve-imports.yaspl"],
     deps = [

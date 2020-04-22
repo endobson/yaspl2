@@ -8,6 +8,21 @@ package(
 )
 
 yaspl_bootstrap_library(
+    name = "expanded-datatypes-language",
+    srcs = ["expanded-datatypes-language.yaspl"],
+    deps = [
+        ":resolved-types-language",
+        "//libraries:module-name",
+        "//libraries:module-signature",
+        "//libraries:top-level-name",
+        "//libraries:types",
+        "//libraries:variant-info",
+        "//libraries/data:dict",
+        "//libraries/data:list",
+    ],
+)
+
+yaspl_bootstrap_library(
     name = "resolved-imports-language",
     srcs = ["resolved-imports-language.yaspl"],
     deps = [

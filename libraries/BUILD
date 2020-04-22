@@ -362,25 +362,6 @@ yaspl_bootstrap_library(
 )
 
 yaspl_bootstrap_library(
-    name = "expanded-datatypes-language",
-    srcs = ["expanded-datatypes-language.yaspl"],
-    deps = [
-        ":module-name",
-        ":module-signature",
-        ":top-level-name",
-        ":types",
-        ":variant-info",
-        "//libraries/data:bytes",
-        "//libraries/data:dict",
-        "//libraries/data:lifted-primitives",
-        "//libraries/data:list",
-        "//libraries/data:maybe",
-        "//libraries/data:tuples",
-        "//libraries/yaspl/languages:resolved-types-language",
-    ],
-)
-
-yaspl_bootstrap_library(
     name = "expanded-patterns-language",
     srcs = ["expanded-patterns-language.yaspl"],
     deps = [
@@ -825,7 +806,6 @@ yaspl_bootstrap_library(
     name = "source-to-intermediate-language",
     srcs = ["source-to-intermediate-language.yaspl"],
     deps = [
-        ":expanded-datatypes-language",
         ":expanded-patterns-language",
         ":expanded-varargs-language",
         ":intermediate-expression",
@@ -847,6 +827,7 @@ yaspl_bootstrap_library(
         "//libraries/data:set",
         "//libraries/data:tuples",
         "//libraries/yaspl:var",
+        "//libraries/yaspl/conversions:expand-datatypes",
         "//libraries/yaspl/languages:resolved-types-language",
     ],
 )
@@ -960,12 +941,12 @@ yaspl_bootstrap_library(
     name = "type-checked-language",
     srcs = ["type-checked-language.yaspl"],
     deps = [
-        ":expanded-datatypes-language",
         ":module-name",
         ":module-signature",
         ":types",
         "//libraries/data:dict",
         "//libraries/data:list",
+        "//libraries/yaspl/languages:expanded-datatypes-language",
     ],
 )
 
@@ -973,7 +954,6 @@ yaspl_bootstrap_library(
     name = "type-checker",
     srcs = ["type-checker.yaspl"],
     deps = [
-        ":expanded-datatypes-language",
         ":module-name",
         ":module-signature",
         ":prim-types",
@@ -993,6 +973,7 @@ yaspl_bootstrap_library(
         "//libraries/data:set",
         "//libraries/data:source-location",
         "//libraries/data:tuples",
+        "//libraries/yaspl/languages:expanded-datatypes-language",
     ],
 )
 
