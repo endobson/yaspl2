@@ -33,6 +33,7 @@
     (greater-than-token)
     (greater-than-equal-token)
     (equal-equal-token)
+    (not-equal-token)
 
     (assignment-token)
     (pointer-assignment-token)
@@ -43,6 +44,12 @@
     (minus-token)
     (division-token)
     (multiplication-token)
+
+    (comma-token)
+    (bang-token)
+
+    (pointer-field-access-token)
+    (pointer-offset-token)
 
     (comment-token)
     (symbol-token [v : Bytes])
@@ -133,6 +140,10 @@
   : (InnerResult Token)
   (token* ctx start end (equal-equal-token)))
 
+(define (not-equal-token* [ctx : LexerContext] [start : Int] [end : Int])
+  : (InnerResult Token)
+  (token* ctx start end (not-equal-token)))
+
 (define (plus-token* [ctx : LexerContext] [start : Int] [end : Int])
   : (InnerResult Token)
   (token* ctx start end (plus-token)))
@@ -148,6 +159,30 @@
 (define (division-token* [ctx : LexerContext] [start : Int] [end : Int])
   : (InnerResult Token)
   (token* ctx start end (division-token)))
+
+(define (comma-token* [ctx : LexerContext] [start : Int] [end : Int])
+  : (InnerResult Token)
+  (token* ctx start end (comma-token)))
+
+(define (bang-token* [ctx : LexerContext] [start : Int] [end : Int])
+  : (InnerResult Token)
+  (token* ctx start end (bang-token)))
+
+(define (assignment-token* [ctx : LexerContext] [start : Int] [end : Int])
+  : (InnerResult Token)
+  (token* ctx start end (assignment-token)))
+
+(define (logical-and-token* [ctx : LexerContext] [start : Int] [end : Int])
+  : (InnerResult Token)
+  (token* ctx start end (logical-and-token)))
+
+(define (pointer-field-access-token* [ctx : LexerContext] [start : Int] [end : Int])
+  : (InnerResult Token)
+  (token* ctx start end (pointer-field-access-token)))
+
+(define (pointer-offset-token* [ctx : LexerContext] [start : Int] [end : Int])
+  : (InnerResult Token)
+  (token* ctx start end (pointer-offset-token)))
 
 ;; Make this saner
 (define (symbol-start-byte? [v : U8]) : Boolean
@@ -194,11 +229,17 @@
 (define (space? [v : U8]) : Boolean
   (= (u8->s64 v) 32))
 
+(define (bang? [v : U8]) : Boolean
+  (= (u8->s64 v) 33))
+
 (define (double-quote? [v : U8]) : Boolean
   (= (u8->s64 v) 34))
 
 (define (hash? [v : U8]) : Boolean
   (= (u8->s64 v) 35))
+
+(define (ampersand? [v : U8]) : Boolean
+  (= (u8->s64 v) 38))
 
 (define (left-paren? [v : U8]) : Boolean
   (= (u8->s64 v) 40))
@@ -337,6 +378,88 @@
       [else
        (greater-than-token* ctx start pos)])]))
 
+(define (lex-after-colon [ctx : LexerContext] [start : Int] [pos : Int]) : (InnerResult Token)
+  (match-define bytes (lexer-context-bytes ctx))
+  (cond
+    [(= (bytes-length bytes) pos)
+     (bad-input/inner #"Input ended with colon" (lexer-context-get-span ctx start pos))]
+    [else
+     (match-define byte (bytes-ref bytes pos))
+     (match-define next-pos (+ 1 pos))
+     (cond
+      [(equals-sign? byte)
+       (assignment-token* ctx start next-pos)]
+      [else
+       (bad-input/inner
+         (bytes-append
+           (varargs list
+             #"Unsupported character after colon: #x" 
+             (integer->hex-bytes (u8->s64 byte))))
+         (lexer-context-get-span ctx start next-pos))])]))
+
+
+(define (lex-after-bang [ctx : LexerContext] [start : Int] [pos : Int]) : (InnerResult Token)
+  (match-define bytes (lexer-context-bytes ctx))
+  (cond
+    [(= (bytes-length bytes) pos)
+     (bang-token* ctx start pos)]
+    [else
+     (match-define byte (bytes-ref bytes pos))
+     (match-define next-pos (+ 1 pos))
+     (cond
+      [(equals-sign? byte)
+       (not-equal-token* ctx start next-pos)]
+      [else
+       (bang-token* ctx start pos)])]))
+
+(define (lex-after-ampersand [ctx : LexerContext] [start : Int] [pos : Int]) : (InnerResult Token)
+  (match-define bytes (lexer-context-bytes ctx))
+  (cond
+    [(= (bytes-length bytes) pos)
+     (bad-input/inner #"Input ended with ampersand" (lexer-context-get-span ctx start pos))]
+    [else
+     (match-define byte (bytes-ref bytes pos))
+     (match-define next-pos (+ 1 pos))
+     (cond
+      [(ampersand? byte)
+       (logical-and-token* ctx start next-pos)]
+      [else
+       (bad-input/inner
+         (bytes-append
+           (varargs list
+             #"Unsupported character after ampersand: #x" 
+             (integer->hex-bytes (u8->s64 byte))))
+         (lexer-context-get-span ctx start next-pos))])]))
+
+(define (lex-after-minus [ctx : LexerContext] [start : Int] [pos : Int]) : (InnerResult Token)
+  (match-define bytes (lexer-context-bytes ctx))
+  (cond
+    [(= (bytes-length bytes) pos)
+     (minus-token* ctx start pos)]
+    [else
+     (match-define byte (bytes-ref bytes pos))
+     (match-define next-pos (+ 1 pos))
+     (cond
+      [(greater-than? byte)
+       (lex-after-minus-greater-than ctx start next-pos)]
+      [else
+       (minus-token* ctx start pos)])]))
+
+(define (lex-after-minus-greater-than [ctx : LexerContext] [start : Int] [pos : Int])
+  : (InnerResult Token)
+  (match-define bytes (lexer-context-bytes ctx))
+  (cond
+    [(= (bytes-length bytes) pos)
+     (pointer-field-access-token* ctx start pos)]
+    [else
+     (match-define byte (bytes-ref bytes pos))
+     (match-define next-pos (+ 1 pos))
+     (cond
+      [(ampersand? byte)
+       (pointer-offset-token* ctx start next-pos)]
+      [else
+       (pointer-field-access-token* ctx start pos)])]))
+
 
 (define (lex-keyword [ctx : LexerContext] [start : Int] [cur : Int]) : (InnerResult Token)
   (match-define bytes (lexer-context-bytes ctx))
@@ -450,11 +573,19 @@
        [(plus-sign? byte)
         (plus-token* ctx pos next-pos)]
        [(minus-sign? byte)
-        (minus-token* ctx pos next-pos)]
+        (lex-after-minus ctx pos next-pos)]
        [(multiplication-sign? byte)
         (multiplication-token* ctx pos next-pos)]
        [(forward-slash? byte)
         (division-token* ctx pos next-pos)]
+       [(comma? byte)
+        (comma-token* ctx pos next-pos)]
+       [(ampersand? byte)
+        (lex-after-ampersand ctx pos next-pos)]
+       [(bang? byte)
+        (lex-after-bang ctx pos next-pos)]
+       [(colon? byte)
+        (lex-after-colon ctx pos next-pos)]
        [(or (newline? byte) (space? byte))
         (sexp-lexer/impl ctx next-pos)]
        [(symbol-start-byte? byte)

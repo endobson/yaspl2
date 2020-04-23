@@ -1,5 +1,6 @@
 load(
     "//libraries:yaspl.bzl",
+    "yaspl_binary",
     "yaspl_library",
     "yaspl_test",
 )
@@ -11,6 +12,39 @@ package(
 test_suite(
     name = "package_tests",
     testonly = 0,
+)
+
+genrule(
+    name = "compile-example",
+    srcs = ["examples/fill-stack.core"],
+    outs = [
+        "fill-stack.o",
+        "fill-stack.sig",
+    ],
+    cmd = "$(execpath :compiler) osx $(execpath fill-stack.o) " +
+          "$(execpath fill-stack.sig) $(execpath examples/fill-stack.core)",
+    tools = [":compiler"],
+)
+
+yaspl_binary(
+    name = "compiler",
+    srcs = ["compiler.yaspl"],
+    deps = [
+        ":lexer",
+        "//libraries:compiler_lib",
+        "//libraries:io",
+        "//libraries:machine-code-writer",
+        "//libraries:system-abi",
+        "//libraries/data:bytes",
+        "//libraries/data:either",
+        "//libraries/data:list",
+        "//libraries/data:maybe",
+        "//libraries/data:source-location",
+        "//libraries/data:tuples",
+        "//libraries/yaspl:parser",
+        "//libraries/yaspl:top-level-objects-to-x86-64",
+        "//libraries/yaspl/frontend:errors",
+    ],
 )
 
 yaspl_library(
@@ -45,5 +79,6 @@ yaspl_test(
 filegroup(
     name = "package_binaries",
     srcs = [
+        ":compiler",
     ],
 )
