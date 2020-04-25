@@ -1,0 +1,87 @@
+#:module (core-language compiler)
+#:import {
+  (bytes)
+  (data source-location)
+  (compiler)
+  (either)
+  (io)
+  (list)
+  (machine-code-writer)
+  (maybe)
+  (prim)
+  (system-abi)
+  (tuples)
+  (core-language lexer)
+  (yaspl frontend errors)
+  (yaspl parser)
+  {(yaspl top-level-objects-to-x86-64)
+    {#:values
+      convert-objects
+    }
+  }
+}
+(export
+  (#:values main))
+(types
+  (define-type Args
+    (args
+      [abi : SystemAbi]
+      [output-object-file : Bytes]
+      [output-signature-file : Bytes]
+      [module-file : Bytes])))
+
+(define (parse-args [input : (List Bytes)]) : (Either Bytes Args)
+  (case input
+    [(empty)
+     (left #"No executable specified???")]
+    [(cons _ (empty))
+     (left #"No abi supplied.")]
+    [(cons _ (cons _ (empty)))
+     (left #"No output object file name supplied.")]
+    [(cons _ (cons _ (cons _ (empty))))
+     (left #"No output signature file name supplied.")]
+    [(cons _ (cons _ (cons _ (cons _ (empty)))))
+     (left #"No module file name supplied.")]
+    [(cons _ (cons _ (cons _ (cons _ (cons _ (cons _ _))))))
+     (left #"Too many arguments supplied.")]
+    [(cons _ (cons abi
+                   (cons output-object-file
+                         (cons output-signature-file
+                               (cons module-file (empty))))))
+     (case (parse-system-abi abi)
+       [(nothing) (left (bytes-append (varargs list #"Unknown abi:" abi)))]
+       [(just abi)
+        (right (args abi output-object-file output-signature-file module-file))])]))
+
+(define (lex-all [lexer : (Lexer Token)]) : (Maybe Bytes)
+  (case (run-lexer lexer)
+    [(end-of-input _) (nothing)]
+    [(bad-input msg src)
+     (just (bytes-append
+             (varargs list
+               (source-span->start-location-bytes src)
+               #": " msg)))]
+    [(lex-result _ lexer) (lex-all lexer)]))
+
+(define (run [input : (List Bytes)]) : (Maybe Bytes)
+  (case (parse-args input)
+    [(left v) (just v)]
+    [(right (args abi output-object-file output-signature-file module-file))
+     (match-define input-contents (sourced-bytes-from-file module-file))
+     (match-define lexer (make-core-lexer input-contents))
+     (match-define lex-results (lex-all lexer))
+     (begin
+       (call-with-output-file/void output-object-file
+         (lambda ([f : OutputPort]) (void)))
+       (call-with-output-file/void output-signature-file
+         (lambda ([f : OutputPort]) (void)))
+       lex-results)]))
+
+(define (main [args : Bytes] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Int
+  (case (run (args->list args))
+    [(just v)
+     (begin
+       (write-all-bytes v stderr)
+       1)]
+    [(nothing)
+     0]))
