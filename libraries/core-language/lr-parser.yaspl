@@ -1,0 +1,379 @@
+#:module (core-language lr-parser)
+#:import {
+  (bytes)
+  {(core-language lexer)
+    {#:types
+      [Lexer l:Lexer]
+      [Token l:Token]
+    }
+    {#:values
+      [run-lexer l:run-lexer]
+    }
+    {#:patterns
+      [bad-input l:bad-input]
+      [left-paren-token l:left-paren-token]
+      [right-paren-token l:right-paren-token]
+      [symbol-token l:symbol-token]
+      [plus-token l:plus-token]
+      [multiplication-token l:multiplication-token]
+      [end-of-input l:end-of-input]
+      [lex-result l:lex-result]
+    }
+  }
+  (data source-location)
+  (data ordering)
+  (numbers)
+  (dict)
+  (list)
+  (either)
+  (tuples)
+  (maybe)
+  {(prim)
+   {#:types
+      Int
+      Bytes
+   }
+   {#:values
+panic
+-
+=
+   }
+  }
+}
+(export
+  (#:types)
+  (#:values run-parser lex-all)
+  (#:patterns))
+(types
+  (define-type (ParserState Token)
+    (parser-state
+      [stack : (List StateId)]
+      [nodes : (List (ParseTree Token))]
+      [input : (List Token)]))
+
+
+
+  (define-type (Parser NonTerm Term)
+    (parser
+      [action : (Dict StateId (Dict (LiftedTerm Term) (Action NonTerm)))]
+      [goto : (Dict StateId (Dict NonTerm StateId))]))
+  (define-type (Action NonTerm)
+    (shift [new-state : StateId])
+    (reduce [non-term : NonTerm] [index : Int] [num-symbols : Int])
+    (accept))
+  (define-type StateId
+    (state-id [v : Int]))
+  (define-type (LiftedTerm Term)
+    (end-of-terminals)
+    (lifted-term [t : Term]))
+
+  (define-type (ParseTree Token)
+    (non-terminal-node [index : Int]
+                       [children : (List (ParseTree Token))])
+    (terminal-node [t : Token]))
+
+  (define-type (ProductionRule NonTerm Term)
+    (production-rule [non-term : NonTerm] [entries : (List (Either NonTerm Term))]))
+
+  (define-type TestNonTerm
+    (non-term/E)
+    (non-term/F)
+    (non-term/T))
+  (define-type TestTerm
+    (term/plus)
+    (term/times)
+    (term/left-paren)
+    (term/right-paren)
+    (term/id)))
+
+(define (state-id-cmp [a : StateId] [b : StateId]) : Ordering
+  (match-define (state-id a-v) a)
+  (match-define (state-id b-v) b)
+  (int-cmp a-v b-v))
+
+(define [Term] (lifted-term-cmp [term-cmp : (Term Term -> Ordering)])
+  : ((LiftedTerm Term) (LiftedTerm Term) -> Ordering)
+  (lambda ([a : (LiftedTerm Term)] [b : (LiftedTerm Term)]) : Ordering
+    (case (tuple2 a b)
+      [(tuple2 (end-of-terminals) (end-of-terminals)) (equal-to)]
+      [(tuple2 (lifted-term _) (end-of-terminals)) (less-than)]
+      [(tuple2 (end-of-terminals) (lifted-term _)) (greater-than)]
+      [(tuple2 (lifted-term a) (lifted-term b)) (term-cmp a b)])))
+
+(define (test-term-cmp [a : TestTerm] [b : TestTerm]) : Ordering
+  (match-define convert
+    (lambda ([v : TestTerm])
+      (case v
+        [(term/plus) 0]
+        [(term/times) 1]
+        [(term/left-paren) 2]
+        [(term/right-paren) 3]
+        [(term/id) 4])))
+  (int-cmp (convert a) (convert b)))
+
+(define (test-non-term-cmp [a : TestNonTerm] [b : TestNonTerm]) : Ordering
+  (match-define convert
+    (lambda ([v : TestNonTerm])
+      (case v
+        [(non-term/E) 0]
+        [(non-term/F) 1]
+        [(non-term/T) 2])))
+  (int-cmp (convert a) (convert b)))
+
+(define (test-production-rules) : (List (ProductionRule TestNonTerm TestTerm))
+  (match-define E* (non-term/E))
+  (match-define F* (non-term/F))
+  (match-define T* (non-term/T))
+
+  (match-define E : (Either TestNonTerm TestTerm) (left (non-term/E)))
+  (match-define F : (Either TestNonTerm TestTerm) (left (non-term/F)))
+  (match-define T : (Either TestNonTerm TestTerm) (left (non-term/T)))
+  (match-define + : (Either TestNonTerm TestTerm) (right (term/plus)))
+  (match-define * : (Either TestNonTerm TestTerm) (right (term/times)))
+  (match-define < : (Either TestNonTerm TestTerm) (right (term/left-paren)))
+  (match-define > : (Either TestNonTerm TestTerm) (right (term/right-paren)))
+  (match-define id : (Either TestNonTerm TestTerm) (right (term/id)))
+
+
+  (varargs list
+    (production-rule E* (varargs list E + T))
+    (production-rule E* (varargs list T))
+    (production-rule T* (varargs list T * F))
+    (production-rule T* (varargs list F))
+    (production-rule F* (varargs list < E >))
+    (production-rule F* (varargs list id))))
+
+
+(define (make-test-parser) : (Parser TestNonTerm TestTerm)
+  (match-define E (non-term/E))
+  (match-define F (non-term/F))
+  (match-define T (non-term/T))
+
+  (match-define + (lifted-term (term/plus)))
+  (match-define * (lifted-term (term/times)))
+  (match-define < (lifted-term (term/left-paren)))
+  (match-define > (lifted-term (term/right-paren)))
+  (match-define id (lifted-term (term/id)))
+  (match-define $ : (LiftedTerm TestTerm) (end-of-terminals))
+
+  (match-define r1 : (Action TestNonTerm) (reduce E 1 3))
+  (match-define r2 : (Action TestNonTerm) (reduce E 2 1))
+  (match-define r3 : (Action TestNonTerm) (reduce T 3 3))
+  (match-define r4 : (Action TestNonTerm) (reduce T 4 1))
+  (match-define r5 : (Action TestNonTerm) (reduce F 5 3))
+  (match-define r6 : (Action TestNonTerm) (reduce F 6 1))
+
+  (match-define action-state-entry
+    (lambda ([s : StateId]
+             [action-entries : (List (Tuple2 (LiftedTerm TestTerm) (Action TestNonTerm)))])
+      : (Tuple2 StateId (Dict (LiftedTerm TestTerm) (Action TestNonTerm)))
+      (tuple2
+        s
+        (dict-add-all (make-dict (lifted-term-cmp test-term-cmp)) action-entries))))
+
+  (match-define actions
+    : (Dict StateId (Dict (LiftedTerm TestTerm) (Action TestNonTerm)))
+    (dict-add-all
+      (make-dict state-id-cmp)
+      (varargs list
+        (action-state-entry (state-id 0)
+          (varargs list
+            (tuple2 id (shift (state-id 5)))
+            (tuple2 < (shift (state-id 4)))))
+        (action-state-entry (state-id 1)
+          (varargs list
+            (tuple2 + (shift (state-id 6)))
+            (tuple2 $ (accept))))
+        (action-state-entry (state-id 2)
+          (varargs list
+            (tuple2 + r2)
+            (tuple2 * (shift (state-id 7)))
+            (tuple2 > r2)
+            (tuple2 $ r2)))
+        (action-state-entry (state-id 3)
+          (varargs list
+            (tuple2 + r4)
+            (tuple2 * r4)
+            (tuple2 > r4)
+            (tuple2 $ r4)))
+        (action-state-entry (state-id 4)
+          (varargs list
+            (tuple2 id (shift (state-id 5)))
+            (tuple2 < (shift (state-id 4)))))
+        (action-state-entry (state-id 5)
+          (varargs list
+            (tuple2 + r6)
+            (tuple2 * r6)
+            (tuple2 > r6)
+            (tuple2 $ r6)))
+        (action-state-entry (state-id 6)
+          (varargs list
+            (tuple2 id (shift (state-id 5)))
+            (tuple2 < (shift (state-id 4)))))
+        (action-state-entry (state-id 7)
+          (varargs list
+            (tuple2 id (shift (state-id 5)))
+            (tuple2 < (shift (state-id 4)))))
+        (action-state-entry (state-id 8)
+          (varargs list
+            (tuple2 + (shift (state-id 6)))
+            (tuple2 > (shift (state-id 11)))))
+        (action-state-entry (state-id 9)
+          (varargs list
+            (tuple2 + r1)
+            (tuple2 * (shift (state-id 7)))
+            (tuple2 > r1)
+            (tuple2 $ r1)))
+        (action-state-entry (state-id 10)
+          (varargs list
+            (tuple2 + r3)
+            (tuple2 * r3)
+            (tuple2 > r3)
+            (tuple2 $ r3)))
+        (action-state-entry (state-id 11)
+          (varargs list
+            (tuple2 + r5)
+            (tuple2 * r5)
+            (tuple2 > r5)
+            (tuple2 $ r5))))))
+
+  (match-define goto-state-entry
+    (lambda ([s : StateId]
+             [goto-entries : (List (Tuple2 TestNonTerm StateId))])
+      : (Tuple2 StateId (Dict TestNonTerm StateId))
+      (tuple2
+        s
+        (dict-add-all (make-dict test-non-term-cmp) goto-entries))))
+
+  (match-define gotos
+    : (Dict StateId (Dict TestNonTerm StateId))
+    (dict-add-all
+      (make-dict state-id-cmp)
+      (varargs list
+        (goto-state-entry (state-id 0)
+          (varargs list
+            (tuple2 E (state-id 1))
+            (tuple2 T (state-id 2))
+            (tuple2 F (state-id 3))))
+        (goto-state-entry (state-id 4)
+          (varargs list
+            (tuple2 E (state-id 8))
+            (tuple2 T (state-id 2))
+            (tuple2 F (state-id 3))))
+        (goto-state-entry (state-id 6)
+          (varargs list
+            (tuple2 T (state-id 9))
+            (tuple2 F (state-id 3))))
+        (goto-state-entry (state-id 7)
+          (varargs list
+            (tuple2 F (state-id 10)))))))
+
+
+  (parser actions gotos))
+
+
+(define (run-parser [lexer : (l:Lexer l:Token)]) : (Either Bytes (ParseTree l:Token))
+  (case (lex-all lexer)
+    [(left v) (left v)]
+    [(right tokens)
+     (match-define initial-state : (ParserState l:Token)
+       (parser-state (varargs list (state-id 0)) (empty) tokens))
+     (run-parser* initial-state (make-test-parser))]))
+
+;        (right (non-terminal-node (non-term/T) 0 (empty)))])]))
+
+
+(define (run-parser* [state : (ParserState l:Token)] [parser : (Parser TestNonTerm TestTerm)])
+  : (Either Bytes (ParseTree l:Token))
+  (case (step-parser-state state parser)
+    [(left v) (left v)]
+    [(right (left next-state))
+     (run-parser* next-state parser)]
+    [(right (right tree))
+     (right tree)]))
+
+
+(define (step-parser-state [s : (ParserState l:Token)] [p : (Parser TestNonTerm TestTerm)])
+  : (Either Bytes (Either (ParserState l:Token) (ParseTree l:Token)))
+  (match-define (parser actions goto) p)
+  (match-define (parser-state state-stack node-stack tokens) s)
+  (match-define current-state : StateId
+    (case state-stack
+      [(cons s _) s]
+      [(empty) (panic #"Cannot have empty state stack")]))
+  (match-define term-type : (LiftedTerm TestTerm)
+    (case tokens
+      [(empty) (end-of-terminals)]
+      [(cons (l:left-paren-token) _) (lifted-term (term/left-paren))]
+      [(cons (l:right-paren-token) _) (lifted-term (term/right-paren))]
+      [(cons (l:symbol-token _) _) (lifted-term (term/id))]
+      [(cons (l:plus-token) _) (lifted-term (term/plus))]
+      [(cons (l:multiplication-token) _) (lifted-term (term/times))]
+      [_ (panic #"Bad token type")]))
+  (case (dict-ref actions current-state)
+    [(nothing) (left #"Found state with no actions")]
+    [(just state-actions)
+     (case (dict-ref state-actions term-type)
+       [(nothing) (left #"Reached parser error state")]
+       [(just (shift next-state))
+        (case tokens
+          [(empty) (left #"Cannot shift when at end of terminals.")]
+          [(cons token tokens)
+           (right
+             (left
+               (parser-state
+                 (cons next-state state-stack)
+                 (cons (terminal-node token) node-stack)
+                 tokens)))])]
+       [(just (accept))
+        (case node-stack
+          [(empty) (left #"Cannot have empty node stack at accept")]
+          [(cons _ (cons _ _)) (left #"Cannot have long node stack at accept")]
+          [(cons node (empty))
+           (right (right node))])]
+       [(just (reduce non-term rule num-symbols))
+        (match-define (tuple2 sub-trees shortened-node-stack) (pop-n num-symbols node-stack))
+        (match-define shortened-state-stack (drop num-symbols state-stack))
+        (match-define top-state : StateId
+          (case shortened-state-stack
+            [(cons s _) s]
+            [(empty) (panic #"Cannot have empty state stack")]))
+        (case (dict-ref goto top-state)
+          [(nothing) (left #"Found state with no goto")]
+          [(just state-goto)
+           (case (dict-ref state-goto non-term)
+             [(nothing) (left #"No goto found for non-term")]
+             [(just next-state)
+              (right
+                (left
+                  (parser-state
+                    (cons next-state shortened-state-stack)
+                    (cons (non-terminal-node rule sub-trees) shortened-node-stack)
+                    tokens)))])])])]))
+
+
+(define (lex-all [lexer : (l:Lexer l:Token)]) : (Either Bytes (List l:Token))
+  (lex-all* lexer (empty)))
+
+(define (lex-all* [lexer : (l:Lexer l:Token)] [acc : (List l:Token)])
+  : (Either Bytes (List l:Token))
+  (case (l:run-lexer lexer)
+    [(l:end-of-input _) (right (reverse acc))]
+    [(l:bad-input msg src)
+     (left (bytes-append
+             (varargs list
+               (source-span->start-location-bytes src)
+               #": " msg)))]
+    [(l:lex-result (source-span-annotated t _) lexer) (lex-all* lexer (cons t acc))]))
+
+;; Like split-at, but reverses the taken elements
+(define [A] (pop-n [num : Int] [l : (List A)]) : (Tuple2 (List A) (List A))
+  (pop-n* num l (empty)))
+
+(define [A] (pop-n* [num : Int] [l : (List A)] [acc : (List A)]) : (Tuple2 (List A) (List A))
+  (if (= num 0)
+      (tuple2 acc l)
+      (case l
+        [(empty) (panic #"Cannot pop from empty list")]
+        [(cons e l) (pop-n* (- num 1) l (cons e acc))])))
+

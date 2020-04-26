@@ -89,6 +89,22 @@ yaspl_library(
     ],
 )
 
+yaspl_test(
+    name = "lr-parser-test",
+    size = "small",
+    srcs = ["lr-parser-test.yaspl"],
+    deps = [
+        ":lexer",
+        ":lr-parser",
+        "//libraries:yunit",
+        "//libraries/data:either",
+        "//libraries/data:lifted-primitives",
+        "//libraries/data:list",
+        "//libraries/data:maybe",
+        "//libraries/data:source-location",
+    ],
+)
+
 filegroup(
     name = "package_binaries",
     srcs = [
