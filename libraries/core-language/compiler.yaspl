@@ -1,8 +1,8 @@
 #:module (core-language compiler)
 #:import {
   (bytes)
-  (data source-location)
-  (compiler)
+  (core-language lexer)
+  (core-language lr-parser)
   (either)
   (io)
   (list)
@@ -10,15 +10,6 @@
   (maybe)
   (prim)
   (system-abi)
-  (tuples)
-  (core-language lexer)
-  (yaspl frontend errors)
-  (yaspl parser)
-  {(yaspl top-level-objects-to-x86-64)
-    {#:values
-      convert-objects
-    }
-  }
 }
 (export
   (#:values main))
@@ -53,15 +44,6 @@
        [(just abi)
         (right (args abi output-object-file output-signature-file module-file))])]))
 
-(define (lex-all [lexer : (Lexer Token)]) : (Maybe Bytes)
-  (case (run-lexer lexer)
-    [(end-of-input _) (nothing)]
-    [(bad-input msg src)
-     (just (bytes-append
-             (varargs list
-               (source-span->start-location-bytes src)
-               #": " msg)))]
-    [(lex-result _ lexer) (lex-all lexer)]))
 
 (define (run [input : (List Bytes)]) : (Maybe Bytes)
   (case (parse-args input)
@@ -69,13 +51,15 @@
     [(right (args abi output-object-file output-signature-file module-file))
      (match-define input-contents (sourced-bytes-from-file module-file))
      (match-define lexer (make-core-lexer input-contents))
-     (match-define lex-results (lex-all lexer))
-     (begin
-       (call-with-output-file/void output-object-file
-         (lambda ([f : OutputPort]) (void)))
-       (call-with-output-file/void output-signature-file
-         (lambda ([f : OutputPort]) (void)))
-       lex-results)]))
+     (case (lex-all lexer)
+       [(just v) (just v)]
+       [(nothing)
+        (begin
+          (call-with-output-file/void output-object-file
+            (lambda ([f : OutputPort]) (void)))
+          (call-with-output-file/void output-signature-file
+            (lambda ([f : OutputPort]) (void)))
+          (nothing))])]))
 
 (define (main [args : Bytes] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Int
   (case (run (args->list args))

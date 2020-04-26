@@ -60,6 +60,7 @@ yaspl_bootstrap_library(
     name = "bytes",
     srcs = ["bytes.yaspl"],
     deps = [
+        ":lifted-primitives",
         ":list",
         ":numbers",
         ":ordering",

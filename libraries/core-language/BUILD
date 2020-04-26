@@ -31,7 +31,7 @@ yaspl_binary(
     srcs = ["compiler.yaspl"],
     deps = [
         ":lexer",
-        "//libraries:compiler_lib",
+        ":lr-parser",
         "//libraries:io",
         "//libraries:machine-code-writer",
         "//libraries:system-abi",
@@ -39,11 +39,6 @@ yaspl_binary(
         "//libraries/data:either",
         "//libraries/data:list",
         "//libraries/data:maybe",
-        "//libraries/data:source-location",
-        "//libraries/data:tuples",
-        "//libraries/yaspl:parser",
-        "//libraries/yaspl:top-level-objects-to-x86-64",
-        "//libraries/yaspl/frontend:errors",
     ],
 )
 
@@ -73,6 +68,24 @@ yaspl_test(
         "//libraries/data:list",
         "//libraries/data:maybe",
         "//libraries/data:source-location",
+    ],
+)
+
+yaspl_library(
+    name = "lr-parser",
+    srcs = ["lr-parser.yaspl"],
+    deps = [
+        ":lexer",
+        "//libraries/data:bytes",
+        "//libraries/data:dict",
+        "//libraries/data:either",
+        "//libraries/data:lifted-primitives",
+        "//libraries/data:list",
+        "//libraries/data:maybe",
+        "//libraries/data:numbers",
+        "//libraries/data:ordering",
+        "//libraries/data:source-location",
+        "//libraries/data:tuples",
     ],
 )
 
