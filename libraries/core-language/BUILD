@@ -84,8 +84,10 @@ yaspl_library(
         "//libraries/data:maybe",
         "//libraries/data:numbers",
         "//libraries/data:ordering",
+        "//libraries/data:set",
         "//libraries/data:source-location",
         "//libraries/data:tuples",
+        "//libraries/data:unique-dict",
     ],
 )
 
@@ -101,7 +103,9 @@ yaspl_test(
         "//libraries/data:lifted-primitives",
         "//libraries/data:list",
         "//libraries/data:maybe",
+        "//libraries/data:set",
         "//libraries/data:source-location",
+        "//libraries/data:unique-dict",
     ],
 )
 

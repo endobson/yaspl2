@@ -123,7 +123,10 @@ yaspl_library(
 yaspl_bootstrap_library(
     name = "either",
     srcs = ["either.yaspl"],
-    deps = [":tuples"],
+    deps = [
+        ":ordering",
+        ":tuples",
+    ],
 )
 
 yaspl_bootstrap_library(
@@ -395,6 +398,7 @@ yaspl_bootstrap_library(
     srcs = ["unique-dict.yaspl"],
     deps = [
         ":dict",
+        ":list",
         ":maybe",
         ":ordering",
         ":set",
