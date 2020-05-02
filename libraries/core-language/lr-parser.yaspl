@@ -101,7 +101,15 @@ panic
     (terminal-node [t : Token]))
 
   (define-type (ProductionRule NonTerm Term)
-    (production-rule [non-term : NonTerm] [entries : (List (Symbol NonTerm Term))]))
+    (production-rule
+      [non-term : NonTerm]
+      [rule-number : Int]
+      [entries : (List (Symbol NonTerm Term))]))
+
+  (define-type (ProductionRHS NonTerm Term)
+    (production-rhs
+      [rule-number : Int]
+      [entries : (List (Symbol NonTerm Term))]))
 
   (define-type (Item NonTerm Term)
     (item
@@ -266,40 +274,41 @@ panic
 
 
   (varargs list
-    (production-rule E* (varargs list E + T))
-    (production-rule E* (varargs list T))
-    (production-rule T* (varargs list T * F))
-    (production-rule T* (varargs list F))
-    (production-rule F* (varargs list < E >))
-    (production-rule F* (varargs list id))))
+    (production-rule E* 0 (varargs list E + T))
+    (production-rule E* 1 (varargs list T))
+    (production-rule T* 2 (varargs list T * F))
+    (production-rule T* 3 (varargs list F))
+    (production-rule F* 4 (varargs list < E >))
+    (production-rule F* 5 (varargs list id))))
 
 
 
-(define (test-production-rules-dict) : (Dict TestNonTerm (List (List (Symbol TestNonTerm TestTerm))))
+(define (test-production-rules-dict)
+  : (Dict TestNonTerm (List (ProductionRHS TestNonTerm TestTerm)))
   (foldl
     (lambda ([pr : (ProductionRule TestNonTerm TestTerm)]
-             [acc : (Dict TestNonTerm (List (List (Symbol TestNonTerm TestTerm))))])
-      : (Dict TestNonTerm (List (List (Symbol TestNonTerm TestTerm))))
-      (match-define (production-rule nt symbols) pr)
+             [acc : (Dict TestNonTerm (List (ProductionRHS TestNonTerm TestTerm)))])
+      : (Dict TestNonTerm (List (ProductionRHS TestNonTerm TestTerm)))
+      (match-define (production-rule nt rule symbols) pr)
       (dict-update
         acc
         nt
-        (lambda ([symbolss : (List (List (Symbol TestNonTerm TestTerm)))])
-          (cons symbols symbolss))
+        (lambda ([rhss : (List (ProductionRHS TestNonTerm TestTerm))])
+          (cons (production-rhs rule symbols) rhss))
         (empty)))
     (test-production-rules)
-    (ann (Dict TestNonTerm (List (List (Symbol TestNonTerm TestTerm))))
+    (ann (Dict TestNonTerm (List (ProductionRHS TestNonTerm TestTerm)))
       (make-dict test-non-term-cmp))))
 
-(define (build-empty-table [rules : (Dict TestNonTerm (List (List (Symbol TestNonTerm TestTerm))))])
+(define (build-empty-table [rules : (Dict TestNonTerm (List (ProductionRHS TestNonTerm TestTerm)))])
   : (Set TestNonTerm)
   ;; Drop all the rules that have a terminal in them as they cannot be empty
   (match-define filtered-rules
     (dict-value-map rules
-      (lambda ([rhss : (List (List (Symbol TestNonTerm TestTerm)))])
+      (lambda ([rhss : (List (ProductionRHS TestNonTerm TestTerm))])
         (filter-map
-          (lambda ([rhs : (List (Symbol TestNonTerm TestTerm))]) : (Maybe (List TestNonTerm))
-            (case (partition-symbols rhs)
+          (lambda ([rhs : (ProductionRHS TestNonTerm TestTerm)]) : (Maybe (List TestNonTerm))
+            (case (partition-symbols (production-rhs-entries rhs))
               [(tuple2 nonterms (empty))
                (just nonterms)]
               [_ (nothing)]))
@@ -347,29 +356,29 @@ panic
       (build-empty-table* (set-union current-table new-entries) rules)))
 
 (define (build-first-table
-          [rules : (Dict TestNonTerm (List (List (Symbol TestNonTerm TestTerm))))]
+          [rules : (Dict TestNonTerm (List (ProductionRHS TestNonTerm TestTerm)))]
           [empty-table : (Set TestNonTerm)]) : (Dict TestNonTerm (Set TestTerm))
   (match-define initial-table
     (dict-value-map rules
-      (lambda ([rhss : (List (List (Symbol TestNonTerm TestTerm)))])
+      (lambda ([rhss : (List (ProductionRHS TestNonTerm TestTerm))])
         (set-add-all
           (make-set test-term-cmp)
           (filter-map
-            (lambda ([rhs : (List (Symbol TestNonTerm TestTerm))])
-              (initial-terminal rhs empty-table))
+            (lambda ([rhs : (ProductionRHS TestNonTerm TestTerm)])
+              (initial-terminal (production-rhs-entries rhs) empty-table))
             rhss)))))
 
   ;; Convert the rules to the set of relevant non terminals which can contribute to the
   ;; first value for the the non terminal.
   (match-define filtered-rules
     (dict-value-map rules
-      (lambda ([rhss : (List (List (Symbol TestNonTerm TestTerm)))])
+      (lambda ([rhss : (List (ProductionRHS TestNonTerm TestTerm))])
         (set->list
           (set-union*
             (make-set test-non-term-cmp)
             (map
-              (lambda ([rhs : (List (Symbol TestNonTerm TestTerm))])
-                (first-relevant-non-terminals rhs empty-table))
+              (lambda ([rhs : (ProductionRHS TestNonTerm TestTerm)])
+                (first-relevant-non-terminals (production-rhs-entries rhs) empty-table))
               rhss))))))
 
   (build-first-table* initial-table filtered-rules))
@@ -427,14 +436,14 @@ panic
         rules)))
 
 (define (build-follow-table
-          [rules : (Dict TestNonTerm (List (List (Symbol TestNonTerm TestTerm))))]
+          [rules : (Dict TestNonTerm (List (ProductionRHS TestNonTerm TestTerm)))]
           [empty-table : (Set TestNonTerm)]
           [first-table : (Dict TestNonTerm (Set TestTerm))])
   : (Dict TestNonTerm (Set (LiftedTerm TestTerm)))
   (match-define initial-table
     (dict-value-map
       rules
-      (lambda ([_rhss : (List (List (Symbol TestNonTerm TestTerm)))])
+      (lambda ([_rhss : (List (ProductionRHS TestNonTerm TestTerm))])
         (make-set (lifted-term-cmp test-term-cmp)))))
   (match-define initial-table : (Dict TestNonTerm (Set (LiftedTerm TestTerm)))
     (dict-set
@@ -447,12 +456,12 @@ panic
     (dict-fold
       rules
       (lambda ([_nt : TestNonTerm]
-               [rhss : (List (List (Symbol TestNonTerm TestTerm)))]
+               [rhss : (List (ProductionRHS TestNonTerm TestTerm))]
                [acc : (Dict TestNonTerm (Set (LiftedTerm TestTerm)))])
         (foldl
-          (lambda ([rhs : (List (Symbol TestNonTerm TestTerm))]
+          (lambda ([rhs : (ProductionRHS TestNonTerm TestTerm)]
                    [acc : (Dict TestNonTerm (Set (LiftedTerm TestTerm)))])
-            (add-initial-follows rhs empty-table first-table acc))
+            (add-initial-follows (production-rhs-entries rhs) empty-table first-table acc))
           rhss
           acc))
       initial-table))
@@ -462,19 +471,19 @@ panic
   (match-define non-terminal-map
     (dict-value-map
       rules
-      (lambda ([_rhss : (List (List (Symbol TestNonTerm TestTerm)))])
+      (lambda ([_rhss : (List (ProductionRHS TestNonTerm TestTerm))])
         (make-set test-non-term-cmp))))
 
   (match-define non-terminal-map
     (dict-fold
       rules
       (lambda ([nt : TestNonTerm]
-               [rhss : (List (List (Symbol TestNonTerm TestTerm)))]
+               [rhss : (List (ProductionRHS TestNonTerm TestTerm))]
                [acc : (Dict TestNonTerm (Set TestNonTerm))])
         (foldl
-          (lambda ([rhs : (List (Symbol TestNonTerm TestTerm))]
+          (lambda ([rhs : (ProductionRHS TestNonTerm TestTerm)]
                    [acc : (Dict TestNonTerm (Set TestNonTerm))])
-            (add-non-term-follows nt rhs empty-table first-table acc))
+            (add-non-term-follows nt (production-rhs-entries rhs) empty-table first-table acc))
           rhss
           acc))
       non-terminal-map))
@@ -588,7 +597,7 @@ panic
 
 (define (closure
           [is : (ItemSet TestNonTerm TestTerm)]
-          [rules : (Dict TestNonTerm (List (List (Symbol TestNonTerm TestTerm))))])
+          [rules : (Dict TestNonTerm (List (ProductionRHS TestNonTerm TestTerm)))])
   : (Set (Item TestNonTerm TestTerm))
   (match-define (item-set items) is)
 
@@ -599,7 +608,7 @@ panic
 (define (closure*
           [items : (List (Item TestNonTerm TestTerm))]
           [acc : (Set (Item TestNonTerm TestTerm))]
-          [rules : (Dict TestNonTerm (List (List (Symbol TestNonTerm TestTerm))))])
+          [rules : (Dict TestNonTerm (List (ProductionRHS TestNonTerm TestTerm)))])
   : (Set (Item TestNonTerm TestTerm))
   (case items
     [(empty) acc]
@@ -611,8 +620,10 @@ panic
              [(item nt _ (cons (symbol/non-term other-nt) _))
               (append
                 (map
-                  (lambda ([rhs : (List (Symbol TestNonTerm TestTerm))]) : (Item TestNonTerm TestTerm)
-                    (item (lifted-non-term other-nt) (empty) rhs))
+                  (lambda ([rhs : (ProductionRHS TestNonTerm TestTerm)])
+                    : (Item TestNonTerm TestTerm)
+                    (match-define (production-rhs _ entries) rhs)
+                    (item (lifted-non-term other-nt) (empty) entries))
                   (dict-ref/panic rules other-nt))
                 items)]
              [_ items])
@@ -644,7 +655,7 @@ panic
 (define (canonical-item-sets
           [start : TestNonTerm]
           [terms : (List TestTerm)]
-          [rules : (Dict TestNonTerm (List (List (Symbol TestNonTerm TestTerm))))])
+          [rules : (Dict TestNonTerm (List (ProductionRHS TestNonTerm TestTerm)))])
   : (UniqueDict (ItemSet TestNonTerm TestTerm) StateId)
   (match-define init-item : (Item TestNonTerm TestTerm)
     (item (start-symbol) (empty) (varargs list (symbol/non-term start))))
@@ -667,7 +678,7 @@ panic
           [item-sets : (UniqueDict (ItemSet TestNonTerm TestTerm) StateId)]
           [next-state-id : Int]
           [symbols : (List (Symbol TestNonTerm TestTerm))]
-          [rules : (Dict TestNonTerm (List (List (Symbol TestNonTerm TestTerm))))])
+          [rules : (Dict TestNonTerm (List (ProductionRHS TestNonTerm TestTerm)))])
   : (UniqueDict (ItemSet TestNonTerm TestTerm) StateId)
   (case unprocessed-item-sets
     [(empty) item-sets]
@@ -692,7 +703,7 @@ panic
 
 (define (build-parser [item-sets : (UniqueDict (ItemSet TestNonTerm TestTerm) StateId)]
                       [follow-table : (Dict TestNonTerm (Set (LiftedTerm TestTerm)))]
-                      [rules : (Dict TestNonTerm (List (List (Symbol TestNonTerm TestTerm))))])
+                      [rules : (Dict TestNonTerm (List (ProductionRHS TestNonTerm TestTerm)))])
   : (Parser TestNonTerm TestTerm)
   (match-define actions-map
     (unique-dict-map
