@@ -1,14 +1,16 @@
 #:module (core-language lr-parser-test)
 #:import {
+  (bytes)
   (core-language lexer)
   (core-language lr-parser)
-  (data lifted-primitives)
   (data source-location)
+  (dict)
   (either)
   (list)
   (maybe)
-  (set)
+  (numbers)
   (prim)
+  (set)
   (unique-dict)
   (yunit)
 }
@@ -35,16 +37,107 @@
   (match-define canonical-sets
     (canonical-item-sets
       (non-term/E)
-      (varargs list
-        (term/plus)
-        (term/times)
-        (term/left-paren)
-        (term/right-paren)
-        (term/id))
-      (test-production-rules-dict)))
+      (production-rules-dict (test-production-rules))))
 
   (expect-equal/int (set-count (unique-dict-keys canonical-sets)) 12))
 
+(define (print-test-case) : (Maybe FailedAssertion)
+  (case (build-parser (test-production-rules))
+    [(left v) (just (failure v))]
+    [(right parser)
+     (match-define action-map (parser-action parser))
+     (match-define output : (List Bytes)
+       (interleave
+         (dict-map
+           action-map
+           (lambda ([s : StateId] [d : (Dict (LiftedTerm TestTerm) (Action TestNonTerm))])
+             (bytes-append
+               (varargs list
+                 (integer->decimal-bytes (state-id-v s))
+                 #": "
+                 (bytes-append
+                   (interleave
+                     (dict-map
+                       d
+                       (lambda ([t : (LiftedTerm TestTerm)]
+                                [act : (Action TestNonTerm)])
+                         (bytes-append
+                           (varargs list
+                             (print-lifted-term t)
+                             (case act
+                               [(accept) #":<accept>"]
+                               [(reduce _ _ _) #":<reduce>"]
+                               [(shift (state-id s))
+                                (bytes-append
+                                  (varargs list
+                                    #":<s " (integer->decimal-bytes s) #">"))])))))
+                     #" "))
+                 ))))
+         #"\n"))
+     (just (failure (bytes-append (cons #"\n" output))))]))
+
+
+(define (print-first-test-case) : (Maybe FailedAssertion)
+  (match-define rules (test-production-rules))
+  (match-define rules-dict (production-rules-dict rules))
+  (match-define empty-table (build-empty-table rules-dict))
+  (match-define first-table (build-first-table rules-dict empty-table))
+
+
+  (match-define output
+    (dict-map
+      first-table
+      (lambda ([v : TestNonTerm] [s : (Set TestTerm)])
+        (bytes-append
+          (varargs list
+            (print-non-term v)
+            #": "
+            (bytes-append (interleave (map print-term (set->list s)) #" "))
+            #"\n")))))
+
+  (just (failure (bytes-append (cons #"\n" output)))))
+
+
+(define (print-follow-test-case) : (Maybe FailedAssertion)
+  (match-define rules (test-production-rules))
+  (match-define rules-dict (production-rules-dict rules))
+  (match-define empty-table (build-empty-table rules-dict))
+  (match-define first-table (build-first-table rules-dict empty-table))
+  (match-define follow-table (build-follow-table rules-dict empty-table first-table))
+
+
+  (match-define output
+    (dict-map
+      follow-table
+      (lambda ([v : TestNonTerm] [s : (Set (LiftedTerm TestTerm))])
+        (bytes-append
+          (varargs list
+            (print-non-term v)
+            #": "
+            (bytes-append (interleave (map print-lifted-term (set->list s)) #" "))
+            #"\n")))))
+
+  (just (failure (bytes-append (cons #"\n" output)))))
+
+
+(define (print-non-term [nt : TestNonTerm]) : Bytes
+  (case nt
+    [(non-term/E) #"E"]
+    [(non-term/F) #"F"]
+    [(non-term/T) #"T"]))
+
+(define (print-lifted-term [t : (LiftedTerm TestTerm)]) : Bytes
+  (case t
+    [(end-of-terminals) #"$"]
+    [(lifted-term t) (print-term t)]))
+
+(define (print-term [t : TestTerm]) : Bytes
+  (case t
+    [(term/plus) #"+"]
+    [(term/times) #"*"]
+    [(term/left-paren) #"("]
+    [(term/right-paren) #")"]
+    [(term/id) #"id"]))
 
 (define (main [args : Bytes] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Int
   (yunit/main stderr
@@ -54,5 +147,7 @@
       (test-case #"plus-times" (parses #"x*y+z"))
       (test-case #"extra plus" (fails-parse #"x+"))
       (test-case #"closure" closure-test-case)
+;      (test-case #"print" print-test-case)
+;      (test-case #"print-follow" print-follow-test-case)
       )))
 
