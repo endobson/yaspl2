@@ -41,6 +41,7 @@
 panic
 -
 =
+and
    }
   }
 }
@@ -192,6 +193,20 @@ panic
        (non-term=? nt1 nt2)]
       [(tuple2 (symbol/term t1) (symbol/term t2))
        (term=? t1 t2)]
+      [_ #f])))
+
+(define [NonTerm] (action=? [non-term=? : (NonTerm NonTerm -> Boolean)])
+  : ((Action NonTerm) (Action NonTerm) -> Boolean)
+  (lambda ([a1 : (Action NonTerm)] [a2 : (Action NonTerm)])
+    (case (tuple2 a1 a2)
+      [(tuple2 (shift (state-id s1)) (shift (state-id s2)))
+       (= s1 s2)]
+      [(tuple2 (reduce nt1 rule1 num-symbols1)
+               (reduce nt2 rule2 num-symbols2))
+       (and
+         (non-term=? nt1 nt2)
+         (and (= rule1 rule2) (= num-symbols1 num-symbols2)))]
+      [(tuple2 (accept) (accept)) #t]
       [_ #f])))
 
 
@@ -708,12 +723,13 @@ panic
 (define (build-parser [item-sets : (UniqueDict (ItemSet TestNonTerm TestTerm) StateId)]
                       [follow-table : (Dict TestNonTerm (Set (LiftedTerm TestTerm)))]
                       [rules : (Dict TestNonTerm (List (ProductionRHS TestNonTerm TestTerm)))])
-  : (Parser TestNonTerm TestTerm)
-  (match-define actions-map
+  : (Either Bytes (Parser TestNonTerm TestTerm))
+  (match-define action-map-entries
     (unique-dict-map
       item-sets
       (lambda ([is : (ItemSet TestNonTerm TestTerm)]
                [s : StateId])
+        : (Either Bytes (Tuple2 StateId (Dict (LiftedTerm TestTerm) (Action TestNonTerm))))
         (match-define full-set (closure is rules))
 
         (match-define action-tuples
@@ -743,17 +759,37 @@ panic
               (set->list full-set))))
 
 
-        (foldl
-          (lambda ([at : (Tuple2 (LiftedTerm TestTerm) (Action TestNonTerm))]
-                   [acc : (Either Bytes (Dict (LiftedTerm TestTerm) (Action TestNonTerm)))])
-            : (Either Bytes (Dict (LiftedTerm TestTerm) (Action TestNonTerm)))
-            acc)
-          action-tuples
-          (ann
-            (Either Bytes (Dict (LiftedTerm TestTerm) (Action TestNonTerm)))
-            (right (make-dict (lifted-term-cmp test-term-cmp))))))))
+        (match-define action-dict
+          (foldl
+            (lambda ([at : (Tuple2 (LiftedTerm TestTerm) (Action TestNonTerm))]
+                     [acc : (Either Bytes (Dict (LiftedTerm TestTerm) (Action TestNonTerm)))])
+              : (Either Bytes (Dict (LiftedTerm TestTerm) (Action TestNonTerm)))
+              (case acc
+                [(left v) (left v)]
+                [(right dict)
+                 (match-define (tuple2 term action) at)
+                 (case (dict-ref dict term)
+                   [(nothing) (right (dict-add dict term action))]
+                   [(just existing-action)
+                    (if ((action=? test-non-term=?) action existing-action)
+                        acc
+                        (left #"action conflict"))])]))
+            action-tuples
+            (ann
+              (Either Bytes (Dict (LiftedTerm TestTerm) (Action TestNonTerm)))
+              (right (make-dict (lifted-term-cmp test-term-cmp))))))
+        (case action-dict
+          [(left v) (left v)]
+          [(right dict)
+           (right (tuple2 s dict))]))))
 
-  (parser (make-dict state-id-cmp) (make-dict state-id-cmp)))
+  (case (extract-rights action-map-entries)
+    [(left v) (left v)]
+    [(right action-map-entries)
+     (match-define action-map : (Dict StateId (Dict (LiftedTerm TestTerm) (Action TestNonTerm)))
+       (dict-add-all (make-dict state-id-cmp) action-map-entries))
+
+     (right (parser action-map (make-dict state-id-cmp)))]))
 
 
 (define (test-kernel-items) : (Dict StateId (List (Item TestNonTerm TestTerm)))
