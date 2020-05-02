@@ -101,16 +101,20 @@ panic
     (terminal-node [t : Token]))
 
   (define-type (ProductionRule NonTerm Term)
-    (production-rule [non-term : NonTerm] [entries : (List (Either NonTerm Term))]))
+    (production-rule [non-term : NonTerm] [entries : (List (Symbol NonTerm Term))]))
 
   (define-type (Item NonTerm Term)
     (item
       [non-term : (LiftedNonTerm NonTerm)]
-      [left-entries : (List (Either NonTerm Term))]
-      [right-entries : (List (Either NonTerm Term))]))
+      [left-entries : (List (Symbol NonTerm Term))]
+      [right-entries : (List (Symbol NonTerm Term))]))
   ;; This only contains the kernel items
   (define-type (ItemSet NonTerm Term)
     (item-set [items : (Set (Item NonTerm Term))]))
+
+  (define-type (Symbol NonTerm Term)
+    (symbol/non-term [nt : NonTerm])
+    (symbol/term [t : Term]))
 
   (define-type TestNonTerm
     (non-term/E)
@@ -156,6 +160,32 @@ panic
       [(tuple2 (start-symbol) (lifted-non-term _)) (less-than)]
       [(tuple2 (lifted-non-term a) (lifted-non-term b)) (non-term-cmp a b)])))
 
+(define [NonTerm Term] (symbol-cmp [non-term-cmp : (NonTerm NonTerm -> Ordering)]
+                                   [term-cmp : (Term Term -> Ordering)])
+  : ((Symbol NonTerm Term) (Symbol NonTerm Term) -> Ordering)
+  (lambda ([v1 : (Symbol NonTerm Term)] [v2 : (Symbol NonTerm Term)])
+    (case (tuple2 v1 v2)
+      [(tuple2 (symbol/non-term _) (symbol/term _))
+       (less-than)]
+      [(tuple2 (symbol/term _) (symbol/non-term _))
+       (greater-than)]
+      [(tuple2 (symbol/non-term nt1) (symbol/non-term nt2))
+       (non-term-cmp nt1 nt2)]
+      [(tuple2 (symbol/term t1) (symbol/term t2))
+       (term-cmp t1 t2)])))
+
+(define [NonTerm Term] (symbol=? [non-term=? : (NonTerm NonTerm -> Boolean)]
+                                 [term=? : (Term Term -> Boolean)])
+  : ((Symbol NonTerm Term) (Symbol NonTerm Term) -> Boolean)
+  (lambda ([v1 : (Symbol NonTerm Term)] [v2 : (Symbol NonTerm Term)])
+    (case (tuple2 v1 v2)
+      [(tuple2 (symbol/non-term nt1) (symbol/non-term nt2))
+       (non-term=? nt1 nt2)]
+      [(tuple2 (symbol/term t1) (symbol/term t2))
+       (term=? t1 t2)]
+      [_ #f])))
+
+
 (define [NonTerm Term] (item-cmp [non-term-cmp : (NonTerm NonTerm -> Ordering)]
                                  [term-cmp : (Term Term -> Ordering)])
   : ((Item NonTerm Term) (Item NonTerm Term) -> Ordering)
@@ -164,7 +194,7 @@ panic
     (match-define (item nt-b l-b r-b) b)
     (case ((lifted-non-term-cmp non-term-cmp) nt-a nt-b)
       [(equal-to)
-       (match-define entries-cmp (list-cmp (either-cmp non-term-cmp term-cmp)))
+       (match-define entries-cmp (list-cmp (symbol-cmp non-term-cmp term-cmp)))
        (case (entries-cmp l-a l-b)
          [(equal-to)
           (entries-cmp r-a r-b)]
@@ -225,14 +255,14 @@ panic
   (match-define F* (non-term/F))
   (match-define T* (non-term/T))
 
-  (match-define E : (Either TestNonTerm TestTerm) (left (non-term/E)))
-  (match-define F : (Either TestNonTerm TestTerm) (left (non-term/F)))
-  (match-define T : (Either TestNonTerm TestTerm) (left (non-term/T)))
-  (match-define + : (Either TestNonTerm TestTerm) (right (term/plus)))
-  (match-define * : (Either TestNonTerm TestTerm) (right (term/times)))
-  (match-define < : (Either TestNonTerm TestTerm) (right (term/left-paren)))
-  (match-define > : (Either TestNonTerm TestTerm) (right (term/right-paren)))
-  (match-define id : (Either TestNonTerm TestTerm) (right (term/id)))
+  (match-define E : (Symbol TestNonTerm TestTerm) (symbol/non-term (non-term/E)))
+  (match-define F : (Symbol TestNonTerm TestTerm) (symbol/non-term (non-term/F)))
+  (match-define T : (Symbol TestNonTerm TestTerm) (symbol/non-term (non-term/T)))
+  (match-define + : (Symbol TestNonTerm TestTerm) (symbol/term (term/plus)))
+  (match-define * : (Symbol TestNonTerm TestTerm) (symbol/term (term/times)))
+  (match-define < : (Symbol TestNonTerm TestTerm) (symbol/term (term/left-paren)))
+  (match-define > : (Symbol TestNonTerm TestTerm) (symbol/term (term/right-paren)))
+  (match-define id : (Symbol TestNonTerm TestTerm) (symbol/term (term/id)))
 
 
   (varargs list
@@ -245,37 +275,53 @@ panic
 
 
 
-(define (test-production-rules-dict) : (Dict TestNonTerm (List (List (Either TestNonTerm TestTerm))))
+(define (test-production-rules-dict) : (Dict TestNonTerm (List (List (Symbol TestNonTerm TestTerm))))
   (foldl
     (lambda ([pr : (ProductionRule TestNonTerm TestTerm)]
-             [acc : (Dict TestNonTerm (List (List (Either TestNonTerm TestTerm))))])
-      : (Dict TestNonTerm (List (List (Either TestNonTerm TestTerm))))
+             [acc : (Dict TestNonTerm (List (List (Symbol TestNonTerm TestTerm))))])
+      : (Dict TestNonTerm (List (List (Symbol TestNonTerm TestTerm))))
       (match-define (production-rule nt symbols) pr)
       (dict-update
         acc
         nt
-        (lambda ([symbolss : (List (List (Either TestNonTerm TestTerm)))])
+        (lambda ([symbolss : (List (List (Symbol TestNonTerm TestTerm)))])
           (cons symbols symbolss))
         (empty)))
     (test-production-rules)
-    (ann (Dict TestNonTerm (List (List (Either TestNonTerm TestTerm))))
+    (ann (Dict TestNonTerm (List (List (Symbol TestNonTerm TestTerm))))
       (make-dict test-non-term-cmp))))
 
-(define (build-empty-table [rules : (Dict TestNonTerm (List (List (Either TestNonTerm TestTerm))))])
+(define (build-empty-table [rules : (Dict TestNonTerm (List (List (Symbol TestNonTerm TestTerm))))])
   : (Set TestNonTerm)
   ;; Drop all the rules that have a terminal in them as they cannot be empty
   (match-define filtered-rules
     (dict-value-map rules
-      (lambda ([rhss : (List (List (Either TestNonTerm TestTerm)))])
+      (lambda ([rhss : (List (List (Symbol TestNonTerm TestTerm)))])
         (filter-map
-          (lambda ([rhs : (List (Either TestNonTerm TestTerm))]) : (Maybe (List TestNonTerm))
-            (case (partition-eithers rhs)
+          (lambda ([rhs : (List (Symbol TestNonTerm TestTerm))]) : (Maybe (List TestNonTerm))
+            (case (partition-symbols rhs)
               [(tuple2 nonterms (empty))
                (just nonterms)]
               [_ (nothing)]))
           rhss))))
 
   (build-empty-table* (make-set test-non-term-cmp) filtered-rules))
+
+
+(define (partition-symbols [symbols : (List (Symbol TestNonTerm TestTerm))])
+  : (Tuple2 (List TestNonTerm) (List TestTerm))
+  (partition-symbols* symbols (empty) (empty)))
+
+(define (partition-symbols* [symbols : (List (Symbol TestNonTerm TestTerm))]
+                            [non-terms : (List TestNonTerm)] [terms : (List TestTerm)])
+  : (Tuple2 (List TestNonTerm) (List TestTerm))
+  (case symbols
+    [(empty) (tuple2 (reverse non-terms) (reverse terms))]
+    [(cons (symbol/non-term non-term) symbols)
+     (partition-symbols* symbols (cons non-term non-terms) terms)]
+    [(cons (symbol/term term) symbols)
+     (partition-symbols* symbols non-terms (cons term terms))]))
+
 
 (define (build-empty-table*
           [current-table : (Set TestNonTerm)]
@@ -301,15 +347,15 @@ panic
       (build-empty-table* (set-union current-table new-entries) rules)))
 
 (define (build-first-table
-          [rules : (Dict TestNonTerm (List (List (Either TestNonTerm TestTerm))))]
+          [rules : (Dict TestNonTerm (List (List (Symbol TestNonTerm TestTerm))))]
           [empty-table : (Set TestNonTerm)]) : (Dict TestNonTerm (Set TestTerm))
   (match-define initial-table
     (dict-value-map rules
-      (lambda ([rhss : (List (List (Either TestNonTerm TestTerm)))])
+      (lambda ([rhss : (List (List (Symbol TestNonTerm TestTerm)))])
         (set-add-all
           (make-set test-term-cmp)
           (filter-map
-            (lambda ([rhs : (List (Either TestNonTerm TestTerm))])
+            (lambda ([rhs : (List (Symbol TestNonTerm TestTerm))])
               (initial-terminal rhs empty-table))
             rhss)))))
 
@@ -317,34 +363,34 @@ panic
   ;; first value for the the non terminal.
   (match-define filtered-rules
     (dict-value-map rules
-      (lambda ([rhss : (List (List (Either TestNonTerm TestTerm)))])
+      (lambda ([rhss : (List (List (Symbol TestNonTerm TestTerm)))])
         (set->list
           (set-union*
             (make-set test-non-term-cmp)
             (map
-              (lambda ([rhs : (List (Either TestNonTerm TestTerm))])
+              (lambda ([rhs : (List (Symbol TestNonTerm TestTerm))])
                 (first-relevant-non-terminals rhs empty-table))
               rhss))))))
 
   (build-first-table* initial-table filtered-rules))
 
-(define (initial-terminal [rhs : (List (Either TestNonTerm TestTerm))]
+(define (initial-terminal [rhs : (List (Symbol TestNonTerm TestTerm))]
                           [empty-table : (Set TestNonTerm)]) : (Maybe TestTerm)
   (case rhs
     [(empty) (nothing)]
-    [(cons (right t) _) (just t)]
-    [(cons (left nt) rest-rhs)
+    [(cons (symbol/term t) _) (just t)]
+    [(cons (symbol/non-term nt) rest-rhs)
      (if (set-member? empty-table nt)
          (initial-terminal rest-rhs empty-table)
          (nothing))]))
 
 (define (first-relevant-non-terminals
-          [rhs : (List (Either TestNonTerm TestTerm))]
+          [rhs : (List (Symbol TestNonTerm TestTerm))]
           [empty-table : (Set TestNonTerm)]) : (Set TestNonTerm)
   (case rhs
     [(empty) (make-set test-non-term-cmp)]
-    [(cons (right _) _) (make-set test-non-term-cmp)]
-    [(cons (left nt) rest-rhs)
+    [(cons (symbol/term _) _) (make-set test-non-term-cmp)]
+    [(cons (symbol/non-term nt) rest-rhs)
      (set-add
        (if (set-member? empty-table nt)
            (first-relevant-non-terminals rest-rhs empty-table)
@@ -381,14 +427,14 @@ panic
         rules)))
 
 (define (build-follow-table
-          [rules : (Dict TestNonTerm (List (List (Either TestNonTerm TestTerm))))]
+          [rules : (Dict TestNonTerm (List (List (Symbol TestNonTerm TestTerm))))]
           [empty-table : (Set TestNonTerm)]
           [first-table : (Dict TestNonTerm (Set TestTerm))])
   : (Dict TestNonTerm (Set (LiftedTerm TestTerm)))
   (match-define initial-table
     (dict-value-map
       rules
-      (lambda ([_rhss : (List (List (Either TestNonTerm TestTerm)))])
+      (lambda ([_rhss : (List (List (Symbol TestNonTerm TestTerm)))])
         (make-set (lifted-term-cmp test-term-cmp)))))
   (match-define initial-table : (Dict TestNonTerm (Set (LiftedTerm TestTerm)))
     (dict-set
@@ -401,10 +447,10 @@ panic
     (dict-fold
       rules
       (lambda ([_nt : TestNonTerm]
-               [rhss : (List (List (Either TestNonTerm TestTerm)))]
+               [rhss : (List (List (Symbol TestNonTerm TestTerm)))]
                [acc : (Dict TestNonTerm (Set (LiftedTerm TestTerm)))])
         (foldl
-          (lambda ([rhs : (List (Either TestNonTerm TestTerm))]
+          (lambda ([rhs : (List (Symbol TestNonTerm TestTerm))]
                    [acc : (Dict TestNonTerm (Set (LiftedTerm TestTerm)))])
             (add-initial-follows rhs empty-table first-table acc))
           rhss
@@ -416,17 +462,17 @@ panic
   (match-define non-terminal-map
     (dict-value-map
       rules
-      (lambda ([_rhss : (List (List (Either TestNonTerm TestTerm)))])
+      (lambda ([_rhss : (List (List (Symbol TestNonTerm TestTerm)))])
         (make-set test-non-term-cmp))))
 
   (match-define non-terminal-map
     (dict-fold
       rules
       (lambda ([nt : TestNonTerm]
-               [rhss : (List (List (Either TestNonTerm TestTerm)))]
+               [rhss : (List (List (Symbol TestNonTerm TestTerm)))]
                [acc : (Dict TestNonTerm (Set TestNonTerm))])
         (foldl
-          (lambda ([rhs : (List (Either TestNonTerm TestTerm))]
+          (lambda ([rhs : (List (Symbol TestNonTerm TestTerm))]
                    [acc : (Dict TestNonTerm (Set TestNonTerm))])
             (add-non-term-follows nt rhs empty-table first-table acc))
           rhss
@@ -471,16 +517,16 @@ panic
 
 
 (define (add-initial-follows
-          [rhs : (List (Either TestNonTerm TestTerm))]
+          [rhs : (List (Symbol TestNonTerm TestTerm))]
           [empty-table : (Set TestNonTerm)]
           [first-table : (Dict TestNonTerm (Set TestTerm))]
           [acc : (Dict TestNonTerm (Set (LiftedTerm TestTerm)))])
   : (Dict TestNonTerm (Set (LiftedTerm TestTerm)))
   (case rhs
     [(empty) acc]
-    [(cons (right _) rhs)
+    [(cons (symbol/term _) rhs)
      (add-initial-follows rhs empty-table first-table acc)]
-    [(cons (left nt) rhs)
+    [(cons (symbol/non-term nt) rhs)
      (add-initial-follows
        rhs empty-table first-table
        (dict-update-existing
@@ -492,14 +538,14 @@ panic
                   (set->list (first/string rhs empty-table first-table)))))))]))
 
 (define (first/string
-          [str : (List (Either TestNonTerm TestTerm))]
+          [str : (List (Symbol TestNonTerm TestTerm))]
           [empty-table : (Set TestNonTerm)]
           [first-table : (Dict TestNonTerm (Set TestTerm))])
   : (Set TestTerm)
   (case str
     [(empty) (make-set test-term-cmp)]
-    [(cons (right t) _) (set-add (make-set test-term-cmp) t)]
-    [(cons (left nt) str)
+    [(cons (symbol/term t) _) (set-add (make-set test-term-cmp) t)]
+    [(cons (symbol/non-term nt) str)
      (set-union
        (if (set-member? empty-table nt)
            (first/string str empty-table first-table)
@@ -508,16 +554,16 @@ panic
 
 (define (add-non-term-follows
           [nt : TestNonTerm]
-          [rhs : (List (Either TestNonTerm TestTerm))]
+          [rhs : (List (Symbol TestNonTerm TestTerm))]
           [empty-table : (Set TestNonTerm)]
           [first-table : (Dict TestNonTerm (Set TestTerm))]
           [acc : (Dict TestNonTerm (Set TestNonTerm))])
   : (Dict TestNonTerm (Set TestNonTerm))
   (case rhs
     [(empty) acc]
-    [(cons (right _) rhs)
+    [(cons (symbol/term _) rhs)
      (add-non-term-follows nt rhs empty-table first-table acc)]
-    [(cons (left other-nt) rhs)
+    [(cons (symbol/non-term other-nt) rhs)
      (match-define acc
        (if (empty/string rhs empty-table)
            (dict-update-existing
@@ -529,20 +575,20 @@ panic
      (add-non-term-follows nt rhs empty-table first-table acc)]))
 
 (define (empty/string
-          [str : (List (Either TestNonTerm TestTerm))]
+          [str : (List (Symbol TestNonTerm TestTerm))]
           [empty-table : (Set TestNonTerm)])
   : Boolean
   (case str
     [(empty) #t]
-    [(cons (right _t) _str) #f]
-    [(cons (left nt) str)
+    [(cons (symbol/term _t) _str) #f]
+    [(cons (symbol/non-term nt) str)
      (if (set-member? empty-table nt)
          (empty/string str empty-table)
          #f)]))
 
 (define (closure
           [is : (ItemSet TestNonTerm TestTerm)]
-          [rules : (Dict TestNonTerm (List (List (Either TestNonTerm TestTerm))))])
+          [rules : (Dict TestNonTerm (List (List (Symbol TestNonTerm TestTerm))))])
   : (Set (Item TestNonTerm TestTerm))
   (match-define (item-set items) is)
 
@@ -553,7 +599,7 @@ panic
 (define (closure*
           [items : (List (Item TestNonTerm TestTerm))]
           [acc : (Set (Item TestNonTerm TestTerm))]
-          [rules : (Dict TestNonTerm (List (List (Either TestNonTerm TestTerm))))])
+          [rules : (Dict TestNonTerm (List (List (Symbol TestNonTerm TestTerm))))])
   : (Set (Item TestNonTerm TestTerm))
   (case items
     [(empty) acc]
@@ -562,10 +608,10 @@ panic
          (closure* items acc rules)
          (closure*
            (case i
-             [(item nt _ (cons (left other-nt) _))
+             [(item nt _ (cons (symbol/non-term other-nt) _))
               (append
                 (map
-                  (lambda ([rhs : (List (Either TestNonTerm TestTerm))]) : (Item TestNonTerm TestTerm)
+                  (lambda ([rhs : (List (Symbol TestNonTerm TestTerm))]) : (Item TestNonTerm TestTerm)
                     (item (lifted-non-term other-nt) (empty) rhs))
                   (dict-ref/panic rules other-nt))
                 items)]
@@ -574,14 +620,14 @@ panic
            rules))]))
 
 (define (goto [items : (Set (Item TestNonTerm TestTerm))]
-              [symbol : (Either TestNonTerm TestTerm)])
+              [symbol : (Symbol TestNonTerm TestTerm)])
   : (Maybe (ItemSet TestNonTerm TestTerm))
   (match-define new-items
     (filter-map
       (lambda ([i : (Item TestNonTerm TestTerm)]) : (Maybe (Item TestNonTerm TestTerm))
         (case i
           [(item nt lhs (cons other-symbol rhs))
-           (if ((either=? test-non-term=? test-term=?) symbol other-symbol)
+           (if ((symbol=? test-non-term=? test-term=?) symbol other-symbol)
                (just (item nt (cons other-symbol lhs) rhs))
                (nothing))]
           [_ (nothing)]))
@@ -598,10 +644,10 @@ panic
 (define (canonical-item-sets
           [start : TestNonTerm]
           [terms : (List TestTerm)]
-          [rules : (Dict TestNonTerm (List (List (Either TestNonTerm TestTerm))))])
+          [rules : (Dict TestNonTerm (List (List (Symbol TestNonTerm TestTerm))))])
   : (UniqueDict (ItemSet TestNonTerm TestTerm) StateId)
   (match-define init-item : (Item TestNonTerm TestTerm)
-    (item (start-symbol) (empty) (varargs list (left start))))
+    (item (start-symbol) (empty) (varargs list (symbol/non-term start))))
   (canonical-item-sets*
     (varargs list (item-set (set-add (make-set (item-cmp test-non-term-cmp test-term-cmp))
                                      init-item)))
@@ -609,10 +655,10 @@ panic
     0
     (append
       (map
-        (lambda ([nt : TestNonTerm]) : (Either TestNonTerm TestTerm) (left nt))
+        (lambda ([nt : TestNonTerm]) : (Symbol TestNonTerm TestTerm) (symbol/non-term nt))
         (set->list (dict-keys rules)))
       (map
-        (lambda ([t : TestTerm]) : (Either TestNonTerm TestTerm) (right t))
+        (lambda ([t : TestTerm]) : (Symbol TestNonTerm TestTerm) (symbol/term t))
         terms))
     rules))
 
@@ -620,8 +666,8 @@ panic
           [unprocessed-item-sets : (List (ItemSet TestNonTerm TestTerm))]
           [item-sets : (UniqueDict (ItemSet TestNonTerm TestTerm) StateId)]
           [next-state-id : Int]
-          [symbols : (List (Either TestNonTerm TestTerm))]
-          [rules : (Dict TestNonTerm (List (List (Either TestNonTerm TestTerm))))])
+          [symbols : (List (Symbol TestNonTerm TestTerm))]
+          [rules : (Dict TestNonTerm (List (List (Symbol TestNonTerm TestTerm))))])
   : (UniqueDict (ItemSet TestNonTerm TestTerm) StateId)
   (case unprocessed-item-sets
     [(empty) item-sets]
@@ -633,7 +679,7 @@ panic
          (match-define full-items (closure is rules))
          (match-define next-sets
            (filter-map
-             (lambda ([symbol : (Either TestNonTerm TestTerm)])
+             (lambda ([symbol : (Symbol TestNonTerm TestTerm)])
                (goto full-items symbol))
              symbols))
          (canonical-item-sets*
@@ -646,7 +692,7 @@ panic
 
 (define (build-parser [item-sets : (UniqueDict (ItemSet TestNonTerm TestTerm) StateId)]
                       [follow-table : (Dict TestNonTerm (Set (LiftedTerm TestTerm)))]
-                      [rules : (Dict TestNonTerm (List (List (Either TestNonTerm TestTerm))))])
+                      [rules : (Dict TestNonTerm (List (List (Symbol TestNonTerm TestTerm))))])
   : (Parser TestNonTerm TestTerm)
   (match-define actions-map
     (unique-dict-map
@@ -661,15 +707,15 @@ panic
               (lambda ([item : (Item TestNonTerm TestTerm)])
                 : (List (Tuple2 (LiftedTerm TestTerm) (Action TestNonTerm)))
                 (case item
-                  [(item nt _ (cons (right term) _))
-                   (case (goto full-set (right term))
+                  [(item nt _ (cons (symbol/term term) _))
+                   (case (goto full-set (symbol/term term))
                      [(nothing) (panic #"Bad goto")]
                      [(just next-is)
                       (case (unique-dict-ref item-sets next-is)
                         [(nothing) (panic #"Bad item set")]
                         [(just next-state)
                          (varargs list (tuple2 (lifted-term term) (shift next-state)))])])]
-                  [(item nt _ (cons (left other-nt) _))
+                  [(item nt _ (cons (symbol/non-term other-nt) _))
                    (empty)]
                   [(item (start-symbol) _ (empty))
                    (varargs list (tuple2 (end-of-terminals) (accept)))]
@@ -702,14 +748,14 @@ panic
   (match-define F* (lifted-non-term (non-term/F)))
   (match-define T* (lifted-non-term (non-term/T)))
 
-  (match-define E : (Either TestNonTerm TestTerm) (left (non-term/E)))
-  (match-define F : (Either TestNonTerm TestTerm) (left (non-term/F)))
-  (match-define T : (Either TestNonTerm TestTerm) (left (non-term/T)))
-  (match-define + : (Either TestNonTerm TestTerm) (right (term/plus)))
-  (match-define * : (Either TestNonTerm TestTerm) (right (term/times)))
-  (match-define < : (Either TestNonTerm TestTerm) (right (term/left-paren)))
-  (match-define > : (Either TestNonTerm TestTerm) (right (term/right-paren)))
-  (match-define id : (Either TestNonTerm TestTerm) (right (term/id)))
+  (match-define E : (Symbol TestNonTerm TestTerm) (symbol/non-term (non-term/E)))
+  (match-define F : (Symbol TestNonTerm TestTerm) (symbol/non-term (non-term/F)))
+  (match-define T : (Symbol TestNonTerm TestTerm) (symbol/non-term (non-term/T)))
+  (match-define + : (Symbol TestNonTerm TestTerm) (symbol/term (term/plus)))
+  (match-define * : (Symbol TestNonTerm TestTerm) (symbol/term (term/times)))
+  (match-define < : (Symbol TestNonTerm TestTerm) (symbol/term (term/left-paren)))
+  (match-define > : (Symbol TestNonTerm TestTerm) (symbol/term (term/right-paren)))
+  (match-define id : (Symbol TestNonTerm TestTerm) (symbol/term (term/id)))
 
   (dict-add-all
     (make-dict state-id-cmp)
