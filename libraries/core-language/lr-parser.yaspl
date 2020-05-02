@@ -114,6 +114,7 @@ panic
   (define-type (Item NonTerm Term)
     (item
       [non-term : (LiftedNonTerm NonTerm)]
+      [rule : Int]
       [left-entries : (List (Symbol NonTerm Term))]
       [right-entries : (List (Symbol NonTerm Term))]))
   ;; This only contains the kernel items
@@ -198,21 +199,24 @@ panic
                                  [term-cmp : (Term Term -> Ordering)])
   : ((Item NonTerm Term) (Item NonTerm Term) -> Ordering)
   (lambda ([a : (Item NonTerm Term)] [b : (Item NonTerm Term)]) : Ordering
-    (match-define (item nt-a l-a r-a) a)
-    (match-define (item nt-b l-b r-b) b)
+    (match-define (item nt-a rule-a l-a r-a) a)
+    (match-define (item nt-b rule-b l-b r-b) b)
     (case ((lifted-non-term-cmp non-term-cmp) nt-a nt-b)
       [(equal-to)
-       (match-define entries-cmp (list-cmp (symbol-cmp non-term-cmp term-cmp)))
-       (case (entries-cmp l-a l-b)
-         [(equal-to)
-          (entries-cmp r-a r-b)]
-         [v v])]
+       (case (int-cmp rule-a rule-b)
+        [(equal-to)
+         (match-define entries-cmp (list-cmp (symbol-cmp non-term-cmp term-cmp)))
+         (case (entries-cmp l-a l-b)
+           [(equal-to)
+            (entries-cmp r-a r-b)]
+           [v v])]
+        [v v])]
       [v v])))
 
 (define [NonTerm Term] (kernel-item? [item : (Item NonTerm Term)]) : Boolean
   (case item
-    [(item _ (cons _ _) _) #t]
-    [(item (start-symbol) (empty) _) #t]
+    [(item _ _ (cons _ _) _) #t]
+    [(item (start-symbol) _ (empty) _) #t]
     [_ #f]))
 
 
@@ -274,12 +278,12 @@ panic
 
 
   (varargs list
-    (production-rule E* 0 (varargs list E + T))
-    (production-rule E* 1 (varargs list T))
-    (production-rule T* 2 (varargs list T * F))
-    (production-rule T* 3 (varargs list F))
-    (production-rule F* 4 (varargs list < E >))
-    (production-rule F* 5 (varargs list id))))
+    (production-rule E* 1 (varargs list E + T))
+    (production-rule E* 2 (varargs list T))
+    (production-rule T* 3 (varargs list T * F))
+    (production-rule T* 4 (varargs list F))
+    (production-rule F* 5 (varargs list < E >))
+    (production-rule F* 6 (varargs list id))))
 
 
 
@@ -617,13 +621,13 @@ panic
          (closure* items acc rules)
          (closure*
            (case i
-             [(item nt _ (cons (symbol/non-term other-nt) _))
+             [(item nt _ _ (cons (symbol/non-term other-nt) _))
               (append
                 (map
                   (lambda ([rhs : (ProductionRHS TestNonTerm TestTerm)])
                     : (Item TestNonTerm TestTerm)
-                    (match-define (production-rhs _ entries) rhs)
-                    (item (lifted-non-term other-nt) (empty) entries))
+                    (match-define (production-rhs rule entries) rhs)
+                    (item (lifted-non-term other-nt) rule (empty) entries))
                   (dict-ref/panic rules other-nt))
                 items)]
              [_ items])
@@ -637,9 +641,9 @@ panic
     (filter-map
       (lambda ([i : (Item TestNonTerm TestTerm)]) : (Maybe (Item TestNonTerm TestTerm))
         (case i
-          [(item nt lhs (cons other-symbol rhs))
+          [(item nt rule lhs (cons other-symbol rhs))
            (if ((symbol=? test-non-term=? test-term=?) symbol other-symbol)
-               (just (item nt (cons other-symbol lhs) rhs))
+               (just (item nt rule (cons other-symbol lhs) rhs))
                (nothing))]
           [_ (nothing)]))
       (set->list items)))
@@ -658,7 +662,7 @@ panic
           [rules : (Dict TestNonTerm (List (ProductionRHS TestNonTerm TestTerm)))])
   : (UniqueDict (ItemSet TestNonTerm TestTerm) StateId)
   (match-define init-item : (Item TestNonTerm TestTerm)
-    (item (start-symbol) (empty) (varargs list (symbol/non-term start))))
+    (item (start-symbol) 0 (empty) (varargs list (symbol/non-term start))))
   (canonical-item-sets*
     (varargs list (item-set (set-add (make-set (item-cmp test-non-term-cmp test-term-cmp))
                                      init-item)))
@@ -718,7 +722,7 @@ panic
               (lambda ([item : (Item TestNonTerm TestTerm)])
                 : (List (Tuple2 (LiftedTerm TestTerm) (Action TestNonTerm)))
                 (case item
-                  [(item nt _ (cons (symbol/term term) _))
+                  [(item nt _ _ (cons (symbol/term term) _))
                    (case (goto full-set (symbol/term term))
                      [(nothing) (panic #"Bad goto")]
                      [(just next-is)
@@ -726,16 +730,15 @@ panic
                         [(nothing) (panic #"Bad item set")]
                         [(just next-state)
                          (varargs list (tuple2 (lifted-term term) (shift next-state)))])])]
-                  [(item nt _ (cons (symbol/non-term other-nt) _))
+                  [(item nt _ _ (cons (symbol/non-term other-nt) _))
                    (empty)]
-                  [(item (start-symbol) _ (empty))
+                  [(item (start-symbol) _ _ (empty))
                    (varargs list (tuple2 (end-of-terminals) (accept)))]
-                  [(item (lifted-non-term nt) lhs (empty))
+                  [(item (lifted-non-term nt) rule lhs (empty))
                    (map
                      (lambda ([term : (LiftedTerm TestTerm)])
                        : (Tuple2 (LiftedTerm TestTerm) (Action TestNonTerm))
-                       ;; TODO change rule number
-                       (tuple2 (end-of-terminals) (reduce nt 0 (length lhs))))
+                       (tuple2 (end-of-terminals) (reduce nt rule (length lhs))))
                      (set->list (dict-ref/panic follow-table nt)))]))
               (set->list full-set))))
 
@@ -773,44 +776,44 @@ panic
     (varargs list
       (tuple2 (state-id 0)
         (varargs list
-          (item S* (empty) (varargs list E))))
+          (item S* 0 (empty) (varargs list E))))
       (tuple2 (state-id 1)
         (varargs list
-          (item S* (varargs list E) (empty))
-          (item E* (varargs list E) (varargs list + T))))
+          (item S* 0 (varargs list E) (empty))
+          (item E* 1 (varargs list E) (varargs list + T))))
       (tuple2 (state-id 2)
         (varargs list
-          (item E* (varargs list T) (empty))
-          (item T* (varargs list T) (varargs list * F))))
+          (item E* 2 (varargs list T) (empty))
+          (item T* 3 (varargs list T) (varargs list * F))))
       (tuple2 (state-id 3)
         (varargs list
-          (item T* (varargs list F) (empty))))
+          (item T* 4 (varargs list F) (empty))))
       (tuple2 (state-id 4)
         (varargs list
-          (item F* (varargs list <) (varargs list E >))))
+          (item F* 5 (varargs list <) (varargs list E >))))
       (tuple2 (state-id 5)
         (varargs list
-          (item F* (varargs list id) (empty))))
+          (item F* 6 (varargs list id) (empty))))
       (tuple2 (state-id 6)
         (varargs list
-          (item E* (varargs list E +) (varargs list T))))
+          (item E* 1 (varargs list E +) (varargs list T))))
       (tuple2 (state-id 7)
         (varargs list
-          (item T* (varargs list T *) (varargs list F))))
+          (item T* 3 (varargs list T *) (varargs list F))))
       (tuple2 (state-id 8)
         (varargs list
-          (item E* (varargs list E) (varargs list + T))
-          (item F* (varargs list < E) (varargs list >))))
+          (item E* 1 (varargs list E) (varargs list + T))
+          (item F* 5 (varargs list < E) (varargs list >))))
       (tuple2 (state-id 9)
         (varargs list
-          (item E* (varargs list E + T) (empty))
-          (item T* (varargs list T) (varargs list * F))))
+          (item E* 1 (varargs list E + T) (empty))
+          (item T* 3 (varargs list T) (varargs list * F))))
       (tuple2 (state-id 10)
         (varargs list
-          (item T* (varargs list T * F) (empty))))
+          (item T* 3 (varargs list T * F) (empty))))
       (tuple2 (state-id 11)
         (varargs list
-          (item F* (varargs list < E >) (empty)))))))
+          (item F* 5 (varargs list < E >) (empty)))))))
 
 
 (define (make-test-parser) : (Parser TestNonTerm TestTerm)
