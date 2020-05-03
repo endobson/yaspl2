@@ -22,7 +22,9 @@
   (define-type TestNonTerm
     (non-term/E)
     (non-term/F)
-    (non-term/T))
+    (non-term/T)
+    (non-term/Statement)
+    (non-term/Statements))
   (define-type TestTerm
     (term/plus)
     (term/minus)
@@ -31,7 +33,9 @@
     (term/left-paren)
     (term/right-paren)
     (term/id)
-    (term/number))
+    (term/number)
+    (term/bang)
+    (term/assignment))
 
   (define-type BinOp
     (op/plus)
@@ -39,12 +43,16 @@
     (op/times)
     (op/divide))
 
+  (define-type Statement
+    (assignment-statement [v : Bytes] [e : Expr]))
   (define-type Expr
     (bin-op-expr [op : BinOp] [l : Expr] [r : Expr])
     (var-expr [var : Bytes])
     (int-expr [v : Int]))
 
   (define-type Form
+    (form/statement [s : Statement])
+    (form/statements [ss : (List Statement)])
     (form/expr [e : Expr])
     (form/token [t : Token])))
 
@@ -59,7 +67,9 @@
         [(term/left-paren) 4]
         [(term/right-paren) 5]
         [(term/id) 6]
-        [(term/number) 7])))
+        [(term/number) 7]
+        [(term/bang) 8]
+        [(term/assignment) 9])))
   (int-cmp (convert a) (convert b)))
 
 (define (test-non-term-cmp [a : TestNonTerm] [b : TestNonTerm]) : Ordering
@@ -68,7 +78,9 @@
       (case v
         [(non-term/E) 0]
         [(non-term/F) 1]
-        [(non-term/T) 2])))
+        [(non-term/T) 2]
+        [(non-term/Statement) 3]
+        [(non-term/Statements) 4])))
   (int-cmp (convert a) (convert b)))
 
 
@@ -76,11 +88,13 @@
   (case token
     [(left-paren-token) (right (term/left-paren))]
     [(right-paren-token) (right (term/right-paren))]
-    [(symbol-token _) (right (term/id))]
     [(plus-token) (right (term/plus))]
     [(minus-token) (right (term/minus))]
     [(multiplication-token) (right (term/times))]
     [(division-token) (right (term/divide))]
+    [(bang-token) (right (term/bang))]
+    [(assignment-token) (right (term/assignment))]
+    [(symbol-token _) (right (term/id))]
     [(decimal-number-token _) (right (term/number))]
     [_ (left #"Bad token type")]))
 
@@ -88,18 +102,24 @@
   (match-define E* (non-term/E))
   (match-define F* (non-term/F))
   (match-define T* (non-term/T))
+  (match-define S* (non-term/Statement))
+  (match-define Ss* (non-term/Statements))
 
   (match-define E : (Symbol TestNonTerm TestTerm) (symbol/non-term (non-term/E)))
   (match-define F : (Symbol TestNonTerm TestTerm) (symbol/non-term (non-term/F)))
   (match-define T : (Symbol TestNonTerm TestTerm) (symbol/non-term (non-term/T)))
+  (match-define S : (Symbol TestNonTerm TestTerm) (symbol/non-term (non-term/Statement)))
+  (match-define Ss : (Symbol TestNonTerm TestTerm) (symbol/non-term (non-term/Statements)))
   (match-define + : (Symbol TestNonTerm TestTerm) (symbol/term (term/plus)))
   (match-define - : (Symbol TestNonTerm TestTerm) (symbol/term (term/minus)))
   (match-define * : (Symbol TestNonTerm TestTerm) (symbol/term (term/times)))
   (match-define / : (Symbol TestNonTerm TestTerm) (symbol/term (term/divide)))
   (match-define < : (Symbol TestNonTerm TestTerm) (symbol/term (term/left-paren)))
   (match-define > : (Symbol TestNonTerm TestTerm) (symbol/term (term/right-paren)))
+  (match-define := : (Symbol TestNonTerm TestTerm) (symbol/term (term/assignment)))
   (match-define id : (Symbol TestNonTerm TestTerm) (symbol/term (term/id)))
   (match-define num : (Symbol TestNonTerm TestTerm) (symbol/term (term/number)))
+  (match-define ! : (Symbol TestNonTerm TestTerm) (symbol/term (term/bang)))
 
   (match-define bin-op*
     (lambda ([forms : (List Form)]) : Form
@@ -145,6 +165,21 @@
            [(just (lifted-int v)) (form/expr (int-expr v))])]
         [_ (panic #"Bad forms for identifier")])))
 
+  (match-define assign*
+    (lambda ([forms : (List Form)]) : Form
+      (case forms
+        [(cons (form/token (symbol-token v)) (cons _:= (cons (form/expr e) (cons _! (empty)))))
+         (form/statement (assignment-statement v e))]
+        [_ (panic #"Bad forms for identifier")])))
+
+  (match-define statements*
+    (lambda ([forms : (List Form)]) : Form
+      (case forms
+        [(empty)
+         (form/statements (empty))]
+        [(cons (form/statement s) (cons (form/statements ss) (empty)))
+         (form/statements (cons s ss))]
+        [_ (panic #"Bad forms for statements")])))
 
   (varargs list
     (production-rule E* 1 (varargs list E + T) bin-op*)
@@ -155,17 +190,45 @@
     (production-rule T* 6 (varargs list F) identity*)
     (production-rule F* 7 (varargs list < E >) parens*)
     (production-rule F* 8 (varargs list id) var*)
-    (production-rule F* 9 (varargs list num) num*)))
+    (production-rule F* 9 (varargs list num) num*)
+    (production-rule S* 10 (varargs list id := E !) assign*)
+    (production-rule Ss* 11 (empty) statements*)
+    (production-rule Ss* 12 (varargs list S Ss) statements*)))
 
-(define (eval [expr : Expr]) : (Either Bytes LiftedInt)
+(define (eval-statements [ss : (List Statement)] [env : (Dict Bytes LiftedInt)])
+  : (Either Bytes (Dict Bytes LiftedInt))
+  (case ss
+    [(empty) (right env)]
+    [(cons s ss)
+     (case (eval-statement s env)
+       [(left v) (left v)]
+       [(right env)
+        (eval-statements ss env)])]))
+
+(define (eval-statement [s : Statement] [env : (Dict Bytes LiftedInt)])
+  : (Either Bytes (Dict Bytes LiftedInt))
+  (case s
+    [(assignment-statement id e)
+     (case (eval-expr e env)
+       [(left v) (left v)]
+       [(right v)
+        (case (dict-maybe-add env id v)
+          [(nothing) (left #"Variable already defined")]
+          [(just env) (right env)])])]))
+
+
+(define (eval-expr [expr : Expr] [env : (Dict Bytes LiftedInt)]) : (Either Bytes LiftedInt)
   (case expr
-    [(var-expr v) (left #"Unbound variable")]
+    [(var-expr v)
+     (case (dict-ref env v)
+       [(nothing) (left #"Unbound variable")]
+       [(just v) (right v)])]
     [(int-expr v) (right (lifted-int v))]
     [(bin-op-expr op l r)
-     (case (eval l)
+     (case (eval-expr l env)
        [(left v) (left v)]
        [(right (lifted-int l))
-        (case (eval r)
+        (case (eval-expr r env)
           [(left v) (left v)]
           [(right (lifted-int r))
            (case op
@@ -174,44 +237,88 @@
              [(op/times) (right (lifted-int (* l r)))]
              [(op/divide) (right (lifted-int (quotient l r)))])])])]))
 
-(define (make-test-parser) : (Either Bytes (Parser TestNonTerm TestTerm Form))
-  (build-parser (grammar (non-term/E) (test-production-rules)
+(define (make-test-expr-parser) : (Either Bytes (Parser TestNonTerm TestTerm Form))
+  (build-parser (grammar (non-term/E)
+                         (test-production-rules)
                          test-non-term-cmp test-term-cmp)
                 form/token
                 token->terminal))
 
+(define (make-test-statements-parser) : (Either Bytes (Parser TestNonTerm TestTerm Form))
+  (build-parser (grammar (non-term/Statements)
+                         (test-production-rules)
+                         test-non-term-cmp test-term-cmp)
+                form/token
+                token->terminal))
+
+
 (define (parses [input : Bytes]) : (-> (Maybe FailedAssertion))
   (lambda ()
     (match-define lexer (make-core-lexer (sourced-bytes (unnamed-source) input)))
-    (case (make-test-parser)
+    (case (make-test-expr-parser)
       [(left v) (just (failure v))]
       [(right parser)
        (case (run-parser parser lexer)
         [(left v) (just (failure v))]
         [(right _) (nothing)])])))
 
+
 (define (evals [input : Bytes] [expected-val : Int]) : (-> (Maybe FailedAssertion))
   (lambda ()
     (match-define lexer (make-core-lexer (sourced-bytes (unnamed-source) input)))
-    (case (make-test-parser)
+    (case (make-test-expr-parser)
       [(left v) (just (failure v))]
       [(right parser)
        (case (run-parser parser lexer)
         [(left v) (just (failure v))]
         [(right (form/expr e))
-         (case (eval e)
+         (match-define env : (Dict Bytes LiftedInt) (make-dict bytes-cmp))
+         (case (eval-expr e env)
            [(left v) (just (failure v))]
            [(right (lifted-int actual-val))
             (expect-equal/int actual-val expected-val)])]
         [(right _)
          (just (failure #"Expected expression"))])])))
 
+(define (statements-evals
+          [statements-input : Bytes]
+          [expr-input : Bytes]
+          [expected-val : Int]) : (-> (Maybe FailedAssertion))
+  (lambda ()
+    (match-define statements-lexer (make-core-lexer (sourced-bytes (unnamed-source) statements-input)))
+    (match-define expr-lexer (make-core-lexer (sourced-bytes (unnamed-source) expr-input)))
+    (case (make-test-statements-parser)
+      [(left v) (just (failure v))]
+      [(right statement-parser)
+       (case (make-test-expr-parser)
+         [(left v) (just (failure v))]
+         [(right expr-parser)
+          (case (run-parser statement-parser statements-lexer)
+           [(left v) (just (failure v))]
+           [(right (form/statements ss))
+            (case (run-parser expr-parser expr-lexer)
+              [(left v) (just (failure v))]
+              [(right (form/expr e))
+               (match-define env : (Dict Bytes LiftedInt) (make-dict bytes-cmp))
+               (case (eval-statements ss env)
+                 [(left v) (just (failure v))]
+                 [(right env)
+                  (case (eval-expr e env)
+                    [(left v) (just (failure v))]
+                    [(right (lifted-int actual-val))
+                     (expect-equal/int actual-val expected-val)])])]
+              [(right _)
+               (just (failure #"Expected expression"))])]
+           [(right _)
+            (just (failure #"Expected expression"))])])])))
+
+
 
 
 (define (fails-parse [input : Bytes]) : (-> (Maybe FailedAssertion))
   (lambda ()
     (match-define lexer (make-core-lexer (sourced-bytes (unnamed-source) input)))
-    (case (make-test-parser)
+    (case (make-test-expr-parser)
       [(left v) (just (failure v))]
       [(right parser)
        (case (run-parser parser lexer)
@@ -219,7 +326,7 @@
          [(right _) (just (failure #"Expected failed parse but parsing suceeded"))])])))
 
 (define (print-test-case) : (Maybe FailedAssertion)
-  (case (make-test-parser)
+  (case (make-test-expr-parser)
     [(left v) (just (failure v))]
     [(right parser)
      (match-define action-map (parser-action parser))
@@ -304,7 +411,9 @@
   (case nt
     [(non-term/E) #"E"]
     [(non-term/F) #"F"]
-    [(non-term/T) #"T"]))
+    [(non-term/T) #"T"]
+    [(non-term/Statement) #"S"]
+    [(non-term/Statements) #"Ss"]))
 
 (define (print-lifted-term [t : (LiftedTerm TestTerm)]) : Bytes
   (case t
@@ -319,6 +428,8 @@
     [(term/divide) #"/"]
     [(term/left-paren) #"("]
     [(term/right-paren) #")"]
+    [(term/bang) #"!"]
+    [(term/assignment) #":="]
     [(term/id) #"id"]
     [(term/number) #"num"]))
 
@@ -342,5 +453,8 @@
       (test-case #"eval order 1" (evals #"1+2*3" 7))
       (test-case #"eval order 2" (evals #"(1+2)*3" 9))
       (test-case #"eval order 3" (evals #"1+4*3/2-5" 2))
+      (test-case #"eval statement 1" (statements-evals #"" #"3" 3))
+      (test-case #"eval statement 2" (statements-evals #"x:=1!" #"x" 1))
+      (test-case #"eval statement 3" (statements-evals #"x:=2! y:=x!" #"y" 2))
       )))
 
