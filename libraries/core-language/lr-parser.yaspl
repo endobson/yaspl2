@@ -22,6 +22,7 @@
   }
   (data ordering)
   (data source-location)
+  (data lifted-primitives)
   (dict)
   (either)
   (list)
@@ -73,23 +74,25 @@
    accept reduce shift
    state-id))
 (types
-  (define-type (ParserState Token)
+  (define-type (ParserState Token Form)
     (parser-state
       [stack : (List StateId)]
-      [nodes : (List (ParseTree Token))]
+      [form : (List Form)]
       [input : (List Token)]))
 
-  (define-type (Grammar NonTerm Term)
+  (define-type (Grammar NonTerm Term Form)
     (grammar
       [start-symbol : NonTerm]
-      [rules : (List (ProductionRule NonTerm Term))]
+      [rules : (List (ProductionRule NonTerm Term Form))]
       [non-term-cmp : (NonTerm NonTerm -> Ordering)]
       [term-cmp : (Term Term -> Ordering)]))
 
-  (define-type (Parser NonTerm Term)
+  (define-type (Parser NonTerm Term Form)
     (parser
       [action : (Dict StateId (Dict (LiftedTerm Term) (Action NonTerm)))]
       [goto : (Dict StateId (Dict NonTerm StateId))]
+      [semantic-action : (Dict LiftedInt ((List Form) -> Form))]
+      [token->form : (l:Token -> Form)]
       [token->terminal : (l:Token -> Term)]))
   (define-type (Action NonTerm)
     (shift [new-state : StateId])
@@ -104,16 +107,12 @@
     (start-symbol)
     (lifted-non-term [n : NonTerm]))
 
-  (define-type (ParseTree Token)
-    (non-terminal-node [index : Int]
-                       [children : (List (ParseTree Token))])
-    (terminal-node [t : Token]))
-
-  (define-type (ProductionRule NonTerm Term)
+  (define-type (ProductionRule NonTerm Term Form)
     (production-rule
       [non-term : NonTerm]
       [rule-number : Int]
-      [entries : (List (Symbol NonTerm Term))]))
+      [entries : (List (Symbol NonTerm Term))]
+      [semantic-action : ((List Form) -> Form)]))
 
   (define-type (ProductionRHS NonTerm Term)
     (production-rhs
@@ -235,15 +234,16 @@
     [(item (start-symbol) _ (empty) _) #t]
     [_ #f]))
 
-(define [NonTerm Term] (production-rules-dict
-                         [rules : (List (ProductionRule NonTerm Term))]
-                         [non-term-cmp : (NonTerm NonTerm -> Ordering)])
+(define [NonTerm Term Form]
+  (production-rules-dict
+    [rules : (List (ProductionRule NonTerm Term Form))]
+    [non-term-cmp : (NonTerm NonTerm -> Ordering)])
   : (Dict NonTerm (List (ProductionRHS NonTerm Term)))
   (foldl
-    (lambda ([pr : (ProductionRule NonTerm Term)]
+    (lambda ([pr : (ProductionRule NonTerm Term Form)]
              [acc : (Dict NonTerm (List (ProductionRHS NonTerm Term)))])
       : (Dict NonTerm (List (ProductionRHS NonTerm Term)))
-      (match-define (production-rule nt rule symbols) pr)
+      (match-define (production-rule nt rule symbols _) pr)
       (dict-update
         acc
         nt
@@ -701,10 +701,24 @@
            non-term-cmp
            term-cmp)])]))
 
+(define [NonTerm Term Form]
+  (build-semantic-action-table
+    [rules : (List (ProductionRule NonTerm Term Form))])
+  : (Dict LiftedInt ((List Form) -> Form))
+  (dict-add-all
+    (make-dict lifted-int-cmp)
+    (map
+      (lambda ([rule : (ProductionRule NonTerm Term Form)])
+        (match-define (production-rule _nt rule-id _ f) rule)
+        (tuple2 (lifted-int rule-id) f))
+      rules)))
 
-(define [NonTerm Term] (build-parser [grammar : (Grammar NonTerm Term)]
-                                     [token->terminal : (l:Token -> Term)])
-  : (Either Bytes (Parser NonTerm Term))
+(define [NonTerm Term Form]
+  (build-parser
+    [grammar : (Grammar NonTerm Term Form)]
+    [token->form : (l:Token -> Form)]
+    [token->terminal : (l:Token -> Term)])
+  : (Either Bytes (Parser NonTerm Term Form))
   (match-define (grammar grammar-start rules non-term-cmp term-cmp) grammar)
 
 
@@ -718,6 +732,7 @@
   (match-define follow-table
     (build-follow-table grammar-start rules-dict empty-table first-table non-term-cmp
                         term-cmp))
+  (match-define semantic-action-table (build-semantic-action-table rules))
 
   (match-define action-map-entries
     (unique-dict-map
@@ -813,21 +828,25 @@
      (match-define action-map : (Dict StateId (Dict (LiftedTerm Term) (Action NonTerm)))
        (dict-add-all (make-dict state-id-cmp) action-map-entries))
 
-     (right (parser action-map goto-table token->terminal))]))
+     (right (parser action-map goto-table semantic-action-table token->form token->terminal))]))
 
-(define [NonTerm Term] (run-parser [parser : (Parser NonTerm Term)]
-                                   [lexer : (l:Lexer l:Token)])
-  : (Either Bytes (ParseTree l:Token))
+(define [NonTerm Term Form]
+  (run-parser
+    [parser : (Parser NonTerm Term Form)]
+    [lexer : (l:Lexer l:Token)])
+  : (Either Bytes Form)
   (case (lex-all lexer)
     [(left v) (left v)]
     [(right tokens)
-     (match-define initial-state : (ParserState l:Token)
+     (match-define initial-state : (ParserState l:Token Form)
        (parser-state (varargs list (state-id 0)) (empty) tokens))
      (run-parser* initial-state parser)]))
 
-(define [NonTerm Term] (run-parser* [state : (ParserState l:Token)]
-                                    [parser : (Parser NonTerm Term)])
-  : (Either Bytes (ParseTree l:Token))
+(define [NonTerm Term Form]
+  (run-parser*
+    [state : (ParserState l:Token Form)]
+    [parser : (Parser NonTerm Term Form)])
+  : (Either Bytes Form)
   (case (step-parser-state state parser)
     [(left v) (left v)]
     [(right (left next-state))
@@ -835,10 +854,13 @@
     [(right (right tree))
      (right tree)]))
 
-(define [NonTerm Term] (step-parser-state [s : (ParserState l:Token)] [p : (Parser NonTerm Term)])
-  : (Either Bytes (Either (ParserState l:Token) (ParseTree l:Token)))
-  (match-define (parser actions goto token->terminal) p)
-  (match-define (parser-state state-stack node-stack tokens) s)
+(define [NonTerm Term Form]
+  (step-parser-state
+    [s : (ParserState l:Token Form)]
+    [p : (Parser NonTerm Term Form)])
+  : (Either Bytes (Either (ParserState l:Token Form) Form))
+  (match-define (parser actions goto semantic-actions token->form token->terminal) p)
+  (match-define (parser-state state-stack form-stack tokens) s)
   (match-define current-state : StateId
     (case state-stack
       [(cons s _) s]
@@ -864,16 +886,16 @@
              (left
                (parser-state
                  (cons next-state state-stack)
-                 (cons (terminal-node token) node-stack)
+                 (cons (token->form token) form-stack)
                  tokens)))])]
        [(just (accept))
-        (case node-stack
-          [(empty) (left #"Cannot have empty node stack at accept")]
-          [(cons _ (cons _ _)) (left #"Cannot have long node stack at accept")]
-          [(cons node (empty))
-           (right (right node))])]
+        (case form-stack
+          [(empty) (left #"Cannot have empty form stack at accept")]
+          [(cons _ (cons _ _)) (left #"Cannot have long form stack at accept")]
+          [(cons form (empty))
+           (right (right form))])]
        [(just (reduce non-term rule num-symbols))
-        (match-define (tuple2 sub-trees shortened-node-stack) (pop-n num-symbols node-stack))
+        (match-define (tuple2 sub-trees shortened-form-stack) (pop-n num-symbols form-stack))
         (match-define shortened-state-stack (drop num-symbols state-stack))
         (match-define top-state : StateId
           (case shortened-state-stack
@@ -885,12 +907,15 @@
            (case (dict-ref state-goto non-term)
              [(nothing) (left #"No goto found for non-term")]
              [(just next-state)
-              (right
-                (left
-                  (parser-state
-                    (cons next-state shortened-state-stack)
-                    (cons (non-terminal-node rule sub-trees) shortened-node-stack)
-                    tokens)))])])])]))
+              (case (dict-ref semantic-actions (lifted-int rule))
+                [(nothing) (left #"No semantic action found")]
+                [(just semantic-action)
+                 (right
+                   (left
+                     (parser-state
+                       (cons next-state shortened-state-stack)
+                       (cons (semantic-action sub-trees) shortened-form-stack)
+                       tokens)))])])])])]))
 
 
 (define (lex-all [lexer : (l:Lexer l:Token)]) : (Either Bytes (List l:Token))
