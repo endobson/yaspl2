@@ -102,7 +102,8 @@
   (define-type (Parser NonTerm Term)
     (parser
       [action : (Dict StateId (Dict (LiftedTerm Term) (Action NonTerm)))]
-      [goto : (Dict StateId (Dict NonTerm StateId))]))
+      [goto : (Dict StateId (Dict NonTerm StateId))]
+      [token->terminal : (l:Token -> Term)]))
   (define-type (Action NonTerm)
     (shift [new-state : StateId])
     (reduce [non-term : NonTerm] [index : Int] [num-symbols : Int])
@@ -724,7 +725,8 @@
            term-cmp)])]))
 
 
-(define [NonTerm Term] (build-parser [grammar : (Grammar NonTerm Term)])
+(define [NonTerm Term] (build-parser [grammar : (Grammar NonTerm Term)]
+                                     [token->terminal : (l:Token -> Term)])
   : (Either Bytes (Parser NonTerm Term))
   (match-define (grammar grammar-start rules non-term-cmp term-cmp) grammar)
 
@@ -834,7 +836,7 @@
      (match-define action-map : (Dict StateId (Dict (LiftedTerm Term) (Action NonTerm)))
        (dict-add-all (make-dict state-id-cmp) action-map-entries))
 
-     (right (parser action-map goto-table))]))
+     (right (parser action-map goto-table token->terminal))]))
 
 (define (run-parser [parser : (Parser TestNonTerm TestTerm)]
                     [lexer : (l:Lexer l:Token)]) : (Either Bytes (ParseTree l:Token))
@@ -854,10 +856,9 @@
     [(right (right tree))
      (right tree)]))
 
-
 (define (step-parser-state [s : (ParserState l:Token)] [p : (Parser TestNonTerm TestTerm)])
   : (Either Bytes (Either (ParserState l:Token) (ParseTree l:Token)))
-  (match-define (parser actions goto) p)
+  (match-define (parser actions goto token->terminal) p)
   (match-define (parser-state state-stack node-stack tokens) s)
   (match-define current-state : StateId
     (case state-stack
@@ -866,12 +867,7 @@
   (match-define term-type : (LiftedTerm TestTerm)
     (case tokens
       [(empty) (end-of-terminals)]
-      [(cons (l:left-paren-token) _) (lifted-term (term/left-paren))]
-      [(cons (l:right-paren-token) _) (lifted-term (term/right-paren))]
-      [(cons (l:symbol-token _) _) (lifted-term (term/id))]
-      [(cons (l:plus-token) _) (lifted-term (term/plus))]
-      [(cons (l:multiplication-token) _) (lifted-term (term/times))]
-      [_ (panic #"Bad token type")]))
+      [(cons t _) (lifted-term (token->terminal t))]))
   (case (dict-ref actions current-state)
     [(nothing) (left #"Found state with no actions")]
     [(just state-actions)
