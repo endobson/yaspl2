@@ -93,7 +93,7 @@
       [goto : (Dict StateId (Dict NonTerm StateId))]
       [semantic-action : (Dict LiftedInt ((List Form) -> Form))]
       [token->form : (l:Token -> Form)]
-      [token->terminal : (l:Token -> Term)]))
+      [token->terminal : (l:Token -> (Either Bytes Term))]))
   (define-type (Action NonTerm)
     (shift [new-state : StateId])
     (reduce [non-term : NonTerm] [index : Int] [num-symbols : Int])
@@ -717,7 +717,7 @@
   (build-parser
     [grammar : (Grammar NonTerm Term Form)]
     [token->form : (l:Token -> Form)]
-    [token->terminal : (l:Token -> Term)])
+    [token->terminal : (l:Token -> (Either Bytes Term))])
   : (Either Bytes (Parser NonTerm Term Form))
   (match-define (grammar grammar-start rules non-term-cmp term-cmp) grammar)
 
@@ -865,57 +865,62 @@
     (case state-stack
       [(cons s _) s]
       [(empty) (panic #"Cannot have empty state stack")]))
-  (match-define term-type : (LiftedTerm Term)
-    (case tokens
-      [(empty) (end-of-terminals)]
-      [(cons t _) (lifted-term (token->terminal t))]))
-  (case (dict-ref actions current-state)
-    [(nothing) (left #"Found state with no actions")]
-    [(just state-actions)
-     (case (dict-ref state-actions term-type)
-       [(nothing)
-        (left (bytes-append (varargs list
-          #"In state "
-          (integer->decimal-bytes (state-id-v current-state))
-          #", no action for terminal")))]
-       [(just (shift next-state))
-        (case tokens
-          [(empty) (left #"Cannot shift when at end of terminals.")]
-          [(cons token tokens)
-           (right
-             (left
-               (parser-state
-                 (cons next-state state-stack)
-                 (cons (token->form token) form-stack)
-                 tokens)))])]
-       [(just (accept))
-        (case form-stack
-          [(empty) (left #"Cannot have empty form stack at accept")]
-          [(cons _ (cons _ _)) (left #"Cannot have long form stack at accept")]
-          [(cons form (empty))
-           (right (right form))])]
-       [(just (reduce non-term rule num-symbols))
-        (match-define (tuple2 sub-trees shortened-form-stack) (pop-n num-symbols form-stack))
-        (match-define shortened-state-stack (drop num-symbols state-stack))
-        (match-define top-state : StateId
-          (case shortened-state-stack
-            [(cons s _) s]
-            [(empty) (panic #"Cannot have empty state stack")]))
-        (case (dict-ref goto top-state)
-          [(nothing) (left #"Found state with no goto")]
-          [(just state-goto)
-           (case (dict-ref state-goto non-term)
-             [(nothing) (left #"No goto found for non-term")]
-             [(just next-state)
-              (case (dict-ref semantic-actions (lifted-int rule))
-                [(nothing) (left #"No semantic action found")]
-                [(just semantic-action)
-                 (right
-                   (left
-                     (parser-state
-                       (cons next-state shortened-state-stack)
-                       (cons (semantic-action sub-trees) shortened-form-stack)
-                       tokens)))])])])])]))
+  (case (ann (Either Bytes (LiftedTerm Term))
+             (case tokens
+               [(empty) (right (end-of-terminals))]
+               [(cons t _)
+                (case (token->terminal t)
+                  [(left v) (left v)]
+                  [(right t) (right (lifted-term t))])]))
+    [(left v) (left v)]
+    [(right term-type)
+     (case (dict-ref actions current-state)
+       [(nothing) (left #"Found state with no actions")]
+       [(just state-actions)
+        (case (dict-ref state-actions term-type)
+          [(nothing)
+           (left (bytes-append (varargs list
+             #"In state "
+             (integer->decimal-bytes (state-id-v current-state))
+             #", no action for terminal")))]
+          [(just (shift next-state))
+           (case tokens
+             [(empty) (left #"Cannot shift when at end of terminals.")]
+             [(cons token tokens)
+              (right
+                (left
+                  (parser-state
+                    (cons next-state state-stack)
+                    (cons (token->form token) form-stack)
+                    tokens)))])]
+          [(just (accept))
+           (case form-stack
+             [(empty) (left #"Cannot have empty form stack at accept")]
+             [(cons _ (cons _ _)) (left #"Cannot have long form stack at accept")]
+             [(cons form (empty))
+              (right (right form))])]
+          [(just (reduce non-term rule num-symbols))
+           (match-define (tuple2 sub-trees shortened-form-stack) (pop-n num-symbols form-stack))
+           (match-define shortened-state-stack (drop num-symbols state-stack))
+           (match-define top-state : StateId
+             (case shortened-state-stack
+               [(cons s _) s]
+               [(empty) (panic #"Cannot have empty state stack")]))
+           (case (dict-ref goto top-state)
+             [(nothing) (left #"Found state with no goto")]
+             [(just state-goto)
+              (case (dict-ref state-goto non-term)
+                [(nothing) (left #"No goto found for non-term")]
+                [(just next-state)
+                 (case (dict-ref semantic-actions (lifted-int rule))
+                   [(nothing) (left #"No semantic action found")]
+                   [(just semantic-action)
+                    (right
+                      (left
+                        (parser-state
+                          (cons next-state shortened-state-stack)
+                          (cons (semantic-action sub-trees) shortened-form-stack)
+                          tokens)))])])])])])]))
 
 
 (define (lex-all [lexer : (l:Lexer l:Token)]) : (Either Bytes (List l:Token))

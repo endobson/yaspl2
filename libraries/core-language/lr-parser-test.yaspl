@@ -4,6 +4,7 @@
   (core-language lexer)
   (core-language lr-parser)
   (data source-location)
+  (data lifted-primitives)
   (dict)
   (either)
   (list)
@@ -29,7 +30,8 @@
     (term/divide)
     (term/left-paren)
     (term/right-paren)
-    (term/id))
+    (term/id)
+    (term/number))
 
   (define-type BinOp
     (op/plus)
@@ -39,7 +41,8 @@
 
   (define-type Expr
     (bin-op-expr [op : BinOp] [l : Expr] [r : Expr])
-    (var-expr [var : Bytes]))
+    (var-expr [var : Bytes])
+    (int-expr [v : Int]))
 
   (define-type Form
     (form/expr [e : Expr])
@@ -55,7 +58,8 @@
         [(term/divide) 3]
         [(term/left-paren) 4]
         [(term/right-paren) 5]
-        [(term/id) 6])))
+        [(term/id) 6]
+        [(term/number) 7])))
   (int-cmp (convert a) (convert b)))
 
 (define (test-non-term-cmp [a : TestNonTerm] [b : TestNonTerm]) : Ordering
@@ -68,14 +72,17 @@
   (int-cmp (convert a) (convert b)))
 
 
-(define (token->terminal [token : Token]) : TestTerm
+(define (token->terminal [token : Token]) : (Either Bytes TestTerm)
   (case token
-    [(left-paren-token) (term/left-paren)]
-    [(right-paren-token) (term/right-paren)]
-    [(symbol-token _) (term/id)]
-    [(plus-token) (term/plus)]
-    [(multiplication-token) (term/times)]
-    [_ (panic #"Bad token type")]))
+    [(left-paren-token) (right (term/left-paren))]
+    [(right-paren-token) (right (term/right-paren))]
+    [(symbol-token _) (right (term/id))]
+    [(plus-token) (right (term/plus))]
+    [(minus-token) (right (term/minus))]
+    [(multiplication-token) (right (term/times))]
+    [(division-token) (right (term/divide))]
+    [(decimal-number-token _) (right (term/number))]
+    [_ (left #"Bad token type")]))
 
 (define (test-production-rules) : (List (ProductionRule TestNonTerm TestTerm Form))
   (match-define E* (non-term/E))
@@ -92,12 +99,20 @@
   (match-define < : (Symbol TestNonTerm TestTerm) (symbol/term (term/left-paren)))
   (match-define > : (Symbol TestNonTerm TestTerm) (symbol/term (term/right-paren)))
   (match-define id : (Symbol TestNonTerm TestTerm) (symbol/term (term/id)))
+  (match-define num : (Symbol TestNonTerm TestTerm) (symbol/term (term/number)))
 
   (match-define bin-op*
     (lambda ([forms : (List Form)]) : Form
       (case forms
-        [(cons (form/expr l) (cons _op (cons (form/expr r) (empty))))
-         (form/expr (bin-op-expr (op/plus) l r))]
+        [(cons (form/expr l) (cons (form/token t) (cons (form/expr r) (empty))))
+         (match-define op : BinOp
+           (case t
+             [(plus-token) (op/plus)]
+             [(minus-token) (op/minus)]
+             [(division-token) (op/divide)]
+             [(multiplication-token) (op/times)]
+             [_ (panic #"Bad bin op token")]))
+         (form/expr (bin-op-expr op l r))]
         [_ (panic #"Bad forms for bin-op")])))
 
   (match-define identity*
@@ -121,6 +136,15 @@
          (form/expr (var-expr v))]
         [_ (panic #"Bad forms for identifier")])))
 
+  (match-define num*
+    (lambda ([forms : (List Form)]) : Form
+      (case forms
+        [(cons (form/token (decimal-number-token v)) (empty))
+         (case (decimal-bytes->integer v)
+           [(nothing) (panic #"Bad decimal number token")]
+           [(just (lifted-int v)) (form/expr (int-expr v))])]
+        [_ (panic #"Bad forms for identifier")])))
+
 
   (varargs list
     (production-rule E* 1 (varargs list E + T) bin-op*)
@@ -130,7 +154,25 @@
     (production-rule T* 5 (varargs list T / F) bin-op*)
     (production-rule T* 6 (varargs list F) identity*)
     (production-rule F* 7 (varargs list < E >) parens*)
-    (production-rule F* 8 (varargs list id) var*)))
+    (production-rule F* 8 (varargs list id) var*)
+    (production-rule F* 9 (varargs list num) num*)))
+
+(define (eval [expr : Expr]) : (Either Bytes LiftedInt)
+  (case expr
+    [(var-expr v) (left #"Unbound variable")]
+    [(int-expr v) (right (lifted-int v))]
+    [(bin-op-expr op l r)
+     (case (eval l)
+       [(left v) (left v)]
+       [(right (lifted-int l))
+        (case (eval r)
+          [(left v) (left v)]
+          [(right (lifted-int r))
+           (case op
+             [(op/plus) (right (lifted-int (+ l r)))]
+             [(op/minus) (right (lifted-int (- l r)))]
+             [(op/times) (right (lifted-int (* l r)))]
+             [(op/divide) (right (lifted-int (quotient l r)))])])])]))
 
 (define (make-test-parser) : (Either Bytes (Parser TestNonTerm TestTerm Form))
   (build-parser (grammar (non-term/E) (test-production-rules)
@@ -147,6 +189,23 @@
        (case (run-parser parser lexer)
         [(left v) (just (failure v))]
         [(right _) (nothing)])])))
+
+(define (evals [input : Bytes] [expected-val : Int]) : (-> (Maybe FailedAssertion))
+  (lambda ()
+    (match-define lexer (make-core-lexer (sourced-bytes (unnamed-source) input)))
+    (case (make-test-parser)
+      [(left v) (just (failure v))]
+      [(right parser)
+       (case (run-parser parser lexer)
+        [(left v) (just (failure v))]
+        [(right (form/expr e))
+         (case (eval e)
+           [(left v) (just (failure v))]
+           [(right (lifted-int actual-val))
+            (expect-equal/int actual-val expected-val)])]
+        [(right _)
+         (just (failure #"Expected expression"))])])))
+
 
 
 (define (fails-parse [input : Bytes]) : (-> (Maybe FailedAssertion))
@@ -260,18 +319,28 @@
     [(term/divide) #"/"]
     [(term/left-paren) #"("]
     [(term/right-paren) #")"]
-    [(term/id) #"id"]))
+    [(term/id) #"id"]
+    [(term/number) #"num"]))
 
 (define (main [args : Bytes] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Int
   (yunit/main stderr
     (varargs list
       (test-case #"id" (parses #"x"))
+      (test-case #"number" (parses #"1"))
       (test-case #"plus" (parses #"x+y"))
-      (test-case #"plus-minus" (parses #"x+y-z+x"))
+      (test-case #"plus-minus" (parses #"x+y - z+x"))
       (test-case #"plus-times" (parses #"x*y+z"))
       (test-case #"parens" (parses #"(x+y)*z"))
       (test-case #"extra plus" (fails-parse #"x+"))
       (test-case #"unbalanced parens 1" (fails-parse #"(x+y"))
       (test-case #"unbalanced parens 2" (fails-parse #"(x+y))"))
+      (test-case #"eval number" (evals #"123" 123))
+      (test-case #"eval plus" (evals #"2+5" 7))
+      (test-case #"eval times" (evals #"2*5" 10))
+      (test-case #"eval minus" (evals #"5-2" 3))
+      (test-case #"eval divide" (evals #"6/2" 3))
+      (test-case #"eval order 1" (evals #"1+2*3" 7))
+      (test-case #"eval order 2" (evals #"(1+2)*3" 9))
+      (test-case #"eval order 3" (evals #"1+4*3/2-5" 2))
       )))
 

@@ -102,6 +102,7 @@ yaspl_test(
         "//libraries/data:bytes",
         "//libraries/data:dict",
         "//libraries/data:either",
+        "//libraries/data:lifted-primitives",
         "//libraries/data:list",
         "//libraries/data:maybe",
         "//libraries/data:numbers",
