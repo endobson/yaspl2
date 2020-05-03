@@ -104,6 +104,7 @@ yaspl_test(
         "//libraries/data:list",
         "//libraries/data:maybe",
         "//libraries/data:numbers",
+        "//libraries/data:ordering",
         "//libraries/data:set",
         "//libraries/data:source-location",
         "//libraries/data:unique-dict",

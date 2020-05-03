@@ -60,8 +60,6 @@
    lifted-non-term
    item-set
    item-cmp
-   test-non-term-cmp
-   test-term-cmp
 
    term/plus
    term/times
@@ -97,7 +95,9 @@
   (define-type (Grammar NonTerm Term)
     (grammar
       [start-symbol : NonTerm]
-      [rules : (List (ProductionRule NonTerm Term))]))
+      [rules : (List (ProductionRule NonTerm Term))]
+      [non-term-cmp : (NonTerm NonTerm -> Ordering)]
+      [term-cmp : (Term Term -> Ordering)]))
 
   (define-type (Parser NonTerm Term)
     (parser
@@ -204,30 +204,33 @@
       [(tuple2 (symbol/term t1) (symbol/term t2))
        (term-cmp t1 t2)])))
 
-(define [NonTerm Term] (symbol=? [non-term=? : (NonTerm NonTerm -> Boolean)]
-                                 [term=? : (Term Term -> Boolean)])
-  : ((Symbol NonTerm Term) (Symbol NonTerm Term) -> Boolean)
-  (lambda ([v1 : (Symbol NonTerm Term)] [v2 : (Symbol NonTerm Term)])
-    (case (tuple2 v1 v2)
-      [(tuple2 (symbol/non-term nt1) (symbol/non-term nt2))
-       (non-term=? nt1 nt2)]
-      [(tuple2 (symbol/term t1) (symbol/term t2))
-       (term=? t1 t2)]
-      [_ #f])))
-
-(define [NonTerm] (action=? [non-term=? : (NonTerm NonTerm -> Boolean)])
-  : ((Action NonTerm) (Action NonTerm) -> Boolean)
+(define [NonTerm] (action-cmp [non-term-cmp : (NonTerm NonTerm -> Ordering)])
+  : ((Action NonTerm) (Action NonTerm) -> Ordering)
   (lambda ([a1 : (Action NonTerm)] [a2 : (Action NonTerm)])
     (case (tuple2 a1 a2)
       [(tuple2 (shift (state-id s1)) (shift (state-id s2)))
-       (= s1 s2)]
-      [(tuple2 (reduce nt1 rule1 num-symbols1)
-               (reduce nt2 rule2 num-symbols2))
-       (and
-         (non-term=? nt1 nt2)
-         (and (= rule1 rule2) (= num-symbols1 num-symbols2)))]
-      [(tuple2 (accept) (accept)) #t]
-      [_ #f])))
+       (int-cmp s1 s2)]
+      [(tuple2 (shift _) (reduce _ _ _))
+       (less-than)]
+      [(tuple2 (shift _) (accept))
+       (less-than)]
+      [(tuple2 (reduce _ _ _) (shift _))
+       (greater-than)]
+      [(tuple2 (reduce nt1 rule1 _num-symbols1)
+               (reduce nt2 rule2 _num-symbols2))
+       (case (non-term-cmp nt1 nt2)
+         [(equal-to)
+          ;; Can ignore number of symbol since it is determined by rule number
+          (int-cmp rule1 rule2)]
+         [v v])]
+      [(tuple2 (reduce _ _ _) (accept))
+       (less-than)]
+      [(tuple2 (accept) (shift _))
+       (greater-than)]
+      [(tuple2 (accept) (reduce _ _ _))
+       (greater-than)]
+      [(tuple2 (accept) (accept))
+       (equal-to)])))
 
 
 (define [NonTerm Term] (item-cmp [non-term-cmp : (NonTerm NonTerm -> Ordering)]
@@ -253,49 +256,6 @@
     [(item _ _ (cons _ _) _) #t]
     [(item (start-symbol) _ (empty) _) #t]
     [_ #f]))
-
-
-
-(define (test-term=? [a : TestTerm] [b : TestTerm]) : Boolean
-  (match-define convert
-    (lambda ([v : TestTerm])
-      (case v
-        [(term/plus) 0]
-        [(term/times) 1]
-        [(term/left-paren) 2]
-        [(term/right-paren) 3]
-        [(term/id) 4])))
-  (= (convert a) (convert b)))
-
-
-(define (test-term-cmp [a : TestTerm] [b : TestTerm]) : Ordering
-  (match-define convert
-    (lambda ([v : TestTerm])
-      (case v
-        [(term/plus) 0]
-        [(term/times) 1]
-        [(term/left-paren) 2]
-        [(term/right-paren) 3]
-        [(term/id) 4])))
-  (int-cmp (convert a) (convert b)))
-
-(define (test-non-term=? [a : TestNonTerm] [b : TestNonTerm]) : Boolean
-  (match-define convert
-    (lambda ([v : TestNonTerm])
-      (case v
-        [(non-term/E) 0]
-        [(non-term/F) 1]
-        [(non-term/T) 2])))
-  (= (convert a) (convert b)))
-
-(define (test-non-term-cmp [a : TestNonTerm] [b : TestNonTerm]) : Ordering
-  (match-define convert
-    (lambda ([v : TestNonTerm])
-      (case v
-        [(non-term/E) 0]
-        [(non-term/F) 1]
-        [(non-term/T) 2])))
-  (int-cmp (convert a) (convert b)))
 
 (define [NonTerm Term] (production-rules-dict
                          [rules : (List (ProductionRule NonTerm Term))]
@@ -766,19 +726,19 @@
 
 (define (build-parser [grammar : (Grammar TestNonTerm TestTerm)])
   : (Either Bytes (Parser TestNonTerm TestTerm))
-  (match-define (grammar grammar-start rules) grammar)
+  (match-define (grammar grammar-start rules non-term-cmp term-cmp) grammar)
 
 
-  (match-define rules-dict (production-rules-dict rules test-non-term-cmp))
-  (match-define item-sets (canonical-item-sets grammar-start rules-dict test-non-term-cmp
-                                               test-term-cmp))
+  (match-define rules-dict (production-rules-dict rules non-term-cmp))
+  (match-define item-sets (canonical-item-sets grammar-start rules-dict non-term-cmp
+                                               term-cmp))
 
-  (match-define empty-table (build-empty-table rules-dict test-non-term-cmp))
-  (match-define first-table (build-first-table rules-dict empty-table test-non-term-cmp
-                                               test-term-cmp))
+  (match-define empty-table (build-empty-table rules-dict non-term-cmp))
+  (match-define first-table (build-first-table rules-dict empty-table non-term-cmp
+                                               term-cmp))
   (match-define follow-table
-    (build-follow-table grammar-start rules-dict empty-table first-table test-non-term-cmp
-                        test-term-cmp))
+    (build-follow-table grammar-start rules-dict empty-table first-table non-term-cmp
+                        term-cmp))
 
   (match-define action-map-entries
     (unique-dict-map
@@ -786,7 +746,7 @@
       (lambda ([is : (ItemSet TestNonTerm TestTerm)]
                [s : StateId])
         : (Either Bytes (Tuple2 StateId (Dict (LiftedTerm TestTerm) (Action TestNonTerm))))
-        (match-define full-set (closure is rules-dict test-non-term-cmp test-term-cmp))
+        (match-define full-set (closure is rules-dict non-term-cmp term-cmp))
 
         (match-define action-tuples
           (append*
@@ -796,7 +756,7 @@
                 (case item
                   [(item nt _ _ (cons (symbol/term term) _))
                    (case (goto full-set (ann (Symbol TestNonTerm TestTerm) (symbol/term term))
-                                        test-non-term-cmp test-term-cmp)
+                                        non-term-cmp term-cmp)
                      [(nothing) (panic #"Bad goto")]
                      [(just next-is)
                       (case (unique-dict-ref item-sets next-is)
@@ -828,13 +788,14 @@
                  (case (dict-ref dict term)
                    [(nothing) (right (dict-add dict term action))]
                    [(just existing-action)
-                    (if ((action=? test-non-term=?) action existing-action)
-                        acc
-                        (left #"action conflict"))])]))
+                    (case ((action-cmp non-term-cmp) action existing-action)
+                      [(equal-to) acc]
+                      [_
+                       (left #"action conflict")])])]))
             action-tuples
             (ann
               (Either Bytes (Dict (LiftedTerm TestTerm) (Action TestNonTerm)))
-              (right (make-dict (lifted-term-cmp test-term-cmp))))))
+              (right (make-dict (lifted-term-cmp term-cmp))))))
         (case action-dict
           [(left v) (left v)]
           [(right dict)
@@ -850,15 +811,15 @@
         item-sets
         (lambda ([is : (ItemSet TestNonTerm TestTerm)]
                  [s : StateId]) : (Tuple2 StateId (Dict TestNonTerm StateId))
-          (match-define full-items (closure is rules-dict test-non-term-cmp test-term-cmp))
+          (match-define full-items (closure is rules-dict non-term-cmp term-cmp))
           (tuple2
             s
             (dict-add-all
-              (make-dict test-non-term-cmp)
+              (make-dict non-term-cmp)
               (filter-map
                 (lambda ([nt : TestNonTerm]) : (Maybe (Tuple2 TestNonTerm StateId))
                   (case (goto full-items (ann (Symbol TestNonTerm TestTerm) (symbol/non-term nt))
-                              test-non-term-cmp test-term-cmp)
+                              non-term-cmp term-cmp)
                     [(nothing) (nothing)]
                     [(just next-state)
                      (case (unique-dict-ref item-sets next-state)
