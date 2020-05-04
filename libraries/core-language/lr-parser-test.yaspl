@@ -24,10 +24,12 @@
     (non-term/E)
     (non-term/F)
     (non-term/T)
+    (non-term/Type)
     (non-term/Statement)
     (non-term/Statements))
   (define-type TestTerm
     (term/punctuation [p : Punctuation])
+    (term/language-keyword [v : Bytes])
     (term/id)
     (term/number))
 
@@ -38,7 +40,11 @@
     (op/divide))
 
   (define-type Statement
-    (assignment-statement [v : Bytes] [e : Expr]))
+    (local-variable-statement [t : Type] [v : Bytes] [e : Expr])
+    (assignment-statement [v : Bytes] [e : Expr])
+    (while-statement [c : Expr] [ss : (List Statement)]))
+  (define-type Type
+    (var-type [v : Bytes]))
   (define-type Expr
     (bin-op-expr [op : BinOp] [l : Expr] [r : Expr])
     (var-expr [var : Bytes])
@@ -48,6 +54,7 @@
     (form/statement [s : Statement])
     (form/statements [ss : (List Statement)])
     (form/expr [e : Expr])
+    (form/type [t : Type])
     (form/token [t : Token])))
 
 (define (test-term-cmp [l : TestTerm] [r : TestTerm]) : Ordering
@@ -57,6 +64,12 @@
     [(tuple2 (term/punctuation _) _)
      (less-than)]
     [(tuple2 _ (term/punctuation _))
+     (greater-than)]
+    [(tuple2 (term/language-keyword l) (term/language-keyword r))
+     (bytes-cmp l r)]
+    [(tuple2 (term/language-keyword _) _)
+     (less-than)]
+    [(tuple2 _ (term/language-keyword _))
      (greater-than)]
     [(tuple2 (term/id) (term/id))
      (equal-to)]
@@ -74,8 +87,9 @@
         [(non-term/E) 0]
         [(non-term/F) 1]
         [(non-term/T) 2]
-        [(non-term/Statement) 3]
-        [(non-term/Statements) 4])))
+        [(non-term/Type) 3]
+        [(non-term/Statement) 4]
+        [(non-term/Statements) 5])))
   (int-cmp (convert a) (convert b)))
 
 
@@ -90,34 +104,36 @@
   (match-define E* (non-term/E))
   (match-define F* (non-term/F))
   (match-define T* (non-term/T))
+  (match-define Type* (non-term/Type))
   (match-define S* (non-term/Statement))
   (match-define Ss* (non-term/Statements))
 
-  (match-define E : (Symbol TestNonTerm TestTerm) (symbol/non-term (non-term/E)))
-  (match-define F : (Symbol TestNonTerm TestTerm) (symbol/non-term (non-term/F)))
-  (match-define T : (Symbol TestNonTerm TestTerm) (symbol/non-term (non-term/T)))
-  (match-define S : (Symbol TestNonTerm TestTerm) (symbol/non-term (non-term/Statement)))
-  (match-define Ss : (Symbol TestNonTerm TestTerm) (symbol/non-term (non-term/Statements)))
-  (match-define + : (Symbol TestNonTerm TestTerm)
-    (symbol/term (term/punctuation (punct/plus))))
-  (match-define - : (Symbol TestNonTerm TestTerm)
-    (symbol/term (term/punctuation (punct/minus))))
-  (match-define * : (Symbol TestNonTerm TestTerm)
-    (symbol/term (term/punctuation (punct/multiplication))))
-  (match-define / : (Symbol TestNonTerm TestTerm)
-    (symbol/term (term/punctuation (punct/division))))
-  (match-define < : (Symbol TestNonTerm TestTerm)
-    (symbol/term (term/punctuation (punct/left-paren))))
-  (match-define > : (Symbol TestNonTerm TestTerm)
-    (symbol/term (term/punctuation (punct/right-paren))))
-  (match-define := : (Symbol TestNonTerm TestTerm)
-    (symbol/term (term/punctuation (punct/assignment))))
-  (match-define ! : (Symbol TestNonTerm TestTerm)
-    (symbol/term (term/punctuation (punct/bang))))
-  (match-define id : (Symbol TestNonTerm TestTerm)
-    (symbol/term (term/id)))
-  (match-define num : (Symbol TestNonTerm TestTerm)
-    (symbol/term (term/number)))
+  (match-define symbol/term
+    (lambda ([x : TestTerm]) : (Symbol TestNonTerm TestTerm)
+      (symbol/term x)))
+  (match-define symbol/non-term
+    (lambda ([x : TestNonTerm]) : (Symbol TestNonTerm TestTerm)
+      (symbol/non-term x)))
+
+  (match-define E (symbol/non-term (non-term/E)))
+  (match-define F (symbol/non-term (non-term/F)))
+  (match-define T (symbol/non-term (non-term/T)))
+  (match-define Type (symbol/non-term (non-term/Type)))
+  (match-define S (symbol/non-term (non-term/Statement)))
+  (match-define Ss (symbol/non-term (non-term/Statements)))
+  (match-define + (symbol/term (term/punctuation (punct/plus))))
+  (match-define - (symbol/term (term/punctuation (punct/minus))))
+  (match-define * (symbol/term (term/punctuation (punct/multiplication))))
+  (match-define / (symbol/term (term/punctuation (punct/division))))
+  (match-define paren-< (symbol/term (term/punctuation (punct/left-paren))))
+  (match-define >-paren (symbol/term (term/punctuation (punct/right-paren))))
+  (match-define brace-< (symbol/term (term/punctuation (punct/left-brace))))
+  (match-define >-brace (symbol/term (term/punctuation (punct/right-brace))))
+  (match-define := (symbol/term (term/punctuation (punct/assignment))))
+  (match-define !  (symbol/term (term/punctuation (punct/bang))))
+  (match-define while (symbol/term (term/language-keyword #"while")))
+  (match-define id (symbol/term (term/id)))
+  (match-define num (symbol/term (term/number)))
 
   (match-define bin-op*
     (lambda ([forms : (List Form)]) : Form
@@ -170,6 +186,25 @@
          (form/statement (assignment-statement v e))]
         [_ (panic #"Bad forms for identifier")])))
 
+  (match-define local-variable*
+    (lambda ([forms : (List Form)]) : Form
+      (case forms
+        [(cons (form/type ty)
+               (cons (form/token (symbol-token v))
+                     (cons _:= (cons (form/expr e) (cons _! (empty))))))
+         (form/statement (local-variable-statement ty v e))]
+        [_ (panic #"Bad forms for identifier")])))
+
+
+  (match-define while*
+    (lambda ([forms : (List Form)]) : Form
+      (case forms
+        [(cons _while (cons _< (cons (form/expr e) (cons _>
+          (cons _< (cons (form/statements ss) (cons _> (empty))))))))
+         (form/statement (while-statement e ss))]
+        [_ (panic #"Bad forms for while statement")])))
+
+
   (match-define statements*
     (lambda ([forms : (List Form)]) : Form
       (case forms
@@ -179,6 +214,13 @@
          (form/statements (cons s ss))]
         [_ (panic #"Bad forms for statements")])))
 
+  (match-define var-type*
+    (lambda ([forms : (List Form)]) : Form
+      (case forms
+        [(cons (form/token (symbol-token v)) (empty))
+         (form/type (var-type v))]
+        [_ (panic #"Bad forms for variable type")])))
+
   (varargs list
     (production-rule E* 1 (varargs list E + T) bin-op*)
     (production-rule E* 2 (varargs list E - T) bin-op*)
@@ -186,12 +228,17 @@
     (production-rule T* 4 (varargs list T * F) bin-op*)
     (production-rule T* 5 (varargs list T / F) bin-op*)
     (production-rule T* 6 (varargs list F) identity*)
-    (production-rule F* 7 (varargs list < E >) parens*)
+    (production-rule F* 7 (varargs list paren-< E >-paren) parens*)
     (production-rule F* 8 (varargs list id) var*)
     (production-rule F* 9 (varargs list num) num*)
     (production-rule S* 10 (varargs list id := E !) assign*)
-    (production-rule Ss* 11 (empty) statements*)
-    (production-rule Ss* 12 (varargs list S Ss) statements*)))
+    (production-rule S* 11 (varargs list Type id := E !) local-variable*)
+    (production-rule S* 12 (varargs list while paren-< E >-paren brace-< Ss >-brace) while*)
+    (production-rule Ss* 13 (empty) statements*)
+    (production-rule Ss* 14 (varargs list S Ss) statements*)
+    (production-rule Type* 15 (varargs list id) var-type*)
+
+  ))
 
 (define (eval-statements [ss : (List Statement)] [env : (Dict Bytes LiftedInt)])
   : (Either Bytes (Dict Bytes LiftedInt))
@@ -206,13 +253,22 @@
 (define (eval-statement [s : Statement] [env : (Dict Bytes LiftedInt)])
   : (Either Bytes (Dict Bytes LiftedInt))
   (case s
-    [(assignment-statement id e)
+    [(local-variable-statement _ id e)
      (case (eval-expr e env)
        [(left v) (left v)]
        [(right v)
         (case (dict-maybe-add env id v)
           [(nothing) (left #"Variable already defined")]
-          [(just env) (right env)])])]))
+          [(just env) (right env)])])]
+    [(assignment-statement id e)
+     (case (eval-expr e env)
+       [(left v) (left v)]
+       [(right v)
+        (case (dict-maybe-replace env id v)
+          [(nothing) (left #"Variable not already defined")]
+          [(just env) (right env)])])]
+    [(while-statement e ss)
+     (left #"While not implemented")]))
 
 
 (define (eval-expr [expr : Expr] [env : (Dict Bytes LiftedInt)]) : (Either Bytes LiftedInt)
@@ -410,6 +466,7 @@
     [(non-term/E) #"E"]
     [(non-term/F) #"F"]
     [(non-term/T) #"T"]
+    [(non-term/Type) #"Ty"]
     [(non-term/Statement) #"S"]
     [(non-term/Statements) #"Ss"]))
 
@@ -452,7 +509,8 @@
       (test-case #"eval order 2" (evals #"(1+2)*3" 9))
       (test-case #"eval order 3" (evals #"1+4*3/2-5" 2))
       (test-case #"eval statement 1" (statements-evals #"" #"3" 3))
-      (test-case #"eval statement 2" (statements-evals #"x:=1!" #"x" 1))
-      (test-case #"eval statement 3" (statements-evals #"x:=2! y:=x!" #"y" 2))
+      (test-case #"eval statement 2" (statements-evals #"int x:=1!" #"x" 1))
+      (test-case #"eval statement 3" (statements-evals #"int x:=2! int y:=x!" #"y" 2))
+      (test-case #"eval statement 3" (statements-evals #"int x:=2! x:=x+x!" #"x" 4))
       )))
 
