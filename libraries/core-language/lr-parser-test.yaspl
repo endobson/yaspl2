@@ -5,6 +5,7 @@
   (core-language lr-parser)
   (data source-location)
   (data lifted-primitives)
+  (tuples)
   (dict)
   (either)
   (list)
@@ -26,16 +27,9 @@
     (non-term/Statement)
     (non-term/Statements))
   (define-type TestTerm
-    (term/plus)
-    (term/minus)
-    (term/times)
-    (term/divide)
-    (term/left-paren)
-    (term/right-paren)
+    (term/punctuation [p : Punctuation])
     (term/id)
-    (term/number)
-    (term/bang)
-    (term/assignment))
+    (term/number))
 
   (define-type BinOp
     (op/plus)
@@ -56,21 +50,22 @@
     (form/expr [e : Expr])
     (form/token [t : Token])))
 
-(define (test-term-cmp [a : TestTerm] [b : TestTerm]) : Ordering
-  (match-define convert
-    (lambda ([v : TestTerm])
-      (case v
-        [(term/plus) 0]
-        [(term/minus) 1]
-        [(term/times) 2]
-        [(term/divide) 3]
-        [(term/left-paren) 4]
-        [(term/right-paren) 5]
-        [(term/id) 6]
-        [(term/number) 7]
-        [(term/bang) 8]
-        [(term/assignment) 9])))
-  (int-cmp (convert a) (convert b)))
+(define (test-term-cmp [l : TestTerm] [r : TestTerm]) : Ordering
+  (case (tuple2 l r)
+    [(tuple2 (term/punctuation l) (term/punctuation r))
+     (punctuation-cmp l r)]
+    [(tuple2 (term/punctuation _) _)
+     (less-than)]
+    [(tuple2 _ (term/punctuation _))
+     (greater-than)]
+    [(tuple2 (term/id) (term/id))
+     (equal-to)]
+    [(tuple2 (term/id) _)
+     (less-than)]
+    [(tuple2 _ (term/id))
+     (greater-than)]
+    [(tuple2 (term/number) (term/number))
+     (equal-to)]))
 
 (define (test-non-term-cmp [a : TestNonTerm] [b : TestNonTerm]) : Ordering
   (match-define convert
@@ -86,14 +81,7 @@
 
 (define (token->terminal [token : Token]) : (Either Bytes TestTerm)
   (case token
-    [(left-paren-token) (right (term/left-paren))]
-    [(right-paren-token) (right (term/right-paren))]
-    [(plus-token) (right (term/plus))]
-    [(minus-token) (right (term/minus))]
-    [(multiplication-token) (right (term/times))]
-    [(division-token) (right (term/divide))]
-    [(bang-token) (right (term/bang))]
-    [(assignment-token) (right (term/assignment))]
+    [(punctuation-token p) (right (term/punctuation p))]
     [(symbol-token _) (right (term/id))]
     [(decimal-number-token _) (right (term/number))]
     [_ (left #"Bad token type")]))
@@ -110,16 +98,26 @@
   (match-define T : (Symbol TestNonTerm TestTerm) (symbol/non-term (non-term/T)))
   (match-define S : (Symbol TestNonTerm TestTerm) (symbol/non-term (non-term/Statement)))
   (match-define Ss : (Symbol TestNonTerm TestTerm) (symbol/non-term (non-term/Statements)))
-  (match-define + : (Symbol TestNonTerm TestTerm) (symbol/term (term/plus)))
-  (match-define - : (Symbol TestNonTerm TestTerm) (symbol/term (term/minus)))
-  (match-define * : (Symbol TestNonTerm TestTerm) (symbol/term (term/times)))
-  (match-define / : (Symbol TestNonTerm TestTerm) (symbol/term (term/divide)))
-  (match-define < : (Symbol TestNonTerm TestTerm) (symbol/term (term/left-paren)))
-  (match-define > : (Symbol TestNonTerm TestTerm) (symbol/term (term/right-paren)))
-  (match-define := : (Symbol TestNonTerm TestTerm) (symbol/term (term/assignment)))
-  (match-define id : (Symbol TestNonTerm TestTerm) (symbol/term (term/id)))
-  (match-define num : (Symbol TestNonTerm TestTerm) (symbol/term (term/number)))
-  (match-define ! : (Symbol TestNonTerm TestTerm) (symbol/term (term/bang)))
+  (match-define + : (Symbol TestNonTerm TestTerm)
+    (symbol/term (term/punctuation (punct/plus))))
+  (match-define - : (Symbol TestNonTerm TestTerm)
+    (symbol/term (term/punctuation (punct/minus))))
+  (match-define * : (Symbol TestNonTerm TestTerm)
+    (symbol/term (term/punctuation (punct/multiplication))))
+  (match-define / : (Symbol TestNonTerm TestTerm)
+    (symbol/term (term/punctuation (punct/division))))
+  (match-define < : (Symbol TestNonTerm TestTerm)
+    (symbol/term (term/punctuation (punct/left-paren))))
+  (match-define > : (Symbol TestNonTerm TestTerm)
+    (symbol/term (term/punctuation (punct/right-paren))))
+  (match-define := : (Symbol TestNonTerm TestTerm)
+    (symbol/term (term/punctuation (punct/assignment))))
+  (match-define ! : (Symbol TestNonTerm TestTerm)
+    (symbol/term (term/punctuation (punct/bang))))
+  (match-define id : (Symbol TestNonTerm TestTerm)
+    (symbol/term (term/id)))
+  (match-define num : (Symbol TestNonTerm TestTerm)
+    (symbol/term (term/number)))
 
   (match-define bin-op*
     (lambda ([forms : (List Form)]) : Form
@@ -127,10 +125,10 @@
         [(cons (form/expr l) (cons (form/token t) (cons (form/expr r) (empty))))
          (match-define op : BinOp
            (case t
-             [(plus-token) (op/plus)]
-             [(minus-token) (op/minus)]
-             [(division-token) (op/divide)]
-             [(multiplication-token) (op/times)]
+             [(punctuation-token (punct/plus)) (op/plus)]
+             [(punctuation-token (punct/minus)) (op/minus)]
+             [(punctuation-token (punct/division)) (op/divide)]
+             [(punctuation-token (punct/multiplication)) (op/times)]
              [_ (panic #"Bad bin op token")]))
          (form/expr (bin-op-expr op l r))]
         [_ (panic #"Bad forms for bin-op")])))
@@ -325,86 +323,86 @@
          [(left v) (nothing)]
          [(right _) (just (failure #"Expected failed parse but parsing suceeded"))])])))
 
-(define (print-test-case) : (Maybe FailedAssertion)
-  (case (make-test-expr-parser)
-    [(left v) (just (failure v))]
-    [(right parser)
-     (match-define action-map (parser-action parser))
-     (match-define output : (List Bytes)
-       (interleave
-         (dict-map
-           action-map
-           (lambda ([s : StateId] [d : (Dict (LiftedTerm TestTerm) (Action TestNonTerm))])
-             (bytes-append
-               (varargs list
-                 (integer->decimal-bytes (state-id-v s))
-                 #": "
-                 (bytes-append
-                   (interleave
-                     (dict-map
-                       d
-                       (lambda ([t : (LiftedTerm TestTerm)]
-                                [act : (Action TestNonTerm)])
-                         (bytes-append
-                           (varargs list
-                             (print-lifted-term t)
-                             (case act
-                               [(accept) #":<accept>"]
-                               [(reduce _ _ _) #":<reduce>"]
-                               [(shift (state-id s))
-                                (bytes-append
-                                  (varargs list
-                                    #":<s " (integer->decimal-bytes s) #">"))])))))
-                     #" "))
-                 ))))
-         #"\n"))
-     (just (failure (bytes-append (cons #"\n" output))))]))
+;(define (print-test-case) : (Maybe FailedAssertion)
+;  (case (make-test-expr-parser)
+;    [(left v) (just (failure v))]
+;    [(right parser)
+;     (match-define action-map (parser-action parser))
+;     (match-define output : (List Bytes)
+;       (interleave
+;         (dict-map
+;           action-map
+;           (lambda ([s : StateId] [d : (Dict (LiftedTerm TestTerm) (Action TestNonTerm))])
+;             (bytes-append
+;               (varargs list
+;                 (integer->decimal-bytes (state-id-v s))
+;                 #": "
+;                 (bytes-append
+;                   (interleave
+;                     (dict-map
+;                       d
+;                       (lambda ([t : (LiftedTerm TestTerm)]
+;                                [act : (Action TestNonTerm)])
+;                         (bytes-append
+;                           (varargs list
+;                             (print-lifted-term t)
+;                             (case act
+;                               [(accept) #":<accept>"]
+;                               [(reduce _ _ _) #":<reduce>"]
+;                               [(shift (state-id s))
+;                                (bytes-append
+;                                  (varargs list
+;                                    #":<s " (integer->decimal-bytes s) #">"))])))))
+;                     #" "))
+;                 ))))
+;         #"\n"))
+;     (just (failure (bytes-append (cons #"\n" output))))]))
 
 
-(define (print-first-test-case) : (Maybe FailedAssertion)
-  (match-define rules (test-production-rules))
-  (match-define rules-dict (production-rules-dict rules test-non-term-cmp))
-  (match-define empty-table (build-empty-table rules-dict test-non-term-cmp))
-  (match-define first-table (build-first-table rules-dict empty-table test-non-term-cmp
-                                               test-term-cmp))
+;(define (print-first-test-case) : (Maybe FailedAssertion)
+;  (match-define rules (test-production-rules))
+;  (match-define rules-dict (production-rules-dict rules test-non-term-cmp))
+;  (match-define empty-table (build-empty-table rules-dict test-non-term-cmp))
+;  (match-define first-table (build-first-table rules-dict empty-table test-non-term-cmp
+;                                               test-term-cmp))
+;
+;
+;  (match-define output
+;    (dict-map
+;      first-table
+;      (lambda ([v : TestNonTerm] [s : (Set TestTerm)])
+;        (bytes-append
+;          (varargs list
+;            (print-non-term v)
+;            #": "
+;            (bytes-append (interleave (map print-term (set->list s)) #" "))
+;            #"\n")))))
+;
+;  (just (failure (bytes-append (cons #"\n" output)))))
 
 
-  (match-define output
-    (dict-map
-      first-table
-      (lambda ([v : TestNonTerm] [s : (Set TestTerm)])
-        (bytes-append
-          (varargs list
-            (print-non-term v)
-            #": "
-            (bytes-append (interleave (map print-term (set->list s)) #" "))
-            #"\n")))))
-
-  (just (failure (bytes-append (cons #"\n" output)))))
-
-
-(define (print-follow-test-case) : (Maybe FailedAssertion)
-  (match-define rules (test-production-rules))
-  (match-define rules-dict (production-rules-dict rules test-non-term-cmp))
-  (match-define empty-table (build-empty-table rules-dict test-non-term-cmp))
-  (match-define first-table (build-first-table rules-dict empty-table test-non-term-cmp test-term-cmp))
-  (match-define follow-table (build-follow-table (non-term/E)
-                                                 rules-dict empty-table first-table test-non-term-cmp
-                                                 test-term-cmp))
-
-
-  (match-define output
-    (dict-map
-      follow-table
-      (lambda ([v : TestNonTerm] [s : (Set (LiftedTerm TestTerm))])
-        (bytes-append
-          (varargs list
-            (print-non-term v)
-            #": "
-            (bytes-append (interleave (map print-lifted-term (set->list s)) #" "))
-            #"\n")))))
-
-  (just (failure (bytes-append (cons #"\n" output)))))
+;(define (print-follow-test-case) : (Maybe FailedAssertion)
+;  (match-define rules (test-production-rules))
+;  (match-define rules-dict (production-rules-dict rules test-non-term-cmp))
+;  (match-define empty-table (build-empty-table rules-dict test-non-term-cmp))
+;  (match-define first-table (build-first-table rules-dict empty-table test-non-term-cmp test-term-cmp))
+;  (match-define follow-table (build-follow-table (non-term/E)
+;                                                 rules-dict empty-table first-table test-non-term-cmp
+;                                                 test-term-cmp))
+;
+;
+;  (match-define output
+;    (dict-map
+;      follow-table
+;      (lambda ([v : TestNonTerm] [s : (Set (LiftedTerm TestTerm))])
+;        (bytes-append
+;          (varargs list
+;            (print-non-term v)
+;            #": "
+;            (bytes-append (interleave (map print-lifted-term (set->list s)) #" "))
+;            #"\n")))))
+;
+;  (just (failure (bytes-append (cons #"\n" output)))))
 
 
 (define (print-non-term [nt : TestNonTerm]) : Bytes
@@ -415,23 +413,23 @@
     [(non-term/Statement) #"S"]
     [(non-term/Statements) #"Ss"]))
 
-(define (print-lifted-term [t : (LiftedTerm TestTerm)]) : Bytes
-  (case t
-    [(end-of-terminals) #"$"]
-    [(lifted-term t) (print-term t)]))
-
-(define (print-term [t : TestTerm]) : Bytes
-  (case t
-    [(term/plus) #"+"]
-    [(term/minus) #"-"]
-    [(term/times) #"*"]
-    [(term/divide) #"/"]
-    [(term/left-paren) #"("]
-    [(term/right-paren) #")"]
-    [(term/bang) #"!"]
-    [(term/assignment) #":="]
-    [(term/id) #"id"]
-    [(term/number) #"num"]))
+;(define (print-lifted-term [t : (LiftedTerm TestTerm)]) : Bytes
+;  (case t
+;    [(end-of-terminals) #"$"]
+;    [(lifted-term t) (print-term t)]))
+;
+;(define (print-term [t : TestTerm]) : Bytes
+;  (case t
+;    [(term/plus) #"+"]
+;    [(term/minus) #"-"]
+;    [(term/times) #"*"]
+;    [(term/divide) #"/"]
+;    [(term/left-paren) #"("]
+;    [(term/right-paren) #")"]
+;    [(term/bang) #"!"]
+;    [(term/assignment) #":="]
+;    [(term/id) #"id"]
+;    [(term/number) #"num"]))
 
 (define (main [args : Bytes] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Int
   (yunit/main stderr
