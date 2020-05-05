@@ -258,15 +258,24 @@
 (define (attempt-result-based-unification
           [type-vars : (List Bytes)]
           [result-type : Type]
-          [expected-type : (Maybe Type)])
-  : (Maybe (Dict Bytes Type))
-  (case expected-type
-    [(nothing)
-     (case type-vars
-       [(empty) (just (make-dict bytes-cmp))]
-       [_ (nothing)])]
-    [(just t)
-     (attempt-unification type-vars result-type t)]))
+          [expected-type : (Maybe Type)]
+          [argument-types : (List Type)])
+  : (List (Maybe Type))
+  (match-define subst : (Maybe (Dict Bytes Type))
+    (case expected-type
+      [(nothing)
+       (case type-vars
+         [(empty) (just (make-dict bytes-cmp))]
+         [_ (nothing)])]
+      [(just t)
+       (attempt-unification type-vars result-type t)]))
+  (map
+    (lambda ([arg : Type]) : (Maybe Type)
+      (case subst
+        [(nothing) (nothing)]
+        [(just subst)
+         (just (substitute-types arg subst))]))
+    argument-types))
 
 (define (attempt-unification [type-vars : (List Bytes)] [t : Type] [final-type : Type])
   : (Maybe (Dict Bytes Type))
@@ -405,7 +414,10 @@
      (case (type-check/expr op context (nothing))
        [(left v) (left v)]
        [(right (fun-type type-vars arg-types result-type))
-        (case (zip args arg-types)
+        (match-define expected-args
+          (attempt-result-based-unification type-vars result-type expected-type arg-types))
+
+        (case (zip args expected-args)
           [(nothing)
            (local-type-check-error*
              (bytes-append
@@ -415,18 +427,12 @@
                  #"\nExpected: " (integer->decimal-bytes (length arg-types))))
              src)]
           [(just merged-args)
-           (match-define maybe-subst
-             (attempt-result-based-unification type-vars result-type expected-type))
            (case
              (map/join-failure
-               (lambda ([arg : (Tuple2 Expression Type)])
-                 (case arg
-                   [(tuple2 arg type)
-                    (case maybe-subst
-                      [(nothing) (type-check/expr arg context (nothing))]
-                      [(just subst) (type-check/expr arg context
-                                                     (just (substitute-types type subst)))])]))
-                merged-args)
+               (lambda ([v : (Tuple2 Expression (Maybe Type))])
+                 (match-define (tuple2 arg expected-type) v)
+                 (type-check/expr arg context expected-type))
+               merged-args)
              [(left v) (left v)]
              [(right actual-arg-types)
               (match-define (tuple2 type-var-uvars s)
@@ -478,10 +484,10 @@
         (local-type-check-error* #"Unbound static" op-src)]
        [(just (varargs-info type-vars arg-type return-type))
         (match-define expected-arg-type : (Maybe Type)
-          (case (attempt-result-based-unification type-vars return-type expected-type)
-            [(nothing) (nothing)]
-            [(just subst)
-             (just (substitute-types arg-type subst))]))
+          (case (attempt-result-based-unification
+                  type-vars return-type expected-type (varargs list arg-type))
+            [(cons t (empty)) t]
+            [_ (panic #"Wrong amount of arg type")]))
         (case (map/join-failure
                 (lambda ([arg : Expression])
                   (type-check/expr arg context expected-arg-type))
