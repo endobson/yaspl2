@@ -108,10 +108,8 @@ yaspl_test(
         "//libraries/data:maybe",
         "//libraries/data:numbers",
         "//libraries/data:ordering",
-        "//libraries/data:set",
         "//libraries/data:source-location",
         "//libraries/data:tuples",
-        "//libraries/data:unique-dict",
     ],
 )
 
