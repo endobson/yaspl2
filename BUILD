@@ -9,6 +9,7 @@ ALL_PACKAGES = [
     "//libraries/code-http-server",
     "//libraries/core-language",
     "//libraries/data",
+    "//libraries/os",
     "//libraries/prim-language",
     "//libraries/prim-language/examples",
     "//libraries/protocols/http",
