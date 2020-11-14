@@ -123,6 +123,8 @@
     gpt-sector2))
 
 
+(define fat-volume-id #"\xba\xab\xad\xde")
+
 (define fat-bpb-sector
   (let ([fat-bpb-sector (make-bytes 512)])
     (bytes-copy! fat-bpb-sector 0  #"\xeb\x58\x90")      ; Jump instruction
@@ -149,7 +151,7 @@
     (bytes-copy! fat-bpb-sector 64 #"\x80")          ; Drive Number
     (bytes-copy! fat-bpb-sector 65 #"\x00")          ; Reserved1
     (bytes-copy! fat-bpb-sector 66 #"\x29")          ; Boot Sig
-    (bytes-copy! fat-bpb-sector 67 #"\xe5\x11\x43\xF7") ; VolId
+    (bytes-copy! fat-bpb-sector 67 fat-volume-id) ; VolId
     (bytes-copy! fat-bpb-sector 71 #"NO NAME    ") ; VolLab
     (bytes-copy! fat-bpb-sector 82 #"FAT32   ") ; Format Name
     ;; Boot code
@@ -172,8 +174,8 @@
     (bytes-copy! fat-fsinfo-sector 0   #"RRaA")             ; Signature
                                                             ; Reserved
     (bytes-copy! fat-fsinfo-sector 484 #"rrAa")             ; Signature part 2
-    (bytes-copy! fat-fsinfo-sector 488 #"\x0e\xf0\x03\x00") ; Number of free clusters
-    (bytes-copy! fat-fsinfo-sector 492 #"\x1b\x00\x00\x00") ; Last allocated cluster
+    (bytes-copy! fat-fsinfo-sector 488 #"\x1d\xf0\x03\x00") ; Number of free clusters
+    (bytes-copy! fat-fsinfo-sector 492 #"\x03\x00\x00\x00") ; Last allocated cluster
                                                             ; Reserved
     (bytes-copy! fat-fsinfo-sector 508 #"\x00\x00\x55\xAA") ; Signature part 3
 
@@ -190,6 +192,16 @@
     (bytes-copy! fat-fsinfo-sector2 508 #"\x00\x00\x55\xAA") ; Signature part 3
 
     fat-fsinfo-sector2))
+
+
+(define fat-file-allocation-table
+  (let ([fat-file-allocation-table (make-bytes 512)])
+    (bytes-copy! fat-file-allocation-table 0   #"\xf8\xff\xff")
+    (bytes-copy! fat-file-allocation-table 3   #"\x0f\xff\xff\xff")
+    (bytes-copy! fat-file-allocation-table 7   #"\x0f\xff\xff\xff")
+    (bytes-copy! fat-file-allocation-table 11  #"\x0f")
+
+    fat-file-allocation-table))
 
 
 
@@ -212,16 +224,30 @@
     (for ([i (- 2048 34)])
       (write-all-bytes blank-sector out))
 
-    (for ([i (- (* 2048 16 64) 2048 33)])
+    (write-all-bytes fat-bpb-sector out)
+    (write-all-bytes fat-fsinfo-sector out)
+
+    (for ([i 4])
       (write-all-bytes blank-sector out))
-    ;;(write-all-bytes fat-bpb-sector out)
-    ;;(write-all-bytes fat-fsinfo-sector out)
-    ;;(for ([i 4])
-    ;;  (write-all-bytes blank-sector out))
-    ;;(write-all-bytes fat-bpb-sector out)
-    ;;(write-all-bytes fat-fsinfo-sector2 out)
-    ;;(for ([i 24])
-    ;;  (write-all-bytes blank-sector out))
+
+    (write-all-bytes fat-bpb-sector out)
+    (write-all-bytes fat-fsinfo-sector2 out)
+    (for ([i 24])
+      (write-all-bytes blank-sector out))
+
+    (write-all-bytes fat-file-allocation-table out)
+
+    (for ([i (- 2048 32)])
+      (write-all-bytes blank-sector out))
+
+    (write-all-bytes fat-file-allocation-table out)
+
+    (for ([i (- 2048 1)])
+      (write-all-bytes blank-sector out))
+
+    (for ([i (- (* 2048 16 64) 2048 2048 2048 34)])
+      (write-all-bytes blank-sector out))
+
 
     (write-all-bytes partition-entries out)
     (write-all-bytes gpt-sector2 out)
