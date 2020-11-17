@@ -1,5 +1,5 @@
 workspace(name = "yaspl")
-load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
+load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive", "http_file")
 
 http_archive(
   name = "minimal_racket",
@@ -44,3 +44,9 @@ http_archive(
 load("@io_bazel_rules_docker//repositories:repositories.bzl",
      container_repositories = "repositories")
 container_repositories()
+
+http_file(
+  name = "ovmf_code",
+  sha256 = "81ede7af3351a1710a4d4a35655fac10bedb11ae3484ae785820803a5bf69829",
+  urls = ["https://github.com/clearlinux/common/raw/9749d00c562b5852eb192567335f82eca434c4be/OVMF_CODE.fd"],
+)
