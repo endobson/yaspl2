@@ -180,13 +180,13 @@
   (bytes-copy! fat-bpb-sector #x1fe #"\x55\xaa"))
 
 (define-sector fat-fsinfo-sector
-  (bytes-copy! fat-fsinfo-sector 0   #"RRaA")              ; Signature
-                                                           ; Reserved
-  (bytes-copy! fat-fsinfo-sector 484 #"rrAa")              ; Signature part 2
-  (bytes-copy! fat-fsinfo-sector 488 #"\x1d\xf0\x03\x00")  ; Number of free clusters
-  (bytes-copy! fat-fsinfo-sector 492 #"\x03\x00\x00\x00")  ; Last allocated cluster
-                                                           ; Reserved
-  (bytes-copy! fat-fsinfo-sector 508 #"\x00\x00\x55\xAA")) ; Signature part 3
+  (bytes-copy! fat-fsinfo-sector 0   #"RRaA")                     ; Signature
+                                                                  ; Reserved
+  (bytes-copy! fat-fsinfo-sector 484 #"rrAa")                     ; Signature part 2
+  (integer->integer-bytes #x03f01c 4 #f #f fat-fsinfo-sector 488) ; Number of free clusters
+  (bytes-copy! fat-fsinfo-sector 492 #"\x03\x00\x00\x00")         ; Last allocated cluster
+                                                                  ; Reserved
+  (bytes-copy! fat-fsinfo-sector 508 #"\x00\x00\x55\xAA"))        ; Signature part 3
 
 (define-sector fat-fsinfo-sector2
   (bytes-copy! fat-fsinfo-sector2 0   #"RRaA")              ; Signature
@@ -199,12 +199,29 @@
 
 
 (define-sector fat-file-allocation-table
-  (bytes-copy! fat-file-allocation-table 0   #"\xf8\xff\xff")
-  (bytes-copy! fat-file-allocation-table 3   #"\x0f\xff\xff\xff")
-  (bytes-copy! fat-file-allocation-table 7   #"\x0f\xff\xff\xff")
-  (bytes-copy! fat-file-allocation-table 11  #"\x0f"))
+  (bytes-copy! fat-file-allocation-table 0   #"\xf8\xff\xff\x0f")
+  (bytes-copy! fat-file-allocation-table 4   #"\xff\xff\xff\x0f")
+  (bytes-copy! fat-file-allocation-table 8   #"\xff\xff\xff\x0f")
+  (bytes-copy! fat-file-allocation-table 12  #"\xff\xff\xff\x0f"))
 
 
+(define-sector test-file-sector
+  (bytes-copy! test-file-sector 0 #"Hello World\n"))
+
+(define-sector dir-entry-sector
+  (bytes-copy! dir-entry-sector 0  #"TEST    ")          ; Filename
+  (bytes-copy! dir-entry-sector 8  #"TXT")               ; Extension
+  (bytes-copy! dir-entry-sector 11 #"\x20")              ; Attributes
+  (bytes-copy! dir-entry-sector 12 #"\x18")              ; Reserved
+  (bytes-copy! dir-entry-sector 13 #"\x00")              ; Creation milliseconds
+  (bytes-copy! dir-entry-sector 14 #"\x5c\x64")          ; Creation time
+  (bytes-copy! dir-entry-sector 16 #"\x22\x50")          ; Creation date
+  (bytes-copy! dir-entry-sector 18 #"\x22\x50")          ; Last access date
+  (bytes-copy! dir-entry-sector 20 #"\x00\x00")          ; High word of first cluster
+  (bytes-copy! dir-entry-sector 22 #"\x5c\x64")          ; Modified time
+  (bytes-copy! dir-entry-sector 24 #"\x22\x50")          ; Modified date
+  (bytes-copy! dir-entry-sector 26 #"\x03\x00")          ; Low word of first cluster
+  (bytes-copy! dir-entry-sector 28 #"\x0c\x00\x00\x00")) ; Size
 
 (define (write-all-bytes b p)
   (let loop ([offset 0])
@@ -241,7 +258,11 @@
 
     (write-all-bytes blank-sector out)
     (write-all-bytes fat-file-allocation-table out)
-    (for ([i (- 2048 2)])
+    (for ([i (- 2048 32)])
+      (write-all-bytes blank-sector out))
+    (write-all-bytes dir-entry-sector out)
+    (write-all-bytes test-file-sector out)
+    (for ([i 28])
       (write-all-bytes blank-sector out))
     ;; 3 * 2048 sectors
 
