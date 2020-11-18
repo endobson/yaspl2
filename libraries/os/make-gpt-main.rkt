@@ -183,8 +183,8 @@
   (bytes-copy! fat-fsinfo-sector 0   #"RRaA")                     ; Signature
                                                                   ; Reserved
   (bytes-copy! fat-fsinfo-sector 484 #"rrAa")                     ; Signature part 2
-  (integer->integer-bytes #x03f01c 4 #f #f fat-fsinfo-sector 488) ; Number of free clusters
-  (bytes-copy! fat-fsinfo-sector 492 #"\x03\x00\x00\x00")         ; Last allocated cluster
+  (integer->integer-bytes #x03f01a 4 #f #f fat-fsinfo-sector 488) ; Number of free clusters
+  (bytes-copy! fat-fsinfo-sector 492 #"\x05\x00\x00\x00")         ; Last allocated cluster
                                                                   ; Reserved
   (bytes-copy! fat-fsinfo-sector 508 #"\x00\x00\x55\xAA"))        ; Signature part 3
 
@@ -202,26 +202,162 @@
   (bytes-copy! fat-file-allocation-table 0   #"\xf8\xff\xff\x0f")
   (bytes-copy! fat-file-allocation-table 4   #"\xff\xff\xff\x0f")
   (bytes-copy! fat-file-allocation-table 8   #"\xff\xff\xff\x0f")
-  (bytes-copy! fat-file-allocation-table 12  #"\xff\xff\xff\x0f"))
+  (bytes-copy! fat-file-allocation-table 12  #"\xff\xff\xff\x0f")
+  (bytes-copy! fat-file-allocation-table 16  #"\xff\xff\xff\x0f")
+  (bytes-copy! fat-file-allocation-table 20  #"\xff\xff\xff\x0f"))
 
 
 (define-sector test-file-sector
   (bytes-copy! test-file-sector 0 #"Hello World\n"))
 
-(define-sector dir-entry-sector
-  (bytes-copy! dir-entry-sector 0  #"TEST    ")          ; Filename
-  (bytes-copy! dir-entry-sector 8  #"TXT")               ; Extension
-  (bytes-copy! dir-entry-sector 11 #"\x20")              ; Attributes
-  (bytes-copy! dir-entry-sector 12 #"\x18")              ; Reserved
-  (bytes-copy! dir-entry-sector 13 #"\x00")              ; Creation milliseconds
-  (bytes-copy! dir-entry-sector 14 #"\x5c\x64")          ; Creation time
-  (bytes-copy! dir-entry-sector 16 #"\x22\x50")          ; Creation date
-  (bytes-copy! dir-entry-sector 18 #"\x22\x50")          ; Last access date
-  (bytes-copy! dir-entry-sector 20 #"\x00\x00")          ; High word of first cluster
-  (bytes-copy! dir-entry-sector 22 #"\x5c\x64")          ; Modified time
-  (bytes-copy! dir-entry-sector 24 #"\x22\x50")          ; Modified date
-  (bytes-copy! dir-entry-sector 26 #"\x03\x00")          ; Low word of first cluster
-  (bytes-copy! dir-entry-sector 28 #"\x0c\x00\x00\x00")) ; Size
+(define-struct dir-entry
+  (filename extension attributes reserved creation-ms
+   creation-time creation-date
+   last-access-date
+   high-word-first-cluster
+   modification-time modification-date
+   low-word-first-cluster
+   size))
+
+(define-struct date (year month day))
+
+(define (date->bytes d)
+  (match-define (date year month day) d)
+  (integer->integer-bytes (+ (* (- year 1980) 512) (* month 32) day) 2 #f #f))
+
+(define-struct time-of-day (hour minute second))
+(define (time-of-day->bytes t)
+  (match-define (time-of-day hours minutes seconds) t)
+  (integer->integer-bytes (+ (* hours 2048) (* minutes 32) (quotient seconds 2)) 2 #f #f))
+
+
+(define (write-dir-entry d bytes offset)
+  (bytes-copy! bytes (+ offset 0)  (dir-entry-filename d))
+  (bytes-copy! bytes (+ offset 8)  (dir-entry-extension d))
+  (bytes-copy! bytes (+ offset 11) (dir-entry-attributes d))
+  (bytes-copy! bytes (+ offset 12) (dir-entry-reserved d))
+  (bytes-copy! bytes (+ offset 13) (dir-entry-creation-ms d))
+  (bytes-copy! bytes (+ offset 14) (dir-entry-creation-time d))
+  (bytes-copy! bytes (+ offset 16) (dir-entry-creation-date d))
+  (bytes-copy! bytes (+ offset 18) (dir-entry-last-access-date d))
+  (bytes-copy! bytes (+ offset 20) (dir-entry-high-word-first-cluster d))
+  (bytes-copy! bytes (+ offset 22) (dir-entry-modification-time d))
+  (bytes-copy! bytes (+ offset 24) (dir-entry-modification-date d))
+  (bytes-copy! bytes (+ offset 26) (dir-entry-low-word-first-cluster d))
+  (bytes-copy! bytes (+ offset 28) (dir-entry-size d)))
+
+(define efi-dir-entry
+  (dir-entry #"EFI     " #"   "
+             #"\x10"               ; Attributes
+             #"\x00"               ; Reserved
+             #"\x00"               ; Creation milliseconds
+             (time-of-day->bytes (time-of-day 12 34 56)) ; Creation time
+             (date->bytes (date 2020 1 2))               ; Creation date
+             (date->bytes (date 2020 1 2))               ; Last access date
+
+             #"\x00\x00"           ; High word of first cluster
+             (time-of-day->bytes (time-of-day 12 34 56)) ; Modified time
+             (date->bytes (date 2020 1 2))               ; Modified date
+             #"\x03\x00"           ; Low word of first cluster
+             #"\x00\x00\x00\x00")) ; Size
+
+(define efi-dot-dir-entry
+  (dir-entry #".       " #"   "
+             #"\x30"               ; Attributes
+             #"\x00"               ; Reserved
+             #"\x00"               ; Creation milliseconds
+             (time-of-day->bytes (time-of-day 12 34 56)) ; Creation time
+             (date->bytes (date 2020 1 2))               ; Creation date
+             (date->bytes (date 2020 1 2))               ; Last access date
+             #"\x00\x00"           ; High word of first cluster
+             (time-of-day->bytes (time-of-day 12 34 56)) ; Modified time
+             (date->bytes (date 2020 1 2))               ; Modified date
+             #"\x03\x00"           ; Low word of first cluster
+             #"\x00\x00\x00\x00")) ; Size
+(define efi-dot-dot-dir-entry
+  (dir-entry #"..      " #"   "
+             #"\x10"               ; Attributes
+             #"\x00"               ; Reserved
+             #"\x00"               ; Creation milliseconds
+             (time-of-day->bytes (time-of-day 12 34 56)) ; Creation time
+             (date->bytes (date 2020 1 2))               ; Creation date
+             (date->bytes (date 2020 1 2))               ; Last access date
+             #"\x00\x00"           ; High word of first cluster
+             (time-of-day->bytes (time-of-day 12 34 56)) ; Modified time
+             (date->bytes (date 2020 1 2))               ; Modified date
+             #"\x00\x00"           ; Low word of first cluster
+             #"\x00\x00\x00\x00")) ; Size
+(define boot-dir-entry
+  (dir-entry #"BOOT    " #"   "
+             #"\x10"               ; Attributes
+             #"\x00"               ; Reserved
+             #"\x00"               ; Creation milliseconds
+             (time-of-day->bytes (time-of-day 12 34 56)) ; Creation time
+             (date->bytes (date 2020 1 2))               ; Creation date
+             (date->bytes (date 2020 1 2))               ; Last access date
+             #"\x00\x00"           ; High word of first cluster
+             (time-of-day->bytes (time-of-day 12 34 56)) ; Modified time
+             (date->bytes (date 2020 1 2))               ; Modified date
+             #"\x04\x00"           ; Low word of first cluster
+             #"\x00\x00\x00\x00")) ; Size
+(define boot-dot-dir-entry
+  (dir-entry #".       " #"   "
+             #"\x30"               ; Attributes
+             #"\x00"               ; Reserved
+             #"\x00"               ; Creation milliseconds
+             (time-of-day->bytes (time-of-day 12 34 56)) ; Creation time
+             (date->bytes (date 2020 1 2))               ; Creation date
+             (date->bytes (date 2020 1 2))               ; Last access date
+             #"\x00\x00"           ; High word of first cluster
+             (time-of-day->bytes (time-of-day 12 34 56)) ; Modified time
+             (date->bytes (date 2020 1 2))               ; Modified date
+             #"\x04\x00"           ; Low word of first cluster
+             #"\x00\x00\x00\x00")) ; Size
+(define boot-dot-dot-dir-entry
+  (dir-entry #"..      " #"   "
+             #"\x10"               ; Attributes
+             #"\x00"               ; Reserved
+             #"\x00"               ; Creation milliseconds
+             (time-of-day->bytes (time-of-day 12 34 56)) ; Creation time
+             (date->bytes (date 2020 1 2))               ; Creation date
+             (date->bytes (date 2020 1 2))               ; Last access date
+             #"\x00\x00"           ; High word of first cluster
+             (time-of-day->bytes (time-of-day 12 34 56)) ; Modified time
+             (date->bytes (date 2020 1 2))               ; Modified date
+             #"\x03\x00"           ; Low word of first cluster
+             #"\x00\x00\x00\x00")) ; Size
+
+
+
+(define bootx64-dir-entry
+  (dir-entry #"BOOTX64 " #"EFI"
+             #"\x20"               ; Attributes
+             #"\x00"               ; Reserved
+             #"\x00"               ; Creation milliseconds
+             #"\x5c\x64"           ; Creation time
+             #"\x22\x50"           ; Creation date
+             #"\x22\x50"           ; Last access date
+             #"\x00\x00"           ; High word of first cluster
+             #"\x5c\x64"           ; Modified time
+             #"\x22\x50"           ; Modified date
+             #"\x05\x00"           ; Low word of first cluster
+             #"\x0c\x00\x00\x00")) ; Size
+
+
+(define-sector root-dir-entry-sector
+  (write-dir-entry efi-dir-entry root-dir-entry-sector 0))
+
+(define-sector efi-dir-entry-sector
+  (write-dir-entry efi-dot-dir-entry efi-dir-entry-sector 0)
+  (write-dir-entry efi-dot-dot-dir-entry efi-dir-entry-sector 32)
+  (write-dir-entry boot-dir-entry efi-dir-entry-sector 64))
+
+(define-sector boot-dir-entry-sector
+  (write-dir-entry boot-dot-dir-entry     boot-dir-entry-sector 0)
+  (write-dir-entry boot-dot-dot-dir-entry boot-dir-entry-sector 32)
+  (write-dir-entry bootx64-dir-entry boot-dir-entry-sector 64))
+
+
 
 (define (write-all-bytes b p)
   (let loop ([offset 0])
@@ -260,7 +396,9 @@
     (write-all-bytes fat-file-allocation-table out)
     (for ([i (- 2048 32)])
       (write-all-bytes blank-sector out))
-    (write-all-bytes dir-entry-sector out)
+    (write-all-bytes root-dir-entry-sector out)
+    (write-all-bytes efi-dir-entry-sector out)
+    (write-all-bytes boot-dir-entry-sector out)
     (write-all-bytes test-file-sector out)
     (for ([i 28])
       (write-all-bytes blank-sector out))

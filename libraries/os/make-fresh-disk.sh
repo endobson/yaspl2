@@ -36,13 +36,50 @@ newfs_msdos -F 32 -I "0xDEADABBA" /dev/disk2s1
 
 mkdir -p tmp/mount
 mount_msdos /dev/disk2s1 tmp/mount
-touch -t 202001021234.56 tmp/mount/test.txt
-echo "Hello World" >> tmp/mount/test.txt
-touch -t 202001021234.56 tmp/mount/test.txt
-SetFile -d "1/2/2020 12:34:56 PM" tmp/mount/test.txt
+mkdir -p tmp/mount/EFI/BOOT
+echo "Hello World" >> tmp/mount/EFI/BOOT/BOOTX64.EFI
+
+touch -t 202001021234.56 tmp/mount/EFI/BOOT/BOOTX64.EFI
+SetFile -d "1/2/2020 12:34:56 PM" tmp/mount/EFI/BOOT/BOOTX64.EFI
+touch -t 202001021234.56 tmp/mount/EFI/BOOT
+SetFile -d "1/2/2020 12:34:56 PM" tmp/mount/EFI/BOOT
+touch -t 202001021234.56 tmp/mount/EFI
+SetFile -d "1/2/2020 12:34:56 PM" tmp/mount/EFI
+
 umount tmp/mount
 
-# Overwrite ms count
-dd bs=1 count=1 conv=notrunc seek="$((0x2fc40d))" if=/dev/zero of=tmp/fresh-disk.img 
+# Overwrite timestamps that I cannot figure out how to update
+# /EFI
+echo -n -e '\x00\x5c\x64\x22\x50\x22\x50' | \
+  dd bs=1 count=7 conv=notrunc seek="$((0x2fc40d))" if=/dev/stdin of=tmp/fresh-disk.img
+echo -n -e '\x5c\x64\x22\x50' | \
+  dd bs=1 count=4 conv=notrunc seek="$((0x2fc416))" if=/dev/stdin of=tmp/fresh-disk.img
+
+# /EFI/.
+echo -n -e '\x00' | \
+  dd bs=1 count=1 conv=notrunc seek="$((0x2fc60d))" if=/dev/stdin of=tmp/fresh-disk.img
+# /EFI/..
+echo -n -e '\x00\x5c\x64\x22\x50\x22\x50' | \
+  dd bs=1 count=7 conv=notrunc seek="$((0x2fc62d))" if=/dev/stdin of=tmp/fresh-disk.img
+echo -n -e '\x5c\x64\x22\x50' | \
+  dd bs=1 count=4 conv=notrunc seek="$((0x2fc636))" if=/dev/stdin of=tmp/fresh-disk.img
+# /EFI/BOOT
+echo -n -e '\x00\x5c\x64\x22\x50\x22\x50' | \
+  dd bs=1 count=7 conv=notrunc seek="$((0x2fc64d))" if=/dev/stdin of=tmp/fresh-disk.img
+echo -n -e '\x5c\x64\x22\x50' | \
+  dd bs=1 count=4 conv=notrunc seek="$((0x2fc656))" if=/dev/stdin of=tmp/fresh-disk.img
+
+# /EFI/BOOT/.
+echo -n -e '\x00' | \
+  dd bs=1 count=1 conv=notrunc seek="$((0x2fc80d))" if=/dev/stdin of=tmp/fresh-disk.img
+# /EFI/BOOT/..
+echo -n -e '\x00\x5c\x64\x22\x50\x22\x50' | \
+  dd bs=1 count=7 conv=notrunc seek="$((0x2fc82d))" if=/dev/stdin of=tmp/fresh-disk.img
+echo -n -e '\x5c\x64\x22\x50' | \
+  dd bs=1 count=4 conv=notrunc seek="$((0x2fc836))" if=/dev/stdin of=tmp/fresh-disk.img
+# /EFI/BOOT/BOOTX64.EFI
+echo -n -e '\x00' | \
+  dd bs=1 count=1 conv=notrunc seek="$((0x2fc84d))" if=/dev/stdin of=tmp/fresh-disk.img
+
 
 hdiutil detach /dev/disk2
