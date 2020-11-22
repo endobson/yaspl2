@@ -19,6 +19,23 @@ racket_binary(
     ],
 )
 
+
+racket_library(
+    name = "make-exe-main",
+    srcs = ["make-exe-main.rkt"],
+    deps = [
+    ],
+)
+
+racket_binary(
+    name = "make-exe",
+    main_module = "make-exe-main.rkt",
+    deps = [
+        ":make-exe-main",
+    ],
+)
+
+
 test_suite(
     name = "package_tests",
     testonly = 0,

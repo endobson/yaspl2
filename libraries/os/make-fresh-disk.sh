@@ -37,7 +37,9 @@ newfs_msdos -F 32 -I "0xDEADABBA" /dev/disk2s1
 mkdir -p tmp/mount
 mount_msdos /dev/disk2s1 tmp/mount
 mkdir -p tmp/mount/EFI/BOOT
-echo "Hello World" >> tmp/mount/EFI/BOOT/BOOTX64.EFI
+cp tmp/prog.efi tmp/mount/EFI/BOOT/BOOTX64.EFI
+
+#echo "Hello World" >> tmp/mount/EFI/BOOT/BOOTX64.EFI
 
 touch -t 202001021234.56 tmp/mount/EFI/BOOT/BOOTX64.EFI
 SetFile -d "1/2/2020 12:34:56 PM" tmp/mount/EFI/BOOT/BOOTX64.EFI

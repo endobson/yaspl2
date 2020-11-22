@@ -5,6 +5,7 @@
   racket/list
   racket/match
   racket/port
+  racket/file
   (for-syntax
     racket/base
     syntax/parse))
@@ -179,11 +180,39 @@
 
   (bytes-copy! fat-bpb-sector #x1fe #"\x55\xaa"))
 
+
+
+
+(define file-contents (file->bytes "tmp/prog.efi"))
+
+(define file-sectors
+  (for/list ([i (in-range 0 (bytes-length file-contents) 512)])
+    (define sector (make-bytes 512)) 
+    (bytes-copy! sector 0 file-contents i (min (bytes-length file-contents) (+ i 512)))
+    (bytes->immutable-bytes sector)))
+
+(define file-allocation-table
+  (let ()
+    (define file-sizes (list 1 1 1 1 (length file-sectors)))
+    (define (next-clusters file-sizes current-cluster)
+      (match file-sizes
+        [(list) (list)]
+        [(cons size file-sizes)
+         (append (build-list (- size 1) (lambda (i) (add1 (+ current-cluster i))))
+                 (cons #xfffffff
+                       (next-clusters file-sizes (+ current-cluster size))))]))
+    (cons #x0ffffff8 (next-clusters file-sizes 1))))
+
+(define-sector fat-file-allocation-table
+  (for ([i (in-naturals)] [entry file-allocation-table])
+    (integer->integer-bytes entry 4 #f #f fat-file-allocation-table (* i 4))))
+
+
 (define-sector fat-fsinfo-sector
   (bytes-copy! fat-fsinfo-sector 0   #"RRaA")                     ; Signature
                                                                   ; Reserved
   (bytes-copy! fat-fsinfo-sector 484 #"rrAa")                     ; Signature part 2
-  (integer->integer-bytes #x03f01a 4 #f #f fat-fsinfo-sector 488) ; Number of free clusters
+  (integer->integer-bytes #x03f014 4 #f #f fat-fsinfo-sector 488) ; Number of free clusters
   (bytes-copy! fat-fsinfo-sector 492 #"\x05\x00\x00\x00")         ; Last allocated cluster
                                                                   ; Reserved
   (bytes-copy! fat-fsinfo-sector 508 #"\x00\x00\x55\xAA"))        ; Signature part 3
@@ -197,18 +226,6 @@
                                                             ; Reserved
   (bytes-copy! fat-fsinfo-sector2 508 #"\x00\x00\x55\xAA")) ; Signature part 3
 
-
-(define-sector fat-file-allocation-table
-  (bytes-copy! fat-file-allocation-table 0   #"\xf8\xff\xff\x0f")
-  (bytes-copy! fat-file-allocation-table 4   #"\xff\xff\xff\x0f")
-  (bytes-copy! fat-file-allocation-table 8   #"\xff\xff\xff\x0f")
-  (bytes-copy! fat-file-allocation-table 12  #"\xff\xff\xff\x0f")
-  (bytes-copy! fat-file-allocation-table 16  #"\xff\xff\xff\x0f")
-  (bytes-copy! fat-file-allocation-table 20  #"\xff\xff\xff\x0f"))
-
-
-(define-sector test-file-sector
-  (bytes-copy! test-file-sector 0 #"Hello World\n"))
 
 (define-struct dir-entry
   (filename extension attributes reserved creation-ms
@@ -341,7 +358,7 @@
              #"\x5c\x64"           ; Modified time
              #"\x22\x50"           ; Modified date
              #"\x05\x00"           ; Low word of first cluster
-             #"\x0c\x00\x00\x00")) ; Size
+             (integer->integer-bytes (bytes-length file-contents) 4 #f #f))) ; Size
 
 
 (define-sector root-dir-entry-sector
@@ -399,8 +416,9 @@
     (write-all-bytes root-dir-entry-sector out)
     (write-all-bytes efi-dir-entry-sector out)
     (write-all-bytes boot-dir-entry-sector out)
-    (write-all-bytes test-file-sector out)
-    (for ([i 28])
+    (for ([file-sector file-sectors])
+      (write-all-bytes file-sector out))
+    (for ([i (- 27 (length file-sectors))])
       (write-all-bytes blank-sector out))
     ;; 3 * 2048 sectors
 
