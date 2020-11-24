@@ -2,27 +2,16 @@
 
 (require
   racket/bytes
+  racket/hash
   racket/list
   racket/match
   racket/port
   racket/file
   (for-syntax
     racket/base
-    syntax/parse))
+    syntax/parse)
+  "util.rkt")
 
-
-(define-syntax (make-section stx)
-  (syntax-parse stx
-    [(_ name:id #:size size:exact-positive-integer bodies:expr ...)
-     #'(let ([name (make-bytes size)])
-         bodies ...
-         (bytes->immutable-bytes name))]))
-
-
-(define-syntax (define-section stx)
-  (syntax-parse stx
-    [(_ name:id #:size size:exact-positive-integer bodies:expr ...)
-     #'(define name (make-section name #:size size bodies ...))]))
 
 
 (define-syntax (define-sector stx)
@@ -34,14 +23,6 @@
   (syntax-parse stx
     [(_ name:id bodies:expr ...)
      #'(define-section name #:size 128 bodies ...)]))
-
-(define (bytes-set!/u16-le bytes offset v)
-  (integer->integer-bytes v 2 #f #f bytes offset))
-(define (bytes-set!/u32-le bytes offset v)
-  (integer->integer-bytes v 4 #f #f bytes offset))
-(define (bytes-set!/u64-le bytes offset v)
-  (integer->integer-bytes v 8 #f #f bytes offset))
-
 
 
 (define-sector mbr-sector
@@ -194,62 +175,124 @@
 
 
 (define blank-cluster blank-sector)
-(define file-contents (file->bytes "tmp/prog.efi"))
 
-(define fs-entities
-  (hash #"EFI"
-        (dir-entity 3
-           (hash #"BOOT"
-                 (dir-entity 4
-                   (hash #"BOOTX64.EFI"
-                         (file-entity 5 file-contents)))))))
+(define files
+  (hash (list #"EFI" #"BOOT" #"BOOTX64.EFI") (file->bytes "tmp/prog.efi")))
 
-(define (file-clusters contents)
-  (for/list ([i (in-range 0 (bytes-length contents) 512)])
-    (define sector (make-bytes 512)) 
-    (bytes-copy! sector 0 file-contents i (min (bytes-length file-contents) (+ i 512)))
-    (bytes->immutable-bytes sector)))
-
-(define file-allocation-table
+(define file-tree
   (let ()
-    (define file-sizes (list 1 1 1 1 (length (file-clusters file-contents))))
-    (define (next-clusters file-sizes current-cluster)
-      (match file-sizes
-        [(list) (list)]
-        [(cons size file-sizes)
-         (append (build-list (- size 1) (lambda (i) (add1 (+ current-cluster i))))
-                 (cons #xfffffff
-                       (next-clusters file-sizes (+ current-cluster size))))]))
-    (cons #x0ffffff8 (next-clusters file-sizes 1))))
+    (define (add-file filename contents dir-hash)
+      (match filename
+        [(list filename)
+         (hash-set! dir-hash filename contents)]
+        [(cons dir filename)
+         (define subdir-hash (hash-ref! dir-hash dir (make-hash)))
+         (unless (hash? subdir-hash)
+            (error 'file-tree "Cannot have file and director with same name"))
+         (add-file filename contents subdir-hash)]))
 
-(define-sector fat-file-allocation-table
-  (for ([i (in-naturals)] [entry file-allocation-table])
-    (integer->integer-bytes entry 4 #f #f fat-file-allocation-table (* i 4))))
+    (define root-dir-hash (make-hash))
+
+    (for ([(filename contents) files])
+      (add-file filename contents root-dir-hash))
+    (define (freeze fs-item)
+      (match fs-item
+        [(? hash?)
+         (for/hash ([(name sub-item) fs-item])
+           (values name (freeze sub-item)))]
+        [(? bytes?)
+         fs-item]))
+    (freeze root-dir-hash)))
+
+(define-struct fs-entity (first-cluster))
+;; Contents is a hash of bytes to fs-entity
+;; Currently assume that we don't need more than one cluster for a directory
+(define-struct (dir-entity fs-entity) (contents))
+;; Contents is a bytes
+(define-struct (file-entity fs-entity) (length clusters))
+
+(define (file->clusters contents)
+  (for/list ([i (in-range 0 (bytes-length contents) 512)])
+    (make-section cluster #:size 512 
+      (bytes-copy! cluster 0 contents i (min (bytes-length contents) (+ i 512))))))
+
+(define-values (next-clusters fs-entities)
+  (let ()
+    (define next-cluster-number 3)
+    (define next-cluster-hash (make-hash))
+    ;; Initial entries
+    (hash-set! next-cluster-hash 0 #x0ffffff8)
+    (hash-set! next-cluster-hash 1 #x0fffffff)
+    (hash-set! next-cluster-hash 2 #x0fffffff)
+
+    (define (get-chain number-of-clusters)
+      (define num next-cluster-number)
+      (set! next-cluster-number (add1 next-cluster-number))
+      (hash-set! next-cluster-hash num
+        (if (= 1 number-of-clusters)
+            #x0fffffff
+            (get-chain (sub1 number-of-clusters))))
+      num)
+
+    (define (get-chain* cluster-num)
+      (cons
+        cluster-num
+        (match (hash-ref next-cluster-hash cluster-num)
+          [#x0fffffff (list)]
+          [next (get-chain* next)])))
+
+    (define (handle-dir entities)
+      (for/hash ([(name e) entities])
+        (values name (handle-item e))))
+    (define (handle-item entity)
+      (match entity
+        [(? bytes? contents)
+         (define clusters (file->clusters contents))
+         (define first-cluster-num (get-chain (length clusters)))
+         (file-entity first-cluster-num (bytes-length contents)
+                      (make-immutable-hash (map cons (get-chain* first-cluster-num) clusters)))]
+        [(? hash? contents)
+         (define cluster-num (get-chain 1))
+         (dir-entity cluster-num (handle-dir contents))]))
+
+    (define entities (handle-dir file-tree))
+    (values
+      (for/hash ([(k v) next-cluster-hash])
+        (values k v))
+      entities)))
+
+
+
+(define-section fat-file-allocation-table #:size 1032704 ;; 2017 * 512
+  (for ([(cluster next) next-clusters])
+    (bytes-set!/u32-le fat-file-allocation-table (* cluster 4) next)))
+
 
 
 (define-sector fat-fsinfo-sector
-  (bytes-copy! fat-fsinfo-sector 0   #"RRaA")                     ; Signature
-                                                                  ; Reserved
-  (bytes-copy! fat-fsinfo-sector 484 #"rrAa")                     ; Signature part 2
-  (integer->integer-bytes #x03f014 4 #f #f fat-fsinfo-sector 488) ; Number of free clusters
-  (bytes-copy! fat-fsinfo-sector 492 #"\x05\x00\x00\x00")         ; Last allocated cluster
-                                                                  ; Reserved
-  (bytes-copy! fat-fsinfo-sector 508 #"\x00\x00\x55\xAA"))        ; Signature part 3
+  (bytes-copy!       fat-fsinfo-sector 0   #"RRaA")              ; Signature
+                                                                 ; Reserved
+  (bytes-copy!       fat-fsinfo-sector 484 #"rrAa")              ; Signature part 2
+  (bytes-set!/u32-le fat-fsinfo-sector 488 #x03f014)             ; Number of free clusters
+  (bytes-set!/u32-le fat-fsinfo-sector 492 5)                    ; Last allocated cluster
+                                                                 ; Reserved (12 bytes)
+  (bytes-copy!       fat-fsinfo-sector 508 #"\x00\x00\x55\xAA")) ; Signature part 3
 
+;; This is stale to support byte for byte matching with external implementation
 (define-sector fat-fsinfo-sector2
-  (bytes-copy! fat-fsinfo-sector2 0   #"RRaA")              ; Signature
-                                                            ; Reserved
-  (bytes-copy! fat-fsinfo-sector2 484 #"rrAa")              ; Signature part 2
-  (bytes-copy! fat-fsinfo-sector2 488 #"\x1d\xf0\x03\x00")  ; Number of free clusters
-  (bytes-copy! fat-fsinfo-sector2 492 #"\x03\x00\x00\x00")  ; Last allocated cluster
-                                                            ; Reserved
-  (bytes-copy! fat-fsinfo-sector2 508 #"\x00\x00\x55\xAA")) ; Signature part 3
+  (bytes-copy!       fat-fsinfo-sector2 0   #"RRaA")              ; Signature
+                                                                  ; Reserved
+  (bytes-copy!       fat-fsinfo-sector2 484 #"rrAa")              ; Signature part 2
+  (bytes-set!/u32-le fat-fsinfo-sector2 488 #x03f01d)             ; Number of free clusters
+  (bytes-set!/u32-le fat-fsinfo-sector2 492 3)                    ; Last allocated cluster
+                                                                  ; Reserved (12 bytes)
+  (bytes-copy!       fat-fsinfo-sector2 508 #"\x00\x00\x55\xAA")) ; Signature part 3
 
 
 (define-struct dir-entry (filename attributes first-cluster size))
 
+ 
 (define-struct date (year month day))
-
 (define (date->bytes d)
   (match-define (date year month day) d)
   (integer->integer-bytes (+ (* (- year 1980) 512) (* month 32) day) 2 #f #f))
@@ -302,70 +345,18 @@
     (for ([i (in-naturals)] [entry entries])
       (write-dir-entry entry cluster (* i 32)))))
      
-
-(define files
-  (hash (list #"EFI" #"BOOT" #"BOOTX64.EFI") file-contents))
-
-(define file-tree
-  (let ()
-    (define (add-file filename contents dir-hash)
-      (match filename
-        [(list filename)
-         (hash-set! dir-hash filename contents)]
-        [(cons dir filename)
-         (define subdir-hash (hash-ref dir-hash filename (make-hash)))
-         (unless (hash? subdir-hash)
-            (error 'file-tree "Cannot have file and director with same name"))
-         (add-file filename contents subdir-hash)]))
-
-    (define root-dir-hash (make-hash))
-
-    (for ([(filename contents) files])
-      (add-file filename contents root-dir-hash))
-    (define (freeze fs-item)
-      (match fs-item
-        [(? hash?)
-         (for/hash ([(name sub-item) fs-item])
-           (values name (freeze sub-item)))]
-        [(? bytes?)
-         fs-item]))
-    (freeze root-dir-hash)))
-
-(define-struct fs-entity (first-cluster))
-;; Contents is a hash of bytes to fs-entity
-(define-struct (dir-entity fs-entity) (contents))
-;; Contents is a bytes
-(define-struct (file-entity fs-entity) (contents))
-
-      
-(define (dot-dir-entry self-first-cluster)
-  (dir-entry #"." '(subdirectory archived) self-first-cluster 0))
-(define (dot-dot-dir-entry parent-first-cluster)
-  (dir-entry #".." '(subdirectory) parent-first-cluster 0))
-(define (subdir-dir-entry name dir-first-cluster)
-  (dir-entry name '(subdirectory) dir-first-cluster 0))
-(define (file-dir-entry name file-first-cluster contents)
-  (dir-entry name '(archived) file-first-cluster (bytes-length contents)))
-
-(define (fs-entity->dir-entry name e)
-  (match e
-    [(dir-entity cluster _)
-     (subdir-dir-entry name cluster)]
-    [(file-entity cluster contents)
-     (file-dir-entry name cluster contents)]))
-
 (define (dir-contents->dir-entries contents)
   (for/list ([(name e) contents])
-    (fs-entity->dir-entry name e)))
-
-(define root-dir-entries
-  (dir-contents->dir-entries fs-entities))
+    (match e
+      [(dir-entity cluster _)
+       (dir-entry name '(subdirectory) cluster 0)]
+      [(file-entity cluster length _)
+       (dir-entry name '(archived) cluster length)])))
 
 (define (subdir->dir-entries entity parent-first-cluster)
-  (list* (dot-dir-entry (fs-entity-first-cluster entity))
-         (dot-dot-dir-entry parent-first-cluster)
+  (list* (dir-entry #"." '(subdirectory archived) (fs-entity-first-cluster entity) 0)
+         (dir-entry #".." '(subdirectory) parent-first-cluster 0)
          (dir-contents->dir-entries (dir-entity-contents entity))))
-
 
 (define root-cluster-number 2)
 (define non-zero-cluster-hash
@@ -382,9 +373,8 @@
                     (dir-cluster (subdir->dir-entries entity parent-dir-cluster)))
          (for ([(name subentity) items])
            (handle name subentity cluster-number))]
-        [(file-entity cluster-number contents)
-         (for ([cluster (file-clusters contents)] [i (in-naturals)])
-           (hash-set! clusters (+ i cluster-number) cluster))]))
+        [(file-entity _ _ file-clusters)
+         (hash-union! clusters file-clusters)]))
     (for ([(name entity) fs-entities])
       (handle name entity 0))
 
@@ -397,13 +387,6 @@
     (define max-cluster (apply max (hash-keys non-zero-cluster-hash)))
     (for/list ([i (in-range 2 (add1 max-cluster))])
       (hash-ref non-zero-cluster-hash i blank-cluster))))
-
-
-(define (write-all-bytes b p)
-  (let loop ([offset 0])
-    (when (< offset (bytes-length b))
-      (define written (write-bytes b p offset))
-      (loop (+ offset written)))))
 
 (match-define
   (vector output-path)
@@ -426,25 +409,20 @@
     (write-all-bytes fat-fsinfo-sector2 out)
     (for ([i 24])
       (write-all-bytes blank-sector out))
+
+    (write-all-bytes fat-file-allocation-table out)
     (write-all-bytes fat-file-allocation-table out)
 
-    (for ([i (- 2048 33)])
-      (write-all-bytes blank-sector out))
-    ;; 2 * 2048 sectors
-
-    (write-all-bytes blank-sector out)
-    (write-all-bytes fat-file-allocation-table out)
-    (for ([i (- 2048 32)])
-      (write-all-bytes blank-sector out))
-
+    ;; Sector 4066
     ;; Start of clusters (First cluster is #2)
     (for ([cluster initialized-clusters])
       (write-all-bytes cluster out))
-    (for ([i (- 30 (length initialized-clusters))])
+    (for ([i (- (+ 30 (* 20 2048)) (length initialized-clusters))])
       (write-all-bytes blank-sector out))
+
     ;; 3 * 2048 sectors
 
-    (for ([i (* (- (* 16 64) 4) 2048)])
+    (for ([i (* (- (* 16 64) 24) 2048)])
       (write-all-bytes blank-sector out))
     ;; 1023 * 2048 sectors
 

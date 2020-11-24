@@ -7,16 +7,8 @@
   racket/port
   (for-syntax
     racket/base
-    syntax/parse))
-
-
-(define-syntax (define-section stx)
-  (syntax-parse stx
-    [(_ name:id #:size size:exact-positive-integer bodies:expr ...)
-     #'(define name
-         (let ([name (make-bytes size)])
-           bodies ...
-           (bytes->immutable-bytes name)))]))
+    syntax/parse)
+  "util.rkt")
 
 
 (define-syntax (define-section* stx)
@@ -31,12 +23,6 @@
     (bytes-set! b (* 2 i) code-point))
   (bytes->immutable-bytes b))
 
-(define (bytes-set!/u16-le bytes offset v)
-  (integer->integer-bytes v 2 #f #f bytes offset))
-(define (bytes-set!/u32-le bytes offset v)
-  (integer->integer-bytes v 4 #f #f bytes offset))
-(define (bytes-set!/u64-le bytes offset v)
-  (integer->integer-bytes v 8 #f #f bytes offset))
 
 (define-section coff-header #:size 20
   (bytes-set!/u16-le coff-header 0  #x8664)  ; Machine
@@ -259,12 +245,6 @@
 (define-section* seventh-section
   (bytes-copy! seventh-section 0 #"\x00\x30\x00\x00\x0c\x00\x00\x00\x00\xa0\x08\xa0")
   )
-
-(define (write-all-bytes b p)
-  (let loop ([offset 0])
-    (when (< offset (bytes-length b))
-      (define written (write-bytes b p offset))
-      (loop (+ offset written)))))
 
 (match-define
   (vector output-path)

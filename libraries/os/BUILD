@@ -8,6 +8,14 @@ racket_library(
     name = "make-gpt-main",
     srcs = ["make-gpt-main.rkt"],
     deps = [
+      ":util"
+    ],
+)
+
+racket_library(
+    name = "util",
+    srcs = ["util.rkt"],
+    deps = [
     ],
 )
 
@@ -24,6 +32,7 @@ racket_library(
     name = "make-exe-main",
     srcs = ["make-exe-main.rkt"],
     deps = [
+      ":util"
     ],
 )
 
