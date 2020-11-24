@@ -11,13 +11,18 @@
     syntax/parse))
 
 
+(define-syntax (make-section stx)
+  (syntax-parse stx
+    [(_ name:id #:size size:exact-positive-integer bodies:expr ...)
+     #'(let ([name (make-bytes size)])
+         bodies ...
+         (bytes->immutable-bytes name))]))
+
+
 (define-syntax (define-section stx)
   (syntax-parse stx
     [(_ name:id #:size size:exact-positive-integer bodies:expr ...)
-     #'(define name
-         (let ([name (make-bytes size)])
-           bodies ...
-           (bytes->immutable-bytes name)))]))
+     #'(define name (make-section name #:size size bodies ...))]))
 
 
 (define-syntax (define-sector stx)
@@ -30,6 +35,12 @@
     [(_ name:id bodies:expr ...)
      #'(define-section name #:size 128 bodies ...)]))
 
+(define (bytes-set!/u16-le bytes offset v)
+  (integer->integer-bytes v 2 #f #f bytes offset))
+(define (bytes-set!/u32-le bytes offset v)
+  (integer->integer-bytes v 4 #f #f bytes offset))
+(define (bytes-set!/u64-le bytes offset v)
+  (integer->integer-bytes v 8 #f #f bytes offset))
 
 
 
@@ -144,7 +155,7 @@
   (bytes-copy! fat-bpb-sector 0  #"\xeb\x58\x90")      ; Jump instruction
   (bytes-copy! fat-bpb-sector 3  #"BSD  4.4\x00")      ; OS NAME
   (bytes-copy! fat-bpb-sector 11 #"\x00\x02")          ; Bytes per sector (512)
-  (bytes-copy! fat-bpb-sector 13 #"\x01")              ; Log2(Sectors) per Cluster
+  (bytes-copy! fat-bpb-sector 13 #"\x01")              ; Sectors per Cluster
   (bytes-copy! fat-bpb-sector 14 #"\x20\x00")          ; Number of reserved sectors
   (bytes-copy! fat-bpb-sector 16 #"\x02")              ; Number of FATs
   (bytes-copy! fat-bpb-sector 17 #"\x00\x00")          ; Reserved 0 for FAT32
@@ -182,18 +193,26 @@
 
 
 
-
+(define blank-cluster blank-sector)
 (define file-contents (file->bytes "tmp/prog.efi"))
 
-(define file-sectors
-  (for/list ([i (in-range 0 (bytes-length file-contents) 512)])
+(define fs-entities
+  (hash #"EFI"
+        (dir-entity 3
+           (hash #"BOOT"
+                 (dir-entity 4
+                   (hash #"BOOTX64.EFI"
+                         (file-entity 5 file-contents)))))))
+
+(define (file-clusters contents)
+  (for/list ([i (in-range 0 (bytes-length contents) 512)])
     (define sector (make-bytes 512)) 
     (bytes-copy! sector 0 file-contents i (min (bytes-length file-contents) (+ i 512)))
     (bytes->immutable-bytes sector)))
 
 (define file-allocation-table
   (let ()
-    (define file-sizes (list 1 1 1 1 (length file-sectors)))
+    (define file-sizes (list 1 1 1 1 (length (file-clusters file-contents))))
     (define (next-clusters file-sizes current-cluster)
       (match file-sizes
         [(list) (list)]
@@ -227,14 +246,7 @@
   (bytes-copy! fat-fsinfo-sector2 508 #"\x00\x00\x55\xAA")) ; Signature part 3
 
 
-(define-struct dir-entry
-  (filename extension attributes reserved creation-ms
-   creation-time creation-date
-   last-access-date
-   high-word-first-cluster
-   modification-time modification-date
-   low-word-first-cluster
-   size))
+(define-struct dir-entry (filename attributes first-cluster size))
 
 (define-struct date (year month day))
 
@@ -247,133 +259,144 @@
   (match-define (time-of-day hours minutes seconds) t)
   (integer->integer-bytes (+ (* hours 2048) (* minutes 32) (quotient seconds 2)) 2 #f #f))
 
+(define fixed-time-of-day (time-of-day 12 34 56))
+(define fixed-date (date 2020 1 2))
+
+(define (dir-entry-attribute->byte attribute)
+  (match attribute
+    ['subdirectory #x10]
+    ['archived #x20]))
+
+(define (dir-entry-split-filename filename)
+  (match filename
+    [#"."  (values #".       " #"   ")]
+    [#".." (values #"..      " #"   ")]
+    [(regexp #px#"([A-Z0-9]{1,8})(?:\\.([A-Z0-9]{1,3}))?"
+             (list _ orig-filename orig-extension))
+     ; Pad with spaces (#x20) to amount
+     (define (pad b amount)
+       (bytes-append b (make-bytes (- amount (bytes-length b)) #x20)))
+     (values
+       (pad orig-filename 8)
+       (pad (or orig-extension #"") 3))]))
 
 (define (write-dir-entry d bytes offset)
-  (bytes-copy! bytes (+ offset 0)  (dir-entry-filename d))
-  (bytes-copy! bytes (+ offset 8)  (dir-entry-extension d))
-  (bytes-copy! bytes (+ offset 11) (dir-entry-attributes d))
-  (bytes-copy! bytes (+ offset 12) (dir-entry-reserved d))
-  (bytes-copy! bytes (+ offset 13) (dir-entry-creation-ms d))
-  (bytes-copy! bytes (+ offset 14) (dir-entry-creation-time d))
-  (bytes-copy! bytes (+ offset 16) (dir-entry-creation-date d))
-  (bytes-copy! bytes (+ offset 18) (dir-entry-last-access-date d))
-  (bytes-copy! bytes (+ offset 20) (dir-entry-high-word-first-cluster d))
-  (bytes-copy! bytes (+ offset 22) (dir-entry-modification-time d))
-  (bytes-copy! bytes (+ offset 24) (dir-entry-modification-date d))
-  (bytes-copy! bytes (+ offset 26) (dir-entry-low-word-first-cluster d))
-  (bytes-copy! bytes (+ offset 28) (dir-entry-size d)))
+  (define-values (filename-base extension) (dir-entry-split-filename (dir-entry-filename d)))
+  (bytes-copy!       bytes (+ offset 0) filename-base)
+  (bytes-copy!       bytes (+ offset 8) extension)
+  (bytes-set!        bytes (+ offset 11) 
+    (apply bitwise-ior (map dir-entry-attribute->byte (dir-entry-attributes d))))
+  (bytes-set!        bytes (+ offset 12) 0) ; Reserved
+  (bytes-set!        bytes (+ offset 13) 0) ; Creation ms
+  (bytes-copy!       bytes (+ offset 14) (time-of-day->bytes fixed-time-of-day)) ; Creation time
+  (bytes-copy!       bytes (+ offset 16) (date->bytes fixed-date))               ; Creation date
+  (bytes-copy!       bytes (+ offset 18) (date->bytes fixed-date))               ; Last access date
+  (bytes-set!/u16-le bytes (+ offset 20) (quotient (dir-entry-first-cluster d) #x100))
+  (bytes-copy!       bytes (+ offset 22) (time-of-day->bytes fixed-time-of-day)) ; Modification time
+  (bytes-copy!       bytes (+ offset 24) (date->bytes fixed-date))               ; Modification date
+  (bytes-set!/u16-le bytes (+ offset 26) (remainder (dir-entry-first-cluster d) #x100))
+  (bytes-set!/u32-le bytes (+ offset 28) (dir-entry-size d)))
 
-(define efi-dir-entry
-  (dir-entry #"EFI     " #"   "
-             #"\x10"               ; Attributes
-             #"\x00"               ; Reserved
-             #"\x00"               ; Creation milliseconds
-             (time-of-day->bytes (time-of-day 12 34 56)) ; Creation time
-             (date->bytes (date 2020 1 2))               ; Creation date
-             (date->bytes (date 2020 1 2))               ; Last access date
+(define (dir-cluster entries)
+  (make-section cluster #:size 512
+    (for ([i (in-naturals)] [entry entries])
+      (write-dir-entry entry cluster (* i 32)))))
+     
 
-             #"\x00\x00"           ; High word of first cluster
-             (time-of-day->bytes (time-of-day 12 34 56)) ; Modified time
-             (date->bytes (date 2020 1 2))               ; Modified date
-             #"\x03\x00"           ; Low word of first cluster
-             #"\x00\x00\x00\x00")) ; Size
+(define files
+  (hash (list #"EFI" #"BOOT" #"BOOTX64.EFI") file-contents))
 
-(define efi-dot-dir-entry
-  (dir-entry #".       " #"   "
-             #"\x30"               ; Attributes
-             #"\x00"               ; Reserved
-             #"\x00"               ; Creation milliseconds
-             (time-of-day->bytes (time-of-day 12 34 56)) ; Creation time
-             (date->bytes (date 2020 1 2))               ; Creation date
-             (date->bytes (date 2020 1 2))               ; Last access date
-             #"\x00\x00"           ; High word of first cluster
-             (time-of-day->bytes (time-of-day 12 34 56)) ; Modified time
-             (date->bytes (date 2020 1 2))               ; Modified date
-             #"\x03\x00"           ; Low word of first cluster
-             #"\x00\x00\x00\x00")) ; Size
-(define efi-dot-dot-dir-entry
-  (dir-entry #"..      " #"   "
-             #"\x10"               ; Attributes
-             #"\x00"               ; Reserved
-             #"\x00"               ; Creation milliseconds
-             (time-of-day->bytes (time-of-day 12 34 56)) ; Creation time
-             (date->bytes (date 2020 1 2))               ; Creation date
-             (date->bytes (date 2020 1 2))               ; Last access date
-             #"\x00\x00"           ; High word of first cluster
-             (time-of-day->bytes (time-of-day 12 34 56)) ; Modified time
-             (date->bytes (date 2020 1 2))               ; Modified date
-             #"\x00\x00"           ; Low word of first cluster
-             #"\x00\x00\x00\x00")) ; Size
-(define boot-dir-entry
-  (dir-entry #"BOOT    " #"   "
-             #"\x10"               ; Attributes
-             #"\x00"               ; Reserved
-             #"\x00"               ; Creation milliseconds
-             (time-of-day->bytes (time-of-day 12 34 56)) ; Creation time
-             (date->bytes (date 2020 1 2))               ; Creation date
-             (date->bytes (date 2020 1 2))               ; Last access date
-             #"\x00\x00"           ; High word of first cluster
-             (time-of-day->bytes (time-of-day 12 34 56)) ; Modified time
-             (date->bytes (date 2020 1 2))               ; Modified date
-             #"\x04\x00"           ; Low word of first cluster
-             #"\x00\x00\x00\x00")) ; Size
-(define boot-dot-dir-entry
-  (dir-entry #".       " #"   "
-             #"\x30"               ; Attributes
-             #"\x00"               ; Reserved
-             #"\x00"               ; Creation milliseconds
-             (time-of-day->bytes (time-of-day 12 34 56)) ; Creation time
-             (date->bytes (date 2020 1 2))               ; Creation date
-             (date->bytes (date 2020 1 2))               ; Last access date
-             #"\x00\x00"           ; High word of first cluster
-             (time-of-day->bytes (time-of-day 12 34 56)) ; Modified time
-             (date->bytes (date 2020 1 2))               ; Modified date
-             #"\x04\x00"           ; Low word of first cluster
-             #"\x00\x00\x00\x00")) ; Size
-(define boot-dot-dot-dir-entry
-  (dir-entry #"..      " #"   "
-             #"\x10"               ; Attributes
-             #"\x00"               ; Reserved
-             #"\x00"               ; Creation milliseconds
-             (time-of-day->bytes (time-of-day 12 34 56)) ; Creation time
-             (date->bytes (date 2020 1 2))               ; Creation date
-             (date->bytes (date 2020 1 2))               ; Last access date
-             #"\x00\x00"           ; High word of first cluster
-             (time-of-day->bytes (time-of-day 12 34 56)) ; Modified time
-             (date->bytes (date 2020 1 2))               ; Modified date
-             #"\x03\x00"           ; Low word of first cluster
-             #"\x00\x00\x00\x00")) ; Size
+(define file-tree
+  (let ()
+    (define (add-file filename contents dir-hash)
+      (match filename
+        [(list filename)
+         (hash-set! dir-hash filename contents)]
+        [(cons dir filename)
+         (define subdir-hash (hash-ref dir-hash filename (make-hash)))
+         (unless (hash? subdir-hash)
+            (error 'file-tree "Cannot have file and director with same name"))
+         (add-file filename contents subdir-hash)]))
+
+    (define root-dir-hash (make-hash))
+
+    (for ([(filename contents) files])
+      (add-file filename contents root-dir-hash))
+    (define (freeze fs-item)
+      (match fs-item
+        [(? hash?)
+         (for/hash ([(name sub-item) fs-item])
+           (values name (freeze sub-item)))]
+        [(? bytes?)
+         fs-item]))
+    (freeze root-dir-hash)))
+
+(define-struct fs-entity (first-cluster))
+;; Contents is a hash of bytes to fs-entity
+(define-struct (dir-entity fs-entity) (contents))
+;; Contents is a bytes
+(define-struct (file-entity fs-entity) (contents))
+
+      
+(define (dot-dir-entry self-first-cluster)
+  (dir-entry #"." '(subdirectory archived) self-first-cluster 0))
+(define (dot-dot-dir-entry parent-first-cluster)
+  (dir-entry #".." '(subdirectory) parent-first-cluster 0))
+(define (subdir-dir-entry name dir-first-cluster)
+  (dir-entry name '(subdirectory) dir-first-cluster 0))
+(define (file-dir-entry name file-first-cluster contents)
+  (dir-entry name '(archived) file-first-cluster (bytes-length contents)))
+
+(define (fs-entity->dir-entry name e)
+  (match e
+    [(dir-entity cluster _)
+     (subdir-dir-entry name cluster)]
+    [(file-entity cluster contents)
+     (file-dir-entry name cluster contents)]))
+
+(define (dir-contents->dir-entries contents)
+  (for/list ([(name e) contents])
+    (fs-entity->dir-entry name e)))
+
+(define root-dir-entries
+  (dir-contents->dir-entries fs-entities))
+
+(define (subdir->dir-entries entity parent-first-cluster)
+  (list* (dot-dir-entry (fs-entity-first-cluster entity))
+         (dot-dot-dir-entry parent-first-cluster)
+         (dir-contents->dir-entries (dir-entity-contents entity))))
 
 
+(define root-cluster-number 2)
+(define non-zero-cluster-hash
+  (let ([clusters (make-hash)])
+    ;; Root directory
+    (hash-set! clusters root-cluster-number
+      (dir-cluster (dir-contents->dir-entries fs-entities)))
 
-(define bootx64-dir-entry
-  (dir-entry #"BOOTX64 " #"EFI"
-             #"\x20"               ; Attributes
-             #"\x00"               ; Reserved
-             #"\x00"               ; Creation milliseconds
-             #"\x5c\x64"           ; Creation time
-             #"\x22\x50"           ; Creation date
-             #"\x22\x50"           ; Last access date
-             #"\x00\x00"           ; High word of first cluster
-             #"\x5c\x64"           ; Modified time
-             #"\x22\x50"           ; Modified date
-             #"\x05\x00"           ; Low word of first cluster
-             (integer->integer-bytes (bytes-length file-contents) 4 #f #f))) ; Size
+    ;; Rest of the filesystem
+    (define (handle name entity parent-dir-cluster)
+      (match entity
+        [(dir-entity cluster-number items)
+         (hash-set! clusters cluster-number
+                    (dir-cluster (subdir->dir-entries entity parent-dir-cluster)))
+         (for ([(name subentity) items])
+           (handle name subentity cluster-number))]
+        [(file-entity cluster-number contents)
+         (for ([cluster (file-clusters contents)] [i (in-naturals)])
+           (hash-set! clusters (+ i cluster-number) cluster))]))
+    (for ([(name entity) fs-entities])
+      (handle name entity 0))
 
+    ;; Make an immutable hash
+    (for/hash ([(k v) clusters])
+      (values k v))))
 
-(define-sector root-dir-entry-sector
-  (write-dir-entry efi-dir-entry root-dir-entry-sector 0))
-
-(define-sector efi-dir-entry-sector
-  (write-dir-entry efi-dot-dir-entry efi-dir-entry-sector 0)
-  (write-dir-entry efi-dot-dot-dir-entry efi-dir-entry-sector 32)
-  (write-dir-entry boot-dir-entry efi-dir-entry-sector 64))
-
-(define-sector boot-dir-entry-sector
-  (write-dir-entry boot-dot-dir-entry     boot-dir-entry-sector 0)
-  (write-dir-entry boot-dot-dot-dir-entry boot-dir-entry-sector 32)
-  (write-dir-entry bootx64-dir-entry boot-dir-entry-sector 64))
-
+(define initialized-clusters
+  (let ()
+    (define max-cluster (apply max (hash-keys non-zero-cluster-hash)))
+    (for/list ([i (in-range 2 (add1 max-cluster))])
+      (hash-ref non-zero-cluster-hash i blank-cluster))))
 
 
 (define (write-all-bytes b p)
@@ -413,12 +436,11 @@
     (write-all-bytes fat-file-allocation-table out)
     (for ([i (- 2048 32)])
       (write-all-bytes blank-sector out))
-    (write-all-bytes root-dir-entry-sector out)
-    (write-all-bytes efi-dir-entry-sector out)
-    (write-all-bytes boot-dir-entry-sector out)
-    (for ([file-sector file-sectors])
-      (write-all-bytes file-sector out))
-    (for ([i (- 27 (length file-sectors))])
+
+    ;; Start of clusters (First cluster is #2)
+    (for ([cluster initialized-clusters])
+      (write-all-bytes cluster out))
+    (for ([i (- 30 (length initialized-clusters))])
       (write-all-bytes blank-sector out))
     ;; 3 * 2048 sectors
 
