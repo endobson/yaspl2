@@ -2,15 +2,18 @@
 
 (require
   racket/bytes
+  racket/dict
+  racket/file
   racket/hash
   racket/list
   racket/match
   racket/port
-  racket/file
+  racket/set
   (for-syntax
     racket/base
     syntax/parse)
-  "util.rkt")
+  "util.rkt"
+  "fat32.rkt")
 
 
 
@@ -176,92 +179,27 @@
 
 (define blank-cluster blank-sector)
 
-(define files
-  (hash (list #"EFI" #"BOOT" #"BOOTX64.EFI") (file->bytes "tmp/prog.efi")))
+(define fat32-test
+  (fat32-add-file
+  (fat32-add-directory
+  (fat32-add-directory
+  (fat32-add-file
+  (fat32-add-directory (make-fat32)
+    (list #".fseventsd"))
+    (list #".fseventsd" #"NO_LOG") #"")
+    (list #"EFI"))
+    (list #"EFI" #"BOOT"))
+    (list #"EFI" #"BOOT" #"BOOTX64.EFI") (file->bytes "tmp/prog.efi")))
 
-(define file-tree
-  (let ()
-    (define (add-file filename contents dir-hash)
-      (match filename
-        [(list filename)
-         (hash-set! dir-hash filename contents)]
-        [(cons dir filename)
-         (define subdir-hash (hash-ref! dir-hash dir (make-hash)))
-         (unless (hash? subdir-hash)
-            (error 'file-tree "Cannot have file and director with same name"))
-         (add-file filename contents subdir-hash)]))
+(define next-clusters (fat32-cluster-chains fat32-test))
+(define fs-entities (fat32-file-system fat32-test))
 
-    (define root-dir-hash (make-hash))
-
-    (for ([(filename contents) files])
-      (add-file filename contents root-dir-hash))
-    (define (freeze fs-item)
-      (match fs-item
-        [(? hash?)
-         (for/hash ([(name sub-item) fs-item])
-           (values name (freeze sub-item)))]
-        [(? bytes?)
-         fs-item]))
-    (freeze root-dir-hash)))
-
-(define-struct fs-entity (first-cluster))
-;; Contents is a hash of bytes to fs-entity
-;; Currently assume that we don't need more than one cluster for a directory
-(define-struct (dir-entity fs-entity) (contents))
-;; Contents is a bytes
-(define-struct (file-entity fs-entity) (length clusters))
-
-(define (file->clusters contents)
-  (for/list ([i (in-range 0 (bytes-length contents) 512)])
-    (make-section cluster #:size 512 
-      (bytes-copy! cluster 0 contents i (min (bytes-length contents) (+ i 512))))))
-
-(define-values (next-clusters fs-entities)
-  (let ()
-    (define next-cluster-number 3)
-    (define next-cluster-hash (make-hash))
-    ;; Initial entries
-    (hash-set! next-cluster-hash 0 #x0ffffff8)
-    (hash-set! next-cluster-hash 1 #x0fffffff)
-    (hash-set! next-cluster-hash 2 #x0fffffff)
-
-    (define (get-chain number-of-clusters)
-      (define num next-cluster-number)
-      (set! next-cluster-number (add1 next-cluster-number))
-      (hash-set! next-cluster-hash num
-        (if (= 1 number-of-clusters)
-            #x0fffffff
-            (get-chain (sub1 number-of-clusters))))
-      num)
-
-    (define (get-chain* cluster-num)
-      (cons
-        cluster-num
-        (match (hash-ref next-cluster-hash cluster-num)
-          [#x0fffffff (list)]
-          [next (get-chain* next)])))
-
-    (define (handle-dir entities)
-      (for/hash ([(name e) entities])
-        (values name (handle-item e))))
-    (define (handle-item entity)
-      (match entity
-        [(? bytes? contents)
-         (define clusters (file->clusters contents))
-         (define first-cluster-num (get-chain (length clusters)))
-         (file-entity first-cluster-num (bytes-length contents)
-                      (make-immutable-hash (map cons (get-chain* first-cluster-num) clusters)))]
-        [(? hash? contents)
-         (define cluster-num (get-chain 1))
-         (dir-entity cluster-num (handle-dir contents))]))
-
-    (define entities (handle-dir file-tree))
-    (values
-      (for/hash ([(k v) next-cluster-hash])
-        (values k v))
-      entities)))
-
-
+(define max-cluster (apply max (hash-keys next-clusters)))
+(define max-start-cluster
+  (apply max
+    (set-subtract
+      (hash-keys next-clusters)
+      (hash-values next-clusters))))
 
 (define-section fat-file-allocation-table #:size 1032704 ;; 2017 * 512
   (for ([(cluster next) next-clusters])
@@ -270,13 +208,13 @@
 
 
 (define-sector fat-fsinfo-sector
-  (bytes-copy!       fat-fsinfo-sector 0   #"RRaA")              ; Signature
-                                                                 ; Reserved
-  (bytes-copy!       fat-fsinfo-sector 484 #"rrAa")              ; Signature part 2
-  (bytes-set!/u32-le fat-fsinfo-sector 488 #x03f014)             ; Number of free clusters
-  (bytes-set!/u32-le fat-fsinfo-sector 492 5)                    ; Last allocated cluster
-                                                                 ; Reserved (12 bytes)
-  (bytes-copy!       fat-fsinfo-sector 508 #"\x00\x00\x55\xAA")) ; Signature part 3
+  (bytes-copy!       fat-fsinfo-sector 0   #"RRaA")                  ; Signature
+                                                                     ; Reserved
+  (bytes-copy!       fat-fsinfo-sector 484 #"rrAa")                  ; Signature part 2
+  (bytes-set!/u32-le fat-fsinfo-sector 488 (- #x03f01f max-cluster)) ; Number of free clusters
+  (bytes-set!/u32-le fat-fsinfo-sector 492 max-start-cluster)        ; Last allocated cluster
+                                                                     ; Reserved (12 bytes)
+  (bytes-copy!       fat-fsinfo-sector 508 #"\x00\x00\x55\xAA"))     ; Signature part 3
 
 ;; This is stale to support byte for byte matching with external implementation
 (define-sector fat-fsinfo-sector2
@@ -290,6 +228,7 @@
 
 
 (define-struct dir-entry (filename attributes first-cluster size))
+(define-struct long-file-name-dir-entry (last-logical sequence-number checksum bytes))
 
  
 (define-struct date (year month day))
@@ -308,13 +247,15 @@
 (define (dir-entry-attribute->byte attribute)
   (match attribute
     ['subdirectory #x10]
+    ['hidden #x02]
+    ['visible #x00] ;; Just used so that there is a not-hidden
     ['archived #x20]))
 
 (define (dir-entry-split-filename filename)
   (match filename
     [#"."  (values #".       " #"   ")]
     [#".." (values #"..      " #"   ")]
-    [(regexp #px#"([A-Z0-9]{1,8})(?:\\.([A-Z0-9]{1,3}))?"
+    [(regexp #px#"^([A-Z0-9_~]{1,8})(?:\\.([A-Z0-9]{1,3}))?$"
              (list _ orig-filename orig-extension))
      ; Pad with spaces (#x20) to amount
      (define (pad b amount)
@@ -340,21 +281,70 @@
   (bytes-set!/u16-le bytes (+ offset 26) (remainder (dir-entry-first-cluster d) #x100))
   (bytes-set!/u32-le bytes (+ offset 28) (dir-entry-size d)))
 
+(define (write-long-file-name-dir-entry d bytes offset)
+  (define ucs-2-bytes
+    (let ([u (ascii-bytes->ucs-2 (long-file-name-dir-entry-bytes d))])
+      (if (= (bytes-length u) 26)
+          u
+          (bytes-append u #"\x00\x00" (make-bytes (- 24 (bytes-length u)) #xff)))))
+  (define checksum (long-file-name-dir-entry-checksum d))
+
+  (bytes-set!  bytes (+ offset 0)
+               (bitwise-ior
+                 (if (long-file-name-dir-entry-last-logical d) #x40 0)
+                 (long-file-name-dir-entry-sequence-number d)))
+  (bytes-copy! bytes (+ offset 1) ucs-2-bytes 0 10)    ; 5 characters of name
+  (bytes-set!  bytes (+ offset 11) #x0f)               ; Attributes (hidden, volume, system, read-only)
+  (bytes-set!  bytes (+ offset 12) #x00)               ; Reserved
+  (bytes-set!  bytes (+ offset 13) checksum)          ; Checksum of 8.3 name
+  (bytes-copy! bytes (+ offset 14) ucs-2-bytes 10 22)  ; 6 characters of name
+  (bytes-set!  bytes (+ offset 26) #x00)               ; First cluster 
+  (bytes-set!  bytes (+ offset 27) #x00)               ; First cluster continued
+  (bytes-copy! bytes (+ offset 28) ucs-2-bytes 22 26)) ; 2 characters of name
+
+
 (define (dir-cluster entries)
   (make-section cluster #:size 512
     (for ([i (in-naturals)] [entry entries])
-      (write-dir-entry entry cluster (* i 32)))))
+      (cond
+        [(dir-entry? entry)
+         (write-dir-entry entry cluster (* i 32))]
+        [(long-file-name-dir-entry? entry)
+         (write-long-file-name-dir-entry entry cluster (* i 32))]))))
      
-(define (dir-contents->dir-entries contents)
-  (for/list ([(name e) contents])
-    (match e
-      [(dir-entity cluster _)
-       (dir-entry name '(subdirectory) cluster 0)]
-      [(file-entity cluster length _)
-       (dir-entry name '(archived) cluster length)])))
+(define (name->visibility name)
+  (if (equal? (bytes-ref name 0) 46) ;; 46 = .
+      'hidden
+      'visible))
 
-(define (subdir->dir-entries entity parent-first-cluster)
-  (list* (dir-entry #"." '(subdirectory archived) (fs-entity-first-cluster entity) 0)
+(define (dir-contents->dir-entries contents)
+  (append*
+    (for/list ([(name e) (in-dict contents)])
+      (define-values (sanitized-name long-file-name-entries)
+        (case name
+          [(#".fseventsd")
+           (values
+             #"FSEVEN~1"
+             (list
+              (long-file-name-dir-entry #t 1 #xda #".fseventsd")))]
+          [else (values name empty)]))
+
+      (define visibility (name->visibility name))
+
+      (define real-entry
+        (match e
+          [(dir-entity cluster _)
+           (dir-entry sanitized-name `(,visibility subdirectory) cluster 0)]
+          [(file-entity cluster length _)
+           (dir-entry sanitized-name `(,visibility archived) cluster length)]))
+
+      (append
+        long-file-name-entries
+        (list real-entry)))))
+
+(define (subdir->dir-entries name entity parent-first-cluster)
+  (list* (dir-entry #"." `(,(name->visibility name) subdirectory archived)
+                    (fs-entity-first-cluster entity) 0)
          (dir-entry #".." '(subdirectory) parent-first-cluster 0)
          (dir-contents->dir-entries (dir-entity-contents entity))))
 
@@ -370,12 +360,12 @@
       (match entity
         [(dir-entity cluster-number items)
          (hash-set! clusters cluster-number
-                    (dir-cluster (subdir->dir-entries entity parent-dir-cluster)))
-         (for ([(name subentity) items])
+                    (dir-cluster (subdir->dir-entries name entity parent-dir-cluster)))
+         (for ([(name subentity) (in-dict items)])
            (handle name subentity cluster-number))]
         [(file-entity _ _ file-clusters)
          (hash-union! clusters file-clusters)]))
-    (for ([(name entity) fs-entities])
+    (for ([(name entity) (in-dict fs-entities)])
       (handle name entity 0))
 
     ;; Make an immutable hash

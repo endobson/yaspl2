@@ -36,10 +36,12 @@ newfs_msdos -F 32 -I "0xDEADABBA" /dev/disk2s1
 
 mkdir -p tmp/mount
 mount_msdos /dev/disk2s1 tmp/mount
+mkdir -p tmp/mount/.fseventsd
+# TODO make this lower case (no_log)
+touch tmp/mount/.fseventsd/NO_LOG
 mkdir -p tmp/mount/EFI/BOOT
 cp tmp/prog.efi tmp/mount/EFI/BOOT/BOOTX64.EFI
 
-#echo "Hello World" >> tmp/mount/EFI/BOOT/BOOTX64.EFI
 
 touch -t 202001021234.56 tmp/mount/EFI/BOOT/BOOTX64.EFI
 SetFile -d "1/2/2020 12:34:56 PM" tmp/mount/EFI/BOOT/BOOTX64.EFI
@@ -47,41 +49,65 @@ touch -t 202001021234.56 tmp/mount/EFI/BOOT
 SetFile -d "1/2/2020 12:34:56 PM" tmp/mount/EFI/BOOT
 touch -t 202001021234.56 tmp/mount/EFI
 SetFile -d "1/2/2020 12:34:56 PM" tmp/mount/EFI
+touch -t 202001021234.56 tmp/mount/.fseventsd/NO_LOG
+SetFile -d "1/2/2020 12:34:56 PM" tmp/mount/.fseventsd/NO_LOG
+touch -t 202001021234.56 tmp/mount/.fseventsd
+SetFile -d "1/2/2020 12:34:56 PM" tmp/mount/.fseventsd
 
 umount tmp/mount
 
 # Overwrite timestamps that I cannot figure out how to update
+# /FSEVEN~1
+echo -n -e '\x00\x5c\x64\x22\x50\x22\x50' | \
+  dd bs=1 count=7 conv=notrunc seek="$((0x2fc42d))" if=/dev/stdin of=tmp/fresh-disk.img
+echo -n -e '\x5c\x64\x22\x50' | \
+  dd bs=1 count=4 conv=notrunc seek="$((0x2fc436))" if=/dev/stdin of=tmp/fresh-disk.img
 # /EFI
 echo -n -e '\x00\x5c\x64\x22\x50\x22\x50' | \
-  dd bs=1 count=7 conv=notrunc seek="$((0x2fc40d))" if=/dev/stdin of=tmp/fresh-disk.img
+  dd bs=1 count=7 conv=notrunc seek="$((0x2fc44d))" if=/dev/stdin of=tmp/fresh-disk.img
 echo -n -e '\x5c\x64\x22\x50' | \
-  dd bs=1 count=4 conv=notrunc seek="$((0x2fc416))" if=/dev/stdin of=tmp/fresh-disk.img
+  dd bs=1 count=4 conv=notrunc seek="$((0x2fc456))" if=/dev/stdin of=tmp/fresh-disk.img
 
-# /EFI/.
+# /.fseventsd/.
 echo -n -e '\x00' | \
   dd bs=1 count=1 conv=notrunc seek="$((0x2fc60d))" if=/dev/stdin of=tmp/fresh-disk.img
-# /EFI/..
+# /.fseventsd/..
 echo -n -e '\x00\x5c\x64\x22\x50\x22\x50' | \
   dd bs=1 count=7 conv=notrunc seek="$((0x2fc62d))" if=/dev/stdin of=tmp/fresh-disk.img
 echo -n -e '\x5c\x64\x22\x50' | \
   dd bs=1 count=4 conv=notrunc seek="$((0x2fc636))" if=/dev/stdin of=tmp/fresh-disk.img
-# /EFI/BOOT
+# /.fseventsd/NO_LOG
 echo -n -e '\x00\x5c\x64\x22\x50\x22\x50' | \
   dd bs=1 count=7 conv=notrunc seek="$((0x2fc64d))" if=/dev/stdin of=tmp/fresh-disk.img
 echo -n -e '\x5c\x64\x22\x50' | \
   dd bs=1 count=4 conv=notrunc seek="$((0x2fc656))" if=/dev/stdin of=tmp/fresh-disk.img
 
-# /EFI/BOOT/.
+
+# /EFI/.
 echo -n -e '\x00' | \
   dd bs=1 count=1 conv=notrunc seek="$((0x2fc80d))" if=/dev/stdin of=tmp/fresh-disk.img
-# /EFI/BOOT/..
+# /EFI/..
 echo -n -e '\x00\x5c\x64\x22\x50\x22\x50' | \
   dd bs=1 count=7 conv=notrunc seek="$((0x2fc82d))" if=/dev/stdin of=tmp/fresh-disk.img
 echo -n -e '\x5c\x64\x22\x50' | \
   dd bs=1 count=4 conv=notrunc seek="$((0x2fc836))" if=/dev/stdin of=tmp/fresh-disk.img
+# /EFI/BOOT
+echo -n -e '\x00\x5c\x64\x22\x50\x22\x50' | \
+  dd bs=1 count=7 conv=notrunc seek="$((0x2fc84d))" if=/dev/stdin of=tmp/fresh-disk.img
+echo -n -e '\x5c\x64\x22\x50' | \
+  dd bs=1 count=4 conv=notrunc seek="$((0x2fc856))" if=/dev/stdin of=tmp/fresh-disk.img
+
+# /EFI/BOOT/.
+echo -n -e '\x00' | \
+  dd bs=1 count=1 conv=notrunc seek="$((0x2fca0d))" if=/dev/stdin of=tmp/fresh-disk.img
+# /EFI/BOOT/..
+echo -n -e '\x00\x5c\x64\x22\x50\x22\x50' | \
+  dd bs=1 count=7 conv=notrunc seek="$((0x2fca2d))" if=/dev/stdin of=tmp/fresh-disk.img
+echo -n -e '\x5c\x64\x22\x50' | \
+  dd bs=1 count=4 conv=notrunc seek="$((0x2fca36))" if=/dev/stdin of=tmp/fresh-disk.img
 # /EFI/BOOT/BOOTX64.EFI
 echo -n -e '\x00' | \
-  dd bs=1 count=1 conv=notrunc seek="$((0x2fc84d))" if=/dev/stdin of=tmp/fresh-disk.img
+  dd bs=1 count=1 conv=notrunc seek="$((0x2fca4d))" if=/dev/stdin of=tmp/fresh-disk.img
 
 
 hdiutil detach /dev/disk2

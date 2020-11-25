@@ -8,7 +8,8 @@ racket_library(
     name = "make-gpt-main",
     srcs = ["make-gpt-main.rkt"],
     deps = [
-      ":util"
+      ":util",
+      ":fat32"
     ],
 )
 
@@ -16,6 +17,14 @@ racket_library(
     name = "util",
     srcs = ["util.rkt"],
     deps = [
+    ],
+)
+
+racket_library(
+    name = "fat32",
+    srcs = ["fat32.rkt"],
+    deps = [
+      ":util",
     ],
 )
 

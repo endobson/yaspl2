@@ -11,7 +11,9 @@
   bytes-set!/u64-le
   make-section
   define-section
-  write-all-bytes)
+  write-all-bytes
+  ascii->utf-16
+  ascii-bytes->ucs-2)
 
 (define (bytes-set!/u16-le bytes offset v)
   (integer->integer-bytes v 2 #f #f bytes offset))
@@ -37,3 +39,17 @@
     (when (< offset (bytes-length b))
       (define written (write-bytes b p offset))
       (loop (+ offset written)))))
+
+(define (ascii->utf-16 str)
+  (define b (make-bytes (* (string-length str) 2)))
+  (for ([i (string-length str)])
+    (define code-point (char->integer (string-ref str i)))
+    (bytes-set! b (* 2 i) code-point))
+  (bytes->immutable-bytes b))
+
+(define (ascii-bytes->ucs-2 input)
+  (define b (make-bytes (* (bytes-length input) 2)))
+  (for ([i (bytes-length input)])
+    (define code-point (bytes-ref input i))
+    (bytes-set! b (* 2 i) code-point))
+  (bytes->immutable-bytes b))
