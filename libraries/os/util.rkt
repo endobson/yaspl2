@@ -24,14 +24,14 @@
 
 (define-syntax (make-section stx)
   (syntax-parse stx
-    [(_ name:id #:size size:exact-positive-integer bodies:expr ...)
+    [(_ name:id #:size size:expr bodies:expr ...)
      #'(let ([name (make-bytes size)])
          bodies ...
          (bytes->immutable-bytes name))]))
 
 (define-syntax (define-section stx)
   (syntax-parse stx
-    [(_ name:id #:size size:exact-positive-integer bodies:expr ...)
+    [(_ name:id #:size size:expr bodies:expr ...)
      #'(define name (make-section name #:size size bodies ...))]))
 
 (define (write-all-bytes b p)

@@ -134,35 +134,46 @@
 
 
 (define fat-volume-id #"\xba\xab\xad\xde")
+;; Number of sectors per cluster
+(define sectors-per-cluster 1)
+;; Number of file allocation tables
+(define fat-reserved-sectors 32)
+;; Number of file allocation tables
+(define number-of-fats 2)
+;; Number of sectors in the actual file allocation table
+(define fat-size 2017)
+;; Number of sectors in the FAT32 volume
+(define fat-total-size #x40000)
+
 
 (define-sector fat-bpb-sector
-  (bytes-copy! fat-bpb-sector 0  #"\xeb\x58\x90")      ; Jump instruction
-  (bytes-copy! fat-bpb-sector 3  #"BSD  4.4\x00")      ; OS NAME
-  (bytes-copy! fat-bpb-sector 11 #"\x00\x02")          ; Bytes per sector (512)
-  (bytes-copy! fat-bpb-sector 13 #"\x01")              ; Sectors per Cluster
-  (bytes-copy! fat-bpb-sector 14 #"\x20\x00")          ; Number of reserved sectors
-  (bytes-copy! fat-bpb-sector 16 #"\x02")              ; Number of FATs
-  (bytes-copy! fat-bpb-sector 17 #"\x00\x00")          ; Reserved 0 for FAT32
-  (bytes-copy! fat-bpb-sector 19 #"\x00\x00")          ; Reserved 0 for FAT32
-  (bytes-copy! fat-bpb-sector 21 #"\xF8")              ; Media Type (Fixed)
-  (bytes-copy! fat-bpb-sector 22 #"\x00\x00")          ; Reserved 0 for FAT32
-  (bytes-copy! fat-bpb-sector 24 #"\x20\x00")          ; Sectors per Track
-  (bytes-copy! fat-bpb-sector 26 #"\x20\x00")          ; Number of Heads
-  (bytes-copy! fat-bpb-sector 28 #"\x00\x08\x00\x00")  ; Number of Hidden Sectors
-  (bytes-copy! fat-bpb-sector 32 #"\x00\x00\x04\x00")  ; Total number of sectors
-  (bytes-copy! fat-bpb-sector 36 #"\xe1\x07\x00\x00")  ; FAT size
-  (bytes-copy! fat-bpb-sector 40 #"\x00\x00")          ; EXT Flags (Mirroring on)
-  (bytes-copy! fat-bpb-sector 42 #"\x00\x00")          ; Version (0.0)
-  (bytes-copy! fat-bpb-sector 44 #"\x02\x00\x00\x00")  ; Root Cluster Number
-  (bytes-copy! fat-bpb-sector 48 #"\x01\x00")          ; FSInfo Sector Number
-  (bytes-copy! fat-bpb-sector 50 #"\x06\x00")          ; Backup Boot Sector number
-                                                   ; Reserved (12 Bytes)
-  (bytes-copy! fat-bpb-sector 64 #"\x80")          ; Drive Number
-  (bytes-copy! fat-bpb-sector 65 #"\x00")          ; Reserved1
-  (bytes-copy! fat-bpb-sector 66 #"\x29")          ; Boot Sig
-  (bytes-copy! fat-bpb-sector 67 fat-volume-id) ; VolId
-  (bytes-copy! fat-bpb-sector 71 #"NO NAME    ") ; VolLab
-  (bytes-copy! fat-bpb-sector 82 #"FAT32   ") ; Format Name
+  (bytes-copy!       fat-bpb-sector 0  #"\xeb\x58\x90")      ; Jump instruction
+  (bytes-copy!       fat-bpb-sector 3  #"BSD  4.4\x00")      ; OS NAME
+  (bytes-copy!       fat-bpb-sector 11 #"\x00\x02")          ; Bytes per sector (512)
+  (bytes-set!        fat-bpb-sector 13 sectors-per-cluster)  ; Sectors per Cluster
+  (bytes-set!/u16-le fat-bpb-sector 14 fat-reserved-sectors) ; Number of reserved sectors
+  (bytes-set!        fat-bpb-sector 16 number-of-fats)       ; Number of FATs
+  (bytes-copy!       fat-bpb-sector 17 #"\x00\x00")          ; Reserved 0 for FAT32
+  (bytes-copy!       fat-bpb-sector 19 #"\x00\x00")          ; Reserved 0 for FAT32
+  (bytes-copy!       fat-bpb-sector 21 #"\xF8")              ; Media Type (Fixed)
+  (bytes-copy!       fat-bpb-sector 22 #"\x00\x00")          ; Reserved 0 for FAT32
+  (bytes-copy!       fat-bpb-sector 24 #"\x20\x00")          ; Sectors per Track
+  (bytes-copy!       fat-bpb-sector 26 #"\x20\x00")          ; Number of Heads
+  (bytes-copy!       fat-bpb-sector 28 #"\x00\x08\x00\x00")  ; Number of Hidden Sectors
+  (bytes-set!/u32-le fat-bpb-sector 32 fat-total-size)       ; Total number of sectors
+  (bytes-set!/u32-le fat-bpb-sector 36 fat-size)             ; FAT size
+  (bytes-copy!       fat-bpb-sector 40 #"\x00\x00")          ; EXT Flags (Mirroring on)
+  (bytes-copy!       fat-bpb-sector 42 #"\x00\x00")          ; Version (0.0)
+  (bytes-copy!       fat-bpb-sector 44 #"\x02\x00\x00\x00")  ; Root Cluster Number
+  (bytes-copy!       fat-bpb-sector 48 #"\x01\x00")          ; FSInfo Sector Number
+  (bytes-copy!       fat-bpb-sector 50 #"\x06\x00")          ; Backup Boot Sector number
+                                                             ; Reserved (12 Bytes)
+  (bytes-copy!       fat-bpb-sector 64 #"\x80")        ; Drive Number
+  (bytes-copy!       fat-bpb-sector 65 #"\x00")        ; Reserved1
+  (bytes-copy!       fat-bpb-sector 66 #"\x29")        ; Boot Sig
+  (bytes-copy!       fat-bpb-sector 67 fat-volume-id)  ; VolId
+  (bytes-copy!       fat-bpb-sector 71 #"NO NAME    ") ; VolLab
+  (bytes-copy!       fat-bpb-sector 82 #"FAT32   ")    ; Format Name
   ;; Boot code
   (bytes-copy! fat-bpb-sector 90
     (bytes-append
@@ -202,36 +213,33 @@
         (list->set (hash-keys next-clusters))
         (list->set (hash-values next-clusters))))))
 
-(define-section fat-file-allocation-table #:size 1032704 ;; 2017 * 512
+(define-section fat-file-allocation-table #:size (* fat-size 512)
   (for ([(cluster next) next-clusters])
     (bytes-set!/u32-le fat-file-allocation-table (* cluster 4) next)))
 
 
+(define (make-fat-fs-info-sector max-used-cluster max-start-cluster)
+  (make-section fat-fsinfo-sector #:size 512
+    (bytes-copy!       fat-fsinfo-sector 0   #"RRaA")                  ; Signature
+                                                                       ; Reserved
+    (bytes-copy!       fat-fsinfo-sector 484 #"rrAa")                  ; Signature part 2
+    (bytes-set!/u32-le fat-fsinfo-sector 488                           ; Number of free clusters
+                       (- fat-total-size (* fat-size number-of-fats)
+                          fat-reserved-sectors (* (sub1 max-used-cluster) sectors-per-cluster)))
+    (bytes-set!/u32-le fat-fsinfo-sector 492 max-start-cluster)        ; Last allocated cluster
+                                                                       ; Reserved (12 bytes)
+    (bytes-copy!       fat-fsinfo-sector 508 #"\x00\x00\x55\xAA")))    ; Signature part 3
 
-(define-sector fat-fsinfo-sector
-  (bytes-copy!       fat-fsinfo-sector 0   #"RRaA")                  ; Signature
-                                                                     ; Reserved
-  (bytes-copy!       fat-fsinfo-sector 484 #"rrAa")                  ; Signature part 2
-  (bytes-set!/u32-le fat-fsinfo-sector 488 (- #x03f01f max-cluster)) ; Number of free clusters
-  (bytes-set!/u32-le fat-fsinfo-sector 492 max-start-cluster)        ; Last allocated cluster
-                                                                     ; Reserved (12 bytes)
-  (bytes-copy!       fat-fsinfo-sector 508 #"\x00\x00\x55\xAA"))     ; Signature part 3
 
+(define fat-fsinfo-sector (make-fat-fs-info-sector max-cluster max-start-cluster))
 ;; This is stale to support byte for byte matching with external implementation
-(define-sector fat-fsinfo-sector2
-  (bytes-copy!       fat-fsinfo-sector2 0   #"RRaA")              ; Signature
-                                                                  ; Reserved
-  (bytes-copy!       fat-fsinfo-sector2 484 #"rrAa")              ; Signature part 2
-  (bytes-set!/u32-le fat-fsinfo-sector2 488 #x03f01d)             ; Number of free clusters
-  (bytes-set!/u32-le fat-fsinfo-sector2 492 3)                    ; Last allocated cluster
-                                                                  ; Reserved (12 bytes)
-  (bytes-copy!       fat-fsinfo-sector2 508 #"\x00\x00\x55\xAA")) ; Signature part 3
+(define fat-fsinfo-sector2 (make-fat-fs-info-sector 2 3))
 
 
 (define-struct dir-entry (filename attributes first-cluster size))
 (define-struct long-file-name-dir-entry (last-logical sequence-number checksum bytes))
 
- 
+
 (define-struct date (year month day))
 (define (date->bytes d)
   (match-define (date year month day) d)
@@ -269,7 +277,7 @@
   (define-values (filename-base extension) (dir-entry-split-filename (dir-entry-filename d)))
   (bytes-copy!       bytes (+ offset 0) filename-base)
   (bytes-copy!       bytes (+ offset 8) extension)
-  (bytes-set!        bytes (+ offset 11) 
+  (bytes-set!        bytes (+ offset 11)
     (apply bitwise-ior (map dir-entry-attribute->byte (dir-entry-attributes d))))
   (bytes-set!        bytes (+ offset 12) 0) ; Reserved
   (bytes-set!        bytes (+ offset 13) 0) ; Creation ms
@@ -299,7 +307,7 @@
   (bytes-set!  bytes (+ offset 12) #x00)               ; Reserved
   (bytes-set!  bytes (+ offset 13) checksum)          ; Checksum of 8.3 name
   (bytes-copy! bytes (+ offset 14) ucs-2-bytes 10 22)  ; 6 characters of name
-  (bytes-set!  bytes (+ offset 26) #x00)               ; First cluster 
+  (bytes-set!  bytes (+ offset 26) #x00)               ; First cluster
   (bytes-set!  bytes (+ offset 27) #x00)               ; First cluster continued
   (bytes-copy! bytes (+ offset 28) ucs-2-bytes 22 26)) ; 2 characters of name
 
@@ -312,7 +320,7 @@
          (write-dir-entry entry cluster (* i 32))]
         [(long-file-name-dir-entry? entry)
          (write-long-file-name-dir-entry entry cluster (* i 32))]))))
-     
+
 (define (name->visibility name)
   (if (equal? (bytes-ref name 0) 46) ;; 46 = .
       'hidden
@@ -374,10 +382,8 @@
       (values k v))))
 
 (define initialized-clusters
-  (let ()
-    (define max-cluster (apply max (hash-keys non-zero-cluster-hash)))
-    (for/list ([i (in-range 2 (add1 max-cluster))])
-      (hash-ref non-zero-cluster-hash i blank-cluster))))
+  (for/list ([i (in-range 2 (add1 max-cluster))])
+    (hash-ref non-zero-cluster-hash i blank-cluster)))
 
 (match-define
   (vector output-path)
@@ -400,25 +406,27 @@
     (write-all-bytes fat-fsinfo-sector2 out)
     (for ([i 24])
       (write-all-bytes blank-sector out))
+    ;; Sector 2048 + 32
 
+    ;; Each fat is 2017 sectors
     (write-all-bytes fat-file-allocation-table out)
     (write-all-bytes fat-file-allocation-table out)
 
-    ;; Sector 4066
+    ;; Sector 2048 + 4066
     ;; Start of clusters (First cluster is #2)
     (for ([cluster initialized-clusters])
       (write-all-bytes cluster out))
-    (for ([i (- (+ 30 (* 40 2048)) (length initialized-clusters))])
-      (write-all-bytes blank-sector out))
 
-    ;; 3 * 2048 sectors
+    (define number-blank-sectors
+      (+ (- (length initialized-clusters))
+         30
+         ;; Now at sector 3 * 2048
+         ;; And write enough blank sectors for the rest of the disk
+         (* (- 1024 3) 2048)
+         ;; Except for the backup GPT at end of the file
+         (- 33)))
+    (write-all-bytes (make-bytes (* number-blank-sectors 512)) out)
 
-    (for ([i (* (- (* 16 64) 44) 2048)])
-      (write-all-bytes blank-sector out))
-    ;; 1023 * 2048 sectors
-
-    (for ([i (- 2048 33)])
-      (write-all-bytes blank-sector out))
     (write-all-bytes partition-entries out)
     (write-all-bytes gpt-sector2 out)
     ;; 1024 * 2048 sectors
