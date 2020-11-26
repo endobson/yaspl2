@@ -197,9 +197,10 @@
 (define max-cluster (apply max (hash-keys next-clusters)))
 (define max-start-cluster
   (apply max
-    (set-subtract
-      (hash-keys next-clusters)
-      (hash-values next-clusters))))
+    (set->list
+      (set-subtract
+        (list->set (hash-keys next-clusters))
+        (list->set (hash-values next-clusters))))))
 
 (define-section fat-file-allocation-table #:size 1032704 ;; 2017 * 512
   (for ([(cluster next) next-clusters])
@@ -407,12 +408,12 @@
     ;; Start of clusters (First cluster is #2)
     (for ([cluster initialized-clusters])
       (write-all-bytes cluster out))
-    (for ([i (- (+ 30 (* 20 2048)) (length initialized-clusters))])
+    (for ([i (- (+ 30 (* 40 2048)) (length initialized-clusters))])
       (write-all-bytes blank-sector out))
 
     ;; 3 * 2048 sectors
 
-    (for ([i (* (- (* 16 64) 24) 2048)])
+    (for ([i (* (- (* 16 64) 44) 2048)])
       (write-all-bytes blank-sector out))
     ;; 1023 * 2048 sectors
 
