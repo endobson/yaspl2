@@ -9,6 +9,7 @@
   bytes-set!/u16-le
   bytes-set!/u32-le
   bytes-set!/u64-le
+  mebibytes
   make-section
   define-section
   write-all-bytes
@@ -21,6 +22,8 @@
   (integer->integer-bytes v 4 #f #f bytes offset))
 (define (bytes-set!/u64-le bytes offset v)
   (integer->integer-bytes v 8 #f #f bytes offset))
+
+(define (mebibytes n) (* n #x100000))
 
 (define-syntax (make-section stx)
   (syntax-parse stx

@@ -7,6 +7,7 @@
 
 (provide
   make-fat32
+  fat32?
   fat32-add-directory
   fat32-add-file
 
