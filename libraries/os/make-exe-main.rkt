@@ -16,22 +16,17 @@
     [(_ name:id bodies:expr ...)
      #'(define-section name #:size 512 bodies ...)]))
 
-(define (ascii->utf-16 str)
-  (define b (make-bytes (* (string-length str) 2)))
-  (for ([i (string-length str)])
-    (define code-point (char->integer (string-ref str i)))
-    (bytes-set! b (* 2 i) code-point))
-  (bytes->immutable-bytes b))
 
+(define fixed-timestamp #x3039)
 
 (define-section coff-header #:size 20
-  (bytes-set!/u16-le coff-header 0  #x8664)  ; Machine
-  (bytes-set!/u16-le coff-header 2  5)       ; Number of sections
-  (bytes-set!/u32-le coff-header 4  #x3039)  ; Timestamp
-  (bytes-set!/u32-le coff-header 8  0)       ; Pointer to symbol table
-  (bytes-set!/u32-le coff-header 12 0)       ; Number of symbols
-  (bytes-set!/u16-le coff-header 16 #xf0)    ; Size of optional header
-  (bytes-set!/u16-le coff-header 18          ; Characteristics
+  (bytes-set!/u16-le coff-header 0  #x8664)           ; Machine
+  (bytes-set!/u16-le coff-header 2  4)                ; Number of sections
+  (bytes-set!/u32-le coff-header 4  fixed-timestamp)  ; Timestamp
+  (bytes-set!/u32-le coff-header 8  0)                ; Pointer to symbol table
+  (bytes-set!/u32-le coff-header 12 0)                ; Number of symbols
+  (bytes-set!/u16-le coff-header 16 #xf0)             ; Size of optional header
+  (bytes-set!/u16-le coff-header 18                   ; Characteristics
                      (bitwise-ior
                        #x0002    ; Executable
                        #x0020    ; Large address aware
@@ -42,7 +37,7 @@
   (bytes-set!        pe-header 2  14)     ; Linker major version
   (bytes-set!        pe-header 3  0)      ; Linker minor version
   (bytes-set!/u32-le pe-header 4  #x200)  ; Size of code
-  (bytes-set!/u32-le pe-header 8  #x800)  ; Size of initialized data
+  (bytes-set!/u32-le pe-header 8  #x600)  ; Size of initialized data
   (bytes-set!/u32-le pe-header 12 0)      ; Size of uninitialized data
   (bytes-set!/u32-le pe-header 16 #x1000) ; Address of entry point
   (bytes-set!/u32-le pe-header 20 #x1000) ; Base of code
@@ -56,7 +51,7 @@
   (bytes-set!/u16-le pe-header 48 6)      ; Major subsystem version
   (bytes-set!/u16-le pe-header 50 0)      ; Minor subsystem version
   (bytes-set!/u32-le pe-header 52 0)      ; Win32 version value
-  (bytes-set!/u32-le pe-header 56 #x6000) ; Size of image
+  (bytes-set!/u32-le pe-header 56 #x5000) ; Size of image
   (bytes-set!/u32-le pe-header 60 #x400)  ; Size of headers
   (bytes-set!/u32-le pe-header 64 0)      ; Checksum
   (bytes-set!/u16-le pe-header 68 10)     ; Subsystem (EFI)
@@ -72,10 +67,10 @@
   (bytes-set!/u32-le pe-header 112 0)      ; Export table
   (bytes-set!/u32-le pe-header 120 0)      ; Import table
   (bytes-set!/u32-le pe-header 128 0)      ; Resource table
-  (bytes-set!/u32-le pe-header 136 #x4000) ; Exception table
-  (bytes-set!/u32-le pe-header 140 #x0c)   ; Exception table (part 2)
+  (bytes-set!/u32-le pe-header 136 0)      ; Exception table
+  (bytes-set!/u32-le pe-header 140 0)      ; Exception table (part 2)
   (bytes-set!/u32-le pe-header 144 0)      ; Certificate table
-  (bytes-set!/u32-le pe-header 152 #x5000) ; Base relocation table
+  (bytes-set!/u32-le pe-header 152 #x4000) ; Base relocation table
   (bytes-set!/u32-le pe-header 156 #x0c)   ; Base relocation table (part 2)
   (bytes-set!/u32-le pe-header 160 0)      ; Debug
   (bytes-set!/u32-le pe-header 168 0)      ; Architecture
@@ -105,7 +100,7 @@
 
 (define-section rdata-section-header #:size 40
   (bytes-copy!       rdata-section-header 0 #".rdata\x00\x00") ; Name
-  (bytes-set!/u32-le rdata-section-header 8  #x48)      ; VirtualSize
+  (bytes-set!/u32-le rdata-section-header 8  #x40)      ; VirtualSize
   (bytes-set!/u32-le rdata-section-header 12 #x2000)    ; VirtualAddress
   (bytes-set!/u32-le rdata-section-header 16 #x200)     ; SizeOfRawData
   (bytes-set!/u32-le rdata-section-header 20 #x600)     ; PointerToRawData
@@ -128,24 +123,12 @@
   (bytes-set!/u16-le data-section-header 34 0)          ; NumberOfLinenumbers
   (bytes-set!/u32-le data-section-header 36 #xc0000040) ; Characteristics
   )
-(define-section pdata-section-header #:size 40
-  (bytes-copy!       pdata-section-header 0 #".pdata\x00\x00") ; Name
-  (bytes-set!/u32-le pdata-section-header 8  #x0c)   ; VirtualSize
-  (bytes-set!/u32-le pdata-section-header 12 #x4000) ; VirtualAddress
-  (bytes-set!/u32-le pdata-section-header 16 #x200)  ; SizeOfRawData
-  (bytes-set!/u32-le pdata-section-header 20 #xa00)  ; PointerToRawData
-  (bytes-set!/u32-le pdata-section-header 24 0) ; PointerToRelocations
-  (bytes-set!/u32-le pdata-section-header 28 0) ; PointerToLinenumbers
-  (bytes-set!/u16-le pdata-section-header 32 0) ; NumberOfRelocations
-  (bytes-set!/u16-le pdata-section-header 34 0) ; NumberOfLinenumbers
-  (bytes-set!/u32-le pdata-section-header 36 #x40000040) ; Characteristics
-  )
 (define-section reloc-section-header #:size 40
   (bytes-copy!       reloc-section-header 0 #".reloc\x00\x00") ; Name
   (bytes-set!/u32-le reloc-section-header 8  #x0c)       ; VirtualSize
-  (bytes-set!/u32-le reloc-section-header 12 #x5000)     ; VirtualAddress
+  (bytes-set!/u32-le reloc-section-header 12 #x4000)     ; VirtualAddress
   (bytes-set!/u32-le reloc-section-header 16 #x200)      ; SizeOfRawData
-  (bytes-set!/u32-le reloc-section-header 20 #xc00)      ; PointerToRawData
+  (bytes-set!/u32-le reloc-section-header 20 #xa00)      ; PointerToRawData
   (bytes-set!/u32-le reloc-section-header 24 0)          ; PointerToRelocations
   (bytes-set!/u32-le reloc-section-header 28 0)          ; PointerToLinenumbers
   (bytes-set!/u16-le reloc-section-header 32 0)          ; NumberOfRelocations
@@ -201,7 +184,6 @@
        text-section-header
        rdata-section-header
        data-section-header
-       pdata-section-header
        reloc-section-header
        ))
 
@@ -234,16 +216,12 @@
 
 (define-section* fourth-section
   (bytes-copy! fourth-section 0 (ascii->utf-16 "Hello, you slab of warm meat!\r\n"))
-  (bytes-copy! fourth-section #x40 #"\x01\x04\x01\x00\x04\xa2")
   )
 (define-section* fifth-section
   (bytes-copy! fifth-section 0 #"\x00\x20\x00\x80\x01\x00\x00\x00\x3a\x20\x00\x80\x01\x00")
   )
 (define-section* sixth-section
-  (bytes-copy! sixth-section 0 #"\x00\x10\x00\x00\x08\x11\x00\x00\x40\x20")
-  )
-(define-section* seventh-section
-  (bytes-copy! seventh-section 0 #"\x00\x30\x00\x00\x0c\x00\x00\x00\x00\xa0\x08\xa0")
+  (bytes-copy! sixth-section 0 #"\x00\x30\x00\x00\x0c\x00\x00\x00\x00\xa0\x08\xa0")
   )
 
 (match-define
@@ -258,6 +236,5 @@
     (write-all-bytes fourth-section out)
     (write-all-bytes fifth-section out)
     (write-all-bytes sixth-section out)
-    (write-all-bytes seventh-section out)
     ))
 
