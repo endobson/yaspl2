@@ -31,82 +31,22 @@
 (define x86-root-partition-guid #"\x40\x95\x47\x44\x97\xf2\xb2\x41\x9a\xf7\xd1\x31\xd5\xf0\x45\x8a")
 
 ;; Structured gpt disks
-(struct gpt-disk (size partitions))
+(struct gpt-disk (size guid partitions))
 
 (struct partition (name guid type-guid start size contents))
 
-(define (make-gpt-disk size)
-  (gpt-disk size empty))
+(define (make-gpt-disk guid size)
+  (gpt-disk size guid empty))
 
 (define (gpt-disk-add-partition disk p)
   (match disk
-    [(gpt-disk size partitions)
-     (gpt-disk size (append partitions (list p)))]))
+    [(gpt-disk size guid partitions)
+     (gpt-disk size guid (append partitions (list p)))]))
 
 (define (make-efi-system-partition name guid start size contents)
   (partition name guid efi-system-partition-guid start size contents))
 (define (make-x86-root-partition name guid start size contents)
   (partition name guid x86-root-partition-guid start size contents))
-
-
-;; Standard MBR sector
-;; TODO fix size
-(define-section mbr-sector #:size 512
-  (define partition-entry
-    (bytes-append
-      #"\x00"             ; Status
-      #"\x00\x02\x00"     ; CHS Start
-      #"\xee"             ; Partition type (GPT protective MBR)
-      #"\x8a\x08\x82"     ; CHS end
-      #"\x01\x00\x00\x00" ; LBA start
-      #"\xff\xff\x1f\x00" ; Number of sectors
-      ))
-
-  (bytes-copy! mbr-sector #x1be partition-entry)
-  (bytes-copy! mbr-sector #x1fe #"\x55\xaa"))
-
-;; GPT header/footer sectors
-(define (gpt-sectors g)
-  (define partition-entries (gpt-disk->partition-entries g))
-
-  ;; TODO fix sizes
-  (define-section gpt-sector #:size 512
-    (bytes-copy!       gpt-sector 0  #"EFI PART")                         ; Signature
-    (bytes-copy!       gpt-sector 8  #"\x00\x00\x01\x00")                 ; Revision
-    (bytes-set!/u32-le gpt-sector 12 92)                                  ; Header Size (92)
-                                                                          ; CRC (4 bytes)
-                                                                          ; Reserved (4 bytes)
-    (bytes-set!/u64-le gpt-sector 24 1)                                   ; Current LBA of header
-    (bytes-set!/u64-le gpt-sector 32 #x1fffff)                            ; Backup LBA of header
-    (bytes-set!/u64-le gpt-sector 40 34)                                  ; First usable LBA
-    (bytes-set!/u64-le gpt-sector 48 #x1fffde)                            ; Last usable LBA
-    (bytes-copy!       gpt-sector 56                                      ; Disk GUID
-      #"\xdb\x0f\xba\x80\x75\xe0\xc5\x47\x93\x25\xd2\x0f\xd0\x17\x5d\x9d")
-    (bytes-set!/u64-le gpt-sector 72 2)                                   ; Start LBA of partition entries
-    (bytes-set!/u64-le gpt-sector 80 128)                                 ; Number of partition entries
-    (bytes-set!/u64-le gpt-sector 84 128)                                 ; Size of partition entries
-    (bytes-set!/u32-le gpt-sector 88 (crc32 partition-entries))           ; CRC of partition entries
-  
-    ; Compute the CRC and put it in the right place
-    (bytes-set!/u32-le gpt-sector 16 (crc32 (subbytes gpt-sector 0 92))))
-  
-  (define-section gpt-sector2 #:size 512
-    ;; Start with the original gpt sector
-    (bytes-copy! gpt-sector2 0 gpt-sector)
-  
-    ; Flipped current and backup LBA for header
-    (bytes-set!/u64-le gpt-sector2 24 #x1fffff)
-    (bytes-set!/u64-le gpt-sector2 32 1)
-  
-    ; Start LBA of partition entries
-    (bytes-set!/u64-le gpt-sector2 72 #x1fffdf)
-  
-    ; Zero the CRC, and then recompute it.
-    (bytes-set!/u32-le gpt-sector2 16 0)
-    (bytes-set!/u32-le gpt-sector2 16 (crc32 (subbytes gpt-sector2 0 92))))
-
-  (values gpt-sector gpt-sector2 partition-entries))
-
 
 ; Serialize partition entries
 (define (make-partition-entry name guid type-guid start size)
@@ -124,42 +64,111 @@
   (define lba-size (quotient size 512))
   (make-partition-entry name guid type-guid lba-start lba-size))
 
-(define (gpt-disk->partition-entries g)
-  (bytes-append*
-    (append (map partition->partition-entry (gpt-disk-partitions g))
-            (make-list 126 (make-bytes 128)))))
 
-;;
+;; GPT header/footer sections
 (define (gpt-disk->header/footer g)
-  (define-values (gpt-sector gpt-sector2 partitions) (gpt-sectors g))
+
+  ;; Standard MBR sector
+  (define-section mbr-sector #:size 512
+    ;; TODO figure out how to change CHS for different disk sizes
+    (define partition-entry
+      (bytes-append
+        #"\x00"             ; Status
+        #"\x00\x02\x00"     ; CHS Start
+        #"\xee"             ; Partition type (GPT protective MBR)
+        #"\x8a\x08\x82"     ; CHS end
+        ))
+
+    (bytes-copy!       mbr-sector #x1be partition-entry)
+    (bytes-set!/u32-le mbr-sector #x1c6 1)                                ; LBA start
+    (bytes-set!/u32-le mbr-sector #x1ca (sub1 (/ (gpt-disk-size g) 512))) ; Number of sectors
+
+    (bytes-copy!       mbr-sector #x1fe #"\x55\xaa"))
+
+
+  ; Number of possible partition
+  (define max-number-of-partitions 128)
+  (define partition-entry-size 128)
+
+  (define partitions (gpt-disk-partitions g))
+  (define partition-entries
+    (bytes-append*
+      (append (map partition->partition-entry partitions)
+              (list (make-bytes (* (- max-number-of-partitions (length partitions)) 128))))))
+
+  (define primary-header-lba 1)
+  (define backup-header-lba (sub1 (/ (gpt-disk-size g) 512)))
+  (define num-partition-sectors (/ (* max-number-of-partitions partition-entry-size) 512))
+
+  ;; TODO fix sizes
+  (define-section gpt-sector #:size 512
+    (bytes-copy!       gpt-sector 0  #"EFI PART")                         ; Signature
+    (bytes-copy!       gpt-sector 8  #"\x00\x00\x01\x00")                 ; Revision
+    (bytes-set!/u32-le gpt-sector 12 92)                                  ; Header Size (92)
+                                                                          ; CRC (4 bytes)
+                                                                          ; Reserved (4 bytes)
+    (bytes-set!/u64-le gpt-sector 24 primary-header-lba)                  ; Current LBA of header
+    (bytes-set!/u64-le gpt-sector 32 backup-header-lba)                   ; Backup LBA of header
+    (bytes-set!/u64-le gpt-sector 40 (add1 (+ primary-header-lba          ; First usable LBA
+                                              num-partition-sectors)))
+    (bytes-set!/u64-le gpt-sector 48 (sub1 (- backup-header-lba           ; Last usable LBA
+                                              num-partition-sectors)))
+    (bytes-copy!       gpt-sector 56 (gpt-disk-guid g))                   ; Disk GUID
+    (bytes-set!/u64-le gpt-sector 72 (add1 primary-header-lba))           ; Start LBA of partition entries
+    (bytes-set!/u64-le gpt-sector 80 max-number-of-partitions)            ; Number of partition entries
+    (bytes-set!/u64-le gpt-sector 84 partition-entry-size)                ; Size of partition entries
+    (bytes-set!/u32-le gpt-sector 88 (crc32 partition-entries))           ; CRC of partition entries
+
+    ; Compute the CRC and put it in the right place
+    (bytes-set!/u32-le gpt-sector 16 (crc32 (subbytes gpt-sector 0 92))))
+
+  (define-section gpt-sector2 #:size 512
+    ;; Start with the original gpt sector
+    (bytes-copy! gpt-sector2 0 gpt-sector)
+
+    ; Flipped current and backup LBA for header
+    (bytes-set!/u64-le gpt-sector2 24 backup-header-lba)
+    (bytes-set!/u64-le gpt-sector2 32 primary-header-lba)
+
+    ; Start LBA of partition entries
+    (bytes-set!/u64-le gpt-sector2 72 #x1fffdf)
+
+    ; Zero the CRC, and then recompute it.
+    (bytes-set!/u32-le gpt-sector2 16 0)
+    (bytes-set!/u32-le gpt-sector2 16 (crc32 (subbytes gpt-sector2 0 92))))
+
   (values
     (bytes-append
       mbr-sector
       gpt-sector
-      partitions)
+      partition-entries)
     (bytes-append
-      partitions
+      partition-entries
       gpt-sector2)))
 
 
 (define (serialize-partition p)
-  (match (partition-contents p)
-    [(? fat32? p) 
-     (serialize-fat32 p #:volume-size (mebibytes 128))]
+  (match-define (partition name guid type-guid start size contents) p)
+  (match contents
+    [(? fat32? p)
+     (serialize-fat32 p #:volume-size size)]
     [#f
-     (make-bytes 0)]))
+     (make-bytes size)]))
 
 (define (write-gpt-disk g out)
+  (define amount-output 0)
+  (define (output b)
+    (write-all-bytes b out)
+    (set! amount-output (+ amount-output (bytes-length b))))
+  (define (pad-to n)
+    (output (make-bytes (- n amount-output))))
+
   (define-values (gpt-header gpt-footer) (gpt-disk->header/footer g))
 
-  (write-all-bytes gpt-header out)
-  (write-all-bytes (make-bytes (- (mebibytes 1) (bytes-length gpt-header))) out)
-  ;; 1MiB (2048 sectors)
-
+  (output gpt-header)
+  ;; Currently requires that partitions be in order
   (for ([p (gpt-disk-partitions g)])
-    (write-all-bytes (serialize-partition p) out))
-
-  (write-all-bytes (make-bytes (- (mebibytes (- 1024 129)) (bytes-length gpt-footer))) out)
-  (write-all-bytes gpt-footer out))
-
-
+    (pad-to (partition-start p))
+    (output (serialize-partition p)))
+  (pad-to (- (gpt-disk-size g) (bytes-length gpt-footer)))
+  (output gpt-footer))
