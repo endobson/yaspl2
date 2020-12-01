@@ -37,6 +37,7 @@
 (struct end-device-path-node device-path-node ())
 (struct vendor-device-path-node device-path-node (guid))
 (struct usb-device-path-node device-path-node ())
+(struct atapi-device-path-node device-path-node (secondary))
 
 
 (define (write-device-path-node p out)
@@ -100,6 +101,13 @@
      (write-all-bytes #"\x03" out)
      (write-all-bytes #"\x01" out)
      (write-all-bytes #"\x01" out)]
+    [(atapi-device-path-node secondary)
+     (write-all-bytes #"\x03" out)
+     (write-all-bytes #"\x01" out)
+     (write-all-bytes #"\x08\x00" out)
+     (write-all-bytes (if secondary #"\x01" #"\x00") out)      ; Primary/Secondary
+     (write-all-bytes #"\x00" out)      ; Master/Slave
+     (write-all-bytes #"\x00\x00" out)] ; Unit Number
 
     [(end-device-path-node)
      (write-all-bytes #"\x7f\x01\x04\x00" out)]
@@ -150,19 +158,16 @@
 (define (device-path->bytes p)
   (call-with-output-bytes (lambda (out) (write-device-path p out))))
 
-(struct load-option ())
+(struct load-option (attributes device-path name data))
 
 (define (write-load-option o out)
-  (define path 
-    (list (firmware-volume-device-path-node
-            (hex-string->bytes "c9bdb87cebf8344faaea3ee4af6516a1"))
-          (firmware-file-device-path-node
-            (hex-string->bytes "21aa2c4614760345836e8ab6f4662331"))))
-  (define contents (device-path->bytes path))
-  (write-all-bytes #"\x09\x01\x00\x00" out)
-  (write-all-bytes (integer->integer-bytes (bytes-length contents) 2 #f #f) out)
-  (write-all-bytes (ascii->utf-16 "UiApp\0") out)
-  (write-all-bytes contents out))
+  (match-define (load-option attributes path name data) o)
+  (define encoded-path (device-path->bytes path))
+  (write-all-bytes attributes out)
+  (write-all-bytes (integer->integer-bytes (bytes-length encoded-path) 2 #f #f) out)
+  (write-all-bytes (ascii->utf-16 (string-append name "\0")) out)
+  (write-all-bytes encoded-path out)
+  (write-all-bytes data out))
 
 (define (load-option->bytes o)
   (call-with-output-bytes (lambda (p) (write-load-option o p))))
@@ -221,7 +226,14 @@
     #"\x3f\x00"         ; State
     #"\x07\x00"         ; Attributes
     (load-option->bytes ; Contents
-      (load-option)) 
+      (load-option
+        #"\x09\x01\x00\x00"
+        (list (firmware-volume-device-path-node
+                (hex-string->bytes "c9bdb87cebf8344faaea3ee4af6516a1"))
+              (firmware-file-device-path-node
+                (hex-string->bytes "21aa2c4614760345836e8ab6f4662331")))
+        "UiApp"
+        #"")) 
     ))
 (define v7
   (efi-variable
@@ -739,15 +751,86 @@
     #"\x07\x00"         ; Attributes
     #"\x00\x00\x01\x00" ; Contents
     ))
-;(define v34
-;  (efi-variable
-;    (hex-string->bytes "61dfe48bca93d211aa0d00e098032b8c")
-;    "Boot0001"          ; Name
-;    #"\x3d\x00"         ; State
-;    #"\x07\x00"         ; Attributes
-;    (load-option->bytes ; Contents
-;      (load-option)) 
-;    ))
+(define v34
+  (efi-variable
+    (hex-string->bytes "61dfe48bca93d211aa0d00e098032b8c")
+    "Boot0001"          ; Name
+    #"\x3d\x00"         ; State
+    #"\x07\x00"         ; Attributes
+    (load-option->bytes ; Contents
+      (load-option
+        #"\x01\x00\x00\x00"
+        (list
+          (acpi-device-path-node #x0a0341d0 0)
+          (pci-device-path-node 1 1)
+          (atapi-device-path-node #t))
+        "UEFI QEMU DVD-ROM QM00003 "
+        (hex-string->bytes "4eac0881119f594d850ee21a522c59b2")) 
+    )))
+(define v35
+  (efi-variable
+    (hex-string->bytes "61dfe48bca93d211aa0d00e098032b8c")
+    "BootOrder"                 ; Name
+    #"\x3c\x00"                 ; State
+    #"\x07\x00"                 ; Attributes
+    #"\x00\x00\x01\x00\x02\x00" ; Contents
+    ))
+(define v36
+  (efi-variable
+    (hex-string->bytes "61dfe48bca93d211aa0d00e098032b8c")
+    "Boot0002"          ; Name
+    #"\x3d\x00"         ; State
+    #"\x07\x00"         ; Attributes
+    (load-option->bytes ; Contents
+      (load-option
+        #"\x01\x00\x00\x00"
+        (list
+          (acpi-device-path-node #x0a0341d0 0)
+          (pci-device-path-node 1 1)
+          (atapi-device-path-node #f))
+        "UEFI QEMU HARDDISK QM00001 "
+        (hex-string->bytes "4eac0881119f594d850ee21a522c59b2")) 
+    )))
+(define v37
+  (efi-variable
+    (hex-string->bytes "61dfe48bca93d211aa0d00e098032b8c")
+    "BootOrder"                         ; Name
+    #"\x3c\x00"                         ; State
+    #"\x07\x00"                         ; Attributes
+    #"\x00\x00\x01\x00\x02\x00\x03\x00" ; Contents
+    ))
+(define v38
+  (efi-variable
+    (hex-string->bytes "61dfe48bca93d211aa0d00e098032b8c")
+    "Boot0003"          ; Name
+    #"\x3f\x00"         ; State
+    #"\x07\x00"         ; Attributes
+    (load-option->bytes ; Contents
+      (load-option
+        #"\x01\x00\x00\x00"
+        (list (firmware-volume-device-path-node
+                (hex-string->bytes "c9bdb87cebf8344faaea3ee4af6516a1"))
+              (firmware-file-device-path-node
+                (hex-string->bytes "83a5047c3e9e1c4fad65e05268d0b4d1")))
+        "EFI Internal Shell"
+        #""))
+    ))
+(define v39
+  (efi-variable
+    (hex-string->bytes "9f04194c3741d34d9c108b97a83ffdfa")
+    "MemoryTypeInformation" ; Name
+    #"\x3f\x00"             ; State
+    #"\x03\x00"             ; Attributes
+    (bytes-append
+      #"\x0a\x00\x00\x00" #"\x2a\x00\x00\x00"
+      #"\x09\x00\x00\x00" #"\x0b\x00\x00\x00"
+      #"\x00\x00\x00\x00" #"\x20\x00\x00\x00"
+      #"\x06\x00\x00\x00" #"\xac\x01\x00\x00"
+      #"\x05\x00\x00\x00" #"\xa8\x00\x00\x00"
+      #"\x03\x00\x00\x00" #"\x32\x02\x00\x00"
+      #"\x04\x00\x00\x00" #"\x00\x0f\x00\x00"
+      #"\x0f\x00\x00\x00" #"\x00\x00\x00\x00")
+    ))
 
 (call-with-output-file output-path
   (lambda (out)
@@ -786,5 +869,10 @@
     (write-efi-variable v31 out)
     (write-efi-variable v32 out)
     (write-efi-variable v33 out)
-    ;(write-efi-variable v34 out)
+    (write-efi-variable v34 out)
+    (write-efi-variable v35 out)
+    (write-efi-variable v36 out)
+    (write-efi-variable v37 out)
+    (write-efi-variable v38 out)
+    (write-efi-variable v39 out)
     ))
