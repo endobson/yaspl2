@@ -8,6 +8,11 @@
   "fat32.rkt"
   "gpt.rkt")
 
+(match-define
+  (vector input-path output-path)
+  (current-command-line-arguments))
+
+
 (define f32
   (fat32-add-file
   (fat32-add-directory
@@ -18,7 +23,7 @@
     (list #".fseventsd" #"NO_LOG") #"")
     (list #"EFI"))
     (list #"EFI" #"BOOT"))
-    (list #"EFI" #"BOOT" #"BOOTX64.EFI") (file->bytes "tmp/prog.efi")))
+    (list #"EFI" #"BOOT" #"BOOTX64.EFI") (file->bytes input-path)))
 
 (define disk-guid #"\xdb\x0f\xba\x80\x75\xe0\xc5\x47\x93\x25\xd2\x0f\xd0\x17\x5d\x9d")
 (define efi-partition-guid #"\xd6\x6c\x8d\xa3\x58\x69\x59\x42\xa8\x16\xca\xc2\xeb\x3e\x70\x58")
@@ -37,10 +42,7 @@
     efi-partition)
     linux-partition))
 
-(match-define
-  (vector output-path)
-  (current-command-line-arguments))
 
-(call-with-output-file output-path 
+(call-with-output-file output-path
   (lambda (out)
     (write-gpt-disk gpt-disk out)))

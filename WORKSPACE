@@ -50,3 +50,8 @@ http_file(
   sha256 = "81ede7af3351a1710a4d4a35655fac10bedb11ae3484ae785820803a5bf69829",
   urls = ["https://github.com/clearlinux/common/raw/9749d00c562b5852eb192567335f82eca434c4be/OVMF_CODE.fd"],
 )
+http_file(
+  name = "ovmf_vars",
+  sha256 = "5d2ac383371b408398accee7ec27c8c09ea5b74a0de0ceea6513388b15be5d1e",
+  urls = ["https://github.com/clearlinux/common/raw/9749d00c562b5852eb192567335f82eca434c4be/OVMF_VARS.fd"],
+)

@@ -5,16 +5,6 @@ package(
 )
 
 racket_library(
-    name = "make-gpt-main",
-    srcs = ["make-gpt-main.rkt"],
-    deps = [
-      ":util",
-      ":fat32",
-      ":gpt",
-    ],
-)
-
-racket_library(
     name = "util",
     srcs = ["util.rkt"],
     deps = [
@@ -37,6 +27,16 @@ racket_library(
     ],
 )
 
+racket_library(
+    name = "make-gpt-main",
+    srcs = ["make-gpt-main.rkt"],
+    deps = [
+      ":util",
+      ":fat32",
+      ":gpt",
+    ],
+)
+
 racket_binary(
     name = "make-gpt",
     main_module = "make-gpt-main.rkt",
@@ -45,6 +45,23 @@ racket_binary(
     ],
 )
 
+racket_library(
+    name = "make-uefi-vars-main",
+    srcs = ["make-uefi-vars-main.rkt"],
+    deps = [
+      ":util",
+      ":fat32",
+      ":gpt",
+    ],
+)
+
+racket_binary(
+    name = "make-uefi-vars",
+    main_module = "make-uefi-vars-main.rkt",
+    deps = [
+        ":make-uefi-vars-main",
+    ],
+)
 
 racket_library(
     name = "make-exe-main",
@@ -53,6 +70,7 @@ racket_library(
       ":util"
     ],
 )
+
 
 racket_binary(
     name = "make-exe",
