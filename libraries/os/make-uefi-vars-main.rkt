@@ -144,6 +144,49 @@
   (vendor-device-path-node
     (hex-string->bytes "a1237455ab636c40be7e91cdbc08c457")))
 
+(define device-A
+  (list
+    (acpi-device-path-node #x0a0341d0 0)
+    (pci-device-path-node 0 1)
+    (acpi-device-path-node #x050141d0 0)
+    uart-device-path-node1
+    (vendor-defined-device-path-node)))
+(define device-B
+  (list
+    (acpi-device-path-node #x0a0341d0 0)
+    (pci-device-path-node 0 1)
+    (acpi-device-path-node #x050141d0 1)
+    uart-device-path-node1
+    (vendor-defined-device-path-node)))
+(define device-C
+  (list
+    vendor-device-path-node1
+    uart-device-path-node2
+    (vendor-defined-device-path-node)))
+(define device-D
+  (list
+    (acpi-device-path-node #x0a0341d0 0)
+    (pci-device-path-node 0 1)
+    (acpi-device-path-node #x030341d0 0)))
+(define device-E
+  (list
+    (acpi-device-path-node #x0a0341d0 0)
+    (pci-device-path-node 0 2)
+    acpi-adr-device-path-node1))
+;; Unclear on what this device is
+(define device-E*
+  (list
+    (acpi-device-path-node #x0a0341d0 #xaa000000)
+    (pci-device-path-node 0 2)
+    acpi-adr-device-path-node1))
+(define device-F
+  (list
+    (usb-device-path-node)))
+(define device-G
+  (list
+    vendor-device-path-node2
+    acpi-adr-device-path-node2))
+
 (define (write-end-device-path-node out)
   ; Type    : 0x7f
   ; Subtype : 0xff
@@ -152,11 +195,24 @@
 
 (define (write-device-path p out)
   (for ([node (in-list p)])
-    (write-device-path-node node out))
-  (write-end-device-path-node out))
+    (write-device-path-node node out)))
 
 (define (device-path->bytes p)
-  (call-with-output-bytes (lambda (out) (write-device-path p out))))
+  (call-with-output-bytes
+    (lambda (out)
+      (write-device-path p out)
+      (write-end-device-path-node out))))
+
+(define (device-paths->bytes paths)
+  (call-with-output-bytes
+    (lambda (out)
+      (match-define (cons p1 ps) paths)
+      (write-device-path p1 out)
+      (for ([p ps])
+        (write-device-path (cons (end-device-path-node) p) out))
+      (write-end-device-path-node out))))
+
+
 
 (struct load-option (attributes device-path name data))
 
@@ -273,11 +329,9 @@
     "ConIn"             ; Name
     #"\x3c\x00"         ; State
     #"\x07\x00"         ; Attributes
-    (device-path->bytes ; Contents
+    (device-paths->bytes ; Contents
       (list
-        (acpi-device-path-node #x0a0341d0 0)
-        (pci-device-path-node 0 1)
-        (acpi-device-path-node #x030341d0 0)))
+        device-D))
     ))
 (define v12
   (efi-variable
@@ -285,13 +339,9 @@
     "ConOut"             ; Name
     #"\x3c\x00"         ; State
     #"\x07\x00"         ; Attributes
-    (device-path->bytes ; Contents
+    (device-paths->bytes ; Contents
       (list
-        (acpi-device-path-node #x0a0341d0 0)
-        (pci-device-path-node 0 1)
-        (acpi-device-path-node #x050141d0 0)
-        uart-device-path-node1
-        (vendor-defined-device-path-node)))
+        device-A))
     ))
 (define v13
   (efi-variable
@@ -299,17 +349,10 @@
     "ConIn"             ; Name
     #"\x3c\x00"         ; State
     #"\x07\x00"         ; Attributes
-    (device-path->bytes ; Contents
+    (device-paths->bytes ; Contents
       (list
-        (acpi-device-path-node #x0a0341d0 0)
-        (pci-device-path-node 0 1)
-        (acpi-device-path-node #x030341d0 0)
-        (end-device-path-node)
-        (acpi-device-path-node #x0a0341d0 0)
-        (pci-device-path-node 0 1)
-        (acpi-device-path-node #x050141d0 0)
-        uart-device-path-node1
-        (vendor-defined-device-path-node)
+        device-D
+        device-A
         ))
     ))
 (define v14
@@ -318,13 +361,9 @@
     "ErrOut"            ; Name
     #"\x3c\x00"         ; State
     #"\x07\x00"         ; Attributes
-    (device-path->bytes ; Contents
+    (device-paths->bytes ; Contents
       (list
-        (acpi-device-path-node #x0a0341d0 0)
-        (pci-device-path-node 0 1)
-        (acpi-device-path-node #x050141d0 0)
-        uart-device-path-node1
-        (vendor-defined-device-path-node)
+        device-A
         ))
     ))
 (define v15
@@ -333,19 +372,10 @@
     "ConOut"            ; Name
     #"\x3c\x00"         ; State
     #"\x07\x00"         ; Attributes
-    (device-path->bytes ; Contents
+    (device-paths->bytes ; Contents
       (list
-        (acpi-device-path-node #x0a0341d0 0)
-        (pci-device-path-node 0 1)
-        (acpi-device-path-node #x050141d0 0)
-        uart-device-path-node1
-        (vendor-defined-device-path-node)
-        (end-device-path-node)
-        (acpi-device-path-node #x0a0341d0 0)
-        (pci-device-path-node 0 1)
-        (acpi-device-path-node #x050141d0 1)
-        uart-device-path-node1
-        (vendor-defined-device-path-node)
+        device-A
+        device-B
         ))
     ))
 (define v16
@@ -354,23 +384,11 @@
     "ConIn"             ; Name
     #"\x3c\x00"         ; State
     #"\x07\x00"         ; Attributes
-    (device-path->bytes ; Contents
+    (device-paths->bytes ; Contents
       (list
-        (acpi-device-path-node #x0a0341d0 0)
-        (pci-device-path-node 0 1)
-        (acpi-device-path-node #x030341d0 0)
-        (end-device-path-node)
-        (acpi-device-path-node #x0a0341d0 0)
-        (pci-device-path-node 0 1)
-        (acpi-device-path-node #x050141d0 0)
-        uart-device-path-node1
-        (vendor-defined-device-path-node)
-        (end-device-path-node)
-        (acpi-device-path-node #x0a0341d0 0)
-        (pci-device-path-node 0 1)
-        (acpi-device-path-node #x050141d0 1)
-        uart-device-path-node1
-        (vendor-defined-device-path-node)
+        device-D
+        device-A
+        device-B
         ))
     ))
 (define v17
@@ -379,19 +397,10 @@
     "ErrOut"            ; Name
     #"\x3c\x00"         ; State
     #"\x07\x00"         ; Attributes
-    (device-path->bytes ; Contents
+    (device-paths->bytes ; Contents
       (list
-        (acpi-device-path-node #x0a0341d0 0)
-        (pci-device-path-node 0 1)
-        (acpi-device-path-node #x050141d0 0)
-        uart-device-path-node1
-        (vendor-defined-device-path-node)
-        (end-device-path-node)
-        (acpi-device-path-node #x0a0341d0 0)
-        (pci-device-path-node 0 1)
-        (acpi-device-path-node #x050141d0 1)
-        uart-device-path-node1
-        (vendor-defined-device-path-node)
+        device-A
+        device-B
         ))
     ))
 (define v18
@@ -400,23 +409,11 @@
     "ConOut"            ; Name
     #"\x3c\x00"         ; State
     #"\x07\x00"         ; Attributes
-    (device-path->bytes ; Contents
+    (device-paths->bytes ; Contents
       (list
-        (acpi-device-path-node #x0a0341d0 0)
-        (pci-device-path-node 0 1)
-        (acpi-device-path-node #x050141d0 0)
-        uart-device-path-node1
-        (vendor-defined-device-path-node)
-        (end-device-path-node)
-        (acpi-device-path-node #x0a0341d0 0)
-        (pci-device-path-node 0 1)
-        (acpi-device-path-node #x050141d0 1)
-        uart-device-path-node1
-        (vendor-defined-device-path-node)
-        (end-device-path-node)
-        (acpi-device-path-node #x0a0341d0 0)
-        (pci-device-path-node 0 2)
-        acpi-adr-device-path-node1
+        device-A
+        device-B
+        device-E
         ))
     ))
 (define v19
@@ -425,27 +422,12 @@
     "ConIn"             ; Name
     #"\x3c\x00"         ; State
     #"\x07\x00"         ; Attributes
-    (device-path->bytes ; Contents
+    (device-paths->bytes ; Contents
       (list
-        (acpi-device-path-node #x0a0341d0 0)
-        (pci-device-path-node 0 1)
-        (acpi-device-path-node #x030341d0 0)
-        (end-device-path-node)
-        (acpi-device-path-node #x0a0341d0 0)
-        (pci-device-path-node 0 1)
-        (acpi-device-path-node #x050141d0 0)
-        uart-device-path-node1
-        (vendor-defined-device-path-node)
-        (end-device-path-node)
-        (acpi-device-path-node #x0a0341d0 0)
-        (pci-device-path-node 0 1)
-        (acpi-device-path-node #x050141d0 1)
-        uart-device-path-node1
-        (vendor-defined-device-path-node)
-        (end-device-path-node)
-        vendor-device-path-node1
-        uart-device-path-node2
-        (vendor-defined-device-path-node)
+        device-D
+        device-A
+        device-B
+        device-C
         ))
     ))
 
@@ -455,27 +437,12 @@
     "ConOut"             ; Name
     #"\x3c\x00"         ; State
     #"\x07\x00"         ; Attributes
-    (device-path->bytes ; Contents
+    (device-paths->bytes ; Contents
       (list
-        (acpi-device-path-node #x0a0341d0 0)
-        (pci-device-path-node 0 1)
-        (acpi-device-path-node #x050141d0 0)
-        uart-device-path-node1
-        (vendor-defined-device-path-node)
-        (end-device-path-node)
-        (acpi-device-path-node #x0a0341d0 0)
-        (pci-device-path-node 0 1)
-        (acpi-device-path-node #x050141d0 1)
-        uart-device-path-node1
-        (vendor-defined-device-path-node)
-        (end-device-path-node)
-        (acpi-device-path-node #x0a0341d0 0)
-        (pci-device-path-node 0 2)
-        acpi-adr-device-path-node1
-        (end-device-path-node)
-        vendor-device-path-node1
-        uart-device-path-node2
-        (vendor-defined-device-path-node)
+        device-A
+        device-B
+        device-E
+        device-C
         ))
     ))
 (define v21
@@ -484,23 +451,11 @@
     "ErrOut"            ; Name
     #"\x3c\x00"         ; State
     #"\x07\x00"         ; Attributes
-    (device-path->bytes ; Contents
+    (device-paths->bytes ; Contents
       (list
-        (acpi-device-path-node #x0a0341d0 0)
-        (pci-device-path-node 0 1)
-        (acpi-device-path-node #x050141d0 0)
-        uart-device-path-node1
-        (vendor-defined-device-path-node)
-        (end-device-path-node)
-        (acpi-device-path-node #x0a0341d0 0)
-        (pci-device-path-node 0 1)
-        (acpi-device-path-node #x050141d0 1)
-        uart-device-path-node1
-        (vendor-defined-device-path-node)
-        (end-device-path-node)
-        vendor-device-path-node1
-        uart-device-path-node2
-        (vendor-defined-device-path-node)
+        device-A
+        device-B
+        device-C
         ))
     ))
 (define v22
@@ -509,29 +464,13 @@
     "ConIn"             ; Name
     #"\x3c\x00"         ; State
     #"\x07\x00"         ; Attributes
-    (device-path->bytes ; Contents
+    (device-paths->bytes ; Contents
       (list
-        (acpi-device-path-node #x0a0341d0 0)
-        (pci-device-path-node 0 1)
-        (acpi-device-path-node #x030341d0 0)
-        (end-device-path-node)
-        (acpi-device-path-node #x0a0341d0 0)
-        (pci-device-path-node 0 1)
-        (acpi-device-path-node #x050141d0 0)
-        uart-device-path-node1
-        (vendor-defined-device-path-node)
-        (end-device-path-node)
-        (acpi-device-path-node #x0a0341d0 0)
-        (pci-device-path-node 0 1)
-        (acpi-device-path-node #x050141d0 1)
-        uart-device-path-node1
-        (vendor-defined-device-path-node)
-        (end-device-path-node)
-        vendor-device-path-node1
-        uart-device-path-node2
-        (vendor-defined-device-path-node)
-        (end-device-path-node)
-        (usb-device-path-node)
+        device-D
+        device-A
+        device-B
+        device-C
+        device-F
         ))
     ))
 (define v23
@@ -540,31 +479,13 @@
     "ConOut"             ; Name
     #"\x3c\x00"         ; State
     #"\x07\x00"         ; Attributes
-    (device-path->bytes ; Contents
+    (device-paths->bytes ; Contents
       (list
-        (acpi-device-path-node #x0a0341d0 0)
-        (pci-device-path-node 0 1)
-        (acpi-device-path-node #x050141d0 0)
-        uart-device-path-node1
-        (vendor-defined-device-path-node)
-        (end-device-path-node)
-        (acpi-device-path-node #x0a0341d0 0)
-        (pci-device-path-node 0 1)
-        (acpi-device-path-node #x050141d0 1)
-        uart-device-path-node1
-        (vendor-defined-device-path-node)
-        (end-device-path-node)
-        (acpi-device-path-node #x0a0341d0 0)
-        (pci-device-path-node 0 2)
-        acpi-adr-device-path-node1
-        (end-device-path-node)
-        vendor-device-path-node1
-        uart-device-path-node2
-        (vendor-defined-device-path-node)
-        (end-device-path-node)
-        vendor-device-path-node2
-        acpi-adr-device-path-node2
-        ))
+        device-A
+        device-B
+        device-E
+        device-C
+        device-G))
     ))
 
 (define v24
@@ -601,24 +522,12 @@
     "ConOut"             ; Name
     #"\x3c\x00"         ; State
     #"\x07\x00"         ; Attributes
-    (device-path->bytes ; Contents
+    (device-paths->bytes ; Contents
       (list
-        (acpi-device-path-node #x0a0341d0 0)
-        (pci-device-path-node 0 1)
-        (acpi-device-path-node #x050141d0 0)
-        uart-device-path-node1
-        (vendor-defined-device-path-node)
-        (end-device-path-node)
-        (acpi-device-path-node #x0a0341d0 0)
-        (pci-device-path-node 0 2)
-        acpi-adr-device-path-node1
-        (end-device-path-node)
-        vendor-device-path-node1
-        uart-device-path-node2
-        (vendor-defined-device-path-node)
-        (end-device-path-node)
-        vendor-device-path-node2
-        acpi-adr-device-path-node2
+        device-A
+        device-E
+        device-C
+        device-G
         ))
     ))
 
@@ -628,20 +537,11 @@
     "ConOut"             ; Name
     #"\x3c\x00"         ; State
     #"\x07\x00"         ; Attributes
-    (device-path->bytes ; Contents
+    (device-paths->bytes ; Contents
       (list
-        (acpi-device-path-node #x0a0341d0 0)
-        (pci-device-path-node 0 1)
-        (acpi-device-path-node #x050141d0 0)
-        uart-device-path-node1
-        (vendor-defined-device-path-node)
-        (end-device-path-node)
-        (acpi-device-path-node #x0a0341d0 0)
-        (pci-device-path-node 0 2)
-        acpi-adr-device-path-node1
-        (end-device-path-node)
-        vendor-device-path-node2
-        acpi-adr-device-path-node2
+        device-A
+        device-E
+        device-G
         ))
     ))
 (define v28
@@ -650,17 +550,10 @@
     "ConOut"             ; Name
     #"\x3c\x00"         ; State
     #"\x07\x00"         ; Attributes
-    (device-path->bytes ; Contents
+    (device-paths->bytes ; Contents
       (list
-        (acpi-device-path-node #x0a0341d0 0)
-        (pci-device-path-node 0 1)
-        (acpi-device-path-node #x050141d0 0)
-        uart-device-path-node1
-        (vendor-defined-device-path-node)
-        (end-device-path-node)
-        (acpi-device-path-node #x0a0341d0 0)
-        (pci-device-path-node 0 2)
-        acpi-adr-device-path-node1
+        device-A
+        device-E
         ))
     ))
 (define v29
@@ -669,23 +562,12 @@
     "ConIn"             ; Name
     #"\x3c\x00"         ; State
     #"\x07\x00"         ; Attributes
-    (device-path->bytes ; Contents
+    (device-paths->bytes ; Contents
       (list
-        (acpi-device-path-node #x0a0341d0 0)
-        (pci-device-path-node 0 1)
-        (acpi-device-path-node #x030341d0 0)
-        (end-device-path-node)
-        (acpi-device-path-node #x0a0341d0 0)
-        (pci-device-path-node 0 1)
-        (acpi-device-path-node #x050141d0 0)
-        uart-device-path-node1
-        (vendor-defined-device-path-node)
-        (end-device-path-node)
-        vendor-device-path-node1
-        uart-device-path-node2
-        (vendor-defined-device-path-node)
-        (end-device-path-node)
-        (usb-device-path-node)
+        device-D
+        device-A
+        device-C
+        device-F
         ))
     ))
 (define v30
@@ -694,19 +576,11 @@
     "ConIn"             ; Name
     #"\x3c\x00"         ; State
     #"\x07\x00"         ; Attributes
-    (device-path->bytes ; Contents
+    (device-paths->bytes ; Contents
       (list
-        (acpi-device-path-node #x0a0341d0 0)
-        (pci-device-path-node 0 1)
-        (acpi-device-path-node #x030341d0 0)
-        (end-device-path-node)
-        (acpi-device-path-node #x0a0341d0 0)
-        (pci-device-path-node 0 1)
-        (acpi-device-path-node #x050141d0 0)
-        uart-device-path-node1
-        (vendor-defined-device-path-node)
-        (end-device-path-node)
-        (usb-device-path-node)
+        device-D
+        device-A
+        device-F
         ))
     ))
 (define v31
@@ -715,17 +589,10 @@
     "ErrOut"            ; Name
     #"\x3c\x00"         ; State
     #"\x07\x00"         ; Attributes
-    (device-path->bytes ; Contents
+    (device-paths->bytes ; Contents
       (list
-        (acpi-device-path-node #x0a0341d0 0)
-        (pci-device-path-node 0 1)
-        (acpi-device-path-node #x050141d0 0)
-        uart-device-path-node1
-        (vendor-defined-device-path-node)
-        (end-device-path-node)
-        vendor-device-path-node1
-        uart-device-path-node2
-        (vendor-defined-device-path-node)
+        device-A
+        device-C
         ))
     ))
 (define v32
@@ -734,13 +601,9 @@
     "ErrOut"            ; Name
     #"\x3c\x00"         ; State
     #"\x07\x00"         ; Attributes
-    (device-path->bytes ; Contents
+    (device-paths->bytes ; Contents
       (list
-        (acpi-device-path-node #x0a0341d0 0)
-        (pci-device-path-node 0 1)
-        (acpi-device-path-node #x050141d0 0)
-        uart-device-path-node1
-        (vendor-defined-device-path-node)
+        device-A
         ))
     ))
 (define v33
@@ -831,10 +694,1023 @@
       #"\x04\x00\x00\x00" #"\x00\x0f\x00\x00"
       #"\x0f\x00\x00\x00" #"\x00\x00\x00\x00")
     ))
+(define v40
+  (efi-variable
+    (hex-string->bytes "114070eb0214d3118e7700a0c969723b")
+    "MTC"               ; Name
+    #"\x3c\x00"         ; State
+    #"\x07\x00"         ; Attributes
+    #"\x02\x00\x00\x00" ; Contents
+    ))
+(define v41
+  (efi-variable
+    (hex-string->bytes "61dfe48bca93d211aa0d00e098032b8c")
+    "ConOut"             ; Name
+    #"\x3c\x00"         ; State
+    #"\x07\x00"         ; Attributes
+    (device-paths->bytes ; Contents
+      (list
+        device-A
+        device-E
+        device-B
+        ))
+    ))
+(define v42
+  (efi-variable
+    (hex-string->bytes "61dfe48bca93d211aa0d00e098032b8c")
+    "ConIn"             ; Name
+    #"\x3c\x00"         ; State
+    #"\x07\x00"         ; Attributes
+    (device-paths->bytes ; Contents
+      (list
+        device-D
+        device-A
+        device-F
+        device-B))
+    ))
+(define v43
+  (efi-variable
+    (hex-string->bytes "61dfe48bca93d211aa0d00e098032b8c")
+    "ErrOut"            ; Name
+    #"\x3c\x00"         ; State
+    #"\x07\x00"         ; Attributes
+    (device-paths->bytes ; Contents
+      (list
+        device-A
+        device-B
+        ))
+    ))
+
+(define v44
+  (efi-variable
+    (hex-string->bytes "61dfe48bca93d211aa0d00e098032b8c")
+    "ConIn"             ; Name
+    #"\x3c\x00"         ; State
+    #"\x07\x00"         ; Attributes
+    (device-paths->bytes ; Contents
+      (list
+        device-D
+        device-A
+        device-F
+        device-B
+        device-C
+        ))
+    ))
+(define v45
+  (efi-variable
+    (hex-string->bytes "61dfe48bca93d211aa0d00e098032b8c")
+    "ConOut"             ; Name
+    #"\x3c\x00"         ; State
+    #"\x07\x00"         ; Attributes
+    (device-paths->bytes ; Contents
+      (list
+        device-A
+        device-E*
+        device-B
+        device-C
+        ))
+    ))
+(define v46
+  (efi-variable
+    (hex-string->bytes "61dfe48bca93d211aa0d00e098032b8c")
+    "ErrOut"            ; Name
+    #"\x3c\x00"         ; State
+    #"\x07\x00"         ; Attributes
+    (device-paths->bytes ; Contents
+      (list
+        device-A
+        device-B
+        device-C
+        ))
+    ))
+(define v47
+  (efi-variable
+    (hex-string->bytes "61dfe48bca93d211aa0d00e098032b8c")
+    "ConOut"             ; Name
+    #"\x3c\x00"         ; State
+    #"\x07\x00"         ; Attributes
+    (device-paths->bytes ; Contents
+      (list
+        device-A
+        device-E
+        device-B
+        device-C
+        device-G
+        ))
+    ))
+(define v48
+  (efi-variable
+    (hex-string->bytes "61dfe48bca93d211aa0d00e098032b8c")
+    "ConOut"             ; Name
+    #"\x3c\x00"         ; State
+    #"\x07\x00"         ; Attributes
+    (device-paths->bytes ; Contents
+      (list
+        device-A
+        device-E
+        device-C
+        device-G
+        ))
+    ))
+(define v49
+  (efi-variable
+    (hex-string->bytes "61dfe48bca93d211aa0d00e098032b8c")
+    "ConOut"             ; Name
+    #"\x3c\x00"         ; State
+    #"\x07\x00"         ; Attributes
+    (device-paths->bytes ; Contents
+      (list
+        device-A
+        device-E
+        device-G
+        ))
+    ))
+(define v50
+  (efi-variable
+    (hex-string->bytes "61dfe48bca93d211aa0d00e098032b8c")
+    "ConOut"             ; Name
+    #"\x3c\x00"         ; State
+    #"\x07\x00"         ; Attributes
+    (device-paths->bytes ; Contents
+      (list
+        device-A
+        device-E
+        ))
+    ))
+(define v51
+  (efi-variable
+    (hex-string->bytes "61dfe48bca93d211aa0d00e098032b8c")
+    "ConIn"             ; Name
+    #"\x3c\x00"         ; State
+    #"\x07\x00"         ; Attributes
+    (device-paths->bytes ; Contents
+      (list
+        device-D
+        device-A
+        device-F
+        device-C
+        ))
+    ))
+(define v52
+  (efi-variable
+    (hex-string->bytes "61dfe48bca93d211aa0d00e098032b8c")
+    "ConIn"             ; Name
+    #"\x3c\x00"         ; State
+    #"\x07\x00"         ; Attributes
+    (device-paths->bytes ; Contents
+      (list
+        device-D
+        device-A
+        device-F
+        ))
+    ))
+(define v53
+  (efi-variable
+    (hex-string->bytes "61dfe48bca93d211aa0d00e098032b8c")
+    "ErrOut"            ; Name
+    #"\x3c\x00"         ; State
+    #"\x07\x00"         ; Attributes
+    (device-paths->bytes ; Contents
+      (list
+        device-A
+        device-C
+        ))
+    ))
+(define v54
+  (efi-variable
+    (hex-string->bytes "61dfe48bca93d211aa0d00e098032b8c")
+    "ErrOut"            ; Name
+    #"\x3c\x00"         ; State
+    #"\x07\x00"         ; Attributes
+    (device-paths->bytes ; Contents
+      (list
+        device-A
+        ))
+    ))
+(define v55
+  (efi-variable
+    (hex-string->bytes "61dfe48bca93d211aa0d00e098032b8c")
+    "BootOrder"                 ; Name
+    #"\x3c\x00"                 ; State
+    #"\x07\x00"                 ; Attributes
+    #"\x00\x00\x01\x00\x03\x00" ; Contents
+    ))
+(define v56
+  (efi-variable
+    (hex-string->bytes "114070eb0214d3118e7700a0c969723b")
+    "MTC"               ; Name
+    #"\x3c\x00"         ; State
+    #"\x07\x00"         ; Attributes
+    #"\x03\x00\x00\x00" ; Contents
+    ))
+(define v57
+  (efi-variable
+    (hex-string->bytes "61dfe48bca93d211aa0d00e098032b8c")
+    "ConOut"             ; Name
+    #"\x3c\x00"         ; State
+    #"\x07\x00"         ; Attributes
+    (device-paths->bytes ; Contents
+      (list
+        device-A
+        device-E
+        device-B
+        ))
+    ))
+
+(define v58
+  (efi-variable
+    (hex-string->bytes "61dfe48bca93d211aa0d00e098032b8c")
+    "ConIn"             ; Name
+    #"\x3c\x00"         ; State
+    #"\x07\x00"         ; Attributes
+    (device-paths->bytes ; Contents
+      (list
+        device-D
+        device-A
+        device-F
+        device-B
+        ))
+    ))
+(define v59
+  (efi-variable
+    (hex-string->bytes "61dfe48bca93d211aa0d00e098032b8c")
+    "ErrOut"            ; Name
+    #"\x3c\x00"         ; State
+    #"\x07\x00"         ; Attributes
+    (device-paths->bytes ; Contents
+      (list
+        device-A
+        device-B
+        ))
+    ))
+(define v60
+  (efi-variable
+    (hex-string->bytes "61dfe48bca93d211aa0d00e098032b8c")
+    "ConIn"             ; Name
+    #"\x3c\x00"         ; State
+    #"\x07\x00"         ; Attributes
+    (device-paths->bytes ; Contents
+      (list
+        device-D
+        device-A
+        device-F
+        device-B
+        device-C
+        ))
+    ))
+(define v61
+  (efi-variable
+    (hex-string->bytes "61dfe48bca93d211aa0d00e098032b8c")
+    "ConOut"             ; Name
+    #"\x3c\x00"         ; State
+    #"\x07\x00"         ; Attributes
+    (device-paths->bytes ; Contents
+      (list
+        device-A
+        device-E
+        device-B
+        device-C
+        ))
+    ))
+(define v62
+  (efi-variable
+    (hex-string->bytes "61dfe48bca93d211aa0d00e098032b8c")
+    "ErrOut"            ; Name
+    #"\x3c\x00"         ; State
+    #"\x07\x00"         ; Attributes
+    (device-paths->bytes ; Contents
+      (list
+        device-A
+        device-B
+        device-C
+        ))
+    ))
+(define v63
+  (efi-variable
+    (hex-string->bytes "61dfe48bca93d211aa0d00e098032b8c")
+    "ConOut"             ; Name
+    #"\x3c\x00"         ; State
+    #"\x07\x00"         ; Attributes
+    (device-paths->bytes ; Contents
+      (list
+        device-A
+        device-E
+        device-B
+        device-C
+        device-G
+        ))
+    ))
+(define v64
+  (efi-variable
+    (hex-string->bytes "61dfe48bca93d211aa0d00e098032b8c")
+    "ConOut"             ; Name
+    #"\x3c\x00"         ; State
+    #"\x07\x00"         ; Attributes
+    (device-paths->bytes ; Contents
+      (list
+        device-A
+        device-E
+        device-C
+        device-G
+        ))
+    ))
+(define v65
+  (efi-variable
+    (hex-string->bytes "61dfe48bca93d211aa0d00e098032b8c")
+    "ConOut"             ; Name
+    #"\x3c\x00"         ; State
+    #"\x07\x00"         ; Attributes
+    (device-paths->bytes ; Contents
+      (list
+        device-A
+        device-E
+        device-G
+        ))
+    ))
+(define v66
+  (efi-variable
+    (hex-string->bytes "61dfe48bca93d211aa0d00e098032b8c")
+    "ConOut"             ; Name
+    #"\x3c\x00"         ; State
+    #"\x07\x00"         ; Attributes
+    (device-paths->bytes ; Contents
+      (list
+        device-A
+        device-E
+        ))
+    ))
+(define v67
+  (efi-variable
+    (hex-string->bytes "61dfe48bca93d211aa0d00e098032b8c")
+    "ConIn"             ; Name
+    #"\x3c\x00"         ; State
+    #"\x07\x00"         ; Attributes
+    (device-paths->bytes ; Contents
+      (list
+        device-D
+        device-A
+        device-F
+        device-C
+        ))
+    ))
+(define v68
+  (efi-variable
+    (hex-string->bytes "61dfe48bca93d211aa0d00e098032b8c")
+    "ConIn"             ; Name
+    #"\x3c\x00"         ; State
+    #"\x07\x00"         ; Attributes
+    (device-paths->bytes ; Contents
+      (list
+        device-D
+        device-A
+        device-F
+        ))
+    ))
+(define v69
+  (efi-variable
+    (hex-string->bytes "61dfe48bca93d211aa0d00e098032b8c")
+    "ErrOut"            ; Name
+    #"\x3c\x00"         ; State
+    #"\x07\x00"         ; Attributes
+    (device-paths->bytes ; Contents
+      (list
+        device-A
+        device-C
+        ))
+    ))
+(define v70
+  (efi-variable
+    (hex-string->bytes "61dfe48bca93d211aa0d00e098032b8c")
+    "ErrOut"            ; Name
+    #"\x3c\x00"         ; State
+    #"\x07\x00"         ; Attributes
+    (device-paths->bytes ; Contents
+      (list
+        device-A
+        ))
+    ))
+(define v71
+  (efi-variable
+    (hex-string->bytes "114070eb0214d3118e7700a0c969723b")
+    "MTC"               ; Name
+    #"\x3c\x00"         ; State
+    #"\x07\x00"         ; Attributes
+    #"\x04\x00\x00\x00" ; Contents
+    ))
+(define v72
+  (efi-variable
+    (hex-string->bytes "61dfe48bca93d211aa0d00e098032b8c")
+    "ConOut"             ; Name
+    #"\x3c\x00"         ; State
+    #"\x07\x00"         ; Attributes
+    (device-paths->bytes ; Contents
+      (list
+        device-A
+        device-E
+        device-B
+        ))
+    ))
+(define v73
+  (efi-variable
+    (hex-string->bytes "61dfe48bca93d211aa0d00e098032b8c")
+    "ConIn"             ; Name
+    #"\x3c\x00"         ; State
+    #"\x07\x00"         ; Attributes
+    (device-paths->bytes ; Contents
+      (list
+        device-D
+        device-A
+        device-F
+        device-B
+        ))
+    ))
+(define v74
+  (efi-variable
+    (hex-string->bytes "61dfe48bca93d211aa0d00e098032b8c")
+    "ErrOut"            ; Name
+    #"\x3c\x00"         ; State
+    #"\x07\x00"         ; Attributes
+    (device-paths->bytes ; Contents
+      (list
+        device-A
+        device-B
+        ))
+    ))
+(define v75
+  (efi-variable
+    (hex-string->bytes "61dfe48bca93d211aa0d00e098032b8c")
+    "ConIn"             ; Name
+    #"\x3c\x00"         ; State
+    #"\x07\x00"         ; Attributes
+    (device-paths->bytes ; Contents
+      (list
+        device-D
+        device-A
+        device-F
+        device-B
+        device-C
+        ))
+    ))
+(define v76
+  (efi-variable
+    (hex-string->bytes "61dfe48bca93d211aa0d00e098032b8c")
+    "ConOut"             ; Name
+    #"\x3c\x00"         ; State
+    #"\x07\x00"         ; Attributes
+    (device-paths->bytes ; Contents
+      (list
+        device-A
+        device-E
+        device-B
+        device-C
+        ))
+    ))
+(define v77
+  (efi-variable
+    (hex-string->bytes "61dfe48bca93d211aa0d00e098032b8c")
+    "ErrOut"            ; Name
+    #"\x3c\x00"         ; State
+    #"\x07\x00"         ; Attributes
+    (device-paths->bytes ; Contents
+      (list
+        device-A
+        device-B
+        device-C
+        ))
+    ))
+(define v78
+  (efi-variable
+    (hex-string->bytes "61dfe48bca93d211aa0d00e098032b8c")
+    "ConOut"             ; Name
+    #"\x3c\x00"         ; State
+    #"\x07\x00"         ; Attributes
+    (device-paths->bytes ; Contents
+      (list
+        device-A
+        device-E
+        device-B
+        device-C
+        device-G
+        ))
+    ))
+(define v79
+  (efi-variable
+    (hex-string->bytes "61dfe48bca93d211aa0d00e098032b8c")
+    "ConOut"             ; Name
+    #"\x3c\x00"         ; State
+    #"\x07\x00"         ; Attributes
+    (device-paths->bytes ; Contents
+      (list
+        device-A
+        device-E
+        device-C
+        device-G
+        ))
+    ))
+(define v80
+  (efi-variable
+    (hex-string->bytes "61dfe48bca93d211aa0d00e098032b8c")
+    "ConOut"             ; Name
+    #"\x3c\x00"         ; State
+    #"\x07\x00"         ; Attributes
+    (device-paths->bytes ; Contents
+      (list
+        device-A
+        device-E
+        device-G
+        ))
+    ))
+(define v81
+  (efi-variable
+    (hex-string->bytes "61dfe48bca93d211aa0d00e098032b8c")
+    "ConOut"             ; Name
+    #"\x3c\x00"         ; State
+    #"\x07\x00"         ; Attributes
+    (device-paths->bytes ; Contents
+      (list
+        device-A
+        device-E
+        ))
+    ))
+(define v82
+  (efi-variable
+    (hex-string->bytes "61dfe48bca93d211aa0d00e098032b8c")
+    "ConIn"             ; Name
+    #"\x3c\x00"         ; State
+    #"\x07\x00"         ; Attributes
+    (device-paths->bytes ; Contents
+      (list
+        device-D
+        device-A
+        device-F
+        device-C
+        ))
+    ))
+(define v83
+  (efi-variable
+    (hex-string->bytes "61dfe48bca93d211aa0d00e098032b8c")
+    "ConIn"             ; Name
+    #"\x3c\x00"         ; State
+    #"\x07\x00"         ; Attributes
+    (device-paths->bytes ; Contents
+      (list
+        device-D
+        device-A
+        device-F
+        ))
+    ))
+(define v84
+  (efi-variable
+    (hex-string->bytes "61dfe48bca93d211aa0d00e098032b8c")
+    "ErrOut"            ; Name
+    #"\x3c\x00"         ; State
+    #"\x07\x00"         ; Attributes
+    (device-paths->bytes ; Contents
+      (list
+        device-A
+        device-C
+        ))
+    ))
+(define v85
+  (efi-variable
+    (hex-string->bytes "61dfe48bca93d211aa0d00e098032b8c")
+    "ErrOut"            ; Name
+    #"\x3c\x00"         ; State
+    #"\x07\x00"         ; Attributes
+    (device-paths->bytes ; Contents
+      (list
+        device-A
+        ))
+    ))
+(define v86
+  (efi-variable
+    (hex-string->bytes "61dfe48bca93d211aa0d00e098032b8c")
+    "BootOrder"         ; Name
+    #"\x3c\x00"         ; State
+    #"\x07\x00"         ; Attributes
+    #"\x00\x00\x03\x00" ; Contents
+    ))
+(define v87
+  (efi-variable
+    (hex-string->bytes "61dfe48bca93d211aa0d00e098032b8c")
+    "BootOrder"         ; Name
+    #"\x3f\x00"         ; State
+    #"\x07\x00"         ; Attributes
+    #"\x00\x00\x03\x00\x01\x00" ; Contents
+    ))
+(define v88
+  (efi-variable
+    (hex-string->bytes "61dfe48bca93d211aa0d00e098032b8c")
+    "Boot0001"          ; Name
+    #"\x3f\x00"         ; State
+    #"\x07\x00"         ; Attributes
+    (load-option->bytes ; Contents
+      (load-option
+        #"\x01\x00\x00\x00"
+        (list
+          (acpi-device-path-node #x0a0341d0 0)
+          (pci-device-path-node 1 1)
+          (atapi-device-path-node #t))
+        "UEFI QEMU DVD-ROM QM00003 "
+        (hex-string->bytes "4eac0881119f594d850ee21a522c59b2")) 
+    )))
+(define v89
+  (efi-variable
+    (hex-string->bytes "114070eb0214d3118e7700a0c969723b")
+    "MTC"               ; Name
+    #"\x3c\x00"         ; State
+    #"\x07\x00"         ; Attributes
+    #"\x05\x00\x00\x00" ; Contents
+    ))
+(define v90
+  (efi-variable
+    (hex-string->bytes "61dfe48bca93d211aa0d00e098032b8c")
+    "ConOut"             ; Name
+    #"\x3c\x00"         ; State
+    #"\x07\x00"         ; Attributes
+    (device-paths->bytes ; Contents
+      (list
+        device-A
+        device-E
+        device-B
+        ))
+    ))
+(define v91
+  (efi-variable
+    (hex-string->bytes "61dfe48bca93d211aa0d00e098032b8c")
+    "ConIn"             ; Name
+    #"\x3c\x00"         ; State
+    #"\x07\x00"         ; Attributes
+    (device-paths->bytes ; Contents
+      (list
+        device-D
+        device-A
+        device-F
+        device-B
+        ))
+    ))
+(define v92
+  (efi-variable
+    (hex-string->bytes "61dfe48bca93d211aa0d00e098032b8c")
+    "ErrOut"            ; Name
+    #"\x3c\x00"         ; State
+    #"\x07\x00"         ; Attributes
+    (device-paths->bytes ; Contents
+      (list
+        device-A
+        device-B
+        ))
+    ))
+(define v93
+  (efi-variable
+    (hex-string->bytes "61dfe48bca93d211aa0d00e098032b8c")
+    "ConIn"             ; Name
+    #"\x3c\x00"         ; State
+    #"\x07\x00"         ; Attributes
+    (device-paths->bytes ; Contents
+      (list
+        device-D
+        device-A
+        device-F
+        device-B
+        device-C
+        ))
+    ))
+(define v94
+  (efi-variable
+    (hex-string->bytes "61dfe48bca93d211aa0d00e098032b8c")
+    "ConOut"             ; Name
+    #"\x3c\x00"         ; State
+    #"\x07\x00"         ; Attributes
+    (device-paths->bytes ; Contents
+      (list
+        device-A
+        device-E
+        device-B
+        device-C
+        ))
+    ))
+(define v95
+  (efi-variable
+    (hex-string->bytes "61dfe48bca93d211aa0d00e098032b8c")
+    "ErrOut"            ; Name
+    #"\x3c\x00"         ; State
+    #"\x07\x00"         ; Attributes
+    (device-paths->bytes ; Contents
+      (list
+        device-A
+        device-B
+        device-C
+        ))
+    ))
+(define v96
+  (efi-variable
+    (hex-string->bytes "61dfe48bca93d211aa0d00e098032b8c")
+    "ConOut"             ; Name
+    #"\x3c\x00"         ; State
+    #"\x07\x00"         ; Attributes
+    (device-paths->bytes ; Contents
+      (list
+        device-A
+        device-E
+        device-B
+        device-C
+        device-G
+        ))
+    ))
+(define v97
+  (efi-variable
+    (hex-string->bytes "61dfe48bca93d211aa0d00e098032b8c")
+    "ConOut"             ; Name
+    #"\x3c\x00"         ; State
+    #"\x07\x00"         ; Attributes
+    (device-paths->bytes ; Contents
+      (list
+        device-A
+        device-E
+        device-C
+        device-G
+        ))
+    ))
+(define v98
+  (efi-variable
+    (hex-string->bytes "61dfe48bca93d211aa0d00e098032b8c")
+    "ConOut"             ; Name
+    #"\x3c\x00"         ; State
+    #"\x07\x00"         ; Attributes
+    (device-paths->bytes ; Contents
+      (list
+        device-A
+        device-E
+        device-G
+        ))
+    ))
+(define v99
+  (efi-variable
+    (hex-string->bytes "61dfe48bca93d211aa0d00e098032b8c")
+    "ConOut"             ; Name
+    #"\x3c\x00"         ; State
+    #"\x07\x00"         ; Attributes
+    (device-paths->bytes ; Contents
+      (list
+        device-A
+        device-E
+        ))
+    ))
+(define v100
+  (efi-variable
+    (hex-string->bytes "61dfe48bca93d211aa0d00e098032b8c")
+    "ConIn"             ; Name
+    #"\x3c\x00"         ; State
+    #"\x07\x00"         ; Attributes
+    (device-paths->bytes ; Contents
+      (list
+        device-D
+        device-A
+        device-F
+        device-C
+        ))
+    ))
+(define v101
+  (efi-variable
+    (hex-string->bytes "61dfe48bca93d211aa0d00e098032b8c")
+    "ConIn"             ; Name
+    #"\x3c\x00"         ; State
+    #"\x07\x00"         ; Attributes
+    (device-paths->bytes ; Contents
+      (list
+        device-D
+        device-A
+        device-F
+        ))
+    ))
+(define v102
+  (efi-variable
+    (hex-string->bytes "61dfe48bca93d211aa0d00e098032b8c")
+    "ErrOut"            ; Name
+    #"\x3c\x00"         ; State
+    #"\x07\x00"         ; Attributes
+    (device-paths->bytes ; Contents
+      (list
+        device-A
+        device-C
+        ))
+    ))
+(define v103
+  (efi-variable
+    (hex-string->bytes "61dfe48bca93d211aa0d00e098032b8c")
+    "ErrOut"            ; Name
+    #"\x3c\x00"         ; State
+    #"\x07\x00"         ; Attributes
+    (device-paths->bytes ; Contents
+      (list
+        device-A
+        ))
+    ))
+(define v104
+  (efi-variable
+    (hex-string->bytes "114070eb0214d3118e7700a0c969723b")
+    "MTC"               ; Name
+    #"\x3f\x00"         ; State
+    #"\x07\x00"         ; Attributes
+    #"\x06\x00\x00\x00" ; Contents
+    ))
+(define v105
+  (efi-variable
+    (hex-string->bytes "61dfe48bca93d211aa0d00e098032b8c")
+    "ConOut"             ; Name
+    #"\x3c\x00"         ; State
+    #"\x07\x00"         ; Attributes
+    (device-paths->bytes ; Contents
+      (list
+        device-A
+        device-E
+        device-B
+        ))
+    ))
+(define v106
+  (efi-variable
+    (hex-string->bytes "61dfe48bca93d211aa0d00e098032b8c")
+    "ConIn"             ; Name
+    #"\x3c\x00"         ; State
+    #"\x07\x00"         ; Attributes
+    (device-paths->bytes ; Contents
+      (list
+        device-D
+        device-A
+        device-F
+        device-B
+        ))
+    ))
+(define v107
+  (efi-variable
+    (hex-string->bytes "61dfe48bca93d211aa0d00e098032b8c")
+    "ErrOut"            ; Name
+    #"\x3c\x00"         ; State
+    #"\x07\x00"         ; Attributes
+    (device-paths->bytes ; Contents
+      (list
+        device-A
+        device-B
+        ))
+    ))
+(define v108
+  (efi-variable
+    (hex-string->bytes "61dfe48bca93d211aa0d00e098032b8c")
+    "ConIn"             ; Name
+    #"\x3c\x00"         ; State
+    #"\x07\x00"         ; Attributes
+    (device-paths->bytes ; Contents
+      (list
+        device-D
+        device-A
+        device-F
+        device-B
+        device-C
+        ))
+    ))
+(define v109
+  (efi-variable
+    (hex-string->bytes "61dfe48bca93d211aa0d00e098032b8c")
+    "ConOut"             ; Name
+    #"\x3c\x00"         ; State
+    #"\x07\x00"         ; Attributes
+    (device-paths->bytes ; Contents
+      (list
+        device-A
+        device-E
+        device-B
+        device-C
+        ))
+    ))
+(define v110
+  (efi-variable
+    (hex-string->bytes "61dfe48bca93d211aa0d00e098032b8c")
+    "ErrOut"            ; Name
+    #"\x3c\x00"         ; State
+    #"\x07\x00"         ; Attributes
+    (device-paths->bytes ; Contents
+      (list
+        device-A
+        device-B
+        device-C
+        ))
+    ))
+(define v111
+  (efi-variable
+    (hex-string->bytes "61dfe48bca93d211aa0d00e098032b8c")
+    "ConOut"             ; Name
+    #"\x3c\x00"         ; State
+    #"\x07\x00"         ; Attributes
+    (device-paths->bytes ; Contents
+      (list
+        device-A
+        device-E
+        device-B
+        device-C
+        device-G
+        ))
+    ))
+(define v112
+  (efi-variable
+    (hex-string->bytes "61dfe48bca93d211aa0d00e098032b8c")
+    "ConOut"             ; Name
+    #"\x3c\x00"         ; State
+    #"\x07\x00"         ; Attributes
+    (device-paths->bytes ; Contents
+      (list
+        device-A
+        device-E
+        device-C
+        device-G
+        ))
+    ))
+(define v113
+  (efi-variable
+    (hex-string->bytes "61dfe48bca93d211aa0d00e098032b8c")
+    "ConOut"             ; Name
+    #"\x3c\x00"         ; State
+    #"\x07\x00"         ; Attributes
+    (device-paths->bytes ; Contents
+      (list
+        device-A
+        device-E
+        device-G
+        ))
+    ))
+(define v114
+  (efi-variable
+    (hex-string->bytes "61dfe48bca93d211aa0d00e098032b8c")
+    "ConOut"             ; Name
+    #"\x3f\x00"         ; State
+    #"\x07\x00"         ; Attributes
+    (device-paths->bytes ; Contents
+      (list
+        device-A
+        device-E
+        ))
+    ))
+(define v115
+  (efi-variable
+    (hex-string->bytes "61dfe48bca93d211aa0d00e098032b8c")
+    "ConIn"             ; Name
+    #"\x3c\x00"         ; State
+    #"\x07\x00"         ; Attributes
+    (device-paths->bytes ; Contents
+      (list
+        device-D
+        device-A
+        device-F
+        device-C
+        ))
+    ))
+(define v116
+  (efi-variable
+    (hex-string->bytes "61dfe48bca93d211aa0d00e098032b8c")
+    "ConIn"             ; Name
+    #"\x3f\x00"         ; State
+    #"\x07\x00"         ; Attributes
+    (device-paths->bytes ; Contents
+      (list
+        device-D
+        device-A
+        device-F
+        ))
+    ))
+(define v117
+  (efi-variable
+    (hex-string->bytes "61dfe48bca93d211aa0d00e098032b8c")
+    "ErrOut"            ; Name
+    #"\x3c\x00"         ; State
+    #"\x07\x00"         ; Attributes
+    (device-paths->bytes ; Contents
+      (list
+        device-A
+        device-C
+        ))
+    ))
+(define v118
+  (efi-variable
+    (hex-string->bytes "61dfe48bca93d211aa0d00e098032b8c")
+    "ErrOut"            ; Name
+    #"\x3f\x00"         ; State
+    #"\x07\x00"         ; Attributes
+    (device-paths->bytes ; Contents
+      (list
+        device-A
+        ))
+    ))
 
 (call-with-output-file output-path
   (lambda (out)
-    (write-all-bytes (make-bytes #x60 #xff) out)
+    (write-all-bytes (make-bytes #x10 #x00) out)
+    (write-all-bytes #"\x8d\x2b\xf1\xff\x96\x76\x8b\x4c\xa9\x85\x27\x47\x07\x5b\x4f\x50" out)
+    (write-all-bytes #"\x00\x40\x08\x00\x00\x00\x00\x00\x5f\x46\x56\x48\xff\xfe\x04\x00" out)
+    (write-all-bytes #"\x48\x00\xaf\xb8\x00\x00\x00\x02\x84\x00\x00\x00\x00\x10\x00\x00" out)
+    (write-all-bytes #"\x00\x00\x00\x00\x00\x00\x00\x00\x78\x2c\xf3\xaa\x7b\x94\x9a\x43" out)
+    (write-all-bytes #"\xa1\x80\x2e\x14\x4e\xc3\x77\x92\xb8\xff\x03\x00\x5a\xfe\x00\x00" out)
+
+
     (write-all-bytes (make-bytes 4) out)
     (write-efi-variable v1 out)
     (write-efi-variable v2 out)
@@ -875,4 +1751,87 @@
     (write-efi-variable v37 out)
     (write-efi-variable v38 out)
     (write-efi-variable v39 out)
+    (write-efi-variable v40 out)
+    (write-efi-variable v41 out)
+    (write-efi-variable v42 out)
+    (write-efi-variable v43 out)
+    (write-efi-variable v44 out)
+    (write-efi-variable v45 out)
+    (write-efi-variable v46 out)
+    (write-efi-variable v47 out)
+    (write-efi-variable v48 out)
+    (write-efi-variable v49 out)
+    (write-efi-variable v50 out)
+    (write-efi-variable v51 out)
+    (write-efi-variable v52 out)
+    (write-efi-variable v53 out)
+    (write-efi-variable v54 out)
+    (write-efi-variable v55 out)
+    (write-efi-variable v56 out)
+    (write-efi-variable v57 out)
+    (write-efi-variable v58 out)
+    (write-efi-variable v59 out)
+    (write-efi-variable v60 out)
+    (write-efi-variable v61 out)
+    (write-efi-variable v62 out)
+    (write-efi-variable v63 out)
+    (write-efi-variable v64 out)
+    (write-efi-variable v65 out)
+    (write-efi-variable v66 out)
+    (write-efi-variable v67 out)
+    (write-efi-variable v68 out)
+    (write-efi-variable v69 out)
+    (write-efi-variable v70 out)
+    (write-efi-variable v71 out)
+    (write-efi-variable v72 out)
+    (write-efi-variable v73 out)
+    (write-efi-variable v74 out)
+    (write-efi-variable v75 out)
+    (write-efi-variable v76 out)
+    (write-efi-variable v77 out)
+    (write-efi-variable v78 out)
+    (write-efi-variable v79 out)
+    (write-efi-variable v80 out)
+    (write-efi-variable v81 out)
+    (write-efi-variable v82 out)
+    (write-efi-variable v83 out)
+    (write-efi-variable v84 out)
+    (write-efi-variable v85 out)
+    (write-efi-variable v86 out)
+    (write-efi-variable v87 out)
+    (write-efi-variable v88 out)
+    (write-efi-variable v89 out)
+    (write-efi-variable v90 out)
+    (write-efi-variable v91 out)
+    (write-efi-variable v92 out)
+    (write-efi-variable v93 out)
+    (write-efi-variable v94 out)
+    (write-efi-variable v95 out)
+    (write-efi-variable v96 out)
+    (write-efi-variable v97 out)
+    (write-efi-variable v98 out)
+    (write-efi-variable v99 out)
+    (write-efi-variable v100 out)
+    (write-efi-variable v101 out)
+    (write-efi-variable v102 out)
+    (write-efi-variable v103 out)
+    (write-efi-variable v104 out)
+    (write-efi-variable v105 out)
+    (write-efi-variable v106 out)
+    (write-efi-variable v107 out)
+    (write-efi-variable v108 out)
+    (write-efi-variable v109 out)
+    (write-efi-variable v110 out)
+    (write-efi-variable v111 out)
+    (write-efi-variable v112 out)
+    (write-efi-variable v113 out)
+    (write-efi-variable v114 out)
+    (write-efi-variable v115 out)
+    (write-efi-variable v116 out)
+    (write-efi-variable v117 out)
+    (write-efi-variable v118 out)
+    (write-all-bytes (make-bytes #x3ae2c #xff) out)
+    (write-all-bytes #"\x2b\x29\x58\x9e\x68\x7c\x7d\x49\xa0\xce\x65\x00\xfd\x9f\x1b\x95" out)
+    (write-all-bytes #"\x2c\xaf\x2c\x64\xfe\xff\xff\xff\xe0\x0f\x00\x00\x00\x00\x00\x00" out)
+    (write-all-bytes (make-bytes #x42fe0 #xff) out)
     ))
