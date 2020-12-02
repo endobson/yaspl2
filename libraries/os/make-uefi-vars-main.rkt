@@ -1861,7 +1861,14 @@
     (write-efi-variable v117 out)
     (write-efi-variable v118 out)
     (write-all-bytes (make-bytes #x3ae2c #xff) out)
+    ;; Working Block
+    ;; GUID
     (write-all-bytes #"\x2b\x29\x58\x9e\x68\x7c\x7d\x49\xa0\xce\x65\x00\xfd\x9f\x1b\x95" out)
-    (write-all-bytes #"\x2c\xaf\x2c\x64\xfe\xff\xff\xff\xe0\x0f\x00\x00\x00\x00\x00\x00" out)
+    ;; CRC
+    (write-all-bytes #"\x2c\xaf\x2c\x64" out) 
+    ;; Invalid/Valid and reserved
+    (write-all-bytes #"\xfe\xff\xff\xff" out)
+    ;; Write Queue Size
+    (write-all-bytes #"\xe0\x0f\x00\x00\x00\x00\x00\x00" out)
     (write-all-bytes (make-bytes #x42fe0 #xff) out)
     ))
