@@ -1704,14 +1704,44 @@
 (call-with-output-file output-path
   (lambda (out)
     (write-all-bytes (make-bytes #x10 #x00) out)
+    ;; GUID
     (write-all-bytes #"\x8d\x2b\xf1\xff\x96\x76\x8b\x4c\xa9\x85\x27\x47\x07\x5b\x4f\x50" out)
-    (write-all-bytes #"\x00\x40\x08\x00\x00\x00\x00\x00\x5f\x46\x56\x48\xff\xfe\x04\x00" out)
-    (write-all-bytes #"\x48\x00\xaf\xb8\x00\x00\x00\x02\x84\x00\x00\x00\x00\x10\x00\x00" out)
-    (write-all-bytes #"\x00\x00\x00\x00\x00\x00\x00\x00\x78\x2c\xf3\xaa\x7b\x94\x9a\x43" out)
-    (write-all-bytes #"\xa1\x80\x2e\x14\x4e\xc3\x77\x92\xb8\xff\x03\x00\x5a\xfe\x00\x00" out)
+    ;; Length of FileSystem
+    (write-all-bytes #"\x00\x40\x08\x00\x00\x00\x00\x00" out)
+    ;; Signature
+    (write-all-bytes #"_FVH" out)
+    ;; Attributes
+    (write-all-bytes #"\xff\xfe\x04\x00" out)
 
+    ;; Header Length
+    (write-all-bytes #"\x48\x00" out)
+    ;; Checksum
+    (write-all-bytes #"\xaf\xb8" out)
 
+    ;; Extended header offset
+    (write-all-bytes #"\x00\x00" out)
+    ;; Reserved
+    (write-all-bytes #"\x00" out)
+    ;; Revision
+    (write-all-bytes #"\x02" out)
+    
+    ;; Number of blocks /  Block size
+    (write-all-bytes #"\x84\x00\x00\x00" out)
+    (write-all-bytes #"\x00\x10\x00\x00" out)
+    ;; End Block Map
+    (write-all-bytes #"\x00\x00\x00\x00\x00\x00\x00\x00" out)
+    ;; GUID
+    (write-all-bytes #"\x78\x2c\xf3\xaa\x7b\x94\x9a\x43" out)
+    (write-all-bytes #"\xa1\x80\x2e\x14\x4e\xc3\x77\x92" out)
+    ;; Some offset for variable dispatch
+    (write-all-bytes #"\xb8\xff\x03\x00" out)
+    ;; Formated/Healthy
+    (write-all-bytes #"\x5a\xfe" out)
+    ;; Reserved
+    (write-all-bytes (make-bytes 2) out)
+    ;; Reserved
     (write-all-bytes (make-bytes 4) out)
+
     (write-efi-variable v1 out)
     (write-efi-variable v2 out)
     (write-efi-variable v3 out)
