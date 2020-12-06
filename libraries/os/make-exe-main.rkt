@@ -1,6 +1,7 @@
 #lang racket/base
 
 (require
+  openssl/sha1
   racket/bytes
   racket/list
   racket/match
@@ -84,17 +85,44 @@
   (bytes-set!/u32-le pe-header 232 0)      ; Reserved
   )
 
+
+(define text-section-contents
+  (hex-string->bytes
+    (string-append
+      "4881ec88000000488994248000000048"
+      "894c2478488b4424784889442470488b"
+      "8424800000004889442468488b842480"
+      "000000488b4058488944246066c74424"
+      "5a000066c744245c000066c744245e00"
+      "00c744245401000000837c2454030f8f"
+      "ad0000008b44245483c040668944245a"
+      "c744245001000000837c2450030f8f79"
+      "000000488d54245a8b44245083c04066"
+      "8944245c488b4c2468488b4940488b49"
+      "084c8b4424684d8b404048894c24484c"
+      "89c14c8b44244841ffd0488b4c246848"
+      "8b4940488b4908488b153a1f00004c8b"
+      "4424684d8b404048894c24404c89c14c"
+      "8b442440488944243841ffd08b442450"
+      "83c00189442450e97cffffffe9000000"
+      "008b44245483c00189442454e948ffff"
+      "ff31c089c1488b542460b80200000048"
+      "894c243089c14c8b4424304889542428"
+      "4c89c24c8b4c24304c8b54242841ff52"
+      "6831c989ca48894424204889d04881c4"
+      "88000000c3")))
+
 (define-section text-section-header #:size 40
   (bytes-copy!       text-section-header 0 #".text\x00\x00\x00") ; Name
-  (bytes-set!/u32-le text-section-header 8  #xfc)      ; VirtualSize
-  (bytes-set!/u32-le text-section-header 12 #x1000)     ; VirtualAddress
-  (bytes-set!/u32-le text-section-header 16 #x200)      ; SizeOfRawData
-  (bytes-set!/u32-le text-section-header 20 #x400)      ; PointerToRawData
-  (bytes-set!/u32-le text-section-header 24 0)          ; PointerToRelocations
-  (bytes-set!/u32-le text-section-header 28 0)          ; PointerToLinenumbers
-  (bytes-set!/u16-le text-section-header 32 0)          ; NumberOfRelocations
-  (bytes-set!/u16-le text-section-header 34 0)          ; NumberOfLinenumbers
-  (bytes-set!/u32-le text-section-header 36 #x60000020) ; Characteristics
+  (bytes-set!/u32-le text-section-header 8  (bytes-length text-section-contents)) ; VirtualSize
+  (bytes-set!/u32-le text-section-header 12 #x1000)                               ; VirtualAddress
+  (bytes-set!/u32-le text-section-header 16 #x200)                                ; SizeOfRawData
+  (bytes-set!/u32-le text-section-header 20 #x400)                                ; PointerToRawData
+  (bytes-set!/u32-le text-section-header 24 0)                                    ; PointerToRelocations
+  (bytes-set!/u32-le text-section-header 28 0)                                    ; PointerToLinenumbers
+  (bytes-set!/u16-le text-section-header 32 0)                                    ; NumberOfRelocations
+  (bytes-set!/u16-le text-section-header 34 0)                                    ; NumberOfLinenumbers
+  (bytes-set!/u32-le text-section-header 36 #x60000020)                           ; Characteristics
   )
 
 
@@ -193,25 +221,7 @@
 (define-section* text-section
   (bytes-copy! text-section 0 (make-bytes #x200 #xcc))
 
-  (bytes-copy! text-section 0
-    (bytes-append
-      #"\x48\x83\xec\x68\x48\x89\x54\x24\x60\x48\x89\x4c\x24\x58\x48\x8b"
-      #"\x44\x24\x58\x48\x89\x44\x24\x50\x48\x8b\x44\x24\x60\x48\x89\x44"
-      #"\x24\x48\x66\xc7\x44\x24\x42\x00\x00\x66\xc7\x44\x24\x44\x00\x00"
-      #"\x66\xc7\x44\x24\x46\x00\x00\xc7\x44\x24\x3c\x01\x00\x00\x00\x83"
-      #"\x7c\x24\x3c\x1a\x0f\x8f\xad\x00\x00\x00\x8b\x44\x24\x3c\x83\xc0"
-      #"\x40\x66\x89\x44\x24\x42\xc7\x44\x24\x38\x01\x00\x00\x00\x83\x7c"
-      #"\x24\x38\x1a\x0f\x8f\x79\x00\x00\x00\x48\x8d\x54\x24\x42\x8b\x44"
-      #"\x24\x38\x83\xc0\x40\x66\x89\x44\x24\x44\x48\x8b\x4c\x24\x48\x48"
-      #"\x8b\x49\x40\x48\x8b\x49\x08\x4c\x8b\x44\x24\x48\x4d\x8b\x40\x40"
-      #"\x48\x89\x4c\x24\x30\x4c\x89\xc1\x4c\x8b\x44\x24\x30\x41\xff\xd0"
-      #"\x48\x8b\x4c\x24\x48\x48\x8b\x49\x40\x48\x8b\x49\x08\x48\x8b\x15"
-      #"\x54\x1f\x00\x00\x4c\x8b\x44\x24\x48\x4d\x8b\x40\x40\x48\x89\x4c"
-      #"\x24\x28\x4c\x89\xc1\x4c\x8b\x44\x24\x28\x48\x89\x44\x24\x20\x41"
-      #"\xff\xd0\x8b\x44\x24\x38\x83\xc0\x01\x89\x44\x24\x38\xe9\x7c\xff"
-      #"\xff\xff\xe9\x00\x00\x00\x00\x8b\x44\x24\x3c\x83\xc0\x01\x89\x44"
-      #"\x24\x3c\xe9\x48\xff\xff\xff\xe9\x3b\xff\xff\xff\xcc\xcc\xcc\xcc"))
-
+  (bytes-copy! text-section 0 text-section-contents)
   )
 
 (define-section* rdata-section
