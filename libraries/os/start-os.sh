@@ -1,7 +1,9 @@
 #!/bin/bash
 
-#  -drive file=tmp/disk.img,format=raw,media=disk \
-qemu-system-x86_64 -cpu qemu64 \
+cp bazel-yaspl2/external/ovmf_vars/file/downloaded tmp/vars
+qemu-system-x86_64 -cpu host \
+  --machine type=q35,accel=hvf \
   -drive if=pflash,format=raw,file=bazel-yaspl2/external/ovmf_code/file/downloaded,readonly \
-  -drive if=pflash,format=raw,file=bazel-yaspl2/external/ovmf_vars/file/downloaded \
-  -net none --nographic -no-reboot
+  -drive if=pflash,format=raw,file=tmp/vars \
+  -drive file=tmp/disk.img,format=raw,media=disk \
+  --nographic -no-reboot
