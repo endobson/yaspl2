@@ -80,6 +80,25 @@ racket_binary(
     ],
 )
 
+racket_library(
+    name = "compress-disk-main",
+    srcs = ["compress-disk-main.rkt"],
+    deps = [
+      ":util"
+    ],
+)
+
+
+racket_binary(
+    name = "compress-disk",
+    main_module = "compress-disk-main.rkt",
+    deps = [
+        ":compress-disk-main",
+    ],
+)
+
+
+
 
 test_suite(
     name = "package_tests",
