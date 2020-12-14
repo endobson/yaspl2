@@ -1,4 +1,4 @@
-load("@minimal_racket//:racket.bzl", "racket_binary", "racket_library")
+load("@minimal_racket//:racket.bzl", "racket_binary", "racket_library", "racket_test")
 
 package(
     default_visibility = ["//visibility:public"],
@@ -94,6 +94,22 @@ racket_binary(
     main_module = "compress-disk-main.rkt",
     deps = [
         ":compress-disk-main",
+    ],
+)
+
+racket_library(
+    name = "compression-test",
+    srcs = ["compression-test.rkt"],
+    deps = [
+      ":compress-disk-main"
+    ],
+)
+
+racket_test(
+    name = "compression-test_test",
+    main_module = "compression-test.rkt",
+    deps = [
+      ":compression-test",
     ],
 )
 
