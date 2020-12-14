@@ -84,10 +84,6 @@
     (many-uncompressable #:amount 10 #:length 100)
 
     (list
-      #"abcd")
-
-
-    (list
       (make-bytes 76 65)
       (make-bytes 200 65)
       (make-bytes 32769 65)
@@ -100,7 +96,6 @@
       (bytes-append
         (make-bytes 10000 65)
         (first (many-uncompressable #:amount 1 #:length 10000))))
-
     ))
 
 (for ([input test-inputs])

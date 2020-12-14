@@ -6,7 +6,8 @@
   racket/format
   racket/list
   racket/match
-  racket/port)
+  racket/port
+  "util.rkt")
 
 (provide
   inflate-bytes*)
@@ -345,14 +346,14 @@
     (for ([command output-commands])
       (displayln command)))
 
-  (define full-output (make-bytes 0))
+  (define full-output (open-output-bytes))
   (define output-buffer (make-bytes (expt 2 15)))
   (define current-output-pos 0)
   (define (increment-buffer-pos!)
     (set! current-output-pos (modulo (add1 current-output-pos)
                                      (bytes-length output-buffer)))
     (when (zero? current-output-pos)
-      (set! full-output (bytes-append full-output output-buffer))))
+      (write-all-bytes output-buffer full-output)))
 
 
   (for ([output-command output-commands])
@@ -369,7 +370,8 @@
                                   (bytes-length output-buffer))))
          (increment-buffer-pos!))]))
 
-  (bytes-append
-    full-output
-    (subbytes output-buffer 0 current-output-pos)))
+  (write-all-bytes
+    (subbytes output-buffer 0 current-output-pos)
+    full-output)
+  (get-output-bytes full-output))
 
