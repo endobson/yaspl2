@@ -216,8 +216,7 @@
 
 
            (for/list ([len (in-range (vector-length code-vec))]
-                      #:unless (empty? (vector-ref code-vec len))
-                      )
+                      #:unless (empty? (vector-ref code-vec len)))
              (list
                len
                (for*/hash ([code (sort (vector-ref code-vec len) <)])
@@ -228,15 +227,15 @@
                    code)))))
 
          (define (read-using-code-table code-table)
-           (let/ec return
-             (for ([len-entries (in-list code-table)])
+           (or
+             (for/or ([len-entries (in-list code-table)])
                (match-define (list len entries) len-entries)
                (define prefix (peek-little-endian-number len))
                (match (hash-ref entries prefix #f)
-                 [#f (void)]
+                 [#f #f]
                  [code-num
                   (drop-bits! len)
-                  (return code-num)]))
+                  code-num]))
              (error 'inflate "No prefix code matched")))
 
 
