@@ -104,7 +104,7 @@
   (unless (equal? input decompressed)
     (error 'inflate "Input and Decompressed output don't match: ~s ~s" input decompressed)))
 
-(define large-input (first (many-random #:amount 1 #:length (expt 2 20) #:alphabet-size 26)))
+(define large-input (first (many-random #:amount 1 #:length (expt 2 22) #:alphabet-size 26)))
 (define large-compressed
   (deflate-bytes large-input))
 
