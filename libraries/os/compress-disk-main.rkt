@@ -17,7 +17,12 @@
     (lambda (name)
       (and (regexp-match #rx"^unsafe-fx" name)
            (regexp-replace #rx"unsafe-" name "")))
-	racket/unsafe/ops))
+	racket/unsafe/ops)
+  (only-in racket/unsafe/ops
+    [unsafe-bytes-ref bytes-ref]
+    [unsafe-vector-ref vector-ref])
+  )
+
 
 
 (provide
@@ -266,26 +271,38 @@
 
          (for/list ([len (in-range (vector-length code-vec))]
                     #:unless (empty? (vector-ref code-vec len)))
-           (list
-             len
+           (define hash-table
              (for*/hash ([code (sort (vector-ref code-vec len) <)])
                (ensure-length! len)
                (define prefix (increment-current-code!))
                (values
                  (string->number (reverse-string prefix) 2)
-                 code)))))
+                 code)))
+           (define vec
+             (and (<= len 8)
+                  (let ([vec (make-vector (expt2 len) #f)])
+                    (for ([(k v) hash-table])
+                      (vector-set! vec k v))
+                    vec)))
+           (list
+             len
+             hash-table
+             vec
+             )))
 
        (define (read-using-code-table code-table)
-         (or
-           (for/or ([len-entries (in-list code-table)])
-             (match-define (list len entries) len-entries)
-             (define prefix (peek-little-endian-number len))
-             (match (hash-ref entries prefix #f)
-               [#f #f]
-               [code-num
-                (drop-bits! len)
-                code-num]))
-           (error 'inflate "No prefix code matched")))
+         (let loop ([all-entries code-table])
+           (match all-entries
+             [(list) (error 'inflate "No prefix code matched")]
+             [(cons (list len entries vec-entries) all-entries)
+              (define prefix (peek-little-endian-number len))
+              (match (if vec-entries
+                         (vector-ref vec-entries prefix)
+                         (hash-ref entries prefix #f))
+                [#f (loop all-entries)]
+                [code-num
+                 (drop-bits! len)
+                 code-num])])))
 
 
        (define code-length-codes
