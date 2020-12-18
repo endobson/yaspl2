@@ -65,7 +65,7 @@
     (bytes-set! b i (random 255)))
   b)
 
-(define (many-uncompressable #:amount amount #:length length 
+(define (many-uncompressable #:amount amount #:length length
                              #:seed [seed 0])
   (parameterize ([current-pseudo-random-generator (make-pseudo-random-generator)])
     (random-seed seed)
@@ -93,6 +93,7 @@
       #"aababcbacdbcacbcdaababcbaaccddbbccaaccbbd"
       #"aababcbabccdacdbcacbcdaabbbbbbaacdbcbaaccddbbccaaccbbd"
 
+      #;
       (bytes-append
         (make-bytes 10000 65)
         (first (many-uncompressable #:amount 1 #:length 10000))))
@@ -108,19 +109,22 @@
 (define large-compressed
   (deflate-bytes large-input))
 
-(define N 5)
+(define N 10)
 
-(for ([i N])
-  (time (inflate-bytes large-compressed)))
+(time
+  (for ([i N])
+    (inflate-bytes large-compressed)))
 
-(for ([i N])
-  (time (inflate-bytes* large-compressed)))
+(for ([j 3])
+  (time
+    (for ([i N])
+      (inflate-bytes* large-compressed))))
 
 ;(require profile)
 ;(profile-thunk
 ;  #:delay 0.001
 ;  (lambda ()
-;    (for ([i N])
+;    (for ([i 30])
 ;      (time (inflate-bytes* large-compressed)))))
 
 
