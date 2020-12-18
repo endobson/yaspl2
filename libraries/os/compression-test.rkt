@@ -8,7 +8,7 @@
   racket/list
   racket/match
   racket/port
-  "compress-disk-main.rkt")
+  "inflate.rkt")
 
 (define (deflate-bytes input)
   (call-with-output-bytes

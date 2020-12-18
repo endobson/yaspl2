@@ -80,6 +80,15 @@ racket_binary(
     ],
 )
 
+
+racket_library(
+    name = "inflate",
+    srcs = ["inflate.rkt"],
+    deps = [
+      ":util"
+    ],
+)
+
 racket_library(
     name = "compress-disk-main",
     srcs = ["compress-disk-main.rkt"],
@@ -101,7 +110,7 @@ racket_library(
     name = "compression-test",
     srcs = ["compression-test.rkt"],
     deps = [
-      ":compress-disk-main"
+      ":inflate"
     ],
 )
 
