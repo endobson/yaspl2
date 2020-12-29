@@ -30,6 +30,7 @@ yaspl_binary(
     name = "compiler",
     srcs = ["compiler.yaspl"],
     deps = [
+        ":core-parser",
         ":lexer",
         ":lr-parser",
         "//libraries:io",
@@ -39,6 +40,27 @@ yaspl_binary(
         "//libraries/data:either",
         "//libraries/data:list",
         "//libraries/data:maybe",
+    ],
+)
+
+yaspl_library(
+    name = "core-parser",
+    srcs = ["core-parser.yaspl"],
+    deps = [
+        ":lexer",
+        ":lr-parser",
+        "//libraries/data:bytes",
+        "//libraries/data:dict",
+        "//libraries/data:either",
+        "//libraries/data:lifted-primitives",
+        "//libraries/data:list",
+        "//libraries/data:maybe",
+        "//libraries/data:numbers",
+        "//libraries/data:ordering",
+        "//libraries/data:set",
+        "//libraries/data:source-location",
+        "//libraries/data:tuples",
+        "//libraries/data:unique-dict",
     ],
 )
 
