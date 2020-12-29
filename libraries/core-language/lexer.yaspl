@@ -18,7 +18,7 @@
             punct/left-brace punct/right-brace
             punct/left-bracket punct/right-bracket
             punct/multiplication punct/plus punct/division punct/minus
-            punct/bang punct/assignment)
+            punct/bang punct/semi-colon punct/assignment)
   (#:patterns end-of-input bad-input lex-result
               symbol-token decimal-number-token hexadecimal-number-token
               punct/left-paren punct/right-paren
@@ -58,6 +58,7 @@
     (punct/multiplication)
 
     (punct/comma)
+    (punct/semi-colon)
     (punct/bang)
 
     (punct/pointer-field-access)
@@ -103,10 +104,11 @@
         [(punct/multiplication) 19]
 
         [(punct/comma) 20]
-        [(punct/bang) 21]
+        [(punct/semi-colon) 21]
+        [(punct/bang) 22]
 
-        [(punct/pointer-field-access) 22]
-        [(punct/pointer-offset) 23])))
+        [(punct/pointer-field-access) 23]
+        [(punct/pointer-offset) 24])))
   (int-cmp (convert l) (convert r)))
 
 (define (token* [ctx : LexerContext] [start : Int] [end : Int] [t : Token])
@@ -235,6 +237,10 @@
 (define (pointer-offset-token* [ctx : LexerContext] [start : Int] [end : Int])
   : (InnerResult Token)
   (token* ctx start end (punctuation-token (punct/pointer-offset))))
+
+(define (semi-colon-token* [ctx : LexerContext] [start : Int] [end : Int])
+  : (InnerResult Token)
+  (token* ctx start end (punctuation-token (punct/semi-colon))))
 
 ;; Make this saner
 (define (symbol-start-byte? [v : U8]) : Boolean
@@ -512,6 +518,22 @@
       [else
        (pointer-field-access-token* ctx start pos)])]))
 
+(define (lex-after-forward-slash [ctx : LexerContext] [start : Int] [pos : Int])
+  : (InnerResult Token)
+  (match-define bytes (lexer-context-bytes ctx))
+  (cond
+    [(= (bytes-length bytes) pos)
+     (division-token* ctx start pos)]
+    [else
+     (match-define byte (bytes-ref bytes pos))
+     (match-define next-pos (+ 1 pos))
+     (cond
+      [(forward-slash? byte)
+       (lex-line-comment ctx start next-pos)]
+      [else
+       (division-token* ctx start pos)])]))
+
+
 
 (define (lex-keyword [ctx : LexerContext] [start : Int] [cur : Int]) : (InnerResult Token)
   (match-define bytes (lexer-context-bytes ctx))
@@ -629,7 +651,7 @@
        [(multiplication-sign? byte)
         (multiplication-token* ctx pos next-pos)]
        [(forward-slash? byte)
-        (division-token* ctx pos next-pos)]
+        (lex-after-forward-slash ctx pos next-pos)]
        [(comma? byte)
         (comma-token* ctx pos next-pos)]
        [(ampersand? byte)
@@ -647,7 +669,7 @@
        [(hash? byte)
         (lex-after-hash ctx next-pos)]
        [(semi-colon? byte)
-        (lex-line-comment ctx pos next-pos)]
+        (semi-colon-token* ctx pos next-pos)]
        [(double-quote? byte)
         (bad-input/inner
           #"String literals not supported"
