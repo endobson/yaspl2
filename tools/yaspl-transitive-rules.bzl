@@ -21,8 +21,12 @@ def transitivify_impl(target, ctx, impl, p):
     return _merge_fields(ctx, ["srcs"], p)
   elif (kind == "binary_test"):
     return _merge_providers([], p)
+  elif (kind == "racket_test"):
+    return _merge_providers([], p)
+  elif (kind == "racket_library"):
+    return _merge_providers([], p)
   else:
-    fail("Unknown rule kind")
+    fail("Unknown rule kind: %s" % kind)
 
 transitive_attrs = ["deps", "srcs", "tests", "_implicit_tests"]
 

@@ -117,6 +117,7 @@ racket_library(
 racket_test(
     name = "compression-test_test",
     main_module = "compression-test.rkt",
+    testonly = 0,
     deps = [
       ":compression-test",
     ],

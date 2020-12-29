@@ -93,7 +93,6 @@
       #"aababcbacdbcacbcdaababcbaaccddbbccaaccbbd"
       #"aababcbabccdacdbcacbcdaabbbbbbaacdbcbaaccddbbccaaccbbd"
 
-      #;
       (bytes-append
         (make-bytes 10000 65)
         (first (many-uncompressable #:amount 1 #:length 10000))))
@@ -105,20 +104,20 @@
   (unless (equal? input decompressed)
     (error 'inflate "Input and Decompressed output don't match: ~s ~s" input decompressed)))
 
-(define large-input (first (many-random #:amount 1 #:length (expt 2 22) #:alphabet-size 26)))
-(define large-compressed
-  (deflate-bytes large-input))
-
-(define N 10)
-
-(time
-  (for ([i N])
-    (inflate-bytes large-compressed)))
-
-(for ([j 3])
-  (time
-    (for ([i N])
-      (inflate-bytes* large-compressed))))
+;(define large-input (first (many-random #:amount 1 #:length (expt 2 22) #:alphabet-size 26)))
+;(define large-compressed
+;  (deflate-bytes large-input))
+;
+; (define N 10)
+;
+; (time
+;   (for ([i N])
+;     (inflate-bytes large-compressed)))
+;
+; (for ([j 3])
+;   (time
+;     (for ([i N])
+;       (inflate-bytes* large-compressed))))
 
 ;(require profile)
 ;(profile-thunk
