@@ -35,6 +35,10 @@
 (types
   (define-type CoreNonTerm
     (non-term/E)
+    (non-term/Module)
+    (non-term/Definitions)
+    (non-term/Definition)
+
     ;(non-term/F)
     ;(non-term/T)
     ;(non-term/Type)
@@ -52,7 +56,13 @@
     ;(var-expr [var : Bytes])
     (int-expr [v : Int]))
 
+  (define-type Definition
+    (function-definition [name : Bytes]))
+
   (define-type Form
+    (form/module [name : Bytes])
+    (form/definitions [ds : (List Definition)])
+    (form/definition [d : Definition])
 
     ;(form/statement [s : Statement])
     ;(form/statements [ss : (List Statement)])
@@ -89,7 +99,9 @@
     (lambda ([v : CoreNonTerm])
       (case v
         [(non-term/E) 0]
-        ;[(non-term/F) 1]
+        [(non-term/Module) 1]
+        [(non-term/Definitions) 2]
+        [(non-term/Definition) 3]
         ;[(non-term/T) 2]
         ;[(non-term/Type) 3]
         ;[(non-term/Statement) 4]
@@ -113,6 +125,9 @@
 
 
 (define (core-production-rules) : (List (ProductionRule CoreNonTerm CoreTerm Form))
+  (match-define Module* (non-term/Module))
+  (match-define Definitions* (non-term/Definitions))
+  (match-define Definition* (non-term/Definition))
   (match-define E* (non-term/E))
   ;(match-define F* (non-term/F))
   ;(match-define T* (non-term/T))
@@ -128,6 +143,9 @@
       (symbol/non-term x)))
 
   (match-define E (symbol/non-term (non-term/E)))
+  (match-define Definitions (symbol/non-term (non-term/Definitions)))
+  (match-define Definition (symbol/non-term (non-term/Definition)))
+
   ;(match-define F (symbol/non-term (non-term/F)))
   ;(match-define T (symbol/non-term (non-term/T)))
   ;(match-define Type (symbol/non-term (non-term/Type)))
@@ -144,7 +162,10 @@
   ;(match-define := (symbol/term (term/punctuation (punct/assignment))))
   ;(match-define !  (symbol/term (term/punctuation (punct/bang))))
   ;(match-define while (symbol/term (term/language-keyword #"while")))
-  ;(match-define id (symbol/term (term/id)))
+  (match-define module-keyword (symbol/term (term/language-keyword #"module")))
+  (match-define define-function-keyword (symbol/term (term/language-keyword #"define_function")))
+
+  (match-define id (symbol/term (term/id)))
   (match-define num (symbol/term (term/number)))
 
   ;(match-define bin-op*
@@ -191,6 +212,33 @@
            [(just (lifted-int v)) (form/expr (int-expr v))])]
         [_ (panic #"Bad forms for identifier")])))
 
+  (match-define module*
+    (lambda ([forms : (List Form)]) : Form
+      (case forms
+        [(cons _keyword (cons (form/token (symbol-token name))
+                              (cons (form/definitions def)
+                                    (empty))))
+         (form/module name)]
+        [_ (panic #"Bad forms for module")])))
+
+  (match-define definitions*
+    (lambda ([forms : (List Form)]) : Form
+      (case forms
+        [(empty)
+         (form/definitions (empty))]
+        [(cons (form/definition d) (cons (form/definitions ds) (empty)))
+         (form/definitions (cons d ds))]
+        [_ (panic #"Bad forms for definitions")])))
+
+
+  (match-define function-definition*
+    (lambda ([forms : (List Form)]) : Form
+      (case forms
+        [(cons _keyword (cons (form/token (symbol-token name)) (empty)))
+         (form/definition (function-definition name))]
+        [_ (panic #"Bad forms for module")])))
+
+
   ;(match-define assign*
   ;  (lambda ([forms : (List Form)]) : Form
   ;    (case forms
@@ -234,8 +282,13 @@
   ;      [_ (panic #"Bad forms for variable type")])))
 
   (varargs list
+    (production-rule Module* 1 (varargs list module-keyword id Definitions) module*)
+    (production-rule Definitions* 2 (empty) definitions*)
+    (production-rule Definitions* 3 (varargs list Definition Definitions) definitions*)
+    (production-rule Definition* 4 (varargs list define-function-keyword id) function-definition*)
+
     ;(production-rule E* 1 (varargs list id) var*)
-    (production-rule E* 1 (varargs list num) num*)
+    ;(production-rule E* 1 (varargs list num) num*)
 
     ;(production-rule E* 1 (varargs list E + T) bin-op*)
     ;(production-rule E* 2 (varargs list E - T) bin-op*)
@@ -257,7 +310,7 @@
 
 
 (define (make-expr-parser) : (Either Bytes (Parser CoreNonTerm CoreTerm Form))
-  (build-parser (grammar (non-term/E)
+  (build-parser (grammar (non-term/Module)
                          (core-production-rules)
                          core-non-term-cmp core-term-cmp)
                 form/token
