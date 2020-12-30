@@ -49,6 +49,7 @@ yaspl_library(
         ":lexer",
         ":lr-parser",
         ":source-language",
+        "//libraries:module-name",
         "//libraries/data:bytes",
         "//libraries/data:either",
         "//libraries/data:list",
@@ -132,7 +133,10 @@ yaspl_test(
 yaspl_library(
     name = "source-language",
     srcs = ["source-language.yaspl"],
-    deps = ["//libraries/data:list"],
+    deps = [
+        "//libraries:module-name",
+        "//libraries/data:list",
+    ],
 )
 
 yaspl_library(
@@ -140,7 +144,6 @@ yaspl_library(
     srcs = ["source-to-register.yaspl"],
     deps = [
         ":source-language",
-        "//libraries:module-name",
         "//libraries:module-signature",
         "//libraries:top-level-name",
         "//libraries/data:bytes",
