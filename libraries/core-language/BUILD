@@ -9,11 +9,6 @@ package(
     default_visibility = ["//visibility:public"],
 )
 
-test_suite(
-    name = "package_tests",
-    testonly = 0,
-)
-
 genrule(
     name = "compile-example",
     srcs = ["examples/fill-stack.core"],
@@ -49,6 +44,7 @@ yaspl_library(
     deps = [
         ":lexer",
         ":lr-parser",
+        ":source-language",
         "//libraries/data:bytes",
         "//libraries/data:either",
         "//libraries/data:list",
@@ -129,9 +125,20 @@ yaspl_test(
     ],
 )
 
+yaspl_library(
+    name = "source-language",
+    srcs = ["source-language.yaspl"],
+    deps = ["//libraries/data:list"],
+)
+
 filegroup(
     name = "package_binaries",
     srcs = [
         ":compiler",
     ],
+)
+
+test_suite(
+    name = "package_tests",
+    testonly = 0,
 )
