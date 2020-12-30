@@ -223,7 +223,6 @@ yaspl_binary(
         "//libraries/prim-language:lowered-live-variables",
         "//libraries/prim-language:print-lowered-register-language",
         "//libraries/prim-language:print-register-language",
-        "//libraries/prim-language:register-language",
         "//libraries/prim-language:register-language-compiler",
         "//libraries/yaspl:top-level-objects",
         "//libraries/yaspl:top-level-objects-to-x86-64",
