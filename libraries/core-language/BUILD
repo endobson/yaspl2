@@ -4,15 +4,10 @@ load(
     "yaspl_library",
     "yaspl_test",
 )
-load(":core-language.bzl", "core_language_toolchain", "core_library")
+load(":core-language.bzl", "core_language_toolchain")
 
 package(
     default_visibility = ["//visibility:public"],
-)
-
-core_library(
-    name = "compile-example",
-    srcs = ["examples/fill-stack.core"],
 )
 
 yaspl_binary(

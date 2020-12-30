@@ -1,9 +1,13 @@
+load("//libraries:yaspl.bzl", "yaspl_provider")
+
 def _lib_impl(ctx):
   if (len(ctx.files.srcs) != 1):
     fail("Must have exactly one source file.", "srcs")
+  src_file = ctx.files.srcs[0]
 
   output_object = ctx.actions.declare_file("%s.o" % ctx.attr.name)
   output_signature = ctx.actions.declare_file("%s.sig" % ctx.attr.name)
+  output_module_name = ctx.actions.declare_file("%s.module_name" % ctx.attr.name)
 
   toolchain = ctx.toolchains["//libraries/core-language:core_language_toolchain"]
 
@@ -19,10 +23,23 @@ def _lib_impl(ctx):
     ]
   )
 
+  ctx.actions.run_shell(
+    inputs = ctx.files.srcs,
+    outputs = [output_module_name],
+    command = 'echo "$(head -n 1 %s | sed -e "s/#:module //")" > %s'
+       % (src_file.path, output_module_name.path),
+  )
+
+
   return [
     DefaultInfo(
       files = depset([output_object, output_signature])
     ),
+    yaspl_provider(
+      signature = output_signature,
+      transitive_objects = depset([output_object]),
+      module_name_file = output_module_name
+    )
   ]
 
 core_library = rule(

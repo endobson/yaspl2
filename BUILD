@@ -8,6 +8,7 @@ ALL_PACKAGES = [
     "//libraries/algorithms",
     "//libraries/code-http-server",
     "//libraries/core-language",
+    "//libraries/core-language/examples",
     "//libraries/data",
     "//libraries/os",
     "//libraries/prim-language",

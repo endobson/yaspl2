@@ -25,6 +25,8 @@ def transitivify_impl(target, ctx, impl, p):
     return _merge_providers([], p)
   elif (kind == "racket_library"):
     return _merge_providers([], p)
+  elif (kind == "core_library"):
+    return _merge_providers([], p)
   else:
     fail("Unknown rule kind: %s" % kind)
 
