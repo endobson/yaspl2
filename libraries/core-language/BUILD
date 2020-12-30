@@ -28,13 +28,17 @@ yaspl_binary(
         ":core-parser",
         ":lexer",
         ":lr-parser",
+        ":source-to-register",
         "//libraries:io",
         "//libraries:machine-code-writer",
+        "//libraries:module-signature-serialization",
         "//libraries:system-abi",
         "//libraries/data:bytes",
         "//libraries/data:either",
         "//libraries/data:list",
         "//libraries/data:maybe",
+        "//libraries/yaspl:top-level-object-optimizer",
+        "//libraries/yaspl:top-level-objects-to-x86-64",
     ],
 )
 
@@ -129,6 +133,21 @@ yaspl_library(
     name = "source-language",
     srcs = ["source-language.yaspl"],
     deps = ["//libraries/data:list"],
+)
+
+yaspl_library(
+    name = "source-to-register",
+    srcs = ["source-to-register.yaspl"],
+    deps = [
+        ":source-language",
+        "//libraries:module-name",
+        "//libraries:module-signature",
+        "//libraries:top-level-name",
+        "//libraries/data:bytes",
+        "//libraries/data:dict",
+        "//libraries/data:list",
+        "//libraries/yaspl:top-level-objects",
+    ],
 )
 
 filegroup(

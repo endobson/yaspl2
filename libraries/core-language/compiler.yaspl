@@ -4,13 +4,21 @@
   (core-language core-parser)
   (core-language lexer)
   (core-language lr-parser)
+  (core-language source-to-register)
   (either)
   (io)
   (list)
   (machine-code-writer)
   (maybe)
+  (module-signature-serialization)
   (prim)
   (system-abi)
+  (yaspl top-level-object-optimizer)
+  {(yaspl top-level-objects-to-x86-64)
+    {#:values
+      convert-objects
+    }
+  }
 }
 (export
   (#:values main))
@@ -49,7 +57,7 @@
 (define (run [input : (List Bytes)]) : (Maybe Bytes)
   (case (parse-args input)
     [(left v) (just v)]
-    [(right (args _abi output-object-file output-signature-file module-file))
+    [(right (args abi output-object-file output-signature-file module-file))
      (match-define input-contents (sourced-bytes-from-file module-file))
      (match-define lexer (make-core-lexer input-contents))
      (case (make-module-parser)
@@ -60,12 +68,15 @@
           [(right _)
            (case (run-parser parser lexer)
              [(left v) (just v)]
-             [(right (form/module _m))
+             [(right (form/module m))
+              (match-define tlos (module-to-top-level-objects m))
+              (match-define sig (module->module-signature m))
+              (match-define tlos (optimize-tlos tlos))
               (begin
-                (call-with-output-file/void output-object-file
-                  (lambda ([_f : OutputPort]) (void)))
+                (write-library-object-file (convert-objects tlos) abi output-object-file)
                 (call-with-output-file/void output-signature-file
-                  (lambda ([_f : OutputPort]) (void)))
+                  (lambda ([output-port : OutputPort])
+                    (write-all-bytes (serialize-module-signature sig) output-port)))
                 (nothing))]
              [(right _)
               (just #"Parser didn't produce a module form")])])])]))
