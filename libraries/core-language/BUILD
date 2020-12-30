@@ -4,21 +4,15 @@ load(
     "yaspl_library",
     "yaspl_test",
 )
+load(":core-language.bzl", "core_language_toolchain", "core_library")
 
 package(
     default_visibility = ["//visibility:public"],
 )
 
-genrule(
+core_library(
     name = "compile-example",
     srcs = ["examples/fill-stack.core"],
-    outs = [
-        "fill-stack.o",
-        "fill-stack.sig",
-    ],
-    cmd = "$(execpath :compiler) osx $(execpath fill-stack.o) " +
-          "$(execpath fill-stack.sig) $(execpath examples/fill-stack.core)",
-    tools = [":compiler"],
 )
 
 yaspl_binary(
@@ -155,6 +149,39 @@ yaspl_library(
         "//libraries/yaspl:top-level-objects",
     ],
 )
+
+toolchain_type(name = "core_language_toolchain")
+
+core_language_toolchain(
+    name = "osx_core_language_toolchain_impl",
+    platform = "osx",
+)
+
+toolchain(
+    name = "osx_core_language_toolchain",
+    target_compatible_with = [
+        "@platforms//os:osx",
+        "@platforms//cpu:x86_64",
+    ],
+    toolchain = ":osx_core_language_toolchain_impl",
+    toolchain_type = ":core_language_toolchain",
+)
+
+core_language_toolchain(
+    name = "linux_core_language_toolchain_impl",
+    platform = "linux",
+)
+
+toolchain(
+    name = "linux_core_language_toolchain",
+    target_compatible_with = [
+        "@platforms//os:linux",
+        "@platforms//cpu:x86_64",
+    ],
+    toolchain = ":linux_core_language_toolchain_impl",
+    toolchain_type = ":core_language_toolchain",
+)
+
 
 filegroup(
     name = "package_binaries",

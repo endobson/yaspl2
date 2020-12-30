@@ -18,6 +18,10 @@ http_archive(
 )
 
 register_toolchains(
+    '//libraries/core-language:osx_core_language_toolchain',
+    '//libraries/core-language:linux_core_language_toolchain',
+)
+register_toolchains(
     '//libraries/prim-language:osx_prim_language_toolchain',
     '//libraries/prim-language:linux_prim_language_toolchain',
 )
