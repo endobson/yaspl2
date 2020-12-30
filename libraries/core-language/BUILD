@@ -145,10 +145,13 @@ yaspl_library(
     deps = [
         ":source-language",
         "//libraries:module-signature",
+        "//libraries:prim-types",
         "//libraries:top-level-name",
         "//libraries/data:bytes",
         "//libraries/data:dict",
         "//libraries/data:list",
+        "//libraries/data:tuples",
+        "//libraries/yaspl:intermediate-to-register",
         "//libraries/yaspl:top-level-objects",
     ],
 )
