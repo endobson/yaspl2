@@ -18,7 +18,6 @@
   (#:patterns form/module))
 (types
   (define-type CoreNonTerm
-    (non-term/E)
     (non-term/Module)
     (non-term/ModName)
     (non-term/Definitions)
@@ -26,6 +25,9 @@
     (non-term/Parameters)
     (non-term/NonEmptyParameters)
     (non-term/Parameter)
+    (non-term/Statements)
+    (non-term/Statement)
+    (non-term/Expression)
 
     ;(non-term/F)
     ;(non-term/T)
@@ -39,12 +41,6 @@
     (term/id)
     (term/number))
 
-  (define-type Expr
-    ;(bin-op-expr [op : BinOp] [l : Expr] [r : Expr])
-    ;(var-expr [var : Bytes])
-    (int-expr [v : Int]))
-
-
   (define-type Form
     (form/module [m : Module])
     (form/definitions [ds : (List Definition)])
@@ -52,10 +48,10 @@
     (form/symbols [ss : (List Bytes)])
     (form/parameters [ps : (List Parameter)])
     (form/parameter [p : Parameter])
+    (form/statements [ss : (List Statement)])
+    (form/statement [s : Statement])
+    (form/expression [e : Expression])
 
-    ;(form/statement [s : Statement])
-    ;(form/statements [ss : (List Statement)])
-    (form/expr [e : Expr])
     ;(form/type [t : Type])
     (form/token [t : Token])))
 
@@ -87,7 +83,6 @@
   (match-define convert
     (lambda ([v : CoreNonTerm])
       (case v
-        [(non-term/E) 0]
         [(non-term/Module) 1]
         [(non-term/ModName) 2]
         [(non-term/Definitions) 3]
@@ -95,6 +90,9 @@
         [(non-term/Parameters) 5]
         [(non-term/NonEmptyParameters) 6]
         [(non-term/Parameter) 7]
+        [(non-term/Statements) 8]
+        [(non-term/Statement) 9]
+        [(non-term/Expression) 10]
         ;[(non-term/T) 2]
         ;[(non-term/Type) 3]
         ;[(non-term/Statement) 4]
@@ -107,7 +105,10 @@
 (define (token->terminal [token : Token]) : (Either Bytes CoreTerm)
   (case token
     [(punctuation-token p) (right (term/punctuation p))]
-    [(symbol-token _) (right (term/id))]
+    [(symbol-token s)
+     (case s
+       [#"return" (right (term/language-keyword s))]
+       [_ (right (term/id))])]
     [(decimal-number-token _) (right (term/number))]
     [(keyword-token k)
      (case k
@@ -125,6 +126,9 @@
   (match-define Parameters* (non-term/Parameters))
   (match-define NonEmptyParameters* (non-term/NonEmptyParameters))
   (match-define Parameter* (non-term/Parameter))
+  (match-define Statements* (non-term/Statements))
+  (match-define Statement* (non-term/Statement))
+  (match-define Expression* (non-term/Expression))
   ;(match-define E* (non-term/E))
   ;(match-define F* (non-term/F))
   ;(match-define T* (non-term/T))
@@ -146,6 +150,9 @@
   (match-define Parameters (symbol/non-term (non-term/Parameters)))
   (match-define NonEmptyParameters (symbol/non-term (non-term/NonEmptyParameters)))
   (match-define Parameter (symbol/non-term (non-term/Parameter)))
+  (match-define Statements (symbol/non-term (non-term/Statements)))
+  (match-define Statement (symbol/non-term (non-term/Statement)))
+  (match-define Expression (symbol/non-term (non-term/Expression)))
 
   ;(match-define F (symbol/non-term (non-term/F)))
   ;(match-define T (symbol/non-term (non-term/T)))
@@ -158,12 +165,14 @@
   ;(match-define / (symbol/term (term/punctuation (punct/division))))
   (match-define paren-< (symbol/term (term/punctuation (punct/left-paren))))
   (match-define >-paren (symbol/term (term/punctuation (punct/right-paren))))
-  ;(match-define brace-< (symbol/term (term/punctuation (punct/left-brace))))
-  ;(match-define >-brace (symbol/term (term/punctuation (punct/right-brace))))
+  (match-define brace-< (symbol/term (term/punctuation (punct/left-brace))))
+  (match-define >-brace (symbol/term (term/punctuation (punct/right-brace))))
   ;(match-define := (symbol/term (term/punctuation (punct/assignment))))
   ;(match-define !  (symbol/term (term/punctuation (punct/bang))))
   (match-define comma (symbol/term (term/punctuation (punct/comma))))
+  (match-define semi-colon (symbol/term (term/punctuation (punct/semi-colon))))
   ;(match-define while (symbol/term (term/language-keyword #"while")))
+  (match-define return (symbol/term (term/language-keyword #"return")))
   (match-define module-keyword (symbol/term (term/language-keyword #"module")))
   (match-define define-function-keyword (symbol/term (term/language-keyword #"define_function")))
 
@@ -198,12 +207,6 @@
   ;       f]
   ;      [_ (panic #"Bad forms for parens")])))
 
-  ;(match-define var*
-  ;  (lambda ([forms : (List Form)]) : Form
-  ;    (case forms
-  ;      [(cons (form/token (symbol-token v)) (empty))
-  ;       (form/expr (var-expr v))]
-  ;      [_ (panic #"Bad forms for identifier")])))
 
   ;(match-define num*
   ;  (lambda ([forms : (List Form)]) : Form
@@ -254,8 +257,11 @@
              (cons _paren-<
                (cons (form/parameters params)
                  (cons _>-paren
-                   (empty))))))
-         (right (form/definition (function-definition name params)))]
+                   (cons _brace-<
+                     (cons (form/statements statements)
+                       (cons _>-brace
+                         (empty)))))))))
+         (right (form/definition (function-definition name params statements)))]
         [_ (left #"Bad forms for function-definition")])))
 
   (match-define parameters*
@@ -310,14 +316,31 @@
   ;      [_ (panic #"Bad forms for while statement")])))
 
 
-  ;(match-define statements*
-  ;  (lambda ([forms : (List Form)]) : Form
-  ;    (case forms
-  ;      [(empty)
-  ;       (form/statements (empty))]
-  ;      [(cons (form/statement s) (cons (form/statements ss) (empty)))
-  ;       (form/statements (cons s ss))]
-  ;      [_ (panic #"Bad forms for statements")])))
+  (match-define statements*
+    (lambda ([forms : (List Form)]) : (Either Bytes Form)
+      (case forms
+        [(empty)
+         (right (form/statements (empty)))]
+        [(cons (form/statement s) (cons (form/statements ss) (empty)))
+         (right (form/statements (cons s ss)))]
+        [_ (left #"Bad forms for statements")])))
+
+  (match-define return*
+    (lambda ([forms : (List Form)]) : (Either Bytes Form)
+      (case forms
+        [(cons (form/token (symbol-token #"return"))
+           (cons (form/expression e)
+             (cons _semi-colon
+               (empty))))
+         (right (form/statement (return-statement e)))]
+        [_ (left #"Bad forms for return")])))
+
+  (match-define var-expr*
+    (lambda ([forms : (List Form)]) : (Either Bytes Form)
+      (case forms
+        [(cons (form/token (symbol-token v)) (empty))
+         (right (form/expression (var-expr v)))]
+        [_ (left #"Bad forms for var")])))
 
   ;(match-define var-type*
   ;  (lambda ([forms : (List Form)]) : Form
@@ -331,7 +354,8 @@
     (production-rule Definitions* 2 (empty) definitions*)
     (production-rule Definitions* 3 (varargs list Definition Definitions) definitions*)
     (production-rule Definition* 4
-      (varargs list define-function-keyword id paren-< Parameters >-paren)
+      (varargs list define-function-keyword id paren-< Parameters >-paren
+                    brace-< Statements >-brace)
       function-definition*)
     (production-rule ModName* 5 (empty) mod-name*)
     (production-rule ModName* 6 (varargs list id ModName) mod-name*)
@@ -344,6 +368,10 @@
       (varargs list Parameter comma NonEmptyParameters)
       non-empty-parameters*)
     (production-rule Parameter* 11 (varargs list id) parameter*)
+    (production-rule Statements* 12 (empty) statements*)
+    (production-rule Statements* 13 (varargs list Statement Statements) statements*)
+    (production-rule Statement* 14 (varargs list return Expression semi-colon) return*)
+    (production-rule Expression* 15 (varargs list id) var-expr*)
 
     ;(production-rule E* 1 (varargs list id) var*)
     ;(production-rule E* 1 (varargs list num) num*)
