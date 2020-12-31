@@ -20,14 +20,13 @@ yaspl_binary(
         ":source-to-register",
         "//libraries:io",
         "//libraries:machine-code-writer",
-        "//libraries:module-signature-serialization",
         "//libraries:system-abi",
         "//libraries/data:bytes",
         "//libraries/data:either",
         "//libraries/data:list",
         "//libraries/data:maybe",
         "//libraries/yaspl:top-level-object-optimizer",
-        "//libraries/yaspl:top-level-objects-to-x86-64",
+        "//libraries/yaspl:top-level-objects",
     ],
 )
 
@@ -176,7 +175,6 @@ toolchain(
     toolchain = ":linux_core_language_toolchain_impl",
     toolchain_type = ":core_language_toolchain",
 )
-
 
 filegroup(
     name = "package_binaries",
