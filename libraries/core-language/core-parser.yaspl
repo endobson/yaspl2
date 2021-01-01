@@ -28,6 +28,8 @@
     (non-term/Parameter)
     (non-term/Statements)
     (non-term/Statement)
+    (non-term/IfStatement)
+    (non-term/ElseChain)
     (non-term/Expression)
 
     ;(non-term/F)
@@ -96,6 +98,8 @@
         [(non-term/Statement) 9]
         [(non-term/Expression) 10]
         [(non-term/Type) 11]
+        [(non-term/IfStatement) 12]
+        [(non-term/ElseChain) 13]
         ;[(non-term/T) 2]
         ;[(non-term/Type) 3]
         ;[(non-term/Statement) 4]
@@ -110,6 +114,8 @@
     [(punctuation-token p) (right (term/punctuation p))]
     [(symbol-token s)
      (case s
+       [#"if" (right (term/language-keyword s))]
+       [#"else" (right (term/language-keyword s))]
        [#"return" (right (term/language-keyword s))]
        [_ (right (term/id))])]
     [(decimal-number-token _) (right (term/number))]
@@ -131,6 +137,8 @@
   (match-define Parameter* (non-term/Parameter))
   (match-define Statements* (non-term/Statements))
   (match-define Statement* (non-term/Statement))
+  (match-define IfStatement* (non-term/IfStatement))
+  (match-define ElseChain* (non-term/ElseChain))
   (match-define Expression* (non-term/Expression))
   (match-define Type* (non-term/Type))
   ;(match-define E* (non-term/E))
@@ -156,6 +164,8 @@
   (match-define Parameter (symbol/non-term (non-term/Parameter)))
   (match-define Statements (symbol/non-term (non-term/Statements)))
   (match-define Statement (symbol/non-term (non-term/Statement)))
+  (match-define IfStatement (symbol/non-term (non-term/IfStatement)))
+  (match-define ElseChain (symbol/non-term (non-term/ElseChain)))
   (match-define Expression (symbol/non-term (non-term/Expression)))
   (match-define Type (symbol/non-term (non-term/Type)))
 
@@ -177,6 +187,7 @@
   (match-define semi-colon (symbol/term (term/punctuation (punct/semi-colon))))
   ;(match-define while (symbol/term (term/language-keyword #"while")))
   (match-define if (symbol/term (term/language-keyword #"if")))
+  (match-define else (symbol/term (term/language-keyword #"else")))
   (match-define return (symbol/term (term/language-keyword #"return")))
   (match-define module-keyword (symbol/term (term/language-keyword #"module")))
   (match-define define-function-keyword (symbol/term (term/language-keyword #"define_function")))
@@ -198,12 +209,11 @@
   ;       (form/expr (bin-op-expr op l r))]
   ;      [_ (panic #"Bad forms for bin-op")])))
 
-  ;(match-define identity*
-  ;  (lambda ([forms : (List Form)]) : Form
-  ;    (case forms
-  ;      [(cons f (empty))
-  ;       f]
-  ;      [_ (panic #"Bad forms for identity")])))
+  (match-define identity*
+    (lambda ([forms : (List Form)]) : (Either Bytes Form)
+      (case forms
+        [(cons f (empty)) (right f)]
+        [_ (left #"Bad forms for identity")])))
 
   ;(match-define parens*
   ;  (lambda ([forms : (List Form)]) : Form
@@ -350,10 +360,29 @@
              (cons (form/expression e)
                (cons _>
                  (cons _<<
-                   (cons (form/statements ss)
-                     (cons _>> (empty))))))))
-         (right (form/statement (if-statement e ss (empty))))]
-        [_ (left #"Bad forms for return")])))
+                   (cons (form/statements t)
+                     (cons _>>
+                       (cons (form/statements f)
+                         (empty)))))))))
+         (right (form/statement (if-statement e t f)))]
+        [_ (left #"Bad forms for if")])))
+
+  (match-define else*
+    (lambda ([forms : (List Form)]) : (Either Bytes Form)
+      (case forms
+        [(empty)
+         (right (form/statements (empty)))]
+        [(cons (form/token (symbol-token #"else"))
+           (cons _<<
+             (cons (form/statements f)
+               (cons _>>
+                 (empty)))))
+         (right (form/statements f))]
+        [(cons (form/token (symbol-token #"else"))
+           (cons (form/statement f)
+             (empty)))
+         (right (form/statements (cons f (empty))))]
+        [_ (left #"Bad forms for else")])))
 
 
   (match-define var-expr*
@@ -369,13 +398,6 @@
         [(cons (form/token (symbol-token v)) (empty))
          (right (form/type (var-pre-type v)))]
         [_ (left #"Bad forms for var type")])))
-
-  ;(match-define var-type*
-  ;  (lambda ([forms : (List Form)]) : Form
-  ;    (case forms
-  ;      [(cons (form/token (symbol-token v)) (empty))
-  ;       (form/type (var-type v))]
-  ;      [_ (panic #"Bad forms for variable type")])))
 
   (varargs list
     (input-production-rule Module* (varargs list module-keyword paren-< ModName >-paren Definitions) module*)
@@ -399,10 +421,20 @@
     (input-production-rule Statements* (empty) statements*)
     (input-production-rule Statements* (varargs list Statement Statements) statements*)
     (input-production-rule Statement* (varargs list return Expression semi-colon) return*)
-    (input-production-rule Statement*
-      (varargs list if paren-< Expression >-paren brace-< Statements >-brace) if*)
+
+    ;; If statements
+    (input-production-rule Statement* (varargs list IfStatement) identity*)
+    (input-production-rule IfStatement*
+      (varargs list if paren-< Expression >-paren brace-< Statements >-brace ElseChain)
+      if*)
+    (input-production-rule ElseChain* (empty) else*)
+    (input-production-rule ElseChain* (varargs list else brace-< Statements >-brace) else*)
+    (input-production-rule ElseChain* (varargs list else IfStatement) else*)
+
+    ;; Expressions
     (input-production-rule Expression* (varargs list id) var-expr*)
 
+    ;; Types
     (input-production-rule Type* (varargs list id) var-type*)
 
     ;(input-production-rule E* (varargs list id) var*)
