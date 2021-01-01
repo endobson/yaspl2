@@ -1,20 +1,37 @@
 #:module (core-language source-to-register)
 #:import {
+  (block-number)
   (bytes)
   (core-language source-language)
+  (data indexed-set)
   (dict)
   (list)
   (module-signature)
   (prim)
+  (prim-language register-language-builder)
   (prim-types)
+  {(register-language)
+    {#:types
+      [FunctionDefinition r:FunctionDefinition]
+    }
+    {#:values
+      basic-block-number
+      [function-definition r:function-definition]
+      halt
+      plain-function-convention
+      [return r:return]
+    }
+  }
   (top-level-name)
   (tuples)
+  (types)
   {(yaspl intermediate-to-register)
     {#:values
       mangle-top-level-name
     }
   }
   (yaspl top-level-objects)
+  (yaspl var)
 }
 (export
   (#:types)
@@ -22,18 +39,30 @@
      module-to-top-level-objects
      module->module-signature)
   (#:patterns))
-(types)
+(types
+  (define-type Environment
+    (environment
+      [vars : (Dict Bytes Var)])))
+
 
 
 (define (module-to-top-level-objects [mod : Module]) : (List TopLevelObject)
   (match-define (module mod-name definitions) mod)
-  (map
-    (lambda ([def : Definition]) : TopLevelObject
-      (match-define (function-definition name _params _statements) def)
-      (bytes-tlo
-        (mangle-top-level-name (top-level-name mod-name name))
-        #"core-function"))
-    definitions))
+  (append*
+    (map
+      (lambda ([def : Definition]) : (List TopLevelObject)
+        (match-define (function-definition name _params _statements) def)
+        (match-define tl-name (top-level-name mod-name name))
+        (match-define tl-closure-name
+          (top-level-name mod-name (bytes-append (varargs list name #"_closure"))))
+        (varargs list
+          (register-function-tlo
+            (mangle-top-level-name tl-name)
+            (convert-function def))
+          (trivial-closure-tlo
+            (mangle-top-level-name tl-closure-name)
+            (mangle-top-level-name tl-name))))
+      definitions)))
 
 (define (module->module-signature [mod : Module]) : ModuleSignature
   (match-define (module mod-name definitions) mod)
@@ -42,12 +71,16 @@
       (make-dict bytes-cmp)
       (map
         (lambda ([def : Definition])
-          (match-define (function-definition name _params _statetments) def)
+          (match-define (function-definition name params _statetments) def)
+          (match-define tl-closure-name
+            (top-level-name mod-name (bytes-append (varargs list name #"_closure"))))
+          (match-define arg-types
+            (map (lambda ([_p : Parameter]) (u64-type)) params))
           (tuple2
             name
             (value-signature
-              (bytes-type)
-              (top-level-name mod-name name))))
+              (fun-type (empty) arg-types (u64-type))
+              tl-closure-name)))
         definitions)))
 
 
@@ -59,3 +92,68 @@
     (make-dict bytes-cmp) ;; Static Bindings
     (make-dict top-level-name-cmp) ;; Static Info
     ))
+
+
+(define (convert-function [f : Definition]) : r:FunctionDefinition
+  (match-define (function-definition _name args statements) f)
+  (match-define acc (block-accumulator (initial-var-number) (initial-block-number)
+                                       (make-indexed-set basic-block-number block-number-cmp)))
+  (match-define (tuple2 freshened-args acc)
+    (map/state fresh-name* (map parameter-name args) acc))
+  (match-define env (add-all-args freshened-args (environment (make-dict bytes-cmp))))
+
+  (match-define (tuple2 start-block-num acc) (fresh-block-number* acc))
+  (match-define acc (start-block start-block-num (map new-arg freshened-args) acc))
+
+  (match-define (tuple2 acc _env)
+    (convert-statements statements acc env))
+  (match-define (block-accumulator next-var next-block blocks) (add-terminal acc (halt)))
+
+  (r:function-definition
+    (plain-function-convention (length args) start-block-num)
+    blocks next-var next-block))
+
+(define (convert-statements
+          [statements : (List Statement)]
+          [acc : Accumulator]
+          [env : Environment])
+  : (Tuple2 Accumulator Environment)
+  (case statements
+    [(empty) (tuple2 acc env)]
+    [(cons statement statements)
+     (case (convert-statement statement acc env)
+       [(tuple2 acc env)
+        (convert-statements statements acc env)])]))
+
+(define (convert-statement
+          [statement : Statement]
+          [acc : Accumulator]
+          [env : Environment])
+  : (Tuple2 Accumulator Environment)
+  (case statement
+    [(return-statement expr)
+     (match-define (tuple2 temp acc)
+       (convert-expr #"ret" expr acc env))
+     (match-define (tuple2 block-num acc) (fresh-block-number acc))
+     (tuple2
+       (start-block block-num (empty) (add-terminal acc (r:return temp)))
+       env)]))
+
+
+(define (convert-expr
+          [base-name : Bytes]
+          [expr : Expression]
+          [acc : Accumulator]
+          [env : Environment])
+  : (Tuple2 Var Accumulator)
+  (case expr
+    [(var-expr name)
+     (tuple2 (env-ref env name) acc)]))
+
+(define (add-all-args [args : (List (Tuple2 Bytes Var))] [env : Environment]) : Environment
+  (case env
+    [(environment vars)
+     (environment (dict-add-all vars args))]))
+
+(define (env-ref [env : Environment] [name : Bytes]) : Var
+  (dict-ref/panic (environment-vars env) name))

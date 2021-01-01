@@ -135,12 +135,18 @@ yaspl_library(
         "//libraries:module-signature",
         "//libraries:prim-types",
         "//libraries:top-level-name",
+        "//libraries:types",
         "//libraries/data:bytes",
         "//libraries/data:dict",
+        "//libraries/data:indexed-set",
         "//libraries/data:list",
         "//libraries/data:tuples",
+        "//libraries/prim-language:block-number",
+        "//libraries/prim-language:register-language",
+        "//libraries/prim-language:register-language-builder",
         "//libraries/yaspl:intermediate-to-register",
         "//libraries/yaspl:top-level-objects",
+        "//libraries/yaspl:var",
     ],
 )
 

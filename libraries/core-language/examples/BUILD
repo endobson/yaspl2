@@ -16,7 +16,6 @@ yaspl_test(
     deps = [
         ":fill-stack",
         "//libraries:yunit",
-        "//libraries/data:bytes",
         "//libraries/data:list",
         "//libraries/data:maybe",
     ],
