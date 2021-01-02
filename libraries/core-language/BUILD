@@ -44,6 +44,7 @@ yaspl_library(
         "//libraries/data:numbers",
         "//libraries/data:ordering",
         "//libraries/data:tuples",
+        "//libraries/yaspl:math-operations",
     ],
 )
 
@@ -124,6 +125,7 @@ yaspl_library(
     deps = [
         "//libraries:module-name",
         "//libraries/data:list",
+        "//libraries/yaspl:math-operations",
     ],
 )
 
@@ -140,6 +142,7 @@ yaspl_library(
         "//libraries/data:dict",
         "//libraries/data:indexed-set",
         "//libraries/data:list",
+        "//libraries/data:set",
         "//libraries/data:tuples",
         "//libraries/prim-language:block-number",
         "//libraries/prim-language:register-language",

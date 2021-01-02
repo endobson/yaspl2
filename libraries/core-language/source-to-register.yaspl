@@ -16,12 +16,18 @@
     }
     {#:values
       basic-block-number
+      bin-op-inst
+      cond-jump
       [function-definition r:function-definition]
       halt
+      jump
+      jump-target
+      negated-var-condition
       plain-function-convention
       [return r:return]
     }
   }
+  (set)
   (top-level-name)
   (tuples)
   (types)
@@ -138,9 +144,44 @@
      (tuple2
        (start-block block-num (empty) (add-terminal acc (r:return temp)))
        env)]
-    [(if-statement _c t _f)
-     ;; TODO
-     (convert-statements t acc env)]))
+    [(if-statement cond t-statements f-statements)
+
+     (match-define (tuple2 branch-var acc)
+       (convert-expr #"cond" cond acc env))
+     (match-define (tuple2 t-block-num acc) (fresh-block-number acc))
+     (match-define (tuple2 f-block-num acc) (fresh-block-number acc))
+     (match-define acc
+       (add-terminal acc (cond-jump (negated-var-condition branch-var)
+                                    (jump-target f-block-num (empty))
+                                    (jump-target t-block-num (empty)))))
+
+     ;; Get the two pending basic blocks without their final terminators
+     (match-define (tuple2 acc t-env)
+       (convert-statements t-statements (start-block t-block-num (empty) acc) env))
+     (match-define (tuple2 t-block acc) (split-accumulator acc))
+     (match-define (tuple2 acc f-env)
+       (convert-statements f-statements (start-block f-block-num (empty) acc) env))
+     (match-define (tuple2 f-block acc) (split-accumulator acc))
+
+     ;; Figure out the differing variables so that they can be joined.
+     (match-define mut-vars (get-differing-vars env t-env f-env))
+     (match-define t-mut-vars (env-ref* t-env mut-vars))
+     (match-define f-mut-vars (env-ref* f-env mut-vars))
+
+     (match-define (tuple2 c-block-num acc) (fresh-block-number* acc))
+
+     (match-define acc
+       (add-terminal* acc t-block (jump (jump-target c-block-num t-mut-vars))))
+     (match-define acc
+       (add-terminal* acc f-block (jump (jump-target c-block-num f-mut-vars))))
+
+     (match-define (tuple2 fresh-mut-args acc)
+       (map/state fresh-name* mut-vars acc))
+
+     (tuple2
+       (start-block c-block-num (map new-arg fresh-mut-args) acc)
+       (replace-all-args fresh-mut-args env))]))
+
 
 
 (define (convert-expr
@@ -153,13 +194,33 @@
     [(var-expr name)
      (tuple2 (env-ref env name) acc)]
     [(bin-op-expr op l r)
-     ;; TODO
-     (convert-expr base-name l acc env)]))
+     (match-define (tuple2 left-res acc) (convert-expr #"tmp" l acc env))
+     (match-define (tuple2 right-res acc) (convert-expr #"tmp" r acc env))
+     (match-define (tuple2 (tuple2 _ name) acc) (fresh-name base-name acc))
+     (tuple2
+       name
+       (add-instruction acc (bin-op-inst name op left-res right-res)))]))
 
 (define (add-all-args [args : (List (Tuple2 Bytes Var))] [env : Environment]) : Environment
   (case env
     [(environment vars)
      (environment (dict-add-all vars args))]))
 
+(define (replace-all-args [args : (List (Tuple2 Bytes Var))] [env : Environment]) : Environment
+  (case env
+    [(environment vars)
+     (environment (dict-replace-all vars args))]))
+
+(define (get-differing-vars [base-env : Environment] [env1 : Environment] [env2 : Environment])
+  : (List Bytes)
+  (match-define vars (environment-vars base-env))
+  (filter
+    (lambda ([name : Bytes]) : Boolean
+      (not (var=? (env-ref env1 name) (env-ref env2 name))))
+    (set->list (dict-keys vars))))
+
 (define (env-ref [env : Environment] [name : Bytes]) : Var
   (dict-ref/panic (environment-vars env) name))
+
+(define (env-ref* [env : Environment] [names : (List Bytes)]) : (List Var)
+  (map (lambda ([name : Bytes]) (env-ref env name)) names))

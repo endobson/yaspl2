@@ -188,7 +188,6 @@ yaspl_bootstrap_library(
     deps = [
         ":block-number",
         ":lowered-register-language",
-        ":prim-language",
         ":register-language",
         ":register-language-used-vars",
         ":simplify-register-language",
@@ -331,6 +330,7 @@ yaspl_bootstrap_library(
         "//libraries/data:list",
         "//libraries/data:maybe",
         "//libraries/data:tuples",
+        "//libraries/yaspl:math-operations",
     ],
 )
 
@@ -365,7 +365,6 @@ yaspl_library(
     srcs = ["print-register-language.yaspl"],
     deps = [
         ":block-number",
-        ":prim-language",
         ":register-language",
         ":variant-info",
         "//libraries/data:bytes",
@@ -405,7 +404,6 @@ yaspl_bootstrap_library(
     srcs = ["register-language.yaspl"],
     deps = [
         ":block-number",
-        ":prim-language",
         ":variant-info",
         "//libraries/data:indexed-set",
         "//libraries/data:list",
@@ -496,7 +494,6 @@ yaspl_bootstrap_library(
     srcs = ["simplify-register-language.yaspl"],
     deps = [
         ":block-number",
-        ":prim-language",
         ":register-language",
         ":register-language-used-vars",
         ":variant-info",
