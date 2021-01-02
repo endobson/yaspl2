@@ -283,10 +283,11 @@ yaspl_bootstrap_library(
     deps = [
         "//libraries/data:bytes",
         "//libraries/data:dict",
+        "//libraries/data:directed-graph",
         "//libraries/data:join-list",
+        "//libraries/data:maybe",
         "//libraries/data:tuples",
         "//libraries/data:undirected-graph",
-        "//libraries/data:directed-graph",
     ],
 )
 
