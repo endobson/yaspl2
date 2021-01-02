@@ -30,6 +30,25 @@ yaspl_binary(
     ],
 )
 
+yaspl_binary(
+    name = "core-grammar-graph",
+    srcs = ["core-grammar-graph.yaspl"],
+    deps = [
+        ":core-parser",
+        ":lr-parser",
+        "//libraries:graphviz",
+        "//libraries:io",
+        "//libraries/data:bytes",
+        "//libraries/data:dict",
+        "//libraries/data:directed-graph",
+        "//libraries/data:either",
+        "//libraries/data:lifted-primitives",
+        "//libraries/data:list",
+        "//libraries/data:maybe",
+        "//libraries/data:numbers",
+    ],
+)
+
 yaspl_library(
     name = "core-parser",
     srcs = ["core-parser.yaspl"],
@@ -189,6 +208,7 @@ filegroup(
     name = "package_binaries",
     srcs = [
         ":compiler",
+        ":core-grammar-graph",
     ],
 )
 

@@ -284,9 +284,9 @@ yaspl_bootstrap_library(
         "//libraries/data:bytes",
         "//libraries/data:dict",
         "//libraries/data:join-list",
-        "//libraries/data:maybe",
         "//libraries/data:tuples",
         "//libraries/data:undirected-graph",
+        "//libraries/data:directed-graph",
     ],
 )
 

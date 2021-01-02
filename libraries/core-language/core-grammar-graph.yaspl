@@ -1,0 +1,90 @@
+#:module (core-language core-grammar-graph)
+#:import {
+  (bytes)
+  (core-language core-parser)
+  (core-language lr-parser)
+  (data lifted-primitives)
+  (dict)
+  (directed-graph)
+  (either)
+  (graphviz)
+  (io)
+  (list)
+  (maybe)
+  (numbers)
+  (prim)
+}
+(export
+  (#:values main))
+(types)
+
+(define (make-graph) : (Graph LiftedInt VertexData EdgeData)
+  (match-define (parser actions goto _ _ _) : (Parser CoreNonTerm CoreTerm Form)
+    (case (make-module-parser)
+      [(left v) (panic v)]
+      [(right p) p]))
+  (match-define g : (Graph LiftedInt VertexData EdgeData)
+    (empty-graph lifted-int-cmp))
+
+  (match-define g
+    (dict-fold
+      actions
+      (lambda ([(state-id s) : StateId]
+               [_actions : (Dict (LiftedTerm CoreTerm) (Action CoreNonTerm))]
+               [g : (Graph LiftedInt VertexData EdgeData)])
+        (graph-add-vertex-if-absent
+          g (lifted-int s)
+          (vertex-data
+            (bytes-append (varargs list #"State: " (integer->decimal-bytes s))))))
+      g))
+
+  (match-define g
+    (dict-fold
+      actions
+      (lambda ([(state-id s) : StateId]
+               [actions : (Dict (LiftedTerm CoreTerm) (Action CoreNonTerm))]
+               [g : (Graph LiftedInt VertexData EdgeData)])
+        (dict-fold
+          actions
+          (lambda ([_term : (LiftedTerm CoreTerm)] [action : (Action CoreNonTerm)]
+                   [g : (Graph LiftedInt VertexData EdgeData)])
+            : (Graph LiftedInt VertexData EdgeData)
+            (case action
+              [(shift (state-id s2))
+               (case (graph-add-edge g (lifted-int s)
+                                       (lifted-int s2) (edge-data #"solid"))
+                 [(nothing) (panic #"Bad edge")]
+                 [(just g) g])]
+              [_
+               g]))
+          g))
+      g))
+
+  (match-define g
+    (dict-fold
+      goto
+      (lambda ([(state-id s) : StateId]
+               [next : (Dict CoreNonTerm StateId)]
+               [g : (Graph LiftedInt VertexData EdgeData)])
+        (dict-fold
+          next
+          (lambda ([_non-term : CoreNonTerm] [(state-id s2) : StateId]
+                   [g : (Graph LiftedInt VertexData EdgeData)])
+            : (Graph LiftedInt VertexData EdgeData)
+            (case (graph-add-edge g (lifted-int s)
+                                    (lifted-int s2) (edge-data #"dashed"))
+              [(nothing) g]
+              [(just g) g]))
+          g))
+      g))
+
+  g)
+
+(define (index->label [(lifted-int v) : LiftedInt]) : Bytes
+  (integer->decimal-bytes v))
+
+
+(define (main [args : Bytes] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Int
+  (begin
+    (write-all-bytes (directed-graph->graphviz (make-graph) index->label) stdout)
+    0))

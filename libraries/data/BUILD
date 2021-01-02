@@ -108,13 +108,13 @@ yaspl_test(
     ],
 )
 
-yaspl_library(
+yaspl_bootstrap_library(
     name = "directed-graph",
     srcs = ["directed-graph.yaspl"],
     deps = [
         ":dict",
-        ":lifted-primitives",
         ":maybe",
+        ":ordering",
         ":tuples",
     ],
 )

@@ -2,22 +2,42 @@
 #:import {
   (bytes)
   (dict)
+  {(directed-graph)
+    {#:types
+      [Graph d:Graph]
+    }
+    {#:values
+      [graph-edges d:graph-edges]
+      [graph-vertices d:graph-vertices]
+    }
+  }
   (join-list)
-  (maybe)
   (prim)
   (tuples)
-  (undirected-graph)
+  {(undirected-graph)
+    {#:types
+      [Graph u:Graph]
+    }
+    {#:values
+      [graph-edges u:graph-edges]
+      [graph-vertices u:graph-vertices]
+    }
+  }
 }
 (export
   (#:types VertexData EdgeData)
-  (#:values graph->graphviz vertex-data edge-data))
+  (#:values
+   graph->graphviz directed-graph->graphviz
+   vertex-data edge-data))
 (types
   (define-type VertexData
-    (vertex-data [name : Bytes]))
+    (vertex-data [label : Bytes]))
   (define-type EdgeData
     (edge-data [style : Bytes])))
 
-(define [I] (graph->graphviz [g : (Graph I VertexData EdgeData)])
+(define [I] (graph->graphviz
+              [g : (u:Graph I VertexData EdgeData)]
+              [index->name : (I -> Bytes)])
   : Bytes
   (bytes-append
     (jl->list
@@ -25,21 +45,61 @@
         (single-jl #"graph {\n")
         (concat-jl
           (dict-map
-            (graph-vertices g)
-            (lambda ([_i : I] [v : VertexData])
-              (case v
-                [(vertex-data name)
-                 (varargs join-list name #"\n")]))))
+            (u:graph-vertices g)
+            (vertex->graphviz index->name)))
         (concat-jl
           (dict-map
-            (graph-edges g)
-            (lambda ([edge : (Tuple2 I I)] [e : EdgeData]) : (JoinList Bytes)
-              (case edge
-                [(tuple2 i1 i2)
-                 (case (tuple2 (graph-vertex-label g i1) (graph-vertex-label g i2))
-                   [(tuple2 (just (vertex-data name1)) (just (vertex-data name2)))
-                    (case e
-                      [(edge-data style)
-                       (varargs join-list name1 #" -- " name2 #"[style=" style #"]\n")])]
-                   [_ (panic #"bad graph")])]))))
+            (u:graph-edges g)
+            (undirected-edge->graphviz index->name)))
         (single-jl #"}\n")))))
+
+(define [I] (directed-graph->graphviz
+              [g : (d:Graph I VertexData EdgeData)]
+              [index->name : (I -> Bytes)])
+  : Bytes
+  (bytes-append
+    (jl->list
+      (varargs append-jl*
+        (single-jl #"digraph {\n")
+        (concat-jl
+          (dict-map
+            (d:graph-vertices g)
+            (vertex->graphviz index->name)))
+        (concat-jl
+          (dict-map
+            (d:graph-edges g)
+            (directed-edge->graphviz index->name)))
+        (single-jl #"}\n")))))
+
+(define [I] (vertex->graphviz [index->name : (I -> Bytes)]) : (I VertexData -> (JoinList Bytes))
+  (lambda ([i : I] [v : VertexData])
+    (match-define (vertex-data label) v)
+    (varargs join-list
+       (index->name i) #" ["
+       #"label=\"" label #"\""
+       #"shape=\"box\""
+       #"]\n")))
+
+
+(define [I] (directed-edge->graphviz [index->name : (I -> Bytes)])
+  : ((Tuple2 I I) EdgeData -> (JoinList Bytes))
+  (lambda ([edge : (Tuple2 I I)] [e : EdgeData])
+    (edge->graphviz edge e index->name #t)))
+
+(define [I] (undirected-edge->graphviz [index->name : (I -> Bytes)])
+  : ((Tuple2 I I) EdgeData -> (JoinList Bytes))
+  (lambda ([edge : (Tuple2 I I)] [e : EdgeData])
+    (edge->graphviz edge e index->name #f)))
+
+(define [I] (edge->graphviz
+              [edge : (Tuple2 I I)]
+              [e : EdgeData]
+              [index->name : (I -> Bytes)]
+              [directed : Boolean])
+  : (JoinList Bytes)
+  (match-define (tuple2 i1 i2) edge)
+  (match-define (edge-data style) e)
+  (varargs join-list
+    (index->name i1) (if directed #" -> " #" -- ") (index->name i2) #"["
+    #"style=\"" style #"\""
+    #"]\n"))

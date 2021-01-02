@@ -1,6 +1,6 @@
 #:module (directed-graph)
 #:import {
-  (data lifted-primitives)
+  (data ordering)
   (dict)
   (maybe)
   (prim)
@@ -8,45 +8,68 @@
 }
 (export
   (#:types Graph)
-  (#:values empty-graph graph-add-vertex graph-add-edge graph-vertex-value graph-vertex-edges))
+  (#:values
+    empty-graph
+    graph-add-vertex-if-absent
+    graph-add-edge graph-add-edge-if-absent
+    graph-vertices graph-edges))
 (types
-  (define-type (Graph V E)
-    (graph [connections : (Dict LiftedInt (Tuple2 V (Dict LiftedInt E)))])))
+  (define-type (Graph I V E)
+    (graph [cmp : (I I -> Ordering)] [connections : (Dict I (Tuple2 V (Dict I E)))])))
 
+(define [I V E] (empty-graph [cmp : (I I -> Ordering)]) : (Graph I V E)
+  (graph cmp (make-dict cmp)))
 
-(define [V E] (empty-graph) : (Graph V E)
-  (graph (make-dict lifted-int-cmp)))
-
-(define [V E] (graph-add-vertex [g : (Graph V E)] [index : Int] [v : V] [edges : (Dict LiftedInt E)])
-  : (Maybe (Graph V E))
+(define [I V E] (graph-add-vertex-if-absent [g : (Graph I V E)] [index : I] [v : V])
+  : (Graph I V E)
   (case g
-    [(graph con)
-     (case (dict-maybe-add con (lifted-int index) (tuple2 v edges))
-       [(just v) (just (graph v))]
-       [(nothing) (nothing)])]))
+    [(graph cmp con)
+     (if (dict-has-key? con index)
+         g
+         (graph cmp (dict-add con index (tuple2 v (make-dict cmp)))))]))
 
-(define [V E] (graph-add-edge [g : (Graph V E)] [src : Int] [dest : Int] [label : E])
-  : (Maybe (Graph V E))
+;; Figure out how to differentiate edge existing from vertices not existing
+(define [I V E] (graph-add-edge [g : (Graph I V E)] [src : I] [dest : I] [label : E])
+  : (Maybe (Graph I V E))
   (case g
-    [(graph con)
-     (case (dict-ref con (lifted-int src))
-       [(nothing) (nothing)]
-       [(just (tuple2 v edges))
-        (case (dict-maybe-add edges (lifted-int dest) label)
-          [(nothing) (nothing)]
-          [(just new-edges)
-           (just (graph (dict-replace con (lifted-int src) (tuple2 v new-edges))))])])]))
+    [(graph cmp con)
+     (if (dict-has-key? con dest)
+         (case (dict-ref con src)
+           [(nothing) (nothing)]
+           [(just (tuple2 v edges))
+            (case (dict-maybe-add edges dest label)
+              [(nothing) (nothing)]
+              [(just new-edges)
+               (just (graph cmp (dict-replace con src (tuple2 v new-edges))))])])
+         (nothing))]))
 
-(define [V E] (graph-vertex-value [g : (Graph V E)] [v : Int]) : (Maybe V)
-  (case g
-    [(graph con)
-     (case (dict-ref con (lifted-int v))
-       [(nothing) (nothing)]
-       [(just (tuple2 v _)) (just v)])]))
+(define [I V E] (graph-add-edge-if-absent [g : (Graph I V E)] [src : I] [dest : I] [label : E])
+  : (Graph I V E)
+  (case (graph-add-edge g src dest label)
+    [(nothing) g]
+    [(just g) g]))
 
-(define [V E] (graph-vertex-edges [g : (Graph V E)] [src : Int]) : (Maybe (Dict LiftedInt E))
-  (case g
-    [(graph con)
-     (case (dict-ref con (lifted-int src))
-       [(nothing) (nothing)]
-       [(just (tuple2 _ edges)) (just edges)])]))
+(define [I V E] (graph-vertices [g : (Graph I V E)]) : (Dict I V)
+  (match-define (graph _ con) g)
+  (dict-value-map
+    con
+    (lambda ([t : (Tuple2 V (Dict I E))])
+      (case t [(tuple2 v _) v]))))
+
+(define [I V E] (graph-edges [g : (Graph I V E)]) : (Dict (Tuple2 I I) E)
+  (match-define (graph cmp con) g)
+  (graph-edges* con (ann (Dict (Tuple2 I I) E) (make-dict (tuple2-cmp cmp cmp)))))
+
+(define [I V E] (graph-edges*
+                  [con : (Dict I (Tuple2 V (Dict I E)))]
+                  [acc : (Dict (Tuple2 I I) E)]) : (Dict (Tuple2 I I) E)
+  (case (dict-split con)
+    [(nothing) acc]
+    [(just (tuple2 (tuple2 i (tuple2 _ other-edges)) con))
+     (graph-edges*
+       con
+       (dict-fold
+         other-edges
+         (lambda ([i2 : I] [e : E] [acc : (Dict (Tuple2 I I) E)])
+           (dict-add acc (tuple2 i i2) e))
+         acc))]))
