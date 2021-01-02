@@ -13,38 +13,6 @@ package(
 )
 
 yaspl_binary(
-    name = "demo",
-    srcs = ["prim-language-demo.yaspl"],
-    deps = [
-        ":color-graph",
-        ":color-lowered-register-language",
-        ":lower-x86-64",
-        ":lowered-live-variables",
-        ":lowered-register-language",
-        ":prim-language",
-        ":prim-language-parser",
-        ":prim-to-register",
-        ":print-assigned-register-language",
-        ":print-lowered-register-language",
-        ":print-register-language",
-        ":register-language",
-        ":simplify-assigned-register-language",
-        ":simplify-register-language",
-        ":spill-lowered-register-language",
-        "//libraries:io",
-        "//libraries:sexp-parser",
-        "//libraries:system-abi",
-        "//libraries/data:bytes",
-        "//libraries/data:dict",
-        "//libraries/data:either",
-        "//libraries/data:list",
-        "//libraries/data:set",
-        "//libraries/data:tuples",
-        "//libraries/yaspl:var",
-    ],
-)
-
-yaspl_binary(
     name = "prim-language-compiler",
     srcs = ["prim-language-compiler-main.yaspl"],
     deps = [
@@ -587,7 +555,6 @@ test_suite(
 filegroup(
     name = "package_binaries",
     srcs = [
-        ":demo",
         ":prim-language-compiler",
         ":prim-language-library-compiler",
     ],
