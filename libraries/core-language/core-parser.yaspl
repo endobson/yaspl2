@@ -4,9 +4,11 @@
   (core-language lexer)
   (core-language lr-parser)
   (core-language source-language)
+  (data lifted-primitives)
   (data ordering)
   (either)
   (list)
+  (maybe)
   (module-name)
   (numbers)
   (prim)
@@ -36,6 +38,7 @@
     (non-term/IfStatement)
     (non-term/ElseChain)
     (non-term/Expression)
+    (non-term/E1)
     (non-term/E2)
 
     ;(non-term/F)
@@ -106,7 +109,8 @@
         [(non-term/Type) 11]
         [(non-term/IfStatement) 12]
         [(non-term/ElseChain) 13]
-        [(non-term/E2) 14]
+        [(non-term/E1) 14]
+        [(non-term/E2) 15]
         )))
   (int-cmp (convert a) (convert b)))
 
@@ -125,6 +129,7 @@
     [(non-term/Type) #"Type"]
     [(non-term/IfStatement) #"IfStatement"]
     [(non-term/ElseChain) #"ElseChain"]
+    [(non-term/E1) #"E1"]
     [(non-term/E2) #"E2"]
     ))
 
@@ -167,6 +172,7 @@
   (match-define IfStatement* (non-term/IfStatement))
   (match-define ElseChain* (non-term/ElseChain))
   (match-define Expression* (non-term/Expression))
+  (match-define E1* (non-term/E1))
   (match-define E2* (non-term/E2))
   (match-define Type* (non-term/Type))
 
@@ -188,13 +194,16 @@
   (match-define IfStatement (symbol/non-term (non-term/IfStatement)))
   (match-define ElseChain (symbol/non-term (non-term/ElseChain)))
   (match-define Expression (symbol/non-term (non-term/Expression)))
+  (match-define E1 (symbol/non-term (non-term/E1)))
   (match-define E2 (symbol/non-term (non-term/E2)))
   (match-define Type (symbol/non-term (non-term/Type)))
 
-  ;(match-define + (symbol/term (term/punctuation (punct/plus))))
-  ;(match-define - (symbol/term (term/punctuation (punct/minus))))
-  ;(match-define * (symbol/term (term/punctuation (punct/multiplication))))
-  ;(match-define / (symbol/term (term/punctuation (punct/division))))
+  (match-define + (symbol/term (term/punctuation (punct/plus))))
+  (match-define - (symbol/term (term/punctuation (punct/minus))))
+  (match-define * (symbol/term (term/punctuation (punct/multiplication))))
+  (match-define / (symbol/term (term/punctuation (punct/division))))
+  (match-define & (symbol/term (term/punctuation (punct/bitwise-and))))
+  (match-define bar (symbol/term (term/punctuation (punct/bitwise-or))))
   (match-define paren-< (symbol/term (term/punctuation (punct/left-paren))))
   (match-define >-paren (symbol/term (term/punctuation (punct/right-paren))))
   (match-define brace-< (symbol/term (term/punctuation (punct/left-brace))))
@@ -213,7 +222,7 @@
   (match-define define-function-keyword (symbol/term (term/language-keyword #"define_function")))
 
   (match-define id (symbol/term (term/id)))
-  ;(match-define num (symbol/term (term/number)))
+  (match-define number (symbol/term (term/number)))
 
 
   (match-define identity*
@@ -230,14 +239,6 @@
   ;      [_ (panic #"Bad forms for parens")])))
 
 
-  ;(match-define num*
-  ;  (lambda ([forms : (List Form)]) : Form
-  ;    (case forms
-  ;      [(cons (form/token (decimal-number-token v)) (empty))
-  ;       (case (decimal-bytes->integer v)
-  ;         [(nothing) (panic #"Bad decimal number token")]
-  ;         [(just (lifted-int v)) (form/expr (int-expr v))])]
-  ;      [_ (panic #"Bad forms for identifier")])))
 
   (match-define module*
     (lambda ([forms : (List Form)]) : (Either Bytes Form)
@@ -411,6 +412,23 @@
         [(cons (form/token (symbol-token v)) (empty))
          (right (form/expression (var-expr v)))]
         [_ (left #"Bad forms for var expr")])))
+  (match-define number-expr*
+    (lambda ([forms : (List Form)]) : (Either Bytes Form)
+      (case forms
+        [(cons (form/token (decimal-number-token v)) (empty))
+         (case (decimal-bytes->integer v)
+           [(nothing) (left #"Bad decimal number token")]
+           [(just (lifted-int v)) (right (form/expression (int-expr v)))])]
+        [_ (left #"Bad forms for number")])))
+  (match-define paren-expr*
+    (lambda ([forms : (List Form)]) : (Either Bytes Form)
+      (case forms
+        [(cons _<
+           (cons (form/expression e)
+             (cons _>
+               (empty))))
+         (right (form/expression e))]
+        [_ (left #"Bad forms for paren expression")])))
 
   (match-define bin-op-expr*
     (lambda ([forms : (List Form)]) : (Either Bytes Form)
@@ -422,7 +440,13 @@
                     (case p
                       [(punct/less-than) (right (comparison-bin-op (less-than-op)))]
                       [(punct/greater-than) (right (comparison-bin-op (greater-than-op)))]
-                      [_ (left #"Bad forms for bin-op expr")]))
+                      [(punct/plus) (right (numeric-bin-op (add-op)))]
+                      [(punct/minus) (right (numeric-bin-op (sub-op)))]
+                      [(punct/multiplication) (right (numeric-bin-op (mult-op)))]
+                      [(punct/division) (right (numeric-bin-op (quotient-op)))]
+                      [(punct/bitwise-and) (right (numeric-bin-op (bitwise-and-op)))]
+                      [(punct/bitwise-or) (right (numeric-bin-op (bitwise-ior-op)))]
+                      [_ (left #"Bad op form for bin-op expr")]))
            [(left v) (left v)]
            [(right op)
             (right (form/expression (bin-op-expr op l r)))])]
@@ -471,11 +495,20 @@
     (input-production-rule ElseChain* (varargs list else IfStatement) else*)
 
     ;; Expressions
-    (input-production-rule Expression* (varargs list E2) identity*)
-    (input-production-rule Expression* (varargs list E2 < E2) bin-op-expr*)
-    (input-production-rule Expression* (varargs list E2 > E2) bin-op-expr*)
+    (input-production-rule Expression* (varargs list E1) identity*)
+    (input-production-rule E1* (varargs list E2) identity*)
+    (input-production-rule E1* (varargs list E2 < E1) bin-op-expr*)
+    (input-production-rule E1* (varargs list E2 > E1) bin-op-expr*)
+    (input-production-rule E1* (varargs list E2 + E1) bin-op-expr*)
+    (input-production-rule E1* (varargs list E2 - E1) bin-op-expr*)
+    (input-production-rule E1* (varargs list E2 * E1) bin-op-expr*)
+    (input-production-rule E1* (varargs list E2 / E1) bin-op-expr*)
+    (input-production-rule E1* (varargs list E2 & E1) bin-op-expr*)
+    (input-production-rule E1* (varargs list E2 bar E1) bin-op-expr*)
 
     (input-production-rule E2* (varargs list id) var-expr*)
+    (input-production-rule E2* (varargs list number) number-expr*)
+    (input-production-rule E2* (varargs list paren-< E1 >-paren) paren-expr*)
 
     ;; Types
     (input-production-rule Type* (varargs list id) var-type*)
