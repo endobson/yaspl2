@@ -42,6 +42,7 @@ yaspl_binary(
         "//libraries/data:dict",
         "//libraries/data:directed-graph",
         "//libraries/data:either",
+        "//libraries/data:join-list",
         "//libraries/data:lifted-primitives",
         "//libraries/data:list",
         "//libraries/data:maybe",
