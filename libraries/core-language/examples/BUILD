@@ -6,20 +6,26 @@ package(
 )
 
 core_library(
-    name = "fill-stack",
-    srcs = ["fill-stack.core"],
+    name = "example-functions",
+    srcs = ["example-functions.core"],
 )
 
 yaspl_test(
-    name = "fill-stack-test",
-    srcs = ["fill-stack-test.yaspl"],
+    name = "example-functions-test",
+    srcs = ["example-functions-test.yaspl"],
     deps = [
-        ":fill-stack",
+        ":example-functions",
         "//libraries:yunit",
         "//libraries/data:list",
         "//libraries/data:maybe",
     ],
 )
+
+core_library(
+    name = "fill-stack",
+    srcs = ["fill-stack.core"],
+)
+
 
 filegroup(
     name = "package_binaries",
