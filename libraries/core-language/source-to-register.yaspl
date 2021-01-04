@@ -189,7 +189,46 @@
 
      (tuple2
        (start-block c-block-num (map new-arg fresh-mut-args) acc)
-       (replace-all-args fresh-mut-args env))]))
+       (replace-all-args fresh-mut-args env))]
+    [(while-statement cond body)
+
+     (match-define (tuple2 header-block-num acc) (fresh-block-number acc))
+     (match-define mut-vars (set->list (mutated-vars/statements body)))
+     (match-define acc
+       (add-terminal acc (jump (jump-target header-block-num (env-ref* env mut-vars)))))
+
+     (match-define (tuple2 fresh-mut-args acc)
+       (map/state fresh-name* mut-vars acc))
+
+     (match-define acc (start-block header-block-num (map new-arg fresh-mut-args) acc))
+     (match-define header-env (replace-all-args fresh-mut-args env))
+
+     (match-define (tuple2 branch-var acc)
+       (convert-expr #"cond" cond acc header-env))
+     (match-define (tuple2 header-block acc) (split-accumulator acc))
+
+     (match-define (tuple2 body-block-num acc) (fresh-block-number* acc))
+     (match-define (tuple2 acc body-env)
+       (convert-statements
+         body
+         (start-block body-block-num (empty) acc)
+         header-env))
+     (match-define (tuple2 body-block acc) (split-accumulator acc))
+
+     (match-define (tuple2 after-block-num acc) (fresh-block-number* acc))
+
+     (match-define acc
+       (add-terminal*
+         (add-terminal* acc header-block (cond-jump (negated-var-condition branch-var)
+                                                    (jump-target after-block-num (empty))
+                                                    (jump-target body-block-num (empty))))
+         body-block (jump (jump-target header-block-num (env-ref* body-env mut-vars)))))
+
+     (tuple2
+       (start-block after-block-num (empty) acc)
+       header-env)]))
+
+
 
 
 
@@ -216,6 +255,19 @@
        (add-instruction acc (bin-op-inst name op left-res right-res)))]
     [(cast-expr _t e)
      (convert-expr base-name e acc env)]))
+
+
+(define (mutated-vars/statements [ss : (List Statement)]) : (Set Bytes)
+  (foldl mutated-vars* ss (make-set bytes-cmp)))
+
+(define (mutated-vars* [s : Statement] [acc : (Set Bytes)]) : (Set Bytes)
+  (case s
+    [(return-statement _) acc]
+    [(define-local-variable-statement _ _ _)  acc]
+    [(assignment-statement v _) (set-add acc v)]
+    [(while-statement _ body) (foldl mutated-vars* body acc)]
+    [(if-statement _ then else)
+     (foldl mutated-vars* else (foldl mutated-vars* then acc))]))
 
 (define (add-all-args [args : (List (Tuple2 Bytes Var))] [env : Environment]) : Environment
   (case env
