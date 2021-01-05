@@ -150,7 +150,6 @@ yaspl_library(
     deps = [
         ":in-memory-mach-o",
         ":mach-o",
-        "//libraries/yaspl/runtime:fill-stack",
         "//libraries/data:bytes",
         "//libraries/data:either",
         "//libraries/data:join-list",
@@ -160,6 +159,7 @@ yaspl_library(
         "//libraries/data:ordering",
         "//libraries/data:red-black-tree",
         "//libraries/data:tuples",
+        "//libraries/yaspl/runtime:fill-stack",
     ],
 )
 
@@ -329,6 +329,7 @@ yaspl_bootstrap_library(
         ":system-abi",
         "//libraries/data:maybe",
         "//libraries/formats:elf-writer",
+        "//libraries/formats:pe-writer",
         "//libraries/yaspl:top-level-objects",
         "//libraries/yaspl:top-level-objects-to-x86-64",
         "//libraries/yaspl:x86-64-assembly",
@@ -407,12 +408,15 @@ yaspl_bootstrap_library(
         ":structured-elf",
         ":structured-mach-o",
         ":structured-native-code",
+        ":structured-pe",
         ":system-abi",
         "//libraries/data:either",
         "//libraries/data:list",
         "//libraries/data:maybe",
         "//libraries/formats:elf",
         "//libraries/formats:elf-writer",
+        "//libraries/formats:pe",
+        "//libraries/formats:pe-writer",
     ],
 )
 
@@ -490,6 +494,16 @@ yaspl_bootstrap_library(
         "//libraries/data:bytes",
         "//libraries/data:list",
         "//libraries/data:numbers",
+    ],
+)
+
+yaspl_bootstrap_library(
+    name = "structured-pe",
+    srcs = ["structured-pe.yaspl"],
+    deps = [
+        ":structured-native-code",
+        "//libraries/data:either",
+        "//libraries/formats:pe",
     ],
 )
 
@@ -863,6 +877,7 @@ yaspl_library(
     srcs = ["tcp.yaspl"],
     deps = [
         ":ip",
+        ":panic",
         ":system-abi",
     ],
 )

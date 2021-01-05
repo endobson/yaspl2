@@ -504,6 +504,7 @@ yaspl_bootstrap_library(
     name = "syscalls",
     srcs = ["syscalls.yaspl"],
     deps = [
+        "//libraries:panic",
         "//libraries:system-abi",
     ],
 )

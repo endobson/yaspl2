@@ -36,15 +36,6 @@ yaspl_bootstrap_library(
     ],
 )
 
-yaspl_bootstrap_library(
-    name = "sexp",
-    srcs = ["sexp.yaspl"],
-    deps = [
-        "//libraries/data:list",
-        "//libraries/data:source-location",
-    ],
-)
-
 yaspl_library(
     name = "html",
     srcs = ["html.yaspl"],
@@ -52,6 +43,33 @@ yaspl_library(
         ":xml",
         "//libraries/data:join-list",
         "//libraries/data:list",
+    ],
+)
+
+yaspl_bootstrap_library(
+    name = "pe",
+    srcs = ["pe.yaspl"],
+    deps = ["//libraries/data:either"],
+)
+
+yaspl_bootstrap_library(
+    name = "pe-writer",
+    srcs = ["pe-writer.yaspl"],
+    deps = [
+        "//libraries:io",
+        "//libraries:structured-native-code",
+        "//libraries:structured-pe",
+        "//libraries/data:list",
+        "//libraries/data:maybe",
+    ],
+)
+
+yaspl_bootstrap_library(
+    name = "sexp",
+    srcs = ["sexp.yaspl"],
+    deps = [
+        "//libraries/data:list",
+        "//libraries/data:source-location",
     ],
 )
 
