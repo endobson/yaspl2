@@ -12,9 +12,9 @@ racket_releases()
 
 http_archive(
   name = "platforms",
-  sha256 = "8d08b89d730e5ef2dfa76ee1aae4ca9e08d770e8b8467ba03c1aa1394b27f616",
-  strip_prefix = "platforms-753ad895fe8bb37ab2818d3fd2e9b48c56fc7fde",
-  urls = ["https://github.com/bazelbuild/platforms/archive/753ad895fe8bb37ab2818d3fd2e9b48c56fc7fde.tar.gz"],
+  sha256 = "6b0c44197c210f892b4883f4d3ab861943c4e35ac4bf00632d5a62faf90eb925",
+  strip_prefix = "platforms-540032531bff7331d737277a41a3e923655dd45c",
+  urls = ["https://github.com/bazelbuild/platforms/archive/540032531bff7331d737277a41a3e923655dd45c.tar.gz"],
 )
 
 register_toolchains(
