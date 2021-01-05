@@ -1,9 +1,9 @@
 load("//libraries/prim-language:prim-language.bzl", "prim_library")
+load("//libraries/core-language:core-language.bzl", "core_library")
 load("//libraries:yaspl.bzl", "yaspl_test")
 
-prim_library(
-    name = "fill-stack",
-    srcs = ["fill-stack.prim"],
+package(
+    default_visibility = ["//visibility:public"],
 )
 
 prim_library(
@@ -14,6 +14,11 @@ prim_library(
 prim_library(
     name = "variant-descriptor",
     srcs = ["variant-descriptor.prim"],
+)
+
+core_library(
+    name = "fill-stack",
+    srcs = ["fill-stack.core"],
 )
 
 yaspl_test(
@@ -50,7 +55,6 @@ yaspl_test(
 filegroup(
     name = "runtime",
     srcs = [
-        ":fill-stack",
         ":read-memory",
         ":variant-descriptor",
     ],
@@ -60,7 +64,6 @@ filegroup(
 filegroup(
     name = "runtime-sources",
     srcs = [
-        ":fill-stack.prim",
         ":read-memory.prim",
         ":variant-descriptor.prim",
     ],

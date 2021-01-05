@@ -21,12 +21,6 @@ yaspl_test(
     ],
 )
 
-core_library(
-    name = "fill-stack",
-    srcs = ["fill-stack.core"],
-)
-
-
 filegroup(
     name = "package_binaries",
     srcs = [

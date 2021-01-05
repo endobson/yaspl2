@@ -150,6 +150,7 @@ yaspl_library(
     deps = [
         ":in-memory-mach-o",
         ":mach-o",
+        "//libraries/yaspl/runtime:fill-stack",
         "//libraries/data:bytes",
         "//libraries/data:either",
         "//libraries/data:join-list",

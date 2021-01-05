@@ -24,7 +24,6 @@
       file))
   (define prim-files
     (list
-      (path->bytes (build-path src-root "libraries/yaspl/runtime/fill-stack.prim"))
       (path->bytes (build-path src-root "libraries/yaspl/runtime/read-memory.prim"))))
 
   (define-values (modules signatures) (load-modules compiler-files))
