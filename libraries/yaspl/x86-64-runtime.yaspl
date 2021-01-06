@@ -16,19 +16,25 @@
 (types)
 
 (define (yaspl-runtime [main-function-name : TopLevelName] [abi : SystemAbi]) : AssemblyFragments
+  (match-define syscall-abi : SyscallAbi
+    (case abi
+      [(osx-abi) (osx-syscall-abi)]
+      [(linux-abi) (linux-syscall-abi)]
+      [(yasplos-abi) (panic #"Syscalls not supported")]))
   (match-define (tuple2 text-fragments const-fragments)
-    (unzip (append (prim-function-fragments abi) (prim-subroutine-fragments abi))))
+    (unzip (append (prim-function-fragments syscall-abi)
+                   (prim-subroutine-fragments syscall-abi))))
   (assembly-fragments
-    (append (start-function-fragments main-function-name abi) text-fragments)
+    (append (start-function-fragments main-function-name syscall-abi) text-fragments)
     const-fragments))
 
-(define (start-function-fragments [main-function-name : TopLevelName] [abi : SystemAbi]) : (List TextFragment)
+(define (start-function-fragments [main-function-name : TopLevelName] [abi : SyscallAbi])
+  : (List TextFragment)
   (varargs list
     (let ([start-name
             (case abi
-              [(osx-abi) #"start"]
-              [(linux-abi) #"_start"]
-              [(yasplos-abi) (ann Bytes (panic #"Not supported"))])])
+              [(osx-syscall-abi) #"start"]
+              [(linux-syscall-abi) #"_start"])])
       (function-fragment
         start-name
         (named-block (bytes-append (varargs list start-name #"_0"))
@@ -52,51 +58,43 @@
               ;; 2^20 = 1MiB
               (movq (imm64/s32 #x200000) (r64m-reg (rsi)))
               (case abi
-                [(osx-abi)
+                [(osx-syscall-abi)
                  (movq (imm64/s32 #x2000) (r64m-reg (rax)))] ;; 2^13 = 8k
-                [(linux-abi)
-                 (movq (imm64/s32 #x400) (r64m-reg (rax)))] ;; 2^10 = 1k
-                [(yasplos-abi)
-                 (panic #"Not Supported")])
+                [(linux-syscall-abi)
+                 (movq (imm64/s32 #x400) (r64m-reg (rax)))]) ;; 2^10 = 1k
               (imulq (rax) (rsi))
               ;; 0x1 = PROT_READ
               ;; 0x2 = PROT_WRITE
               ;; 0x4 = PROT_EXEC
               (movq (imm64/s32 #x7) (r64m-reg (rdx)))
               (case abi
-                [(osx-abi)
+                [(osx-syscall-abi)
                  ;; 0x0002 = MAP_PRIVATE
                  ;; 0x1000 = MAP_ANON
                  (movq (imm64/s32 #x1002) (r64m-reg (r10)))]
-                [(linux-abi)
+                [(linux-syscall-abi)
                  ;; 0x0002 = MAP_PRIVATE
                  ;; 0x0020 = MAP_ANON
-                 (movq (imm64/s32 #x0022) (r64m-reg (r10)))]
-                [(yasplos-abi)
-                 (panic #"Not Supported")])
+                 (movq (imm64/s32 #x0022) (r64m-reg (r10)))])
               ;; FD = -1 for no FD
               (movq (imm64/s32 (- 0 1)) (r64m-reg (r8)))
               ;; offset which is ignored because of MAP_ANON
               (movq (imm64/s32 0) (r64m-reg (r9)))
               (case abi
-                [(osx-abi)
+                [(osx-syscall-abi)
                  ;; 0xC5 is mmap, plus 0x2000000 because xnu
                  (movq (imm64/s32 #x20000C5) (r64m-reg (rax)))]
-                [(linux-abi)
+                [(linux-syscall-abi)
                  ;; 0x09 is mmap
-                 (movq (imm64/s32 #x09) (r64m-reg (rax)))]
-                [(yasplos-abi)
-                 (panic #"Not Supported")])
+                 (movq (imm64/s32 #x09) (r64m-reg (rax)))])
               (syscall))
             (case abi
-              [(osx-abi)
+              [(osx-syscall-abi)
                (single-jl (jb #"yprim_start_panic"))]
-              [(linux-abi)
+              [(linux-syscall-abi)
                (varargs join-list
                  (cmpq (imm64/s32 0) (r64m-reg (rax)))
-                 (jl #"yprim_start_panic"))]
-              [(yasplos-abi)
-               (panic #"Not Supported")])
+                 (jl #"yprim_start_panic"))])
             (varargs join-list
               ;; Save heap to %r15 which is our bump pointer
               (movq (r64mi-reg (rax)) (r64m-reg (r15)))
@@ -227,45 +225,41 @@
           ;; Closure is still on the stack
           (movq (r64mi-reg (rax)) (r64m-reg (rdi)))
           (case abi
-            [(osx-abi)
+            [(osx-syscall-abi)
              ;; #x01 is exit, plus 0x2000000 because xnu
              (movq (imm64/s32 #x2000001) (r64m-reg (rax)))]
-            [(linux-abi)
+            [(linux-syscall-abi)
              ;; #x3C is exit
-             (movq (imm64/s32 #x3C) (r64m-reg (rax)))]
-            [(yasplos-abi)
-             (panic #"Not Supported")])
+             (movq (imm64/s32 #x3C) (r64m-reg (rax)))])
           (syscall))))))
 
 (define (prim-syscall
           [name : Bytes]
           [osx-syscall-number : Int]
           [linux-syscall-number : Int]
-          [abi : SystemAbi]
+          [abi : SyscallAbi]
           [body : (JoinList Instruction)])
  : (Tuple2 TextFragment ConstFragment)
  (prim-assembly-function/panic name
    (append-jl
      body
      (case abi
-       [(osx-abi)
+       [(osx-syscall-abi)
         (varargs join-list
           (movq (imm64/s32 (+ #x2000000 osx-syscall-number)) (r64m-reg (rax)))
           (syscall)
           (jb (bytes-append (varargs list #"yprim_" name #"_panic")))
           (ret))]
-       [(linux-abi)
+       [(linux-syscall-abi)
         (varargs join-list
           (movq (imm64/s32 linux-syscall-number) (r64m-reg (rax)))
           (syscall)
           (cmpq (imm64/s32 0) (r64m-reg (rax)))
           (jl (bytes-append (varargs list #"yprim_" name #"_panic")))
-          (ret))]
-       [(yasplos-abi)
-        (panic #"Not Supported")]))))
+          (ret))]))))
 
 ;; write-bytes
-(define (write-bytes-impl [abi : SystemAbi]) : (Tuple2 TextFragment ConstFragment)
+(define (write-bytes-impl [abi : SyscallAbi]) : (Tuple2 TextFragment ConstFragment)
   (prim-syscall #"write_bytes" #x04 #x01 abi
     (varargs join-list
       ;; Swap %rdi and %rsi
@@ -281,7 +275,7 @@
       (movq (r64mi-reg (rcx)) (r64m-reg (rdx))))))
 
 ;; read-bytes
-(define (read-bytes-impl [abi : SystemAbi]) : (Tuple2 TextFragment ConstFragment)
+(define (read-bytes-impl [abi : SyscallAbi]) : (Tuple2 TextFragment ConstFragment)
   (prim-syscall #"read_bytes" #x03 #x00 abi
     (varargs join-list
       ;; Swap %rdi and %rsi
@@ -297,7 +291,7 @@
       (movq (r64mi-reg (rcx)) (r64m-reg (rdx))))))
 
 ;; open-input-file
-(define (open-input-file-impl [abi : SystemAbi]) : (Tuple2 TextFragment ConstFragment)
+(define (open-input-file-impl [abi : SyscallAbi]) : (Tuple2 TextFragment ConstFragment)
   (prim-syscall #"open_input_file" #x05 #x02 abi
     (varargs join-list
       ;; Make %rdi point at start of null terminated path
@@ -305,37 +299,35 @@
       (movq (imm64/s32 0) (r64m-reg (rsi)))))) ;; 0 is read only
 
 ;; open-output-file
-(define (open-output-file-impl [abi : SystemAbi]) : (Tuple2 TextFragment ConstFragment)
+(define (open-output-file-impl [abi : SyscallAbi]) : (Tuple2 TextFragment ConstFragment)
   (prim-syscall #"open_output_file" #x05 #x02 abi
     (varargs join-list
       ;; Make %rdi point at start of null terminated path
       (addq (imm64/s32 16) (r64m-reg (rdi)))
       (case abi
-        [(osx-abi)
+        [(osx-syscall-abi)
          ;; 0x01 is write only, 0x0a00 is exclusive create
          (movq (imm64/s32 #x0a01) (r64m-reg (rsi)))]
-        [(linux-abi)
+        [(linux-syscall-abi)
          ;; 0x01 is write only, 0xC0 is exclusive create
-         (movq (imm64/s32 #xC1) (r64m-reg (rsi)))]
-        [(yasplos-abi)
-         (panic #"Not Supported")])
+         (movq (imm64/s32 #xC1) (r64m-reg (rsi)))])
       (movq (imm64/s32 504) (r64m-reg (rdx)))))) ;; 770 for mode
 
 ;; close-output-port
 ;; close-input-port
-(define (close-port-impl [abi : SystemAbi]) : (Tuple2 TextFragment ConstFragment)
+(define (close-port-impl [abi : SyscallAbi]) : (Tuple2 TextFragment ConstFragment)
   (prim-syscall #"close_port" #x06 #x03 abi
     (empty-jl)))
 
 ;; delete-file
-(define (delete-file-impl [abi : SystemAbi]) : (Tuple2 TextFragment ConstFragment)
+(define (delete-file-impl [abi : SyscallAbi]) : (Tuple2 TextFragment ConstFragment)
   (prim-syscall #"delete_file" #x0a #x57 abi
     (varargs join-list
       ;; Make %rdi point at start of null terminated path
       (addq (imm64/s32 16) (r64m-reg (rdi))))))
 
 ;; make-directory
-(define (make-director-impl [abi : SystemAbi]) : (Tuple2 TextFragment ConstFragment)
+(define (make-director-impl [abi : SyscallAbi]) : (Tuple2 TextFragment ConstFragment)
   (prim-syscall #"make_directory" #x88 #x53 abi
     (varargs join-list
       ;; Make %rdi point at start of null terminated path
@@ -344,7 +336,7 @@
 
 
 ;; set-file-or-directory-permissions
-(define (set-file-or-directory-permissions-impl [abi : SystemAbi]) : (Tuple2 TextFragment ConstFragment)
+(define (set-file-or-directory-permissions-impl [abi : SyscallAbi]) : (Tuple2 TextFragment ConstFragment)
   (prim-syscall #"set_file_or_directory_permissions" #x0f #x5a abi
     (varargs join-list
       ;; Make %rdi point at start of null terminated path
@@ -353,7 +345,7 @@
       )))
 
 ;; socket
-(define (socket-impl [abi : SystemAbi]) : (Tuple2 TextFragment ConstFragment)
+(define (socket-impl [abi : SyscallAbi]) : (Tuple2 TextFragment ConstFragment)
   (prim-syscall #"socket" #x61 #x29 abi
     (empty-jl
       ;; Argument 1: domain
@@ -362,7 +354,7 @@
       )))
 
 ;; bind
-(define (bind-impl [abi : SystemAbi]) : (Tuple2 TextFragment ConstFragment)
+(define (bind-impl [abi : SyscallAbi]) : (Tuple2 TextFragment ConstFragment)
   (prim-syscall #"bind" #x68 #x31 abi
     (varargs join-list
       ;; Argument 1: socket
@@ -371,7 +363,7 @@
       (addq (imm64/s32 16) (r64m-reg (rsi))))))
 
 ;; sendto
-(define (sendto-impl [abi : SystemAbi]) : (Tuple2 TextFragment ConstFragment)
+(define (sendto-impl [abi : SyscallAbi]) : (Tuple2 TextFragment ConstFragment)
   (prim-syscall #"sendto" #x85 #x2c abi
     (varargs join-list
       ;; Argument 1: socket
@@ -385,7 +377,7 @@
       (movq (r64mi-reg (rcx)) (r64m-reg (r10))))))
 
 ;; recvfrom
-(define (recvfrom-impl [abi : SystemAbi]) : (Tuple2 TextFragment ConstFragment)
+(define (recvfrom-impl [abi : SyscallAbi]) : (Tuple2 TextFragment ConstFragment)
   (prim-syscall #"recvfrom" #x1d #x2d abi
     (varargs join-list
       ;; Argument 1: socket
@@ -400,7 +392,7 @@
       (movq (r64mi-reg (rcx)) (r64m-reg (r10))))))
 
 ;; connect
-(define (connect-impl [abi : SystemAbi]) : (Tuple2 TextFragment ConstFragment)
+(define (connect-impl [abi : SyscallAbi]) : (Tuple2 TextFragment ConstFragment)
   (prim-syscall #"connect" #x62 #x2a abi
     (varargs join-list
       ;; Argument 1: socket
@@ -409,7 +401,7 @@
       (addq (imm64/s32 16) (r64m-reg (rsi))))))
 
 ;; shutdown
-(define (shutdown-impl [abi : SystemAbi]) : (Tuple2 TextFragment ConstFragment)
+(define (shutdown-impl [abi : SyscallAbi]) : (Tuple2 TextFragment ConstFragment)
   (prim-syscall #"shutdown" #x86 #x30 abi
     (empty-jl
       ;; Argument 1: socket
@@ -417,7 +409,7 @@
       )))
 
 ;; listen
-(define (listen-impl [abi : SystemAbi]) : (Tuple2 TextFragment ConstFragment)
+(define (listen-impl [abi : SyscallAbi]) : (Tuple2 TextFragment ConstFragment)
   (prim-syscall #"listen" #x6A #x32 abi
     (empty-jl
       ;; Argument 1: socket
@@ -425,7 +417,7 @@
       )))
 
 ;; accept
-(define (accept-impl [abi : SystemAbi]) : (Tuple2 TextFragment ConstFragment)
+(define (accept-impl [abi : SyscallAbi]) : (Tuple2 TextFragment ConstFragment)
   (prim-syscall #"accept" #x1E #x2b abi
     (varargs join-list
       ;; Argument 1: socket
@@ -435,7 +427,7 @@
       (addq (imm64/s32 16) (r64m-reg (rdx))))))
 
 ;; setsockopt
-(define (setsockopt-impl [abi : SystemAbi]) : (Tuple2 TextFragment ConstFragment)
+(define (setsockopt-impl [abi : SyscallAbi]) : (Tuple2 TextFragment ConstFragment)
   (prim-syscall #"setsockopt" #x69 #x36 abi
     (varargs join-list
       ;; Argument 1: socket
@@ -447,7 +439,7 @@
       (addq (imm64/s32 16) (r64m-reg (r10))))))
 
 ;; ioctl
-(define (ioctl-impl [abi : SystemAbi]) : (Tuple2 TextFragment ConstFragment)
+(define (ioctl-impl [abi : SyscallAbi]) : (Tuple2 TextFragment ConstFragment)
   (prim-syscall #"ioctl" #x36 #x10 abi
     (varargs join-list
       ;; Make %rdx point at the actual buffer
@@ -701,20 +693,19 @@
       (ret))))
 
 ;; current-system-abi-int
-(define (current-system-abi-int-impl [abi : SystemAbi]) : (Tuple2 TextFragment ConstFragment)
+(define (current-system-abi-int-impl [abi : SyscallAbi]) : (Tuple2 TextFragment ConstFragment)
   (prim-assembly-function #"current_system_abi_int"
     (varargs join-list
       (movq
         (imm64/s32
           (case abi
-            [(osx-abi) #x01]
-            [(linux-abi) #x02]
-            [(yasplos-abi) #x03]))
+            [(osx-syscall-abi) #x01]
+            [(linux-syscall-abi) #x02]))
         (r64m-reg (rax)))
       (ret))))
 
 
-(define (prim-function-fragments [abi : SystemAbi])
+(define (prim-function-fragments [abi : SyscallAbi])
   : (List (Tuple2 TextFragment ConstFragment))
   (varargs list
     (write-bytes-impl abi)
@@ -771,7 +762,7 @@
 
 ;; These are not native functions, but just native subroutines
 ;; They do not follow standard calling conventions
-(define (prim-subroutine-fragments [abi : SystemAbi])
+(define (prim-subroutine-fragments [abi : SyscallAbi])
   : (List (Tuple2 TextFragment ConstFragment))
   (varargs list
     (tuple2
