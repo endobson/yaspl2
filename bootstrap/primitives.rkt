@@ -30,6 +30,10 @@
       #:with ty #'(s8-ty))
     (pattern (~datum U8)
       #:with ty #'(u8-ty))
+    (pattern (~datum S16)
+      #:with ty #'(s16-ty))
+    (pattern (~datum U16)
+      #:with ty #'(u16-ty))
     (pattern (~datum S32)
       #:with ty #'(s32-ty))
     (pattern (~datum U32)
@@ -85,6 +89,8 @@
   (hash
     'S8 (prim-signature (s8-ty))
     'U8 (prim-signature (u8-ty))
+    'S16 (prim-signature (s16-ty))
+    'U16 (prim-signature (u16-ty))
     'S32 (prim-signature (s32-ty))
     'U32 (prim-signature (u32-ty))
     'S64 (prim-signature (int-ty))
@@ -133,6 +139,12 @@
    (if (<= 0 v #xFF) v (error 'u8))]
   [(u8->s64 [v : U8]) : S64 v]
 
+  [(s16 [v : S64]) : S16
+   (if (<= #x-8000 v #x7FFF) v (error 's16 "Value ~s is outside valid range" v))]
+  [(u16 [v : S64]) : U16
+   (if (<= 0 v #xFFFF) v (error 'u16 "Value ~s is outside valid range" v))]
+
+
   [(s32 [v : S64]) : S32
    (if (<= #x-80000000 v #x7FFFFFFF) v (error 's32 "Value ~s is outside valid range" v))]
   [(u32 [v : S64]) : U32
@@ -143,6 +155,17 @@
   [(u32->s64 [v : U32]) : S64 v]
   [(u64->s64 [v : U64]) : S64
    (if (<= v #x7FFFFFFFFFFFFFFF) v (error 'u64->s64 "Value ~s is outside valid range" v))]
+
+
+  [(u16/le-byte0 [v : U16]) : U8
+   (bitwise-and v #xFF)]
+  [(u16/le-byte1 [v : U16]) : U8
+   (bitwise-and (arithmetic-shift v #x-8) #xFF)]
+
+  [(s16/le-byte0 [v : S16]) : U8
+   (bitwise-and v #xFF)]
+  [(s16/le-byte1 [v : S16]) : U8
+   (bitwise-and (arithmetic-shift v #x-8) #xFF)]
 
   [(u32/le-byte0 [v : U32]) : U8
    (bitwise-and v #xFF)]

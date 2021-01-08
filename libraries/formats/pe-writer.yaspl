@@ -1,6 +1,9 @@
 #:module (formats pe-writer)
 #:import {
+  (aligned-bytes)
+  (bytes)
   (io)
+  (join-list)
   (list)
   (maybe)
   (prim)
@@ -12,16 +15,154 @@
      serialize-pe-library
      write-pe-executable))
 (types
-  (define-type SymbolReference
-    (symbol-reference
-      [symbol : Bytes]
-      [address : Int])))
+  (define-type LargeSymbolTableEntry
+    (section-name/large
+      [name : Bytes]
+      [section-number : U16]
+      [section-length : U32]
+      [num-relocations : U16]))
+
+  (define-type SymbolTableEntry
+    (section-name-part1 [name : Bytes] [section-number : U16])
+    (section-name-part2 [length : U32] [num-relocations : U16]))
+  )
 
 (define (serialize-pe-library
           [text-section : (ProgramSection AbstractRelocationKind)]
           [const-section : (ProgramSection AbstractRelocationKind)])
   : Bytes
-  #"")
+  (match-define (program-section (aligned-bytes text-contents _text-alignment)
+                                 _text-relocations _text-global-symbols _text-local-symbols)
+    text-section)
+  (match-define (program-section (aligned-bytes const-contents _const-alignment)
+                                 _const-relocations _const-global-symbols _const-local-symbols)
+    const-section)
+
+  (match-define large-symbols : (List LargeSymbolTableEntry)
+    (varargs list
+      (section-name/large #".text\x00\x00\x00" (u16 1) (u32 (bytes-length text-contents)) (u16 0))
+      (section-name/large #".rdata\x00\x00" (u16 2) (u32 (bytes-length const-contents)) (u16 0))))
+
+  (match-define symbols : (List SymbolTableEntry)
+    (append* (map expand-large-symbol large-symbols)))
+
+  (match-define symbol-table
+    (concat-map-jl/list symbol->bytes symbols))
+
+  (match-define num-sections 2)
+
+  (match-define coff-header-start 0)
+  (match-define coff-header-end (+ coff-header-start 20))
+  (match-define section-headers-start coff-header-end)
+  (match-define section-headers-end (+ section-headers-start (* num-sections 40)))
+  (match-define text-section-start section-headers-end)
+  (match-define text-section-length (bytes-length text-contents))
+  (match-define text-section-end (+ text-section-start text-section-length))
+  (match-define rdata-section-start text-section-end)
+  (match-define rdata-section-length (bytes-length const-contents))
+  (match-define rdata-section-end (+ rdata-section-start rdata-section-length))
+  (match-define symbol-table-start rdata-section-end)
+
+  (bytes-append
+    (jl->list
+      (varargs append-jl*
+        (make-coff-header symbol-table-start (length symbols))
+        (make-text-section-header text-section-start text-section-length)
+        (make-rdata-section-header rdata-section-start rdata-section-length)
+        (single-jl text-contents)
+        (single-jl const-contents)
+        symbol-table
+        (single-jl (bytes/u32-le (u32 4)))
+        ))))
+
+
+(define (bytes/u32-le [v : U32]) : Bytes
+  (match-define b (make-bytes 4))
+  (begin
+    (bytes-set!/quad-le b 0 v)
+    b))
+
+(define (make-coff-header [symbol-table-start : Int] [num-symbols : Int])
+  : (JoinList Bytes)
+  (varargs join-list
+    (bytes/u16-le (u16 #x8664))                  ;; Machine type
+    (bytes/u16-le (u16 2))                       ;; Number of sections
+    (bytes/u32-le (u32 0))                       ;; Timestamp
+    (bytes/u32-le (u32 symbol-table-start))      ;; Pointer to COFF symbol table
+    (bytes/u32-le (u32 num-symbols))                       ;; Number of COFF symbols
+    (bytes/u16-le (u16 0))                       ;; Size of optional header
+    (bytes/u16-le (u16 (bitwise-ior #x2000 #x0020))) ;; Characteristics
+    ))
+
+(define (make-text-section-header [text-section-start : Int] [text-section-length : Int])
+  : (JoinList Bytes)
+  (varargs join-list
+    #".text\x00\x00\x00"
+    (bytes/u32-le (u32 0))                                    ; VirtualSize
+    (bytes/u32-le (u32 0))                                    ; VirtualAddress
+    (bytes/u32-le (u32 text-section-length))                  ; SizeOfRawData
+    (bytes/u32-le (u32 text-section-start))                   ; PointerToRawData
+    (bytes/u32-le (u32 0))                                    ; PointerToRelocations
+    (bytes/u32-le (u32 0))                                    ; PointerToLinenumbers
+    (bytes/u16-le (u16 0))                                    ; NumberOfRelocations
+    (bytes/u16-le (u16 0))                                    ; NumberOfLinenumbers
+    (bytes/u32-le (u32 (bitwise-ior                           ; Characteristics
+                         (bitwise-ior
+                           #x40000000       ; Readable Section
+                           #x20000000)      ; Executable Section
+                         (bitwise-ior
+                           #x00500000       ; 16 bit aligned
+                           #x00000020)))))) ; Contains executable code
+
+(define (make-rdata-section-header [rdata-section-start : Int] [rdata-section-length : Int])
+  : (JoinList Bytes)
+
+  (varargs join-list
+    #".rdata\x00\x00"
+    (bytes/u32-le (u32 0))                                    ; VirtualSize
+    (bytes/u32-le (u32 0))                                    ; VirtualAddress
+    (bytes/u32-le (u32 rdata-section-length))                  ; SizeOfRawData
+    (bytes/u32-le (u32 rdata-section-start))                   ; PointerToRawData
+    (bytes/u32-le (u32 0))                                    ; PointerToRelocations
+    (bytes/u32-le (u32 0))                                    ; PointerToLinenumbers
+    (bytes/u16-le (u16 0))                                    ; NumberOfRelocations
+    (bytes/u16-le (u16 0))                                    ; NumberOfLinenumbers
+    (bytes/u32-le (u32 (bitwise-ior                           ; Characteristics
+                         #x40000000         ; Readable Section
+                         (bitwise-ior
+                           #x00500000       ; 16 bit aligned
+                           #x00000040)))))) ; Contains initialized data
+
+(define (expand-large-symbol [e : LargeSymbolTableEntry]) : (List SymbolTableEntry)
+  (case e
+    [(section-name/large name section-num length num-relocations)
+     (varargs list
+       (section-name-part1 name section-num)
+       (section-name-part2 length num-relocations))]))
+
+(define (symbol->bytes [e : SymbolTableEntry]) : (JoinList Bytes)
+  (case e
+    [(section-name-part1 name section-number)
+     (varargs join-list
+       name                          ;; Name
+       (bytes/u32-le (u32 0))        ;; Value
+       (bytes/u16-le section-number) ;; Section Number
+       (bytes/u16-le (u16 0))        ;; Type
+       (bytes/1 (u8 3))              ;; Storage Class
+       (bytes/1 (u8 1)))]            ;; Number of AuxSymbols
+
+    [(section-name-part2 length num-relocations)
+     (varargs join-list
+       (bytes/u32-le length)          ;; Section Length
+       (bytes/u16-le num-relocations) ;; Number of Relocations
+       (bytes/u16-le (u16 0))         ;; Number of line numbers
+       (bytes/u32-le (u32 0))         ;; Checksum
+       (bytes/u16-le (u16 0))         ;; Associated Section
+       (bytes/1 (u8 0))               ;; Comdat Selection
+       #"\x00\x00\x00")]))            ;; Padding
+
+
+
 
 (define (write-pe-executable
           [pe-files : (List ParsedPe)]

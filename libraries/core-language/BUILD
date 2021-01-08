@@ -210,6 +210,21 @@ toolchain(
     toolchain_type = ":core_language_toolchain",
 )
 
+core_language_toolchain(
+    name = "yasplos_core_language_toolchain_impl",
+    platform = "yasplos",
+)
+
+toolchain(
+    name = "yasplos_core_language_toolchain",
+    target_compatible_with = [
+        "//constraints/os:yasplos",
+        "@platforms//cpu:x86_64",
+    ],
+    toolchain = ":yasplos_core_language_toolchain_impl",
+    toolchain_type = ":core_language_toolchain",
+)
+
 filegroup(
     name = "package_binaries",
     srcs = [
