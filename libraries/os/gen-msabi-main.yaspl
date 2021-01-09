@@ -1,0 +1,63 @@
+#:module (os gen-msabi-main)
+#:import {
+  (bytes)
+  (maybe)
+  (either)
+  (machine-code-writer)
+  (io)
+  (join-list)
+  (list)
+  (prim)
+  (os msabi)
+  (prim-implementation)
+  (system-abi)
+  (top-level-name)
+  (tuples)
+  (yaspl intermediate-to-register)
+  (yaspl x86-64-assembly)
+}
+(export
+  (#:values main))
+(types
+  (define-type Args
+    (args
+      [abi : SystemAbi]
+      [output-file : Bytes])))
+
+
+(define (parse-args [input : (List Bytes)]) : (Either Bytes Args)
+  (case input
+    [(empty)
+     (left #"No executable specified???")]
+    [(cons _ (empty))
+     (left #"No abi supplied")]
+    [(cons _ (cons _ (empty)))
+     (left #"No output file name supplied")]
+    [(cons _ (cons _ (cons _ (cons _ _))))
+     (left #"Too many arguments.")]
+    [(cons _ (cons abi (cons output-file (empty))))
+     (case (parse-system-abi abi)
+       [(nothing) (left #"Unknown output format")]
+       [(just abi)
+        (right (args abi output-file))])]))
+
+(define (run [input : (List Bytes)]) : (Maybe Bytes)
+  (case (parse-args input)
+    [(left v) (just v)]
+    [(right (args abi output-file))
+     (match-define text-fragments (make-function-fragments))
+     (match-define fragments
+       (assembly-fragments text-fragments (empty)))
+     (begin
+       (write-library-object-file fragments abi output-file)
+       (nothing))]))
+
+
+(define (main [args : Bytes] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Int
+  (case (run (args->list args))
+    [(just v)
+     (begin
+       (write-all-bytes v stderr)
+       1)]
+    [(nothing)
+     0]))

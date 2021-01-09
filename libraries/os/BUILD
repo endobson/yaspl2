@@ -1,5 +1,6 @@
 load("@minimal_racket//:racket.bzl", "racket_binary", "racket_library", "racket_test")
 load("//libraries/core-language:core-language.bzl", "core_library")
+load("//libraries:yaspl.bzl", "yaspl_binary", "yaspl_library", "yaspl_test")
 
 package(
     default_visibility = ["//visibility:public"],
@@ -21,7 +22,7 @@ racket_library(
     name = "fat32",
     srcs = ["fat32.rkt"],
     deps = [
-      ":util",
+        ":util",
     ],
 )
 
@@ -29,7 +30,7 @@ racket_library(
     name = "gpt",
     srcs = ["gpt.rkt"],
     deps = [
-      ":util",
+        ":util",
     ],
 )
 
@@ -37,9 +38,9 @@ racket_library(
     name = "make-gpt-main",
     srcs = ["make-gpt-main.rkt"],
     deps = [
-      ":util",
-      ":fat32",
-      ":gpt",
+        ":fat32",
+        ":gpt",
+        ":util",
     ],
 )
 
@@ -55,9 +56,9 @@ racket_library(
     name = "make-uefi-vars-main",
     srcs = ["make-uefi-vars-main.rkt"],
     deps = [
-      ":util",
-      ":fat32",
-      ":gpt",
+        ":fat32",
+        ":gpt",
+        ":util",
     ],
 )
 
@@ -73,10 +74,9 @@ racket_library(
     name = "make-exe-main",
     srcs = ["make-exe-main.rkt"],
     deps = [
-      ":util"
+        ":util",
     ],
 )
-
 
 racket_binary(
     name = "make-exe",
@@ -86,12 +86,55 @@ racket_binary(
     ],
 )
 
+yaspl_library(
+    name = "msabi",
+    srcs = ["msabi.yaspl"],
+    deps = [
+        "//libraries:prim-implementation",
+        "//libraries:system-abi",
+        "//libraries:top-level-name",
+        "//libraries/data:bytes",
+        "//libraries/data:join-list",
+        "//libraries/data:list",
+        "//libraries/data:tuples",
+        "//libraries/yaspl:intermediate-to-register",
+        "//libraries/yaspl:x86-64-assembly",
+    ],
+)
+
+yaspl_binary(
+    name = "gen-msabi",
+    srcs = ["gen-msabi-main.yaspl"],
+    deps = [
+        ":msabi",
+        "//libraries:io",
+        "//libraries:machine-code-writer",
+        "//libraries:prim-implementation",
+        "//libraries:system-abi",
+        "//libraries:top-level-name",
+        "//libraries/data:bytes",
+        "//libraries/data:either",
+        "//libraries/data:join-list",
+        "//libraries/data:list",
+        "//libraries/data:maybe",
+        "//libraries/data:tuples",
+        "//libraries/yaspl:intermediate-to-register",
+        "//libraries/yaspl:x86-64-assembly",
+    ],
+)
+
+genrule(
+    name = "gen-msabi-runtime",
+    outs = ["msabi-runtime.o"],
+    tools = [":gen-msabi"],
+    cmd = "$(location :gen-msabi) yasplos $@",
+)
 
 racket_library(
     name = "inflate",
     srcs = ["inflate.rkt"],
     deps = [
-      ":util"
+        ":util",
     ],
 )
 
@@ -99,10 +142,9 @@ racket_library(
     name = "compress-disk-main",
     srcs = ["compress-disk-main.rkt"],
     deps = [
-      ":util"
+        ":util",
     ],
 )
-
 
 racket_binary(
     name = "compress-disk",
@@ -116,21 +158,18 @@ racket_library(
     name = "compression-test",
     srcs = ["compression-test.rkt"],
     deps = [
-      ":inflate"
+        ":inflate",
     ],
 )
 
 racket_test(
     name = "compression-test_test",
-    main_module = "compression-test.rkt",
     testonly = 0,
+    main_module = "compression-test.rkt",
     deps = [
-      ":compression-test",
+        ":compression-test",
     ],
 )
-
-
-
 
 test_suite(
     name = "package_tests",
@@ -140,5 +179,6 @@ test_suite(
 filegroup(
     name = "package_binaries",
     srcs = [
+        "gen-msabi",
     ],
 )
