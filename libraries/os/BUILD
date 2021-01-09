@@ -1,4 +1,5 @@
 load("@minimal_racket//:racket.bzl", "racket_binary", "racket_library", "racket_test")
+load("//libraries/core-language:core-language.bzl", "core_library")
 
 package(
     default_visibility = ["//visibility:public"],
@@ -9,6 +10,11 @@ racket_library(
     srcs = ["util.rkt"],
     deps = [
     ],
+)
+
+core_library(
+    name = "examples",
+    srcs = ["examples.core"],
 )
 
 racket_library(

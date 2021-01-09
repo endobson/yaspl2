@@ -20,28 +20,41 @@
       [name : Bytes]
       [section-number : U16]
       [section-length : U32]
-      [num-relocations : U16]))
+      [num-relocations : U16])
+    (text-symbol/large
+      [name : Bytes]
+      [offset : U32]))
 
   (define-type SymbolTableEntry
     (section-name-part1 [name : Bytes] [section-number : U16])
-    (section-name-part2 [length : U32] [num-relocations : U16]))
-  )
+    (section-name-part2 [length : U32] [num-relocations : U16])
+    (text-symbol [name : Bytes] [offset : U32])))
 
 (define (serialize-pe-library
           [text-section : (ProgramSection AbstractRelocationKind)]
           [const-section : (ProgramSection AbstractRelocationKind)])
   : Bytes
   (match-define (program-section (aligned-bytes text-contents _text-alignment)
-                                 _text-relocations _text-global-symbols _text-local-symbols)
+                                 _text-relocations text-global-symbols _text-local-symbols)
     text-section)
   (match-define (program-section (aligned-bytes const-contents _const-alignment)
                                  _const-relocations _const-global-symbols _const-local-symbols)
     const-section)
 
+  (match-define large-text-symbols
+    (map
+      (lambda ([(defined-symbol name offset) : DefinedSymbol]) : LargeSymbolTableEntry
+        (if (> (bytes-length name) 8)
+            (panic #"Cannot support large names")
+            (text-symbol/large name (u32 offset))))
+      text-global-symbols))
+
   (match-define large-symbols : (List LargeSymbolTableEntry)
-    (varargs list
-      (section-name/large #".text\x00\x00\x00" (u16 1) (u32 (bytes-length text-contents)) (u16 0))
-      (section-name/large #".rdata\x00\x00" (u16 2) (u32 (bytes-length const-contents)) (u16 0))))
+    (append
+      (varargs list
+        (section-name/large #".text\x00\x00\x00" (u16 1) (u32 (bytes-length text-contents)) (u16 0))
+        (section-name/large #".rdata\x00\x00" (u16 2) (u32 (bytes-length const-contents)) (u16 0)))
+      large-text-symbols))
 
   (match-define symbols : (List SymbolTableEntry)
     (append* (map expand-large-symbol large-symbols)))
@@ -138,7 +151,12 @@
     [(section-name/large name section-num length num-relocations)
      (varargs list
        (section-name-part1 name section-num)
-       (section-name-part2 length num-relocations))]))
+       (section-name-part2 length num-relocations))]
+    [(text-symbol/large name offset)
+     (varargs list
+       (text-symbol
+         (bytes-append (varargs list name (make-bytes (- 8 (bytes-length name)))))
+         offset))]))
 
 (define (symbol->bytes [e : SymbolTableEntry]) : (JoinList Bytes)
   (case e
@@ -159,7 +177,15 @@
        (bytes/u32-le (u32 0))         ;; Checksum
        (bytes/u16-le (u16 0))         ;; Associated Section
        (bytes/1 (u8 0))               ;; Comdat Selection
-       #"\x00\x00\x00")]))            ;; Padding
+       #"\x00\x00\x00")]              ;; Padding
+    [(text-symbol name offset)
+     (varargs join-list
+       name                          ;; Name
+       (bytes/u32-le offset)         ;; Value
+       (bytes/u16-le (u16 1))        ;; Section Number
+       (bytes/u16-le (u16 #x20))     ;; Type
+       (bytes/1 (u8 2))              ;; Storage Class
+       (bytes/1 (u8 0)))]))          ;; Number of AuxSymbols
 
 
 
