@@ -6,6 +6,7 @@
   (data indexed-set)
   (dict)
   (list)
+  (maybe)
   (module-signature)
   (prim)
   (prim-language register-language-builder)
@@ -17,6 +18,8 @@
     {#:values
       basic-block-number
       bin-op-inst
+      block-call
+      closure-call
       cond-jump
       eight-byte-mem-op
       fixed-pointer-offset
@@ -30,6 +33,7 @@
       pointer-ref-inst
       pointer-set!-inst
       [return r:return]
+      symbol-address-inst
     }
   }
   (set)
@@ -54,12 +58,25 @@
 (types
   (define-type Environment
     (environment
-      [vars : (Dict Bytes Var)])))
+      [vars : (Dict Bytes Var)]
+      [globals : (Dict Bytes TopLevelName)])))
 
 
 
 (define (module-to-top-level-objects [mod : Module]) : (List TopLevelObject)
   (match-define (module mod-name definitions) mod)
+
+  (match-define globals : (Dict Bytes TopLevelName)
+    (dict-add-all
+      (make-dict bytes-cmp)
+      (map
+        (lambda ([def : Definition]) : (Tuple2 Bytes TopLevelName)
+          (match-define (function-definition name _params _statetments) def)
+          (match-define tl-closure-name
+            (top-level-name mod-name (bytes-append (varargs list name #"_closure"))))
+          (tuple2 name tl-closure-name))
+        definitions)))
+
   (append*
     (map
       (lambda ([def : Definition]) : (List TopLevelObject)
@@ -70,7 +87,7 @@
         (varargs list
           (register-function-tlo
             (mangle-top-level-name tl-name)
-            (convert-function def))
+            (convert-function def globals))
           (trivial-closure-tlo
             (mangle-top-level-name tl-closure-name)
             (mangle-top-level-name tl-name))))
@@ -78,6 +95,7 @@
 
 (define (module->module-signature [mod : Module]) : ModuleSignature
   (match-define (module mod-name definitions) mod)
+
   (match-define values : (Dict Bytes ValueSignature)
     (dict-add-all
       (make-dict bytes-cmp)
@@ -115,13 +133,15 @@
     ))
 
 
-(define (convert-function [f : Definition]) : r:FunctionDefinition
+(define (convert-function [f : Definition] [globals : (Dict Bytes TopLevelName)])
+  : r:FunctionDefinition
   (match-define (function-definition _name args statements) f)
   (match-define acc (block-accumulator (initial-var-number) (initial-block-number)
                                        (make-indexed-set basic-block-number block-number-cmp)))
   (match-define (tuple2 freshened-args acc)
     (map/state fresh-name* (map parameter-name args) acc))
-  (match-define env (add-all-args freshened-args (environment (make-dict bytes-cmp))))
+  (match-define env
+    (add-all-args freshened-args (environment (make-dict bytes-cmp) globals)))
 
   (match-define (tuple2 start-block-num acc) (fresh-block-number* acc))
   (match-define acc (start-block start-block-num (map new-arg freshened-args) acc))
@@ -251,8 +271,20 @@
        header-env)]))
 
 
-
-
+(define (convert-exprs
+          [base-name : Bytes]
+          [exprs : (List Expression)]
+          [acc : Accumulator]
+          [env : Environment])
+  : (Tuple2 (List Var) Accumulator)
+  (case exprs
+    [(empty) (tuple2 (empty) acc)]
+    [(cons expr exprs)
+     (case (convert-expr base-name expr acc env)
+       [(tuple2 var acc)
+        (case (convert-exprs base-name exprs acc env)
+          [(tuple2 vars acc)
+           (tuple2 (cons var vars) acc)])])]))
 
 (define (convert-expr
           [base-name : Bytes]
@@ -262,7 +294,17 @@
   : (Tuple2 Var Accumulator)
   (case expr
     [(var-expr name)
-     (tuple2 (env-ref env name) acc)]
+     (case (maybe-env-ref env name)
+       [(just v) (tuple2 v acc)]
+       [(nothing)
+        (case (global-env-ref env name)
+          [(just top-level-name)
+           (match-define sym (mangle-top-level-name top-level-name))
+           (match-define (top-level-name _mod-name local) top-level-name)
+           (match-define (tuple2 (tuple2 _ var) acc) (fresh-name local acc))
+           (tuple2 var (add-instruction acc (symbol-address-inst var sym)))]
+          [(nothing)
+           (panic #"Unbound variable")])])]
     [(int-expr v)
      (match-define (tuple2 (tuple2 _ name) acc) (fresh-name base-name acc))
      (tuple2
@@ -298,6 +340,14 @@
                    (int-literal size-name 8))
                  (bin-op-inst offset-mul-name (numeric-bin-op (mult-op)) offset size-name))
                (bin-op-inst name (numeric-bin-op (add-op)) ptr offset-mul-name)))]
+    [(call-expr f args)
+     (match-define (tuple2 fun acc) (convert-expr #"fun" f acc env))
+     (match-define (tuple2 vars acc) (convert-exprs #"arg" args acc env))
+     (match-define (tuple2 (tuple2 _ name) acc) (fresh-name base-name acc))
+     (match-define (tuple2 block-num acc) (fresh-block-number acc))
+     (match-define acc (add-terminal acc (block-call (closure-call fun) vars block-num)))
+     (match-define acc (start-block block-num (varargs list name) acc))
+     (tuple2 name acc)]
     ))
 
 
@@ -316,13 +366,13 @@
 
 (define (add-all-args [args : (List (Tuple2 Bytes Var))] [env : Environment]) : Environment
   (case env
-    [(environment vars)
-     (environment (dict-add-all vars args))]))
+    [(environment vars globals)
+     (environment (dict-add-all vars args) globals)]))
 
 (define (replace-all-args [args : (List (Tuple2 Bytes Var))] [env : Environment]) : Environment
   (case env
-    [(environment vars)
-     (environment (dict-replace-all vars args))]))
+    [(environment vars globals)
+     (environment (dict-replace-all vars args) globals)]))
 
 (define (get-differing-vars [base-env : Environment] [env1 : Environment] [env2 : Environment])
   : (List Bytes)
@@ -335,15 +385,22 @@
 (define (env-ref [env : Environment] [name : Bytes]) : Var
   (dict-ref/panic (environment-vars env) name))
 
+(define (maybe-env-ref [env : Environment] [name : Bytes]) : (Maybe Var)
+  (dict-ref (environment-vars env) name))
+
+(define (global-env-ref [env : Environment] [name : Bytes]) : (Maybe TopLevelName)
+  (dict-ref (environment-globals env) name))
+
+
 (define (env-ref* [env : Environment] [names : (List Bytes)]) : (List Var)
   (map (lambda ([name : Bytes]) (env-ref env name)) names))
 
 (define (env-add [env : Environment] [name : Bytes] [var : Var]) : Environment
   (case env
-    [(environment vars)
-     (environment (dict-add vars name var))]))
+    [(environment vars globals)
+     (environment (dict-add vars name var) globals)]))
 
 (define (env-replace [env : Environment] [name : Bytes] [var : Var]) : Environment
   (case env
-    [(environment vars)
-     (environment (dict-replace vars name var))]))
+    [(environment vars globals)
+     (environment (dict-replace vars name var) globals)]))

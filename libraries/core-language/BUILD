@@ -166,6 +166,7 @@ yaspl_library(
         "//libraries/data:dict",
         "//libraries/data:indexed-set",
         "//libraries/data:list",
+        "//libraries/data:maybe",
         "//libraries/data:set",
         "//libraries/data:tuples",
         "//libraries/prim-language:block-number",

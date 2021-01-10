@@ -40,6 +40,8 @@
     (non-term/Expression)
     (non-term/E1)
     (non-term/E2)
+    (non-term/Arguments)
+    (non-term/NonEmptyArguments)
 
     ;(non-term/F)
     ;(non-term/T)
@@ -63,9 +65,9 @@
     (form/statements [ss : (List Statement)])
     (form/statement [s : Statement])
     (form/expression [e : Expression])
+    (form/expressions [es : (List Expression)])
     (form/type [t : PreType])
 
-    ;(form/type [t : Type])
     (form/token [t : Token])))
 
 
@@ -111,6 +113,8 @@
         [(non-term/ElseChain) 13]
         [(non-term/E1) 14]
         [(non-term/E2) 15]
+        [(non-term/Arguments) 16]
+        [(non-term/NonEmptyArguments) 17]
         )))
   (int-cmp (convert a) (convert b)))
 
@@ -131,6 +135,8 @@
     [(non-term/ElseChain) #"ElseChain"]
     [(non-term/E1) #"E1"]
     [(non-term/E2) #"E2"]
+    [(non-term/Arguments) #"Arguments"]
+    [(non-term/NonEmptyArguments) #"NonEmptyArguments"]
     ))
 
 (define (core-term->bytes [t : CoreTerm]) : Bytes
@@ -176,6 +182,8 @@
   (match-define Expression* (non-term/Expression))
   (match-define E1* (non-term/E1))
   (match-define E2* (non-term/E2))
+  (match-define Arguments* (non-term/Arguments))
+  (match-define NonEmptyArguments* (non-term/NonEmptyArguments))
   (match-define Type* (non-term/Type))
 
   (match-define symbol/term
@@ -198,6 +206,8 @@
   (match-define Expression (symbol/non-term (non-term/Expression)))
   (match-define E1 (symbol/non-term (non-term/E1)))
   (match-define E2 (symbol/non-term (non-term/E2)))
+  (match-define Arguments (symbol/non-term (non-term/Arguments)))
+  (match-define NonEmptyArguments (symbol/non-term (non-term/NonEmptyArguments)))
   (match-define Type (symbol/non-term (non-term/Type)))
 
   (match-define + (symbol/term (term/punctuation (punct/plus))))
@@ -217,6 +227,7 @@
   (match-define < (symbol/term (term/punctuation (punct/less-than))))
   (match-define > (symbol/term (term/punctuation (punct/greater-than))))
   (match-define != (symbol/term (term/punctuation (punct/not-equal))))
+  (match-define == (symbol/term (term/punctuation (punct/equal-equal))))
   (match-define := (symbol/term (term/punctuation (punct/assignment))))
   (match-define <- (symbol/term (term/punctuation (punct/pointer-assignment))))
   (match-define -> (symbol/term (term/punctuation (punct/pointer-field-access))))
@@ -461,6 +472,7 @@
                     (case p
                       [(punct/less-than) (right (comparison-bin-op (less-than-op)))]
                       [(punct/greater-than) (right (comparison-bin-op (greater-than-op)))]
+                      [(punct/equal-equal) (right (comparison-bin-op (equal-op)))]
                       [(punct/not-equal) (right (comparison-bin-op (not-equal-op)))]
                       [(punct/plus) (right (numeric-bin-op (add-op)))]
                       [(punct/minus) (right (numeric-bin-op (sub-op)))]
@@ -506,6 +518,36 @@
                    (empty))))))
          (right (form/expression (deref-expr (array-index-expr e i))))]
         [_ (left #"Bad forms for array-index expr")])))
+
+  (match-define call-expr*
+    (lambda ([forms : (List Form)]) : (Either Bytes Form)
+      (case forms
+        [(cons (form/expression f)
+           (cons _<
+             (cons (form/expressions es)
+               (cons _>
+                 (empty)))))
+         (right (form/expression (call-expr f es)))]
+        [_ (left #"Bad forms for call expr")])))
+
+  (match-define arguments*
+    (lambda ([forms : (List Form)]) : (Either Bytes Form)
+      (case forms
+        [(empty)
+         (right (form/expressions (empty)))]
+        [(cons (form/expressions ps) (empty))
+         (right (form/expressions ps))]
+        [_ (left #"Bad forms for arguments")])))
+
+  (match-define non-empty-arguments*
+    (lambda ([forms : (List Form)]) : (Either Bytes Form)
+      (case forms
+        [(cons (form/expression p) (empty))
+         (right (form/expressions (varargs list p)))]
+        [(cons (form/expression p) (cons _comma (cons (form/expressions ps) (empty))))
+         (right (form/expressions (cons p ps)))]
+        [_ (left #"Bad forms for non-empty arguments")])))
+
 
 
 
@@ -584,6 +626,7 @@
     (input-production-rule E1* (varargs list E2 / E1) bin-op-expr*)
     (input-production-rule E1* (varargs list E2 & E1) bin-op-expr*)
     (input-production-rule E1* (varargs list E2 && E1) bin-op-expr*)
+    (input-production-rule E1* (varargs list E2 == E1) bin-op-expr*)
     (input-production-rule E1* (varargs list E2 != E1) bin-op-expr*)
     (input-production-rule E1* (varargs list E2 bar E1) bin-op-expr*)
     (input-production-rule E1* (varargs list E2 barbar E1) bin-op-expr*)
@@ -591,12 +634,23 @@
     (input-production-rule E1* (varargs list * E1) deref-expr*)
     (input-production-rule E1* (varargs list E2 ->& bracket-< E1 >-bracket ) array-index-expr*)
     (input-production-rule E1* (varargs list E2 -> bracket-< E1 >-bracket ) array-deref-expr*)
+    (input-production-rule E1* (varargs list E2 paren-< Arguments >-paren ) call-expr*)
 
 
     (input-production-rule E2* (varargs list id) var-expr*)
     (input-production-rule E2* (varargs list number) number-expr*)
     (input-production-rule E2* (varargs list paren-< E1 >-paren) paren-expr*)
     (input-production-rule E2* (varargs list as < Type > paren-< E1 >-paren) cast-expr*)
+
+    (input-production-rule Arguments* (empty) arguments*)
+    (input-production-rule Arguments* (varargs list NonEmptyArguments) arguments*)
+    (input-production-rule NonEmptyArguments*
+      (varargs list Expression)
+      non-empty-arguments*)
+    (input-production-rule NonEmptyArguments*
+      (varargs list Expression comma NonEmptyArguments)
+      non-empty-arguments*)
+
 
     ;; Types
     (input-production-rule Type* (varargs list id) var-type*)

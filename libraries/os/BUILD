@@ -90,14 +90,8 @@ yaspl_library(
     name = "msabi",
     srcs = ["msabi.yaspl"],
     deps = [
-        "//libraries:prim-implementation",
-        "//libraries:system-abi",
-        "//libraries:top-level-name",
-        "//libraries/data:bytes",
         "//libraries/data:join-list",
         "//libraries/data:list",
-        "//libraries/data:tuples",
-        "//libraries/yaspl:intermediate-to-register",
         "//libraries/yaspl:x86-64-assembly",
     ],
 )
@@ -109,16 +103,11 @@ yaspl_binary(
         ":msabi",
         "//libraries:io",
         "//libraries:machine-code-writer",
-        "//libraries:prim-implementation",
         "//libraries:system-abi",
-        "//libraries:top-level-name",
         "//libraries/data:bytes",
         "//libraries/data:either",
-        "//libraries/data:join-list",
         "//libraries/data:list",
         "//libraries/data:maybe",
-        "//libraries/data:tuples",
-        "//libraries/yaspl:intermediate-to-register",
         "//libraries/yaspl:x86-64-assembly",
     ],
 )
@@ -126,8 +115,8 @@ yaspl_binary(
 genrule(
     name = "gen-msabi-runtime",
     outs = ["msabi-runtime.o"],
-    tools = [":gen-msabi"],
     cmd = "$(location :gen-msabi) yasplos $@",
+    tools = [":gen-msabi"],
 )
 
 racket_library(
