@@ -2,13 +2,17 @@
 #:import {
   (aligned-bytes)
   (bytes)
+  (data lifted-primitives)
+  (dict)
   (io)
   (join-list)
   (list)
   (maybe)
   (prim)
+  (set)
   (structured-native-code)
   (structured-pe)
+  (tuples)
 }
 (export
   (#:values
@@ -23,46 +27,98 @@
       [num-relocations : U16])
     (text-symbol/large
       [name : Bytes]
-      [offset : U32]))
+      [offset : U32])
+    (const-symbol/large
+      [name : Bytes]
+      [offset : U32])
+    (external-symbol/large
+      [name : Bytes]))
+  (define-type StringTable
+    (string-table
+      [index : (Dict Bytes LiftedInt)]
+      [contents : (JoinList Bytes)]))
 
   (define-type SymbolTableEntry
     (section-name-part1 [name : Bytes] [section-number : U16])
     (section-name-part2 [length : U32] [num-relocations : U16])
-    (text-symbol [name : Bytes] [offset : U32])))
+    (text-symbol [name : Bytes] [offset : U32])
+    (const-symbol [name : Bytes] [offset : U32])
+    (external-symbol [name : Bytes])))
 
 (define (serialize-pe-library
           [text-section : (ProgramSection AbstractRelocationKind)]
           [const-section : (ProgramSection AbstractRelocationKind)])
   : Bytes
   (match-define (program-section (aligned-bytes text-contents _text-alignment)
-                                 _text-relocations text-global-symbols _text-local-symbols)
+                                 text-relocations text-global-symbols text-local-symbols)
     text-section)
   (match-define (program-section (aligned-bytes const-contents _const-alignment)
-                                 _const-relocations _const-global-symbols _const-local-symbols)
+                                 const-relocations const-global-symbols const-local-symbols)
     const-section)
 
   (match-define large-text-symbols
     (map
       (lambda ([(defined-symbol name offset) : DefinedSymbol]) : LargeSymbolTableEntry
-        (match-define name
-           (if (> (bytes-length name) 8)
-               (subbytes name 0 8) ; (panic #"Cannot support large names")
-               name))
         (text-symbol/large name (u32 offset)))
       text-global-symbols))
 
-  (match-define large-symbols : (List LargeSymbolTableEntry)
-    (append
-      (varargs list
-        (section-name/large #".text\x00\x00\x00" (u16 1) (u32 (bytes-length text-contents)) (u16 0))
-        (section-name/large #".rdata\x00\x00" (u16 2) (u32 (bytes-length const-contents)) (u16 0)))
-      large-text-symbols))
+  (match-define large-const-symbols
+    (map
+      (lambda ([(defined-symbol name offset) : DefinedSymbol]) : LargeSymbolTableEntry
+        (const-symbol/large name (u32 offset)))
+      const-global-symbols))
 
-  (match-define symbols : (List SymbolTableEntry)
-    (append* (map expand-large-symbol large-symbols)))
+  (match-define defined-symbols
+    (map defined-symbol-name
+         (append* (varargs list
+                    text-local-symbols text-global-symbols
+                    const-local-symbols const-global-symbols))))
+
+  (match-define undefined-symbols
+    (let ([defined-symbols-set (set-add-all (make-set bytes-cmp) defined-symbols)])
+      (remove-duplicates
+        (filter-map
+          (lambda ([r : (Relocation AbstractRelocationKind)]) : (Maybe Bytes)
+            (let ([sym (relocation-symbol r)])
+              (if (set-member? defined-symbols-set sym)
+                  (nothing)
+                  (just sym))))
+          (append text-relocations const-relocations)))))
+
+  (match-define large-undefined-symbols : (List LargeSymbolTableEntry)
+    (map
+      (lambda ([sym : Bytes])
+        (external-symbol/large sym))
+      undefined-symbols))
+
+  (match-define large-symbols : (List LargeSymbolTableEntry)
+    (append*
+      (varargs list
+        (varargs list
+          (section-name/large #".text\x00\x00\x00" (u16 1) (u32 (bytes-length text-contents)) (u16 0))
+          (section-name/large #".rdata\x00\x00" (u16 2) (u32 (bytes-length const-contents)) (u16 0)))
+        large-text-symbols
+        large-const-symbols
+        large-undefined-symbols)))
+
+  (match-define string-table (make-string-table large-symbols))
+
+  (match-define symbol-table-indexes (compute-symbol-table-indexes large-symbols))
+
+  (match-define symbols
+    (append*
+      (map (lambda ([l : LargeSymbolTableEntry])
+             (expand-large-symbol l (string-table-index string-table)))
+           large-symbols)))
 
   (match-define symbol-table
     (concat-map-jl/list symbol->bytes symbols))
+
+
+  (match-define number-text-relocations (length text-relocations))
+  (match-define number-rdata-relocations (length const-relocations))
+
+
 
   (match-define num-sections 2)
 
@@ -77,17 +133,34 @@
   (match-define rdata-section-length (bytes-length const-contents))
   (match-define rdata-section-end (+ rdata-section-start rdata-section-length))
   (match-define symbol-table-start rdata-section-end)
+  (match-define symbol-table-length (sum-jl bytes-length symbol-table))
+  (match-define symbol-table-end (+ symbol-table-start symbol-table-length))
+  (match-define string-table-start symbol-table-end)
+  (match-define string-table-length (sum-jl bytes-length (string-table-contents string-table)))
+  (match-define string-table-end (+ string-table-start string-table-length))
+  (match-define text-reloc-start string-table-end)
+  (match-define text-reloc-length (* number-text-relocations 10))
+  (match-define text-reloc-end (+ text-reloc-start text-reloc-length))
+  (match-define rdata-reloc-start text-reloc-end)
+  (match-define rdata-reloc-length (* number-rdata-relocations 10))
+  (match-define _rdata-reloc-end (+ rdata-reloc-start rdata-reloc-length))
 
   (bytes-append
     (jl->list
       (varargs append-jl*
         (make-coff-header symbol-table-start (length symbols))
-        (make-text-section-header text-section-start text-section-length)
-        (make-rdata-section-header rdata-section-start rdata-section-length)
+        (make-text-section-header
+          text-section-start text-section-length
+          text-reloc-start number-text-relocations)
+        (make-rdata-section-header
+          rdata-section-start rdata-section-length
+          rdata-reloc-start number-rdata-relocations)
         (single-jl text-contents)
         (single-jl const-contents)
         symbol-table
-        (single-jl (bytes/u32-le (u32 4)))
+        (string-table-contents string-table)
+        (make-text-section-relocations text-relocations symbol-table-indexes)
+        (make-rdata-section-relocations const-relocations symbol-table-indexes)
         ))))
 
 
@@ -109,7 +182,11 @@
     (bytes/u16-le (u16 (bitwise-ior #x2000 #x0020))) ;; Characteristics
     ))
 
-(define (make-text-section-header [text-section-start : Int] [text-section-length : Int])
+(define (make-text-section-header
+          [text-section-start : Int]
+          [text-section-length : Int]
+          [text-reloc-start : Int]
+          [text-num-relocations : Int])
   : (JoinList Bytes)
   (varargs join-list
     #".text\x00\x00\x00"
@@ -117,9 +194,9 @@
     (bytes/u32-le (u32 0))                                    ; VirtualAddress
     (bytes/u32-le (u32 text-section-length))                  ; SizeOfRawData
     (bytes/u32-le (u32 text-section-start))                   ; PointerToRawData
-    (bytes/u32-le (u32 0))                                    ; PointerToRelocations
+    (bytes/u32-le (u32 text-reloc-start))                     ; PointerToRelocations
     (bytes/u32-le (u32 0))                                    ; PointerToLinenumbers
-    (bytes/u16-le (u16 0))                                    ; NumberOfRelocations
+    (bytes/u16-le (u16 text-num-relocations))                 ; NumberOfRelocations
     (bytes/u16-le (u16 0))                                    ; NumberOfLinenumbers
     (bytes/u32-le (u32 (bitwise-ior                           ; Characteristics
                          (bitwise-ior
@@ -129,18 +206,43 @@
                            #x00500000       ; 16 bit aligned
                            #x00000020)))))) ; Contains executable code
 
-(define (make-rdata-section-header [rdata-section-start : Int] [rdata-section-length : Int])
+(define (make-text-section-relocations
+          [relocs : (List (Relocation AbstractRelocationKind))]
+          [symbol-table-indexes : (Dict Bytes LiftedInt)])
+  : (JoinList Bytes)
+  (concat-map-jl/list
+    (lambda ([r : (Relocation AbstractRelocationKind)]) : (JoinList Bytes)
+      (match-define (relocation kind offset sym) r)
+      (case (dict-ref symbol-table-indexes sym)
+        [(nothing)
+         (panic (bytes-append (varargs list #"Bad symbol: " sym)))]
+        [(just (lifted-int index))
+         (case kind
+           [(load-relocation)
+            (varargs join-list
+              (bytes/u32-le (u32 offset))
+              (bytes/u32-le (u32 index))
+              (bytes/u16-le (u16 4)))]
+           [_
+            (panic #"Relocation not yet implemented")])]))
+    relocs))
+
+(define (make-rdata-section-header
+          [rdata-section-start : Int]
+          [rdata-section-length : Int]
+          [rdata-reloc-start : Int]
+          [rdata-num-relocations : Int])
   : (JoinList Bytes)
 
   (varargs join-list
     #".rdata\x00\x00"
     (bytes/u32-le (u32 0))                                    ; VirtualSize
     (bytes/u32-le (u32 0))                                    ; VirtualAddress
-    (bytes/u32-le (u32 rdata-section-length))                  ; SizeOfRawData
-    (bytes/u32-le (u32 rdata-section-start))                   ; PointerToRawData
-    (bytes/u32-le (u32 0))                                    ; PointerToRelocations
+    (bytes/u32-le (u32 rdata-section-length))                 ; SizeOfRawData
+    (bytes/u32-le (u32 rdata-section-start))                  ; PointerToRawData
+    (bytes/u32-le (u32 rdata-reloc-start))                    ; PointerToRelocations
     (bytes/u32-le (u32 0))                                    ; PointerToLinenumbers
-    (bytes/u16-le (u16 0))                                    ; NumberOfRelocations
+    (bytes/u16-le (u16 rdata-num-relocations))                ; NumberOfRelocations
     (bytes/u16-le (u16 0))                                    ; NumberOfLinenumbers
     (bytes/u32-le (u32 (bitwise-ior                           ; Characteristics
                          #x40000000         ; Readable Section
@@ -148,17 +250,55 @@
                            #x00500000       ; 16 bit aligned
                            #x00000040)))))) ; Contains initialized data
 
-(define (expand-large-symbol [e : LargeSymbolTableEntry]) : (List SymbolTableEntry)
+(define (make-rdata-section-relocations
+          [relocs : (List (Relocation AbstractRelocationKind))]
+          [symbol-table-indexes : (Dict Bytes LiftedInt)])
+  : (JoinList Bytes)
+  (concat-map-jl/list
+    (lambda ([r : (Relocation AbstractRelocationKind)]) : (JoinList Bytes)
+      (case r
+        [(relocation (address-relocation 0) offset sym)
+         (case (dict-ref symbol-table-indexes sym)
+           [(nothing)
+            (panic (bytes-append (varargs list #"Bad symbol: " sym)))]
+           [(just (lifted-int index))
+            (varargs join-list
+              (bytes/u32-le (u32 offset))
+              (bytes/u32-le (u32 index))
+              (bytes/u16-le (u16 1)))])] ;; ADDR64
+        [_
+         (panic #"Other relocations not supported")]))
+    relocs))
+
+
+(define (expand-large-symbol [e : LargeSymbolTableEntry]
+                             [strings : (Dict Bytes LiftedInt)]) : (List SymbolTableEntry)
+  (match-define encode-symbol-name
+    (lambda ([name : Bytes]) : Bytes
+      (bytes-append
+        (if (> (bytes-length name) 8)
+            (case (dict-ref strings name)
+              [(nothing) (panic #"Bad symbol")]
+              [(just (lifted-int offset))
+               (varargs list (bytes/u32-le (u32 0)) (bytes/u32-le (u32 offset)))])
+            (varargs list name (make-bytes (- 8 (bytes-length name))))))))
+
+
+
   (case e
     [(section-name/large name section-num length num-relocations)
      (varargs list
-       (section-name-part1 name section-num)
+       (section-name-part1 (encode-symbol-name name) section-num)
        (section-name-part2 length num-relocations))]
     [(text-symbol/large name offset)
      (varargs list
-       (text-symbol
-         (bytes-append (varargs list name (make-bytes (- 8 (bytes-length name)))))
-         offset))]))
+       (text-symbol (encode-symbol-name name) offset))]
+    [(const-symbol/large name offset)
+     (varargs list
+       (const-symbol (encode-symbol-name name) offset))]
+    [(external-symbol/large name)
+     (varargs list
+       (external-symbol (encode-symbol-name name)))]))
 
 (define (symbol->bytes [e : SymbolTableEntry]) : (JoinList Bytes)
   (case e
@@ -187,8 +327,92 @@
        (bytes/u16-le (u16 1))        ;; Section Number
        (bytes/u16-le (u16 #x20))     ;; Type
        (bytes/1 (u8 2))              ;; Storage Class
+       (bytes/1 (u8 0)))]            ;; Number of AuxSymbols
+    [(const-symbol name offset)
+     (varargs join-list
+       name                          ;; Name
+       (bytes/u32-le offset)         ;; Value
+       (bytes/u16-le (u16 2))        ;; Section Number
+       (bytes/u16-le (u16 #x20))     ;; Type
+       (bytes/1 (u8 2))              ;; Storage Class
+       (bytes/1 (u8 0)))]            ;; Number of AuxSymbols
+    [(external-symbol name)
+     (varargs join-list
+       name                          ;; Name
+       (bytes/u32-le (u32 0))        ;; Value
+       (bytes/u16-le (u16 0))        ;; Section Number
+       (bytes/u16-le (u16 #x0))      ;; Type
+       (bytes/1 (u8 2))              ;; Storage Class
        (bytes/1 (u8 0)))]))          ;; Number of AuxSymbols
 
+(define (large-symbol->name [e : LargeSymbolTableEntry]) : Bytes
+  (case e
+    [(section-name/large name _ _ _) name]
+    [(text-symbol/large name _) name]
+    [(const-symbol/large name _) name]
+    [(external-symbol/large name) name]))
+
+
+(define (make-string-table [es : (List LargeSymbolTableEntry)])
+  : StringTable
+  (match-define (tuple2 (lifted-int size) (string-table index contents))
+    (foldl
+      (lambda ([e : LargeSymbolTableEntry] [acc : (Tuple2 LiftedInt StringTable)])
+        (match-define name (large-symbol->name e))
+        (if (<= (bytes-length name) 8)
+            acc
+            (case acc
+              [(tuple2 (lifted-int size) (string-table index contents))
+               (tuple2
+                 (lifted-int (+ size (+ (bytes-length name) 1)))
+                 (string-table
+                   (dict-add index name (lifted-int size))
+                   (snoc-jl (snoc-jl contents name) #"\x00")))])))
+      es
+      (tuple2
+        (lifted-int 4)
+        (string-table
+          (make-dict bytes-cmp)
+          (empty-jl)))))
+
+  (string-table
+    index
+    (cons-jl
+      (bytes/u32-le (u32 size))
+      contents)))
+
+(define (large-symbol->size [e : LargeSymbolTableEntry]) : Int
+  (case e
+    [(section-name/large _ _ _ _) 2]
+    [(text-symbol/large _ _) 1]
+    [(const-symbol/large _ _) 1]
+    [(external-symbol/large _) 1]))
+
+(define (compute-symbol-table-indexes [symbols : (List LargeSymbolTableEntry)])
+  : (Dict Bytes LiftedInt)
+  (match-define (tuple2 _ dict)
+    (foldl
+      (lambda ([sym : LargeSymbolTableEntry] [acc : (Tuple2 LiftedInt (Dict Bytes LiftedInt))])
+        (match-define (tuple2 (lifted-int index) dict) acc)
+        (tuple2
+          (lifted-int (+ (large-symbol->size sym) index))
+          (dict-add dict (large-symbol->name sym) (lifted-int index))))
+      symbols
+      (ann (Tuple2 LiftedInt (Dict Bytes LiftedInt)) (tuple2 (lifted-int 0) (make-dict bytes-cmp)))))
+  dict)
+
+
+(define (remove-duplicates [l : (List Bytes)]) : (List Bytes)
+  (remove-duplicates* l (empty) (make-set bytes-cmp)))
+
+(define (remove-duplicates* [l : (List Bytes)] [rev-acc : (List Bytes)] [seen : (Set Bytes)])
+  : (List Bytes)
+  (case l
+    [(empty) (reverse rev-acc)]
+    [(cons e l)
+     (if (set-member? seen e)
+         (remove-duplicates* l rev-acc seen)
+         (remove-duplicates* l (cons e rev-acc) (set-add seen e)))]))
 
 
 

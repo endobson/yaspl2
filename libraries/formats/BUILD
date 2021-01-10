@@ -61,9 +61,13 @@ yaspl_bootstrap_library(
         "//libraries:structured-pe",
         "//libraries/data:aligned-bytes",
         "//libraries/data:bytes",
+        "//libraries/data:dict",
         "//libraries/data:join-list",
+        "//libraries/data:lifted-primitives",
         "//libraries/data:list",
         "//libraries/data:maybe",
+        "//libraries/data:set",
+        "//libraries/data:tuples",
     ],
 )
 

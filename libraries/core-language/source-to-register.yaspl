@@ -59,38 +59,47 @@
   (define-type Environment
     (environment
       [vars : (Dict Bytes Var)]
-      [globals : (Dict Bytes TopLevelName)])))
+      [globals : (Dict Bytes Global)]))
+  (define-type Global
+    (global/top-level [v : TopLevelName])
+    (global/external [v : Bytes])))
 
 
 
 (define (module-to-top-level-objects [mod : Module]) : (List TopLevelObject)
   (match-define (module mod-name definitions) mod)
 
-  (match-define globals : (Dict Bytes TopLevelName)
+  (match-define globals : (Dict Bytes Global)
     (dict-add-all
       (make-dict bytes-cmp)
       (map
-        (lambda ([def : Definition]) : (Tuple2 Bytes TopLevelName)
-          (match-define (function-definition name _params _statetments) def)
-          (match-define tl-closure-name
-            (top-level-name mod-name (bytes-append (varargs list name #"_closure"))))
-          (tuple2 name tl-closure-name))
+        (lambda ([def : Definition]) : (Tuple2 Bytes Global)
+          (case def
+            [(function-definition name _params _statements)
+             (match-define tl-closure-name
+               (top-level-name mod-name (bytes-append (varargs list name #"_closure"))))
+             (tuple2 name (global/top-level tl-closure-name))]
+            [(external-definition name)
+             (tuple2 name (global/external name))]))
         definitions)))
 
   (append*
     (map
       (lambda ([def : Definition]) : (List TopLevelObject)
-        (match-define (function-definition name _params _statements) def)
-        (match-define tl-name (top-level-name mod-name name))
-        (match-define tl-closure-name
-          (top-level-name mod-name (bytes-append (varargs list name #"_closure"))))
-        (varargs list
-          (register-function-tlo
-            (mangle-top-level-name tl-name)
-            (convert-function def globals))
-          (trivial-closure-tlo
-            (mangle-top-level-name tl-closure-name)
-            (mangle-top-level-name tl-name))))
+        (case def
+          [(function-definition name _params _statements)
+           (match-define tl-name (top-level-name mod-name name))
+           (match-define tl-closure-name
+             (top-level-name mod-name (bytes-append (varargs list name #"_closure"))))
+           (varargs list
+             (register-function-tlo
+               (mangle-top-level-name tl-name)
+               (convert-function def globals))
+             (trivial-closure-tlo
+               (mangle-top-level-name tl-closure-name)
+               (mangle-top-level-name tl-name)))]
+          [(external-definition _)
+           (empty)]))
       definitions)))
 
 (define (module->module-signature [mod : Module]) : ModuleSignature
@@ -99,27 +108,31 @@
   (match-define values : (Dict Bytes ValueSignature)
     (dict-add-all
       (make-dict bytes-cmp)
-      (map
-        (lambda ([def : Definition])
-          (match-define (function-definition name params _statetments) def)
-          (match-define tl-closure-name
-            (top-level-name mod-name (bytes-append (varargs list name #"_closure"))))
-          (match-define arg-types
-            (map
-              (lambda ([p : Parameter])
-                (case p
-                  [(parameter _name (pointer-pre-type _))
-                   (bytes-type)]
-                  [(parameter _name (array-pre-type _))
-                   (u64-type)]
-                  [(parameter _name (var-pre-type _))
-                   (u64-type)]))
-              params))
-          (tuple2
-            name
-            (value-signature
-              (fun-type (empty) arg-types (u64-type))
-              tl-closure-name)))
+      (filter-map
+        (lambda ([def : Definition]) : (Maybe (Tuple2 Bytes ValueSignature))
+          (case def
+            [(function-definition name params _statements)
+             (match-define tl-closure-name
+               (top-level-name mod-name (bytes-append (varargs list name #"_closure"))))
+             (match-define arg-types
+               (map
+                 (lambda ([p : Parameter])
+                   (case p
+                     [(parameter _name (pointer-pre-type _))
+                      (bytes-type)]
+                     [(parameter _name (array-pre-type _))
+                      (u64-type)]
+                     [(parameter _name (var-pre-type _))
+                      (u64-type)]))
+                 params))
+             (just
+               (tuple2
+                 name
+                 (value-signature
+                   (fun-type (empty) arg-types (u64-type))
+                   tl-closure-name)))]
+            [(external-definition _)
+             (nothing)]))
         definitions)))
 
 
@@ -133,26 +146,30 @@
     ))
 
 
-(define (convert-function [f : Definition] [globals : (Dict Bytes TopLevelName)])
+(define (convert-function [f : Definition] [globals : (Dict Bytes Global)])
   : r:FunctionDefinition
-  (match-define (function-definition _name args statements) f)
-  (match-define acc (block-accumulator (initial-var-number) (initial-block-number)
-                                       (make-indexed-set basic-block-number block-number-cmp)))
-  (match-define (tuple2 freshened-args acc)
-    (map/state fresh-name* (map parameter-name args) acc))
-  (match-define env
-    (add-all-args freshened-args (environment (make-dict bytes-cmp) globals)))
+  (case f
+    [(function-definition _name args statements)
+     (match-define acc (block-accumulator (initial-var-number) (initial-block-number)
+                                          (make-indexed-set basic-block-number block-number-cmp)))
+     (match-define (tuple2 freshened-args acc)
+       (map/state fresh-name* (map parameter-name args) acc))
+     (match-define env
+       (add-all-args freshened-args (environment (make-dict bytes-cmp) globals)))
 
-  (match-define (tuple2 start-block-num acc) (fresh-block-number* acc))
-  (match-define acc (start-block start-block-num (map new-arg freshened-args) acc))
+     (match-define (tuple2 start-block-num acc) (fresh-block-number* acc))
+     (match-define acc (start-block start-block-num (map new-arg freshened-args) acc))
 
-  (match-define (tuple2 acc _env)
-    (convert-statements statements acc env))
-  (match-define (block-accumulator next-var next-block blocks) (add-terminal acc (halt)))
+     (match-define (tuple2 acc _env)
+       (convert-statements statements acc env))
+     (match-define (block-accumulator next-var next-block blocks) (add-terminal acc (halt)))
 
-  (r:function-definition
-    (plain-function-convention (length args) start-block-num)
-    blocks next-var next-block))
+     (r:function-definition
+       (plain-function-convention (length args) start-block-num)
+       blocks next-var next-block)]
+    [(external-definition _)
+     (panic #"Cannot convert external definition")]))
+
 
 (define (convert-statements
           [statements : (List Statement)]
@@ -298,10 +315,13 @@
        [(just v) (tuple2 v acc)]
        [(nothing)
         (case (global-env-ref env name)
-          [(just top-level-name)
+          [(just (global/top-level top-level-name))
            (match-define sym (mangle-top-level-name top-level-name))
            (match-define (top-level-name _mod-name local) top-level-name)
            (match-define (tuple2 (tuple2 _ var) acc) (fresh-name local acc))
+           (tuple2 var (add-instruction acc (symbol-address-inst var sym)))]
+          [(just (global/external sym))
+           (match-define (tuple2 (tuple2 _ var) acc) (fresh-name base-name acc))
            (tuple2 var (add-instruction acc (symbol-address-inst var sym)))]
           [(nothing)
            (panic #"Unbound variable")])])]
@@ -388,7 +408,7 @@
 (define (maybe-env-ref [env : Environment] [name : Bytes]) : (Maybe Var)
   (dict-ref (environment-vars env) name))
 
-(define (global-env-ref [env : Environment] [name : Bytes]) : (Maybe TopLevelName)
+(define (global-env-ref [env : Environment] [name : Bytes]) : (Maybe Global)
   (dict-ref (environment-globals env) name))
 
 
