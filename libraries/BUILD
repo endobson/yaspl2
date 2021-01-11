@@ -802,8 +802,6 @@ yaspl_bootstrap_library(
     name = "source-to-intermediate-language",
     srcs = ["source-to-intermediate-language.yaspl"],
     deps = [
-        "//libraries/yaspl/languages:expanded-patterns-language",
-        ":expanded-varargs-language",
         ":intermediate-expression",
         ":intermediate-language",
         ":module-name",
@@ -825,6 +823,8 @@ yaspl_bootstrap_library(
         "//libraries/yaspl:var",
         "//libraries/yaspl/conversions:expand-datatypes",
         "//libraries/yaspl/conversions:expand-patterns",
+        "//libraries/yaspl/conversions:expand-varargs",
+        "//libraries/yaspl/languages:expanded-patterns-language",
         "//libraries/yaspl/languages:resolved-types-language",
     ],
 )

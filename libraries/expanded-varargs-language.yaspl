@@ -6,14 +6,10 @@
   (prim)
   {(resolved-vars-language)
     {#:types
-      [CaseClause rv:CaseClause]
       DatatypeDefinition
       Exports
-      [Expression rv:Expression]
       FunctionArg
-      [FunctionDefinition rv:FunctionDefinition]
       Imports
-      [Module rv:Module]
       Pattern
       PatternExport
       StaticExport
@@ -26,29 +22,14 @@
     }
     {#:patterns
       abstraction-pattern
-      [app-expr rv:app-expr]
-      [begin-expr rv:begin-expr]
-      [boolean-literal rv:boolean-literal]
-      [bytes-literal rv:bytes-literal]
       bytes-pattern
-      [case-clause rv:case-clause]
-      [case-expr rv:case-expr]
       exports
       function-arg
-      [function-definition rv:function-definition]
-      [global-var-expr rv:global-var-expr]
-      [if-expr rv:if-expr]
       imports
-      [int-literal rv:int-literal]
       int-pattern
-      [lambda-expr rv:lambda-expr]
-      [let-expr rv:let-expr]
-      [local-var-expr rv:local-var-expr]
-      [module rv:module]
       pattern-export
       type-export
       value-export
-      [varargs-app-expr rv:varargs-app-expr]
       varargs-export
       variable-pattern
       variant-accessor
@@ -62,7 +43,10 @@
 (export
   (#:types DatatypeDefinition Exports Expression FunctionDefinition FunctionArg Imports Module
            PatternExport StaticExport TypeExport ValueExport Pattern CaseClause)
-  (#:values expand-varargs function-arg-type function-arg-name)
+  (#:values module function-definition
+            lambda-expr let-expr app-expr begin-expr if-expr global-var-expr local-var-expr
+            bytes-literal int-literal boolean-literal case-clause case-expr
+            function-arg-type function-arg-name)
   (#:patterns app-expr begin-expr boolean-literal bytes-literal exports
               function-definition function-arg global-var-expr if-expr imports int-literal lambda-expr let-expr
               local-var-expr module pattern-export type-export value-export varargs-export
@@ -101,62 +85,3 @@
 
   (define-type CaseClause
     (case-clause [pattern : Pattern] [body : Expression])))
-
-(define (expand-varargs [mod : rv:Module]) : Module
-  (case mod
-    [(rv:module name imports exports funcs datatype-defs)
-     (module name imports exports (map expand-varargs/function-definition funcs) datatype-defs)]))
-
-(define (expand-varargs/function-definition [fun : rv:FunctionDefinition]) : FunctionDefinition
-  (case fun
-    [(rv:function-definition function-name closure-name type-vars args return-type next-var body)
-     (function-definition function-name closure-name type-vars args return-type next-var
-                          (expand-varargs/expr body))]))
-
-(define (expand-varargs/expr [expr : rv:Expression]) : Expression
-  (case expr
-    [(rv:varargs-app-expr tail cons-func empty-func (empty))
-     (app-expr tail (global-var-expr empty-func) (empty))]
-    [(rv:varargs-app-expr tail cons-func empty-func (cons arg args))
-     (match-define inner
-       (foldl
-         (lambda ([arg : Expression] [acc : Expression])
-           (app-expr
-             #f
-             (global-var-expr cons-func)
-             (varargs list arg acc)))
-         (reverse (map expand-varargs/expr args))
-         (app-expr #f (global-var-expr empty-func) (empty))))
-     (app-expr
-       tail
-       (global-var-expr cons-func)
-       (varargs list (expand-varargs/expr arg) inner))]
-    ;; Recur structurally
-    [(rv:case-expr expr clauses)
-     (case-expr (expand-varargs/expr expr) (map expand-varargs/clause clauses))]
-    [(rv:int-literal v)
-     (int-literal v)]
-    [(rv:bytes-literal v)
-     (bytes-literal v)]
-    [(rv:boolean-literal v)
-     (boolean-literal v)]
-    [(rv:local-var-expr v)
-     (local-var-expr v)]
-    [(rv:global-var-expr v)
-     (global-var-expr v)]
-    [(rv:if-expr c t f )
-     (if-expr (expand-varargs/expr c) (expand-varargs/expr t) (expand-varargs/expr f))]
-    [(rv:begin-expr exprs last)
-     (begin-expr (map expand-varargs/expr exprs) (expand-varargs/expr last))]
-    [(rv:app-expr tail op args)
-     (app-expr tail (expand-varargs/expr op) (map expand-varargs/expr args))]
-    [(rv:let-expr name expr body)
-     (let-expr name (expand-varargs/expr expr) (expand-varargs/expr body))]
-    [(rv:lambda-expr args type body)
-     (lambda-expr args type (expand-varargs/expr body))]))
-
-
-(define (expand-varargs/clause [clause : rv:CaseClause]) : CaseClause
-  (case clause
-    [(rv:case-clause pat body)
-     (case-clause pat (expand-varargs/expr body))]))
