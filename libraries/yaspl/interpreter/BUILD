@@ -8,7 +8,7 @@ yaspl_bootstrap_library(
     name = "yaspl-interpreter",
     srcs = ["yaspl-interpreter.yaspl"],
     deps = [
-        "//libraries:expanded-patterns-language",
+        "//libraries/yaspl/languages:expanded-patterns-language",
         "//libraries:top-level-name",
         "//libraries/data:bytes",
         "//libraries/data:dict",

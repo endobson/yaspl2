@@ -31,7 +31,7 @@ yaspl_bootstrap_library(
     name = "expand-patterns",
     srcs = ["expand-patterns.yaspl"],
     deps = [
-        "//libraries:expanded-patterns-language",
+        "//libraries/yaspl/languages:expanded-patterns-language",
         "//libraries:expanded-varargs-language",
         "//libraries:panic",
         "//libraries:variant-info",
