@@ -28,6 +28,24 @@ yaspl_bootstrap_library(
 )
 
 yaspl_bootstrap_library(
+    name = "expand-patterns",
+    srcs = ["expand-patterns.yaspl"],
+    deps = [
+        "//libraries:expanded-patterns-language",
+        "//libraries:expanded-varargs-language",
+        "//libraries:panic",
+        "//libraries:variant-info",
+        "//libraries/data:dict",
+        "//libraries/data:lifted-primitives",
+        "//libraries/data:list",
+        "//libraries/data:maybe",
+        "//libraries/data:set",
+        "//libraries/data:tuples",
+        "//libraries/yaspl:var",
+    ],
+)
+
+yaspl_bootstrap_library(
     name = "resolve-imports",
     srcs = ["resolve-imports.yaspl"],
     deps = [

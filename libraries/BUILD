@@ -370,16 +370,11 @@ yaspl_bootstrap_library(
     deps = [
         ":expanded-varargs-language",
         ":module-name",
-        ":panic",
         ":top-level-name",
         ":types",
         ":variant-info",
-        "//libraries/data:dict",
-        "//libraries/data:lifted-primitives",
         "//libraries/data:list",
         "//libraries/data:maybe",
-        "//libraries/data:set",
-        "//libraries/data:tuples",
         "//libraries/yaspl:var",
     ],
 )
@@ -844,6 +839,7 @@ yaspl_bootstrap_library(
         "//libraries/data:tuples",
         "//libraries/yaspl:var",
         "//libraries/yaspl/conversions:expand-datatypes",
+        "//libraries/yaspl/conversions:expand-patterns",
         "//libraries/yaspl/languages:resolved-types-language",
     ],
 )

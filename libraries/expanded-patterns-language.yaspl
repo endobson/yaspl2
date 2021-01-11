@@ -1,18 +1,11 @@
 #:module (expanded-patterns-language)
 #:import {
-  (data lifted-primitives)
-  (dict)
   {(expanded-varargs-language)
     {#:types
-      [CaseClause ev:CaseClause]
       DatatypeDefinition
       Exports
-      [Expression ev:Expression]
       FunctionArg
-      [FunctionDefinition ev:FunctionDefinition]
       Imports
-      [Module ev:Module]
-      [Pattern ev:Pattern]
       PatternExport
       StaticExport
       TypeExport
@@ -23,31 +16,13 @@
       function-arg-type
     }
     {#:patterns
-      [abstraction-pattern ev:abstraction-pattern]
-      [app-expr ev:app-expr]
-      [begin-expr ev:begin-expr]
-      [boolean-literal ev:boolean-literal]
-      [bytes-literal ev:bytes-literal]
-      [bytes-pattern ev:bytes-pattern]
-      [case-clause ev:case-clause]
-      [case-expr ev:case-expr]
       exports
       function-arg
-      [function-definition ev:function-definition]
-      [global-var-expr ev:global-var-expr]
-      [if-expr ev:if-expr]
       imports
-      [int-literal ev:int-literal]
-      [int-pattern ev:int-pattern]
-      [lambda-expr ev:lambda-expr]
-      [let-expr ev:let-expr]
-      [local-var-expr ev:local-var-expr]
-      [module ev:module]
       pattern-export
       type-export
       value-export
       varargs-export
-      [variable-pattern ev:variable-pattern]
       variant-accessor
       variant-constructor
     }
@@ -55,11 +30,8 @@
   (list)
   (maybe)
   (module-name)
-  (panic)
   (prim)
-  (set)
   (top-level-name)
-  (tuples)
   (types)
   (variant-info)
   (yaspl var)
@@ -68,8 +40,15 @@
   (#:types DatatypeDefinition Exports Expression FunctionDefinition FunctionArg Imports Module
            PatternExport StaticExport TypeExport ValueExport
            VariantCaseClause BytesCaseClause IntCaseClause DefaultCaseClause)
-  (#:values expand-patterns module-definitions module-imports module-name function-arg-type
-            function-arg-name)
+  (#:values module-definitions module-imports module-name function-arg-type
+            function-arg-name
+            module function-definition lambda-expr let-expr app-expr begin-expr
+            if-expr global-var-expr local-var-expr boolean-literal
+            bytes-literal int-literal halt-expr join-point-expr join-expr
+            bytes-case-clause bytes-case-expr
+            int-case-clause int-case-expr
+            variant-case-clause variant-case-expr
+            default-case-clause)
   (#:patterns app-expr begin-expr boolean-literal bytes-literal exports
               function-definition function-arg global-var-expr if-expr imports int-literal lambda-expr let-expr
               local-var-expr module pattern-export type-export value-export varargs-export
@@ -135,335 +114,4 @@
   (define-type IntCaseClause
     (int-case-clause [val : Int] [expr : Expression]))
   (define-type BytesCaseClause
-    (bytes-case-clause [val : Bytes] [expr : Expression]))
-
-  (define-type State
-    (state
-      [next-var : VarNumber]))
-  (define-type PatternRow
-    (pattern-row [pats : (List ev:Pattern)] [expr : Expression]))
-
-  (define-type SplitMatrix
-    (abstraction-matrix
-      [rows : (List (Tuple2 VariantDestructionInfo PatternRow))])
-    (abstraction-split-matrix
-      [top : (List (Tuple2 VariantDestructionInfo PatternRow))]
-      [bottom : (List PatternRow)])
-    (variable-matrix
-      [rows : (List (Tuple2 Var PatternRow))])
-    (variable-split-matrix
-      [top : (List (Tuple2 Var PatternRow))]
-      [bottom : (List PatternRow)])
-    (int-split-matrix
-      [v : Int]
-      [top : PatternRow]
-      [bottom : (List PatternRow)])
-    (bytes-split-matrix
-      [v : Bytes]
-      [top : PatternRow]
-      [bottom : (List PatternRow)])))
-
-(define (expand-patterns [mod : ev:Module]) : Module
-  (case mod
-    [(ev:module name imports exports funcs datatype-defs)
-     (module name imports exports (map expand-patterns/function-definition funcs) datatype-defs)]))
-
-(define (expand-patterns/function-definition [fun : ev:FunctionDefinition]) : FunctionDefinition
-  (case fun
-    [(ev:function-definition function-name closure-name type-vars args return-type next-var body)
-     (match-define state (state next-var))
-     (match-define (tuple2 body (state next-var)) (expand-patterns/expression body state))
-     (function-definition function-name closure-name type-vars args return-type next-var body)]))
-
-(define (expand-patterns/expression [expr : ev:Expression] [state : State])
-  : (Tuple2 Expression State)
-  (case expr
-    [(ev:case-expr expr clauses)
-     (match-define (tuple2 expr state) (expand-patterns/expression expr state))
-     (match-define (tuple2 expr-var state) (fresh-var #"case-val" state))
-     (match-define (tuple2 pattern-rows state) (case-clauses->pattern-rows clauses state))
-     (match-define (tuple2 fail-var state) (fresh-var #"fail" state))
-     (match-define (tuple2 body state)
-       (expand-patterns/matrix
-         (varargs list expr-var)
-         pattern-rows
-         fail-var
-         state))
-     (tuple2 (join-point-expr fail-var (halt-expr) (let-expr expr-var expr body)) state)]
-    ;; Recur structurally
-    [(ev:int-literal v)
-     (tuple2 (int-literal v) state)]
-    [(ev:bytes-literal v)
-     (tuple2 (bytes-literal v) state)]
-    [(ev:boolean-literal v)
-     (tuple2 (boolean-literal v) state)]
-    [(ev:local-var-expr v)
-     (tuple2 (local-var-expr v) state)]
-    [(ev:global-var-expr v)
-     (tuple2 (global-var-expr v) state)]
-    [(ev:if-expr c t f )
-     (match-define (tuple2 c state) (expand-patterns/expression c state))
-     (match-define (tuple2 t state) (expand-patterns/expression t state))
-     (match-define (tuple2 f state) (expand-patterns/expression f state))
-     (tuple2 (if-expr c t f) state)]
-    [(ev:begin-expr exprs last)
-     (match-define (tuple2 exprs state) (expand-patterns/expressions exprs state))
-     (match-define (tuple2 last state) (expand-patterns/expression last state))
-     (tuple2 (begin-expr exprs last) state)]
-    [(ev:app-expr tail op args)
-     (match-define (tuple2 op state) (expand-patterns/expression op state))
-     (match-define (tuple2 args state) (expand-patterns/expressions args state))
-     (tuple2 (app-expr tail op args) state)]
-    [(ev:let-expr name expr body)
-     (match-define (tuple2 expr state) (expand-patterns/expression expr state))
-     (match-define (tuple2 body state) (expand-patterns/expression body state))
-     (tuple2 (let-expr name expr body) state)]
-    [(ev:lambda-expr args type body)
-     (match-define (tuple2 body state) (expand-patterns/expression body state))
-     (tuple2 (lambda-expr args type body) state)]))
-
-
-(define (expand-patterns/expressions [es : (List ev:Expression)] [state : State])
-  : (Tuple2 (List Expression) State)
-  (map/state expand-patterns/expression es state))
-
-(define (case-clauses->pattern-rows [cs : (List ev:CaseClause)] [state : State])
-  : (Tuple2 (List PatternRow) State)
-  (map/state case-clause->pattern-row cs state))
-
-(define (case-clause->pattern-row [c : ev:CaseClause] [state : State])
-  : (Tuple2 PatternRow State)
-  (case c
-    [(ev:case-clause pattern expr)
-     (match-define (tuple2 expr state) (expand-patterns/expression expr state))
-     (tuple2
-       (pattern-row (varargs list pattern) expr)
-       state)]))
-
-
-(define (expand-patterns/matrix
-          [vars : (List Var)]
-          [rows : (List PatternRow)]
-          [fail-var : Var]
-          [state : State])
-  : (Tuple2 Expression State)
-  (case rows
-    [(empty)
-     (tuple2 (join-expr fail-var) state)]
-    [(cons (pattern-row (empty) succ-expr) _)
-     (tuple2 succ-expr state)]
-    [(cons top-row other-rows)
-     (match-define (tuple2 first-var other-vars) : (Tuple2 Var (List Var))
-       (case vars
-         [(cons first-var other-vars)
-          (tuple2 first-var other-vars)]
-         [_ (panic #"Bad matrix")]))
-
-     (case (split-matrix top-row other-rows)
-       [(abstraction-matrix rows)
-        (expand-patterns/abstraction-matrix first-var other-vars rows fail-var state)]
-       [(variable-matrix rows)
-        (expand-patterns/variable-matrix first-var other-vars rows fail-var state)]
-       [(abstraction-split-matrix top-rows bottom-rows)
-        (match-define (tuple2 inner-fail state) (fresh-var #"fail" state))
-        (match-define (tuple2 top-cases state)
-          (expand-patterns/abstraction-matrix first-var other-vars top-rows inner-fail state))
-        (match-define (tuple2 bottom-cases state)
-          (expand-patterns/matrix vars bottom-rows fail-var state))
-        (tuple2
-          (join-point-expr inner-fail bottom-cases top-cases)
-          state)]
-       [(variable-split-matrix top-rows bottom-rows)
-        (match-define (tuple2 inner-fail state) (fresh-var #"fail" state))
-        (match-define (tuple2 top-cases state)
-          (expand-patterns/variable-matrix first-var other-vars top-rows inner-fail state))
-        (match-define (tuple2 bottom-cases state)
-          (expand-patterns/matrix vars bottom-rows fail-var state))
-        (tuple2
-          (join-point-expr inner-fail bottom-cases top-cases)
-          state)]
-       [(int-split-matrix val top-row bottom-rows)
-        (match-define (tuple2 inner-fail state) (fresh-var #"fail" state))
-        (match-define (tuple2 top-case state)
-          (expand-patterns/matrix other-vars (varargs list top-row) inner-fail state))
-        (match-define (tuple2 bottom-cases state)
-          (expand-patterns/matrix vars bottom-rows fail-var state))
-        (tuple2
-          (join-point-expr inner-fail
-            bottom-cases
-            (int-case-expr (local-var-expr first-var)
-              (int-case-clause val top-case)
-              (default-case-clause (join-expr inner-fail))))
-          state)]
-       [(bytes-split-matrix val top-row bottom-rows)
-        (match-define (tuple2 inner-fail state) (fresh-var #"fail" state))
-        (match-define (tuple2 top-case state)
-          (expand-patterns/matrix other-vars (varargs list top-row) inner-fail state))
-        (match-define (tuple2 bottom-cases state)
-          (expand-patterns/matrix vars bottom-rows fail-var state))
-        (tuple2
-          (join-point-expr inner-fail
-            bottom-cases
-            (bytes-case-expr (local-var-expr first-var)
-              (bytes-case-clause val top-case)
-              (default-case-clause (join-expr inner-fail))))
-          state)])]))
-
-(define (expand-patterns/abstraction-matrix
-          [first-var : Var]
-          [other-vars : (List Var)]
-          [rows : (List (Tuple2 VariantDestructionInfo PatternRow))]
-          [fail-var : Var]
-          [state : State])
-  : (Tuple2 Expression State)
-  (match-define grouped-rows (group-rows rows))
-  (match-define (tuple2 clauses state)
-    (all-grouped-rows->variant-case-clauses other-vars fail-var grouped-rows state))
-  (match-define all-variants-covered
-    (all-variants-covered? (map (lambda ([t : (Tuple2 VariantDestructionInfo (List PatternRow))])
-                                  (case t [(tuple2 info _) info])) grouped-rows)))
-  (tuple2
-    (variant-case-expr
-      (local-var-expr first-var)
-      clauses
-      (if all-variants-covered
-          (nothing)
-          (just (default-case-clause (join-expr fail-var)))))
-    state))
-
-(define (expand-patterns/variable-matrix
-          [first-var : Var]
-          [other-vars : (List Var)]
-          [rows : (List (Tuple2 Var PatternRow))]
-          [fail-var : Var]
-          [state : State])
-  : (Tuple2 Expression State)
-  (expand-patterns/matrix
-    other-vars
-    (map
-      (lambda ([row : (Tuple2 Var PatternRow)])
-        (case row
-          [(tuple2 inner-var (pattern-row pats succ))
-           (pattern-row pats (let-expr inner-var (local-var-expr first-var) succ))]))
-      rows)
-    fail-var
-    state))
-
-(define (split-matrix [top-row : PatternRow] [rows : (List PatternRow)])
-  : SplitMatrix
-  (case top-row
-    [(pattern-row (empty) _) (panic #"No columns")]
-    [(pattern-row (cons (ev:abstraction-pattern info sub-pats) pats) succ)
-     (split-matrix/abstraction-prefix
-       rows
-       (varargs list (tuple2 info (pattern-row (append sub-pats pats) succ))))]
-    [(pattern-row (cons (ev:variable-pattern var) pats) succ)
-     (split-matrix/variable-prefix
-       rows
-       (varargs list (tuple2 var (pattern-row pats succ))))]
-    [(pattern-row (cons (ev:int-pattern val) pats) succ)
-     (int-split-matrix val (pattern-row pats succ) rows)]
-    [(pattern-row (cons (ev:bytes-pattern val) pats) succ)
-     (bytes-split-matrix val (pattern-row pats succ) rows)]))
-
-(define (split-matrix/abstraction-prefix
-          [rows : (List PatternRow)]
-          [acc : (List (Tuple2 VariantDestructionInfo PatternRow))])
-  : SplitMatrix
-  (case rows
-    [(empty)
-     (abstraction-matrix (reverse acc))]
-    [(cons
-       (pattern-row (cons (ev:abstraction-pattern info sub-pats) pats) succ)
-       rows)
-     (split-matrix/abstraction-prefix
-       rows
-       (cons (tuple2 info (pattern-row (append sub-pats pats) succ)) acc))]
-    [rows
-     (abstraction-split-matrix (reverse acc) rows)]))
-
-(define (split-matrix/variable-prefix
-          [rows : (List PatternRow)]
-          [acc : (List (Tuple2 Var PatternRow))])
-  : SplitMatrix
-  (case rows
-    [(empty)
-     (variable-matrix (reverse acc))]
-    [(cons
-       (pattern-row (cons (ev:variable-pattern var) pats) succ)
-       rows)
-     (split-matrix/variable-prefix
-       rows
-       (cons
-         (tuple2 var (pattern-row pats succ))
-         acc))]
-    [rows
-     (variable-split-matrix (reverse acc) rows)]))
-
-(define (group-rows [rows : (List (Tuple2 VariantDestructionInfo PatternRow))])
-  : (List (Tuple2 VariantDestructionInfo (List PatternRow)))
-  (group-rows* (reverse rows) (make-dict lifted-u8-cmp)))
-
-(define (group-rows* [rows : (List (Tuple2 VariantDestructionInfo PatternRow))]
-                     [acc : (Dict LiftedU8 (Tuple2 VariantDestructionInfo (List PatternRow)))])
-  : (List (Tuple2 VariantDestructionInfo (List PatternRow)))
-  (case rows
-    [(empty)
-     (dict-values acc)]
-    [(cons (tuple2 info pat-row) rows)
-     (match-define (variant-destruction-info tag _ _) info)
-     (group-rows*
-       rows
-       (dict-update
-         acc
-         (lifted-u8 tag)
-         (lambda ([v : (Tuple2 VariantDestructionInfo (List PatternRow))])
-           (case v
-             [(tuple2 info pat-rows)
-              (tuple2 info (cons pat-row pat-rows))]))
-         (tuple2 info (empty))))]))
-
-(define (all-grouped-rows->variant-case-clauses
-          [vars : (List Var)]
-          [fail-var : Var]
-          [grouped-rows : (List (Tuple2 VariantDestructionInfo (List PatternRow)))]
-          [state : State])
-  : (Tuple2 (List VariantCaseClause) State)
-  (map/state
-    (lambda ([grouped : (Tuple2 VariantDestructionInfo (List PatternRow))]
-             [state : State])
-      (case grouped
-       [(tuple2 info rows)
-        (match-define (variant-destruction-info _ _ field-indices) info)
-        (match-define (tuple2 field-vars state) (fresh-field-vars (length field-indices) state))
-        (match-define (tuple2 expr state)
-          (expand-patterns/matrix (append field-vars vars) rows fail-var state))
-        (tuple2 (variant-case-clause info field-vars expr) state)]))
-    grouped-rows
-    state))
-
-(define (all-variants-covered? [infos : (List VariantDestructionInfo)]) : Boolean
-  (case infos
-    [(empty)
-     (panic/boolean #"Cannot try to cover with no rows")]
-    [(cons (variant-destruction-info _ all-tags _) _)
-     (set=?
-       (set-add-all
-         (make-set lifted-u8-cmp)
-         (map (lambda ([info : VariantDestructionInfo])
-                (case info [(variant-destruction-info tag _ _) (lifted-u8 tag)]))
-              infos))
-       (set-add-all (make-set lifted-u8-cmp) all-tags))]))
-
-(define (fresh-var [base : Bytes] [s : State]) : (Tuple2 Var State)
-  (case s
-    [(state counter)
-     (tuple2 (var base counter) (state (next-var-number counter)))]))
-
-(define (fresh-field-vars [num-fields : Int] [state : State]) : (Tuple2 (List Var) State)
-  (if (= 0 num-fields)
-      (tuple2 (empty) state)
-      (let ([n (- num-fields 1)])
-        (match-define (tuple2 var state) (fresh-var #"field" state))
-        (match-define (tuple2 vars state) (fresh-field-vars n state))
-        (tuple2 (cons var vars) state))))
+    (bytes-case-clause [val : Bytes] [expr : Expression])))
