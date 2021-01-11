@@ -26,11 +26,25 @@ yaspl_bootstrap_library(
     name = "expanded-patterns-language",
     srcs = ["expanded-patterns-language.yaspl"],
     deps = [
-        "//libraries:expanded-varargs-language",
+        ":expanded-varargs-language",
         "//libraries:module-name",
         "//libraries:top-level-name",
         "//libraries:types",
         "//libraries:variant-info",
+        "//libraries/data:list",
+        "//libraries/data:maybe",
+        "//libraries/yaspl:var",
+    ],
+)
+
+yaspl_bootstrap_library(
+    name = "expanded-varargs-language",
+    srcs = ["expanded-varargs-language.yaspl"],
+    deps = [
+        "//libraries:module-name",
+        "//libraries:resolved-vars-language",
+        "//libraries:top-level-name",
+        "//libraries:types",
         "//libraries/data:list",
         "//libraries/data:maybe",
         "//libraries/yaspl:var",

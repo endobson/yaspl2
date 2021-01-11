@@ -365,20 +365,6 @@ yaspl_bootstrap_library(
 )
 
 yaspl_bootstrap_library(
-    name = "expanded-varargs-language",
-    srcs = ["expanded-varargs-language.yaspl"],
-    deps = [
-        ":module-name",
-        ":resolved-vars-language",
-        ":top-level-name",
-        ":types",
-        "//libraries/data:list",
-        "//libraries/data:maybe",
-        "//libraries/yaspl:var",
-    ],
-)
-
-yaspl_bootstrap_library(
     name = "linker_lib",
     srcs = ["linker.yaspl"],
     deps = [
