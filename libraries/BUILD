@@ -631,23 +631,6 @@ yaspl_test(
 )
 
 yaspl_bootstrap_library(
-    name = "resolved-vars-language",
-    srcs = ["resolved-vars-language.yaspl"],
-    deps = [
-        ":module-name",
-        ":module-signature",
-        ":top-level-name",
-        ":type-checked-language",
-        ":types",
-        ":variant-info",
-        "//libraries/data:dict",
-        "//libraries/data:list",
-        "//libraries/data:maybe",
-        "//libraries/yaspl:var",
-    ],
-)
-
-yaspl_bootstrap_library(
     name = "sexp-lexer",
     srcs = ["sexp-lexer.yaspl"],
     deps = [

@@ -42,7 +42,7 @@ yaspl_bootstrap_library(
     srcs = ["expanded-varargs-language.yaspl"],
     deps = [
         "//libraries:module-name",
-        "//libraries:resolved-vars-language",
+        ":resolved-vars-language",
         "//libraries:top-level-name",
         "//libraries:types",
         "//libraries/data:list",
@@ -79,6 +79,23 @@ yaspl_bootstrap_library(
         "//libraries/data:list",
         "//libraries/data:maybe",
         "//libraries/data:source-location",
+    ],
+)
+
+yaspl_bootstrap_library(
+    name = "resolved-vars-language",
+    srcs = ["resolved-vars-language.yaspl"],
+    deps = [
+        "//libraries:module-name",
+        "//libraries:module-signature",
+        "//libraries:top-level-name",
+        "//libraries:type-checked-language",
+        "//libraries:types",
+        "//libraries:variant-info",
+        "//libraries/data:dict",
+        "//libraries/data:list",
+        "//libraries/data:maybe",
+        "//libraries/yaspl:var",
     ],
 )
 
