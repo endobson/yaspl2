@@ -31,7 +31,6 @@ yaspl_bootstrap_library(
     name = "expand-patterns",
     srcs = ["expand-patterns.yaspl"],
     deps = [
-        "//libraries/yaspl/languages:expanded-varargs-language",
         "//libraries:panic",
         "//libraries:variant-info",
         "//libraries/data:dict",
@@ -42,6 +41,7 @@ yaspl_bootstrap_library(
         "//libraries/data:tuples",
         "//libraries/yaspl:var",
         "//libraries/yaspl/languages:expanded-patterns-language",
+        "//libraries/yaspl/languages:expanded-varargs-language",
     ],
 )
 
@@ -49,9 +49,9 @@ yaspl_bootstrap_library(
     name = "expand-varargs",
     srcs = ["expand-varargs.yaspl"],
     deps = [
-        "//libraries/yaspl/languages:expanded-varargs-language",
         "//libraries:resolved-vars-language",
         "//libraries/data:list",
+        "//libraries/yaspl/languages:expanded-varargs-language",
     ],
 )
 
@@ -116,6 +116,27 @@ yaspl_bootstrap_library(
         "//libraries/data:tuples",
         "//libraries/yaspl/languages:resolved-imports-language",
         "//libraries/yaspl/languages:resolved-types-language",
+    ],
+)
+
+yaspl_bootstrap_library(
+    name = "resolve-vars",
+    srcs = ["resolve-vars.yaspl"],
+    deps = [
+        "//libraries:module-name",
+        "//libraries:module-signature",
+        "//libraries:resolved-vars-language",
+        "//libraries:top-level-name",
+        "//libraries:type-checked-language",
+        "//libraries:types",
+        "//libraries:variant-info",
+        "//libraries/data:bytes",
+        "//libraries/data:dict",
+        "//libraries/data:lifted-primitives",
+        "//libraries/data:list",
+        "//libraries/data:maybe",
+        "//libraries/data:tuples",
+        "//libraries/yaspl:var",
     ],
 )
 
