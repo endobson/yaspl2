@@ -495,6 +495,8 @@
         [(void-ty) (void)]
         [(s8-ty) (void)]
         [(u8-ty) (void)]
+        [(s16-ty) (void)]
+        [(u16-ty) (void)]
         [(s32-ty) (void)]
         [(u32-ty) (void)]
         [(u64-ty) (void)]
@@ -536,6 +538,10 @@
          [((s8-ty) (s8-ty))
           (loop type-map pairs)]
          [((u8-ty) (u8-ty))
+          (loop type-map pairs)]
+         [((s16-ty) (s16-ty))
+          (loop type-map pairs)]
+         [((u16-ty) (u16-ty))
           (loop type-map pairs)]
          [((s32-ty) (s32-ty))
           (loop type-map pairs)]
