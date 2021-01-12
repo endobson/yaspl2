@@ -25,8 +25,6 @@ yaspl_binary(
         "//libraries/data:either",
         "//libraries/data:list",
         "//libraries/data:maybe",
-        "//libraries/yaspl:top-level-object-optimizer",
-        "//libraries/yaspl:top-level-objects",
     ],
 )
 
@@ -158,10 +156,9 @@ yaspl_library(
     srcs = ["source-to-register.yaspl"],
     deps = [
         ":source-language",
-        "//libraries:module-signature",
         "//libraries/core-language/conversions:lower-to-register",
         "//libraries/core-language/conversions:resolve-imports",
-        "//libraries/data:list",
+        "//libraries/yaspl:top-level-object-optimizer",
         "//libraries/yaspl:top-level-objects",
     ],
 )
