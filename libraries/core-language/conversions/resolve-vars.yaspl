@@ -1,0 +1,274 @@
+#:module (core-language conversions resolve-vars)
+#:import {
+  (bytes)
+  {(core-language languages resolved-imports-language)
+    {#:types
+      [Expression ri:Expression]
+      [FunctionDefinition ri:FunctionDefinition]
+      [Import ri:Import]
+      [Module ri:Module]
+      [Parameter ri:Parameter]
+      [Statement ri:Statement]
+    }
+    {#:values
+      [parameter-type ri:parameter-type]
+    }
+    {#:patterns
+      [array-index-expr ri:array-index-expr]
+      [assignment-statement ri:assignment-statement]
+      [bin-op-expr ri:bin-op-expr]
+      [call-expr ri:call-expr]
+      [cast-expr ri:cast-expr]
+      [define-local-variable-statement ri:define-local-variable-statement]
+      [deref-expr ri:deref-expr]
+      [function-definition ri:function-definition]
+      [if-statement ri:if-statement]
+      [import-external ri:import-external]
+      [int-expr ri:int-expr]
+      [module ri:module]
+      [parameter ri:parameter]
+      [pointer-assignment-statement ri:pointer-assignment-statement]
+      [return-statement ri:return-statement]
+      [var-expr ri:var-expr]
+      [while-statement ri:while-statement]
+    }
+  }
+  (core-language languages resolved-vars-language)
+  (dict)
+  (list)
+  (maybe)
+  (module-name)
+  (prim)
+  (top-level-name)
+  (tuples)
+  (yaspl var)
+}
+(export
+  (#:types)
+  (#:values resolve-vars)
+  (#:patterns))
+(types
+  (define-type NamedFunction
+    (named-function
+      [func-name : TopLevelName]
+      [closure-name : TopLevelName]
+      [params : (List ri:Parameter)]
+      [body : (List ri:Statement)]))
+
+
+  (define-type Environment
+    (environment
+      [local-variables : (Dict Bytes Var)]
+      [global-variables : (Dict Bytes Global)]
+      [module-name : ModName]))
+
+  (define-type State
+    (state [counter : VarNumber]))
+  (define-type Global
+    (global/top-level [v : TopLevelName])
+    (global/external [v : Bytes])))
+
+(define (resolve-vars [mod : ri:Module]) : Module
+  (match-define (ri:module mod-name imports functions) mod)
+
+  (match-define named-functions : (Dict Bytes NamedFunction)
+    (dict-add-all
+      (make-dict bytes-cmp)
+      (map
+        (lambda ([f : ri:FunctionDefinition])
+          (match-define (ri:function-definition name params statements) f)
+          (tuple2
+            name
+            (named-function
+              (top-level-name mod-name name)
+              (top-level-name
+                mod-name
+                (bytes-append (varargs list name #"_closure")))
+              params
+              statements)))
+        functions)))
+
+  (match-define imported-globals : (Dict Bytes Global)
+    (dict-value-map imports
+      (lambda ([i : ri:Import])
+        (match-define (ri:import-external ext) i)
+        (global/external ext))))
+  (match-define defined-globals : (Dict Bytes Global)
+    (dict-value-map
+      named-functions
+      (lambda ([f : NamedFunction])
+        (match-define (named-function _ closure _ _) f)
+        (global/top-level closure))))
+  (match-define globals (merge-dicts imported-globals defined-globals))
+
+  (match-define initial-env
+    (environment
+      (make-dict bytes-cmp)
+      globals
+      mod-name))
+
+  (match-define functions
+    (dict-map
+      named-functions
+      (lambda ([_ : Bytes] [f : NamedFunction])
+        (resolve-vars/function f initial-env))))
+
+  (match-define exports : (Dict Bytes Export)
+    (dict-value-map
+      named-functions
+      (lambda ([f : NamedFunction])
+        (match-define (named-function _ closure params _) f)
+        (export closure (map ri:parameter-type params)))))
+
+  (module mod-name exports functions))
+
+(define (resolve-vars/function [f : NamedFunction] [env : Environment])
+  : FunctionDefinition
+  (match-define (named-function func-name closure-name params statements) f)
+
+  (match-define state (state (initial-var-number)))
+  (match-define (tuple3 params env state)
+    (resolve-vars/parameters params env state))
+  (match-define (tuple3 statements _env _state)
+    (resolve-vars/statements statements env state))
+
+  (function-definition func-name closure-name params statements))
+
+(define (resolve-vars/parameters
+          [params : (List ri:Parameter)]
+          [env : Environment]
+          [state : State])
+  : (Tuple3 (List Parameter) Environment State)
+  (map/env/state resolve-vars/parameter params env state))
+
+(define (resolve-vars/parameter
+          [param : ri:Parameter]
+          [env : Environment]
+          [state : State])
+  : (Tuple3 Parameter Environment State)
+  (match-define (ri:parameter name type) param)
+  (match-define (tuple3 var env state) (environment-add-local env name state))
+  (tuple3 (parameter var type) env state))
+
+(define (resolve-vars/statements
+          [ss : (List ri:Statement)]
+          [env : Environment]
+          [state : State])
+  : (Tuple3 (List Statement) Environment State)
+  (map/env/state resolve-vars/statement ss env state))
+
+(define (resolve-vars/statement
+          [s : ri:Statement]
+          [env : Environment]
+          [state : State])
+  : (Tuple3 Statement Environment State)
+  (case s
+    [(ri:define-local-variable-statement v t e)
+     (match-define e (resolve-vars/expression e env))
+     (match-define (tuple3 v env state) (environment-add-local env v state))
+     (tuple3 (define-local-variable-statement v t e) env state)]
+    [(ri:return-statement e)
+     (match-define e (resolve-vars/expression e env))
+     (tuple3 (return-statement e) env state)]
+    [(ri:assignment-statement v e)
+     (match-define v (environment-ref/local env v))
+     (match-define e (resolve-vars/expression e env))
+     (tuple3 (assignment-statement v e) env state)]
+    [(ri:pointer-assignment-statement p e)
+     (match-define p (resolve-vars/expression p env))
+     (match-define e (resolve-vars/expression e env))
+     (tuple3 (pointer-assignment-statement p e) env state)]
+    [(ri:while-statement e body)
+     (match-define e (resolve-vars/expression e env))
+     (match-define (tuple3 body _ state) (resolve-vars/statements body env state))
+     (tuple3 (while-statement e body) env state)]
+    [(ri:if-statement c t f)
+     (match-define c (resolve-vars/expression c env))
+     (match-define (tuple3 t _ state) (resolve-vars/statements t env state))
+     (match-define (tuple3 f _ state) (resolve-vars/statements f env state))
+     (tuple3 (if-statement c t f) env state)]))
+
+
+(define (resolve-vars/expressions
+          [es : (List ri:Expression)]
+          [env : Environment])
+  : (List Expression)
+  (map (lambda ([e : ri:Expression]) (resolve-vars/expression e env)) es))
+
+(define (resolve-vars/expression
+          [e : ri:Expression]
+          [env : Environment])
+  : Expression
+  (case e
+    [(ri:var-expr v)
+     (resolve-var v env)]
+    ;; Recur structually
+    [(ri:int-expr v)
+     (int-expr v)]
+    [(ri:deref-expr e)
+     (deref-expr
+       (resolve-vars/expression e env))]
+    [(ri:array-index-expr e i)
+     (array-index-expr
+       (resolve-vars/expression e env)
+       (resolve-vars/expression i env))]
+    [(ri:bin-op-expr op l r)
+     (bin-op-expr
+       op
+       (resolve-vars/expression l env)
+       (resolve-vars/expression r env))]
+    [(ri:cast-expr t e)
+     (cast-expr
+       t
+       (resolve-vars/expression e env))]
+    [(ri:call-expr f args)
+     (call-expr
+       (resolve-vars/expression f env)
+       (resolve-vars/expressions args env))]))
+
+(define (resolve-var [v : Bytes] [env : Environment]) : Expression
+  (match-define (environment locals globals _) env)
+  (case (dict-ref locals v)
+    [(just v) (local-var-expr v)]
+    [(nothing)
+     (case (dict-ref globals v)
+       [(just (global/top-level v)) (global-var-expr v)]
+       [(just (global/external v)) (external-var-expr v)]
+       [(nothing) (panic #"Unbound variable")])]))
+
+(define (get-next-index [acc : State]) : (Tuple2 VarNumber State)
+  (case acc
+    [(state counter)
+     (tuple2 counter (state (next-var-number counter)))]))
+
+(define (environment-add-local [env : Environment] [local : Bytes] [state : State])
+  : (Tuple3 Var Environment State)
+  (match-define (environment locals globals name) env)
+  (match-define (tuple2 var-num state) (get-next-index state))
+  (match-define v (var local var-num))
+  (tuple3
+    v
+    (environment (dict-set locals local v) globals name)
+    state))
+
+(define (environment-ref/local [env : Environment] [name : Bytes]) : Var
+  (match-define (environment locals _ _) env)
+  (case (dict-ref locals name)
+    [(nothing) (panic #"Not a local")]
+    [(just v) v]))
+
+
+
+
+(define [A B] (map/env/state
+                [f : (A Environment State -> (Tuple3 B Environment State))]
+                [l : (List A)]
+                [env : Environment]
+                [state : State])
+  : (Tuple3 (List B) Environment State)
+  (case l
+    [(empty) (tuple3 (empty) env state)]
+    [(cons a l)
+     (match-define (tuple3 b env state) (f a env state))
+     (match-define (tuple3 bs env state) (map/env/state f l env state))
+     (tuple3 (cons b bs) env state)]))

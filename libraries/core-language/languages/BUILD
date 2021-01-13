@@ -17,3 +17,17 @@ yaspl_library(
         "//libraries/data:list",
     ],
 )
+
+yaspl_library(
+    name = "resolved-vars-language",
+    srcs = ["resolved-vars-language.yaspl"],
+    deps = [
+        ":resolved-imports-language",
+        "//libraries:module-name",
+        "//libraries:top-level-name",
+        "//libraries/data:dict",
+        "//libraries/data:list",
+        "//libraries/yaspl:math-operations",
+        "//libraries/yaspl:var",
+    ],
+)

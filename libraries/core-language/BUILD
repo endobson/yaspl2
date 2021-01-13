@@ -158,6 +158,7 @@ yaspl_library(
         ":source-language",
         "//libraries/core-language/conversions:lower-to-register",
         "//libraries/core-language/conversions:resolve-imports",
+        "//libraries/core-language/conversions:resolve-vars",
         "//libraries/yaspl:top-level-object-optimizer",
         "//libraries/yaspl:top-level-objects",
     ],
