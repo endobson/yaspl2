@@ -2,7 +2,7 @@
 #:import {
   (block-number)
   (bytes)
-  (core-language languages resolved-vars-language)
+  (core-language languages lifted-values-language)
   (data indexed-set)
   (dict)
   (list)
@@ -63,24 +63,30 @@
     (global/external [v : Bytes])))
 
 (define (module-to-top-level-objects [mod : Module]) : (List TopLevelObject)
-  (match-define (module _ _ functions) mod)
+  (match-define (module _ _ constants functions) mod)
 
-  (append*
+  (append
     (map
-      (lambda ([def : FunctionDefinition]) : (List TopLevelObject)
+      (lambda ([def : ConstantDefinition])
         (case def
-          [(function-definition func-name closure-name _params _statements)
-           (varargs list
-             (register-function-tlo
-               (mangle-top-level-name func-name)
-               (convert-function def))
-             (trivial-closure-tlo
-               (mangle-top-level-name closure-name)
-               (mangle-top-level-name func-name)))]))
+          [(closure-constant closure-name func-name)
+           (trivial-closure-tlo
+             (mangle-top-level-name closure-name)
+             (mangle-top-level-name func-name))]
+          [(bytes-constant name value)
+           (bytes-tlo (mangle-top-level-name name) value)]))
+      constants)
+    (map
+      (lambda ([def : FunctionDefinition])
+        (case def
+          [(function-definition func-name _ _)
+           (register-function-tlo
+             (mangle-top-level-name func-name)
+             (convert-function def))]))
       functions)))
 
 (define (module->module-signature [mod : Module]) : ModuleSignature
-  (match-define (module mod-name exports _) mod)
+  (match-define (module mod-name exports _ _) mod)
 
   (match-define values : (Dict Bytes ValueSignature)
     (dict-value-map
@@ -115,7 +121,7 @@
 (define (convert-function [f : FunctionDefinition])
   : r:FunctionDefinition
   (case f
-    [(function-definition _ _ args statements)
+    [(function-definition _ args statements)
      (match-define acc (block-accumulator (initial-var-number) (initial-block-number)
                                           (make-indexed-set basic-block-number block-number-cmp)))
      (match-define (tuple2 freshened-args acc)

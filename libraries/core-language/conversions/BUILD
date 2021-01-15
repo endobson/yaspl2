@@ -8,6 +8,17 @@ package(
 )
 
 yaspl_library(
+    name = "lift-values",
+    srcs = ["lift-values.yaspl"],
+    deps = [
+        "//libraries/core-language/languages:lifted-values-language",
+        "//libraries/core-language/languages:resolved-vars-language",
+        "//libraries/data:list",
+        "//libraries/data:tuples",
+    ],
+)
+
+yaspl_library(
     name = "lower-to-register",
     srcs = ["lower-to-register.yaspl"],
     deps = [
@@ -15,7 +26,7 @@ yaspl_library(
         "//libraries:prim-types",
         "//libraries:top-level-name",
         "//libraries:types",
-        "//libraries/core-language/languages:resolved-vars-language",
+        "//libraries/core-language/languages:lifted-values-language",
         "//libraries/data:bytes",
         "//libraries/data:dict",
         "//libraries/data:indexed-set",

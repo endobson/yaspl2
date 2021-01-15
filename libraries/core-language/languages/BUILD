@@ -8,6 +8,21 @@ package(
 )
 
 yaspl_library(
+    name = "lifted-values-language",
+    srcs = ["lifted-values-language.yaspl"],
+    deps = [
+        ":resolved-vars-language",
+        "//libraries:module-name",
+        "//libraries:top-level-name",
+        "//libraries/data:dict",
+        "//libraries/data:list",
+        "//libraries/yaspl:math-operations",
+        "//libraries/yaspl:var",
+    ],
+)
+
+
+yaspl_library(
     name = "resolved-imports-language",
     srcs = ["resolved-imports-language.yaspl"],
     deps = [

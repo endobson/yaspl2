@@ -156,6 +156,7 @@ yaspl_library(
     srcs = ["source-to-register.yaspl"],
     deps = [
         ":source-language",
+        "//libraries/core-language/conversions:lift-values",
         "//libraries/core-language/conversions:lower-to-register",
         "//libraries/core-language/conversions:resolve-imports",
         "//libraries/core-language/conversions:resolve-vars",

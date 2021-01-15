@@ -1,0 +1,128 @@
+#:module (core-language conversions lift-values)
+#:import {
+  (core-language languages lifted-values-language)
+  {(core-language languages resolved-vars-language)
+    {#:types
+      [Expression rv:Expression]
+      [FunctionDefinition rv:FunctionDefinition]
+      [Module rv:Module]
+      [Statement rv:Statement]
+    }
+    {#:patterns
+      [array-index-expr rv:array-index-expr]
+      [assignment-statement rv:assignment-statement]
+      [bin-op-expr rv:bin-op-expr]
+      [call-expr rv:call-expr]
+      [cast-expr rv:cast-expr]
+      [define-local-variable-statement rv:define-local-variable-statement]
+      [deref-expr rv:deref-expr]
+      [external-var-expr rv:external-var-expr]
+      [function-definition rv:function-definition]
+      [global-var-expr rv:global-var-expr]
+      [if-statement rv:if-statement]
+      [int-expr rv:int-expr]
+      [local-var-expr rv:local-var-expr]
+      [module rv:module]
+      [pointer-assignment-statement rv:pointer-assignment-statement]
+      [return-statement rv:return-statement]
+      [while-statement rv:while-statement]
+    }
+  }
+  (list)
+  (prim)
+  (tuples)
+}
+(export
+  (#:types)
+  (#:values lift-values)
+  (#:patterns))
+(types
+  (define-type State
+    (state
+      [bytes-counter : Int]
+      [constants : (List ConstantDefinition)])))
+
+(define (lift-values [mod : rv:Module]) : Module
+  (match-define (rv:module mod-name exports functions) mod)
+
+  (match-define closure-constants
+    (map
+      (lambda ([f : rv:FunctionDefinition])
+        (match-define (rv:function-definition function-name closure-name _ _) f)
+        (closure-constant closure-name function-name))
+      functions))
+
+  (match-define s (state 0 (empty)))
+  (match-define (tuple2 functions (state _ lifted-constants))
+    (map/state lift-values/function functions s))
+
+  (match-define constants
+    (append closure-constants lifted-constants))
+
+  (module mod-name exports constants functions))
+
+(define (lift-values/function [f : rv:FunctionDefinition] [s : State])
+  : (Tuple2 FunctionDefinition State)
+  (match-define (rv:function-definition function-name _ params statements) f)
+  (match-define (tuple2 statements s)
+    (map/state lift-values/statement statements s))
+  (tuple2
+    (function-definition function-name params statements)
+    s))
+
+(define (lift-values/statement [st : rv:Statement] [s : State])
+  : (Tuple2 Statement State)
+  (case st
+    [(rv:return-statement e)
+     (match-define (tuple2 e s) (lift-values/expr e s))
+     (tuple2 (return-statement e) s)]
+    [(rv:define-local-variable-statement v t e)
+     (match-define (tuple2 e s) (lift-values/expr e s))
+     (tuple2 (define-local-variable-statement v t e) s)]
+    [(rv:assignment-statement v e)
+     (match-define (tuple2 e s) (lift-values/expr e s))
+     (tuple2 (assignment-statement v e) s)]
+    [(rv:pointer-assignment-statement p e)
+     (match-define (tuple2 p s) (lift-values/expr p s))
+     (match-define (tuple2 e s) (lift-values/expr e s))
+     (tuple2 (pointer-assignment-statement p e) s)]
+    [(rv:while-statement e body)
+     (match-define (tuple2 e s) (lift-values/expr e s))
+     (match-define (tuple2 body s) (map/state lift-values/statement body s))
+     (tuple2 (while-statement e body) s)]
+    [(rv:if-statement c t f)
+     (match-define (tuple2 c s) (lift-values/expr c s))
+     (match-define (tuple2 t s) (map/state lift-values/statement t s))
+     (match-define (tuple2 f s) (map/state lift-values/statement f s))
+     (tuple2 (if-statement c t f) s)]))
+
+
+(define (lift-values/expr [e : rv:Expression] [s : State])
+  : (Tuple2 Expression State)
+  (case e
+    [(rv:local-var-expr v)
+     (tuple2 (local-var-expr v) s)]
+    [(rv:global-var-expr v)
+     (tuple2 (global-var-expr v) s)]
+    [(rv:external-var-expr v)
+     (tuple2 (external-var-expr v) s)]
+    [(rv:int-expr v)
+     (tuple2 (int-expr v) s)]
+    [(rv:deref-expr e)
+     (match-define (tuple2 e s) (lift-values/expr e s))
+     (tuple2 (deref-expr e) s)]
+    [(rv:array-index-expr e index)
+     (match-define (tuple2 e s) (lift-values/expr e s))
+     (match-define (tuple2 index s) (lift-values/expr index s))
+     (tuple2 (array-index-expr e index) s)]
+    [(rv:bin-op-expr op l r)
+     (match-define (tuple2 l s) (lift-values/expr l s))
+     (match-define (tuple2 r s) (lift-values/expr r s))
+     (tuple2 (bin-op-expr op l r) s)]
+    [(rv:cast-expr t e)
+     (match-define (tuple2 e s) (lift-values/expr e s))
+     (tuple2 (cast-expr t e) s)]
+    [(rv:call-expr f args)
+     (match-define (tuple2 f s) (lift-values/expr f s))
+     (match-define (tuple2 args s) (map/state lift-values/expr args s))
+     (tuple2 (call-expr f args) s)]))
