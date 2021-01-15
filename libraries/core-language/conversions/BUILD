@@ -11,9 +11,13 @@ yaspl_library(
     name = "lift-values",
     srcs = ["lift-values.yaspl"],
     deps = [
+        "//libraries:module-name",
+        "//libraries:top-level-name",
         "//libraries/core-language/languages:lifted-values-language",
         "//libraries/core-language/languages:resolved-vars-language",
+        "//libraries/data:bytes",
         "//libraries/data:list",
+        "//libraries/data:numbers",
         "//libraries/data:tuples",
     ],
 )

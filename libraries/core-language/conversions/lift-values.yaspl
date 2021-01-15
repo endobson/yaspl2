@@ -1,5 +1,6 @@
 #:module (core-language conversions lift-values)
 #:import {
+  (bytes)
   (core-language languages lifted-values-language)
   {(core-language languages resolved-vars-language)
     {#:types
@@ -12,6 +13,7 @@
       [array-index-expr rv:array-index-expr]
       [assignment-statement rv:assignment-statement]
       [bin-op-expr rv:bin-op-expr]
+      [bytes-expr rv:bytes-expr]
       [call-expr rv:call-expr]
       [cast-expr rv:cast-expr]
       [define-local-variable-statement rv:define-local-variable-statement]
@@ -29,7 +31,10 @@
     }
   }
   (list)
+  (module-name)
+  (numbers)
   (prim)
+  (top-level-name)
   (tuples)
 }
 (export
@@ -39,6 +44,7 @@
 (types
   (define-type State
     (state
+      [mod-name : ModName]
       [bytes-counter : Int]
       [constants : (List ConstantDefinition)])))
 
@@ -52,8 +58,8 @@
         (closure-constant closure-name function-name))
       functions))
 
-  (match-define s (state 0 (empty)))
-  (match-define (tuple2 functions (state _ lifted-constants))
+  (match-define s (state mod-name 0 (empty)))
+  (match-define (tuple2 functions (state _ _ lifted-constants))
     (map/state lift-values/function functions s))
 
   (match-define constants
@@ -100,6 +106,10 @@
 (define (lift-values/expr [e : rv:Expression] [s : State])
   : (Tuple2 Expression State)
   (case e
+    [(rv:bytes-expr v)
+     (match-define (tuple2 name s) (lift-bytes v s))
+     (tuple2 (global-var-expr name) s)]
+    ;; Recur structurally
     [(rv:local-var-expr v)
      (tuple2 (local-var-expr v) s)]
     [(rv:global-var-expr v)
@@ -126,3 +136,13 @@
      (match-define (tuple2 f s) (lift-values/expr f s))
      (match-define (tuple2 args s) (map/state lift-values/expr args s))
      (tuple2 (call-expr f args) s)]))
+
+(define (lift-bytes [v : Bytes] [s : State]) : (Tuple2 TopLevelName State)
+  (match-define (state mod-name counter constants) s)
+  (match-define name
+    (top-level-name mod-name
+                    (bytes-append (varargs list #"bytes-" (integer->decimal-bytes counter)))))
+  (match-define s
+    (state mod-name (+ counter 1) (cons (bytes-constant name v) constants)))
+
+  (tuple2 name s))
