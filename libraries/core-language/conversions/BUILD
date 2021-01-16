@@ -77,3 +77,15 @@ yaspl_library(
         "//libraries/yaspl:var",
     ],
 )
+
+yaspl_library(
+    name = "type-check",
+    srcs = ["type-check.yaspl"],
+    deps = [
+        "//libraries/core-language/languages:resolved-imports-language",
+        "//libraries/data:bytes",
+        "//libraries/data:either",
+        "//libraries/data:list",
+        "//libraries/data:set",
+    ],
+)

@@ -69,6 +69,22 @@ yaspl_library(
     ],
 )
 
+yaspl_test(
+    name = "compiler-test",
+    srcs = ["compiler-test.yaspl"],
+    deps = [
+        ":core-parser",
+        ":lexer",
+        ":lr-parser",
+        ":source-to-register",
+        "//libraries:yunit",
+        "//libraries/data:either",
+        "//libraries/data:list",
+        "//libraries/data:maybe",
+        "//libraries/data:source-location",
+    ],
+)
+
 yaspl_library(
     name = "lexer",
     srcs = ["lexer.yaspl"],
@@ -160,6 +176,8 @@ yaspl_library(
         "//libraries/core-language/conversions:lower-to-register",
         "//libraries/core-language/conversions:resolve-imports",
         "//libraries/core-language/conversions:resolve-vars",
+        "//libraries/core-language/conversions:type-check",
+        "//libraries/data:either",
         "//libraries/yaspl:top-level-object-optimizer",
         "//libraries/yaspl:top-level-objects",
     ],
