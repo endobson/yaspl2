@@ -22,6 +22,7 @@ ALL_PACKAGES = [
     "//libraries/yaspl/runtime",
     "//tools",
     "//tools/doc-server",
+    "//tools/objdump",
     "//tools/shell",
     "//tools/web-calculator",
     "//web-assembly",

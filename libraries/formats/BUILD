@@ -49,7 +49,10 @@ yaspl_library(
 yaspl_bootstrap_library(
     name = "pe",
     srcs = ["pe.yaspl"],
-    deps = ["//libraries/data:either"],
+    deps = [
+        "//libraries:io",
+        "//libraries/data:either",
+    ],
 )
 
 yaspl_bootstrap_library(
