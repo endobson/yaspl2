@@ -468,7 +468,11 @@ yaspl_bootstrap_library(
     srcs = ["structured-pe.yaspl"],
     deps = [
         ":structured-native-code",
+        "//libraries/data:aligned-bytes",
+        "//libraries/data:bytes",
         "//libraries/data:either",
+        "//libraries/data:list",
+        "//libraries/data:list-multi-dict",
         "//libraries/formats:pe",
     ],
 )

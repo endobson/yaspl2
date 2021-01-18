@@ -1,6 +1,7 @@
 #:module (formats pe)
 #:import {
   (bytes)
+  (data lifted-primitives)
   (either)
   (io)
   (list)
@@ -8,13 +9,14 @@
   (prim)
 }
 (export
-  (#:types PeFile CoffHeader SymbolTableEntry)
-  (#:values read-pe)
-  (#:patterns pe-file coff-header symbol-table-entry))
+  (#:types PeFile CoffHeader SymbolTableEntry SectionHeader)
+  (#:values read-pe section-header-name section-header-raw-data-size)
+  (#:patterns pe-file coff-header symbol-table-entry section-header))
 (types
   (define-type PeFile
     (pe-file
       [coff-header : CoffHeader]
+      [section-headers : (List SectionHeader)]
       [symbols : (List SymbolTableEntry)]
       [raw-contents : Bytes]))
 
@@ -23,6 +25,15 @@
       [num-sections : Int]
       [symbol-table-offset : Int]
       [num-symbols : Int]))
+
+  (define-type SectionHeader
+    (section-header
+      [name : Bytes]
+      [virtual-addr : Int]
+      [virtual-size : Int]
+      [raw-data-pointer : Int]
+      [raw-data-size : Int]))
+
   (define-type SymbolTableEntry
     (symbol-table-entry
       [name : Bytes]
@@ -34,15 +45,21 @@
 (define (read-pe [input : InputPort]) : (Either Bytes PeFile)
   (match-define raw-contents (read-all-bytes input))
 
-
   (case (parse-coff-header raw-contents)
     [(left v) (left v)]
     [(right coff)
-     (case (parse-symbol-table (coff-header-symbol-table-offset coff)
-                               (coff-header-num-symbols coff) raw-contents)
+     (match-define (coff-header num-sections symbol-table-offset num-symbols) coff)
+     (case (map/failure
+             (lambda ([index : LiftedInt])
+               (match-define (lifted-int index) index)
+               (parse-section-header raw-contents (+ 20 (* index 40))))
+             (build-list num-sections lifted-int))
        [(left v) (left v)]
-       [(right sym-table)
-        (right (pe-file coff sym-table raw-contents))])]))
+       [(right section-headers)
+        (case (parse-symbol-table symbol-table-offset num-symbols raw-contents)
+          [(left v) (left v)]
+          [(right sym-table)
+           (right (pe-file coff section-headers sym-table raw-contents))])])]))
 
 (define (parse-coff-header [raw-contents : Bytes]) : (Either Bytes CoffHeader)
   (case (bytes-ref/u16-le raw-contents 0)
@@ -87,3 +104,12 @@
       (if (not (= (u8->s64 (bytes-ref contents (+ offset (- len 1)))) 0))
           (subbytes contents offset (+ offset len))
           (read-short-symbol-name offset (- len 1) contents))))
+
+(define (parse-section-header [contents : Bytes] [offset : Int]) : (Either Bytes SectionHeader)
+  (right
+    (section-header
+      (read-short-symbol-name offset 8 contents)
+      (bytes-ref/quad-le contents (+ offset 12))
+      (bytes-ref/quad-le contents (+ offset 8))
+      (bytes-ref/quad-le contents (+ offset 20))
+      (bytes-ref/quad-le contents (+ offset 16)))))

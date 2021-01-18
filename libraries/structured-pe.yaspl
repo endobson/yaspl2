@@ -1,14 +1,18 @@
 #:module (structured-pe)
 #:import {
+  (aligned-bytes)
+  (bytes)
   (either)
   (formats pe)
+  (list)
+  (list-multi-dict)
   (prim)
   (structured-native-code)
 }
 (export
   (#:types PeRelocationKind ParsedPe)
   (#:values parse-pe)
-  (#:patterns))
+  (#:patterns parsed-pe))
 (types
   (define-type ParsedPe
     (parsed-pe
@@ -18,4 +22,23 @@
 
 
 (define (parse-pe [pe : PeFile]) : (Either Bytes ParsedPe)
-  (left #"Not Yet Implemented"))
+  (match-define (pe-file _coff-header section-headers _symbols _raw-contents) pe)
+
+  (match-define section-headers-dict : (ListMultiDict Bytes SectionHeader)
+    (foldl
+      (lambda ([sect : SectionHeader] [acc : (ListMultiDict Bytes SectionHeader)])
+        (list-multi-dict-add acc (section-header-name sect) sect))
+      section-headers
+      (ann (ListMultiDict Bytes SectionHeader) (make-list-multi-dict bytes-cmp))))
+
+  (case (list-multi-dict-ref/empty section-headers-dict #".text")
+    [(empty) (left #"No text section")]
+    [(cons _ (cons _ _))
+     (left #"Too many text sections")]
+    [(cons text-section-header (empty))
+     (match-define text-section-contents
+       (make-bytes (section-header-raw-data-size text-section-header)))
+
+     (right (parsed-pe
+              (program-section (aligned-bytes text-section-contents 4) (empty) (empty) (empty))
+              (program-section (aligned-bytes #"" 3) (empty) (empty) (empty))))]))
