@@ -54,7 +54,7 @@
 
 (define (print-pe [pe : PeFile] [output : OutputPort]) : Void
   (match-define (pe-file (coff-header num-sections symbol-table-offset num-symbols)
-                         section-headers symbols _) pe)
+                         section-headers symbols sections _) pe)
   (begin
     (write-line #"-- Coff Header --" output)
     (write-all-bytes #"Num Sections: " output)
@@ -63,26 +63,32 @@
     (write-line (integer->decimal-bytes symbol-table-offset) output)
     (write-all-bytes #"Number of Symbols:  " output)
     (write-line (integer->decimal-bytes num-symbols) output)
+
     (write-line #"" output)
     (write-line #"-- Section Headers --" output)
     (for-each
       (lambda ([sect : SectionHeader])
         (match-define (section-header name virt-addr virt-size raw-data-ptr raw-data-size
-                                      characteristics) sect)
+                                      relocation-offset num-relocations characteristics) sect)
         (match-define name-padding (make-bytes/fill (- 8 (bytes-length name)) (u8 20)))
         (begin
           (write-all-bytes name output)
           (write-all-bytes name-padding output)
-          (write-all-bytes #": " output)
-          (write-all-bytes (integer->hex-bytes virt-addr) output)
-          (write-all-bytes #" " output)
-          (write-all-bytes (integer->hex-bytes virt-size) output)
-          (write-all-bytes #" " output)
-          (write-all-bytes (integer->hex-bytes raw-data-ptr) output)
-          (write-all-bytes #" " output)
-          (write-all-bytes (integer->hex-bytes raw-data-size) output)
-          (write-all-bytes #" " output)
-          (write-all-bytes (integer->hex-bytes characteristics) output)
+          (write-line #":" output)
+          (write-all-bytes #"  Virtual Address: " output)
+          (write-line (integer->hex-bytes virt-addr) output)
+          (write-all-bytes #"  Virtual Size: " output)
+          (write-line (integer->hex-bytes virt-size) output)
+          (write-all-bytes #"  Raw Data Pointer: " output)
+          (write-line (integer->hex-bytes raw-data-ptr) output)
+          (write-all-bytes #"  Raw Data Size: " output)
+          (write-line (integer->hex-bytes raw-data-size) output)
+          (write-all-bytes #"  Relocation Offset: " output)
+          (write-line (integer->decimal-bytes relocation-offset) output)
+          (write-all-bytes #"  Number of Relocations:  " output)
+          (write-line (integer->decimal-bytes num-relocations) output)
+          (write-all-bytes #"  Characteristics: " output)
+          (write-line (integer->hex-bytes characteristics) output)
           (newline output)))
       section-headers)
 
@@ -90,7 +96,7 @@
     (write-line #"-- Symbol Table --" output)
     (for-each
       (lambda ([sym : SymbolTableEntry])
-        (match-define (symbol-table-entry name value section-number storage-class) sym)
+        (match-define (symbol-table-entry _ name value section-number storage-class) sym)
         (match-define hex-bytes (integer->hex-bytes value))
         (match-define hex-padding (make-bytes/fill (- 8 (bytes-length hex-bytes)) (u8 48)))
         (begin
@@ -104,6 +110,36 @@
           (write-all-bytes name output)
           (newline output)))
       symbols)
+
+
+    (write-line #"" output)
+    (write-line #"-- Sections --" output)
+    (for-each
+      (lambda ([sec : Section])
+        (match-define (section name relocations) sec)
+        (begin
+          (write-all-bytes name output)
+          (write-line #": " output)
+          (write-all-bytes #"Num Relocs: " output)
+          (write-line (integer->decimal-bytes (length relocations)) output)
+          (for-each
+            (lambda ([reloc : RelocationEntry])
+              (match-define (relocation-entry addr sym type) reloc)
+              (match-define addr-bytes (integer->hex-bytes addr))
+              (match-define addr-padding (make-bytes/fill (- 8 (bytes-length addr-bytes)) (u8 48)))
+              (begin
+                (write-all-bytes addr-padding output)
+                (write-all-bytes addr-bytes output)
+                (write-all-bytes #" " output)
+                (write-all-bytes (integer->decimal-bytes type) output)
+                (write-all-bytes #" " output)
+                (write-all-bytes sym output)
+                (newline output)))
+            relocations)
+          (newline output)))
+      sections)
+
+
     (void)))
 
 (define (main [args : Bytes] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]): Int

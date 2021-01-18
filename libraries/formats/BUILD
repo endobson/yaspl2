@@ -55,6 +55,7 @@ yaspl_bootstrap_library(
         "//libraries/data:either",
         "//libraries/data:lifted-primitives",
         "//libraries/data:list",
+        "//libraries/data:maybe",
         "//libraries/data:numbers",
     ],
 )

@@ -5,19 +5,22 @@
   (either)
   (io)
   (list)
+  (maybe)
   (numbers)
   (prim)
 }
 (export
-  (#:types PeFile CoffHeader SymbolTableEntry SectionHeader)
+  (#:types PeFile CoffHeader SymbolTableEntry SectionHeader Section RelocationEntry)
   (#:values read-pe section-header-name section-header-raw-data-size)
-  (#:patterns pe-file coff-header symbol-table-entry section-header))
+  (#:patterns pe-file coff-header symbol-table-entry section-header
+              section relocation-entry))
 (types
   (define-type PeFile
     (pe-file
       [coff-header : CoffHeader]
       [section-headers : (List SectionHeader)]
       [symbols : (List SymbolTableEntry)]
+      [sections : (List Section)]
       [raw-contents : Bytes]))
 
   (define-type CoffHeader
@@ -33,14 +36,29 @@
       [virtual-size : Int]
       [raw-data-pointer : Int]
       [raw-data-size : Int]
+      [relocation-offset : Int]
+      [num-relocations : Int]
       [characteristics : Int]))
 
   (define-type SymbolTableEntry
     (symbol-table-entry
+      [index : Int]
       [name : Bytes]
       [value : Int]
       [section-number : Int]
-      [storage-class : Int])))
+      [storage-class : Int]))
+
+  (define-type RelocationEntry
+    (relocation-entry
+      [address : Int]
+      [symbol : Bytes]
+      [type : Int]))
+
+  (define-type Section
+    (section
+      [name : Bytes]
+      [relocations : (List RelocationEntry)]))
+  )
 
 
 (define (read-pe [input : InputPort]) : (Either Bytes PeFile)
@@ -57,10 +75,15 @@
              (build-list num-sections lifted-int))
        [(left v) (left v)]
        [(right section-headers)
-        (case (parse-symbol-table symbol-table-offset num-symbols raw-contents)
+        (case (parse-symbol-table symbol-table-offset num-symbols 0 raw-contents)
           [(left v) (left v)]
           [(right sym-table)
-           (right (pe-file coff section-headers sym-table raw-contents))])])]))
+           (match-define sections
+             (map
+               (lambda ([header : SectionHeader])
+                 (parse-section header sym-table raw-contents))
+               section-headers))
+           (right (pe-file coff section-headers sym-table sections raw-contents))])])]))
 
 (define (parse-coff-header [raw-contents : Bytes]) : (Either Bytes CoffHeader)
   (case (bytes-ref/u16-le raw-contents 0)
@@ -68,13 +91,15 @@
      (match-define num-sections (bytes-ref/u16-le raw-contents 2))
      (match-define symbol-table-offset (bytes-ref/quad-le raw-contents 8))
      (match-define num-symbols (bytes-ref/quad-le raw-contents 12))
+
      (right (coff-header num-sections symbol-table-offset num-symbols))]
     [v
      (left (bytes-append
              (varargs list #"Bad Magic Number 0x"
                            (integer->hex-bytes v))))]))
 
-(define (parse-symbol-table [offset : Int] [num-symbols : Int]
+(define (parse-symbol-table [offset : Int]
+                            [num-symbols : Int] [index : Int]
                             [contents : Bytes])
   : (Either Bytes (List SymbolTableEntry))
   (case num-symbols
@@ -93,10 +118,11 @@
              (+ (+ offset (* num-symbols 18)) (bytes-ref/quad-le contents (+ offset 4))))
            (read-short-symbol-name offset 8 contents)))
 
-     (case (parse-symbol-table (+ (* 18 symbol-size) offset) (- num-symbols symbol-size) contents)
+     (case (parse-symbol-table (+ (* 18 symbol-size) offset) (- num-symbols symbol-size)
+                               (+ index symbol-size) contents)
        [(left v) (left v)]
        [(right table)
-        (right (cons (symbol-table-entry name value section-number storage-class) table))])]))
+        (right (cons (symbol-table-entry index name value section-number storage-class) table))])]))
 
 
 (define (read-short-symbol-name [offset : Int] [len : Int] [contents : Bytes]) : Bytes
@@ -114,5 +140,35 @@
       (bytes-ref/quad-le contents (+ offset 8))  ;; Virtual Size
       (bytes-ref/quad-le contents (+ offset 20)) ;; Raw Data Pointer
       (bytes-ref/quad-le contents (+ offset 16)) ;; Raw Data Size
+      (bytes-ref/quad-le contents (+ offset 24)) ;; Relocation Pointer
+      (bytes-ref/u16-le  contents (+ offset 32)) ;; Number of relocations
       (bytes-ref/quad-le contents (+ offset 36)) ;; Characteristics
       )))
+
+(define (parse-section
+          [section-header : SectionHeader]
+          [sym-table : (List SymbolTableEntry)]
+          [contents : Bytes]) : Section
+  (match-define (section-header name _ _ _ _ relocation-offset num-relocations _) section-header)
+
+  (match-define relocations
+    (build-list num-relocations
+      (lambda ([index : Int])
+        (parse-relocation-entry contents (+ relocation-offset (* index 10)) sym-table))))
+
+  (section name relocations))
+
+(define (parse-relocation-entry [contents : Bytes] [offset : Int]
+                                [sym-table : (List SymbolTableEntry)]) : RelocationEntry
+  (match-define sym-index (bytes-ref/quad-le contents (+ offset 4)))
+  ;; TODO
+  (match-define sym-name : Bytes
+    (case (findf (lambda ([sym : SymbolTableEntry])
+                   (= (symbol-table-entry-index sym) sym-index))
+                 sym-table)
+      [(nothing) (bytes-append (varargs list #"UNKNOWN_" (integer->decimal-bytes sym-index)))]
+      [(just (symbol-table-entry _ sym-name _ _ _)) sym-name]))
+  (relocation-entry
+    (bytes-ref/quad-le contents (+ offset 0))
+    sym-name
+    (bytes-ref/u16-le  contents (+ offset 8))))
