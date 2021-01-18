@@ -8,6 +8,7 @@
   (join-list)
   (list)
   (maybe)
+  (numbers)
   (prim)
   (set)
   (structured-native-code)
@@ -150,7 +151,7 @@
   (bytes-append
     (jl->list
       (varargs append-jl*
-        (make-coff-header symbol-table-start (length symbols))
+        (make-library-coff-header symbol-table-start (length symbols))
         (make-text-section-header
           text-section-start text-section-length
           text-reloc-start number-text-relocations)
@@ -172,17 +173,31 @@
     (bytes-set!/quad-le b 0 v)
     b))
 
-(define (make-coff-header [symbol-table-start : Int] [num-symbols : Int])
+(define (make-coff-header
+          [number-of-sections : Int]
+          [symbol-table-start : Int]
+          [num-symbols : Int]
+          [optional-header-size : Int]
+          [characteristics : Int])
   : (JoinList Bytes)
   (varargs join-list
     (bytes/u16-le (u16 #x8664))                  ;; Machine type
-    (bytes/u16-le (u16 2))                       ;; Number of sections
+    (bytes/u16-le (u16 number-of-sections))      ;; Number of sections
     (bytes/u32-le (u32 0))                       ;; Timestamp
     (bytes/u32-le (u32 symbol-table-start))      ;; Pointer to COFF symbol table
     (bytes/u32-le (u32 num-symbols))             ;; Number of COFF symbols
-    (bytes/u16-le (u16 0))                       ;; Size of optional header
-    (bytes/u16-le (u16 (bitwise-ior #x2000 #x0020))) ;; Characteristics
+    (bytes/u16-le (u16 optional-header-size))    ;; Size of optional header
+    (bytes/u16-le (u16 characteristics)) ;; Characteristics
     ))
+
+(define (make-library-coff-header
+          [symbol-table-start : Int]
+          [num-symbols : Int]) : (JoinList Bytes)
+  (make-coff-header 2 symbol-table-start num-symbols 0 (bitwise-ior #x2000 #x0020)))
+
+(define (make-executable-coff-header) : (JoinList Bytes)
+  (make-coff-header 4 0 0 #xf0 (bitwise-ior (bitwise-ior #x2000 #x0020) #x0002)))
+
 
 (define (make-text-section-header
           [text-section-start : Int]
@@ -207,6 +222,29 @@
                          (bitwise-ior
                            #x00500000       ; 16 bit aligned
                            #x00000020)))))) ; Contains executable code
+
+(define (make-executable-text-section-header
+          [virtual-addr : Int]
+          [virtual-size : Int]
+          [text-section-start : Int]
+          [text-section-length : Int])
+  : (JoinList Bytes)
+  (varargs join-list
+    #".text\x00\x00\x00"
+    (bytes/u32-le (u32 virtual-size))                         ; VirtualSize
+    (bytes/u32-le (u32 virtual-addr))                         ; VirtualAddress
+    (bytes/u32-le (u32 text-section-length))                  ; SizeOfRawData
+    (bytes/u32-le (u32 text-section-start))                   ; PointerToRawData
+    (bytes/u32-le (u32 0))                                    ; PointerToRelocations
+    (bytes/u32-le (u32 0))                                    ; PointerToLinenumbers
+    (bytes/u16-le (u16 0))                                    ; NumberOfRelocations
+    (bytes/u16-le (u16 0))                                    ; NumberOfLinenumbers
+    (bytes/u32-le (u32 (bitwise-ior                           ; Characteristics
+                         (bitwise-ior
+                           #x40000000       ; Readable Section
+                           #x20000000)      ; Executable Section
+                         #x00000020)))))    ; Contains executable code
+
 
 (define (make-text-section-relocations
           [relocs : (List (Relocation AbstractRelocationKind))]
@@ -252,6 +290,28 @@
                            #x00500000       ; 16 bit aligned
                            #x00000040)))))) ; Contains initialized data
 
+(define (make-executable-rdata-section-header
+          [virtual-addr : Int]
+          [virtual-size : Int]
+          [rdata-section-start : Int]
+          [rdata-section-length : Int])
+  : (JoinList Bytes)
+
+  (varargs join-list
+    #".rdata\x00\x00"
+    (bytes/u32-le (u32 virtual-size))                         ; VirtualSize
+    (bytes/u32-le (u32 virtual-addr))                         ; VirtualAddress
+    (bytes/u32-le (u32 rdata-section-length))                 ; SizeOfRawData
+    (bytes/u32-le (u32 rdata-section-start))                  ; PointerToRawData
+    (bytes/u32-le (u32 0))                                    ; PointerToRelocations
+    (bytes/u32-le (u32 0))                                    ; PointerToLinenumbers
+    (bytes/u16-le (u16 0))                                    ; NumberOfRelocations
+    (bytes/u16-le (u16 0))                                    ; NumberOfLinenumbers
+    (bytes/u32-le (u32 (bitwise-ior                           ; Characteristics
+                         #x40000000      ; Readable Section
+                         #x00000040))))) ; Contains initialized data
+
+
 (define (make-rdata-section-relocations
           [relocs : (List (Relocation AbstractRelocationKind))]
           [symbol-table-indexes : (Dict Bytes LiftedInt)])
@@ -271,6 +331,53 @@
         [_
          (panic #"Other relocations not supported")]))
     relocs))
+
+
+(define (make-executable-data-section-header
+          [virtual-addr : Int]
+          [virtual-size : Int]
+          [data-section-start : Int]
+          [data-section-length : Int])
+  : (JoinList Bytes)
+
+  (varargs join-list
+    #".data\x00\x00\x00"
+    (bytes/u32-le (u32 virtual-size))                        ; VirtualSize
+    (bytes/u32-le (u32 virtual-addr))                        ; VirtualAddress
+    (bytes/u32-le (u32 data-section-length))                 ; SizeOfRawData
+    (bytes/u32-le (u32 data-section-start))                  ; PointerToRawData
+    (bytes/u32-le (u32 0))                                   ; PointerToRelocations
+    (bytes/u32-le (u32 0))                                   ; PointerToLinenumbers
+    (bytes/u16-le (u16 0))                                   ; NumberOfRelocations
+    (bytes/u16-le (u16 0))                                   ; NumberOfLinenumbers
+    (bytes/u32-le (u32 (bitwise-ior                          ; Characteristics
+                         (bitwise-ior
+                           #x40000000         ; Readable Section
+                           #x80000000)        ; Writable Section
+                         #x00000040)))))      ; Contains initialized data
+
+(define (make-executable-reloc-section-header
+          [virtual-addr : Int]
+          [virtual-size : Int]
+          [reloc-section-start : Int]
+          [reloc-section-length : Int])
+  : (JoinList Bytes)
+
+  (varargs join-list
+    #".reloc\x00\x00"
+    (bytes/u32-le (u32 virtual-size))              ; VirtualSize
+    (bytes/u32-le (u32 virtual-addr))              ; VirtualAddress
+    (bytes/u32-le (u32 reloc-section-length))      ; SizeOfRawData
+    (bytes/u32-le (u32 reloc-section-start))       ; PointerToRawData
+    (bytes/u32-le (u32 0))                         ; PointerToRelocations
+    (bytes/u32-le (u32 0))                         ; PointerToLinenumbers
+    (bytes/u16-le (u16 0))                         ; NumberOfRelocations
+    (bytes/u16-le (u16 0))                         ; NumberOfLinenumbers
+    (bytes/u32-le (u32 (bitwise-ior                ; Characteristics
+                         (bitwise-ior
+                           #x40000000      ; Readable Section
+                           #x02000000)     ; Discardable Section
+                         #x00000040)))))  ; Contains initialized data
 
 
 (define (expand-large-symbol [e : LargeSymbolTableEntry]
@@ -428,4 +535,162 @@
         (nothing)))))
 
 (define (serialize-pe-executable [pe-files : (List ParsedPe)]) : Bytes
-  #"")
+  (match-define header-size #x400)
+  (match-define section-alignment #x1000)
+  (match-define file-alignment #x200)
+
+  ;; Start text after one blank page
+  (match-define text-virt-addr (+ 0 section-alignment))
+  (match-define text-virt-size #x380c)
+  (match-define text-file-offset header-size)
+  (match-define text-file-size (round-up text-virt-size file-alignment))
+
+  (match-define rdata-virt-addr
+                (round-up (+ text-virt-addr text-virt-size) section-alignment))
+  (match-define rdata-virt-size #x734)
+  (match-define rdata-file-offset (+ text-file-offset text-file-size))
+  (match-define rdata-file-size (round-up rdata-virt-size file-alignment))
+
+  (match-define data-virt-addr
+                (round-up (+ rdata-virt-addr rdata-virt-size) section-alignment))
+  (match-define data-virt-size #x20d094)
+  (match-define data-file-offset (+ rdata-file-offset rdata-file-size))
+  (match-define data-file-size #x200)
+
+  (match-define reloc-virt-addr
+                (round-up (+ data-virt-addr data-virt-size) section-alignment))
+  (match-define reloc-virt-size #x3c)
+  (match-define reloc-file-offset (+ data-file-offset data-file-size))
+  (match-define reloc-file-size (round-up reloc-virt-size file-alignment))
+
+  (match-define all-data-size (+ (+ rdata-file-size data-file-size) reloc-file-size))
+  (match-define entry-point #x34b0)
+  (match-define image-size (round-up (+ reloc-virt-addr reloc-virt-size) section-alignment))
+
+
+  (bytes-append
+    (jl->list
+      (varargs append-jl*
+        (make-dos-header)
+        (single-jl #"PE\x00\x00") ; Signature
+        (make-executable-coff-header)
+        (make-pe-header
+          text-virt-addr
+          text-file-size
+          all-data-size
+          entry-point
+          image-size
+          reloc-virt-addr
+          reloc-virt-size
+          header-size)
+        (make-executable-text-section-header
+          text-virt-addr text-virt-size
+          text-file-offset text-file-size)
+        (make-executable-rdata-section-header
+          rdata-virt-addr rdata-virt-size
+          rdata-file-offset rdata-file-size)
+        (make-executable-data-section-header
+          data-virt-addr data-virt-size
+          data-file-offset data-file-size)
+        (make-executable-reloc-section-header
+          reloc-virt-addr reloc-virt-size
+          reloc-file-offset reloc-file-size)
+        (single-jl (make-bytes #x1e0))
+        ))))
+
+
+(define (make-dos-header) : (JoinList Bytes)
+  (varargs join-list
+    #"MZ"                          ; Signature
+    (bytes/u16-le (u16 #x78))      ; Bytes on last page
+    (bytes/u16-le (u16 1))         ; Number of pages
+    (bytes/u16-le (u16 0))         ; Relocations
+    (bytes/u16-le (u16 4))         ; Size of header in paragraphs
+    (bytes/u16-le (u16 0))         ; Minimum extra paragraphs needed
+    (bytes/u16-le (u16 0))         ; Maximum extra paragraphs needed
+    (bytes/u16-le (u16 0))         ; Initial (relative) SS value
+    (bytes/u16-le (u16 0))         ; Initial SP value
+    (bytes/u16-le (u16 0))         ; Checksum
+    (bytes/u16-le (u16 0))         ; Initial IP value
+    (bytes/u16-le (u16 0))         ; Initial (relative) CS value
+    (bytes/u16-le (u16 #x40))      ; File address of relocation table
+    (bytes/u16-le (u16 0))         ; Overlay number
+    (make-bytes 8)                 ; 8 bytes Reserved
+    (bytes/u16-le (u16 0))         ; OEM identifier
+    (bytes/u16-le (u16 0))         ; OEM information
+    (make-bytes 20)                ; 20 bytes Reserved
+    (bytes/u16-le (u16 #x78))      ; Offset for PE
+    (make-bytes 2)                 ; 2 bytes Reserved
+    ;; The Dos program
+    #"\x0e"         ; push   cs
+    #"\x1f"         ; pop    ds
+    #"\xba\x0e\x00" ; mov    #x0e, dx (Message is at offset 14 [0x0e])
+    #"\xb4\x09"     ; mov    #x09, ah
+    #"\xcd\x21"     ; int    0x21
+    #"\xb8\x01\x4c" ; mov    0x4c01, ax
+    #"\xcd\x21"     ; int    0x21
+    #"This program cannot be run in DOS mode" ; Message
+    #"\x2e\x24"     ; Unknown
+    (make-bytes 2)                 ; 2 bytes Reserved
+    ))
+
+(define (make-pe-header
+          [text-base : Int]
+          [text-size : Int]
+          [data-size : Int]
+          [entry-point : Int]
+          [image-size : Int]
+          [relocation-table-base : Int]
+          [relocation-table-size : Int]
+          [header-size : Int]) : (JoinList Bytes)
+  (varargs join-list
+    (bytes/u16-le (u16 #x20b))  ; PE32+ Magic Number
+    (bytes/1      (u8 14))      ; Linker major version
+    (bytes/1      (u8 0))       ; Linker minor version
+    (bytes/u32-le (u32 text-size))   ; Size of code
+    (bytes/u32-le (u32 data-size))   ; Size of initialized data
+    (bytes/u32-le (u32 0))           ; Size of uninitialized data
+    (bytes/u32-le (u32 entry-point)) ; Address of entry point
+    (bytes/u32-le (u32 text-base))   ; Base of code
+    (bytes/u64-le (u64 #x180000000)) ; Image base
+    (bytes/u32-le (u32 #x1000))      ; Section alignment
+    (bytes/u32-le (u32 #x0200))      ; File alignment
+    (bytes/u16-le (u16 6))           ; Major operating system version
+    (bytes/u16-le (u16 0))           ; Minor operating system version
+    (bytes/u16-le (u16 0))           ; Major image version
+    (bytes/u16-le (u16 0))           ; Minor image version
+    (bytes/u16-le (u16 6))           ; Major subsystem version
+    (bytes/u16-le (u16 0))           ; Minor subsystem version
+    (bytes/u32-le (u32 0))           ; Win32 version value
+    (bytes/u32-le (u32 image-size))  ; Size of image
+    (bytes/u32-le (u32 header-size)) ; Size of headers
+    (bytes/u32-le (u32 0))           ; Checksum
+    (bytes/u16-le (u16 10))          ; Subsystem (EFI)
+    (bytes/u16-le (u16 #x160))       ; Dll characteristics
+                                     ; (high entropy, dynamic base, NX)
+    (bytes/u64-le (u64 #x100000)) ; Size of stack reserve
+    (bytes/u64-le (u64 #x1000))   ; Size of stack commit
+    (bytes/u64-le (u64 #x100000)) ; Size of heap reserve
+    (bytes/u64-le (u64 #x1000))   ; Size of heap commit
+    (bytes/u32-le (u32 0))        ; Loader flags
+    (bytes/u32-le (u32 16))       ; Number of rva and sizes
+
+    (bytes/u64-le (u64 0))        ; Export table
+    (bytes/u64-le (u64 0))        ; Import table
+    (bytes/u64-le (u64 0))        ; Resource table
+    (bytes/u32-le (u32 0))        ; Exception table
+    (bytes/u32-le (u32 0))        ; Exception table (part 2)
+    (bytes/u64-le (u64 0))        ; Certificate table
+    (bytes/u32-le (u32 relocation-table-base)) ; Base relocation table
+    (bytes/u32-le (u32 relocation-table-size)) ; Base relocation table (part 2)
+    (bytes/u64-le (u64 0))        ; Debug
+    (bytes/u64-le (u64 0))        ; Architecture
+    (bytes/u64-le (u64 0))        ; Global ptr
+    (bytes/u64-le (u64 0))        ; TLS table
+    (bytes/u64-le (u64 0))        ; Load config table
+    (bytes/u64-le (u64 0))        ; Bound import
+    (bytes/u64-le (u64 0))        ; IAT
+    (bytes/u64-le (u64 0))        ; Delay import descriptor
+    (bytes/u64-le (u64 0))        ; CLR runtime header
+    (bytes/u64-le (u64 0))        ; Reserved
+    ))
