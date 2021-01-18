@@ -24,7 +24,11 @@
       [symbol-table-offset : Int]
       [num-symbols : Int]))
   (define-type SymbolTableEntry
-    (symbol-table-entry [name : Bytes])))
+    (symbol-table-entry
+      [name : Bytes]
+      [value : Int]
+      [section-number : Int]
+      [storage-class : Int])))
 
 
 (define (read-pe [input : InputPort]) : (Either Bytes PeFile)
@@ -52,7 +56,8 @@
              (varargs list #"Bad Magic Number 0x"
                            (integer->hex-bytes v))))]))
 
-(define (parse-symbol-table [offset : Int] [num-symbols : Int] [contents : Bytes])
+(define (parse-symbol-table [offset : Int] [num-symbols : Int]
+                            [contents : Bytes])
   : (Either Bytes (List SymbolTableEntry))
   (case num-symbols
     [0 (right (empty))]
@@ -60,14 +65,20 @@
      (match-define num-aux-symbols (u8->s64 (bytes-ref contents (+ offset 17))))
      (match-define symbol-size (+ 1 num-aux-symbols))
      (match-define long-name (= 0 (bytes-ref/quad-le contents offset)))
-     (match-define name
-       (if long-name #"LONG" (read-short-symbol-name offset 8 contents)))
-
+     (match-define value (bytes-ref/quad-le contents (+ offset 8)))
+     (match-define section-number (bytes-ref/u16-le contents (+ offset 12)))
+     (match-define storage-class (u8->s64 (bytes-ref contents (+ offset 16))))
+     (match-define name : Bytes
+       (if long-name
+           (read-null-terminated-bytes
+             contents
+             (+ (+ offset (* num-symbols 18)) (bytes-ref/quad-le contents (+ offset 4))))
+           (read-short-symbol-name offset 8 contents)))
 
      (case (parse-symbol-table (+ (* 18 symbol-size) offset) (- num-symbols symbol-size) contents)
        [(left v) (left v)]
        [(right table)
-        (right (cons (symbol-table-entry name) table))])]))
+        (right (cons (symbol-table-entry name value section-number storage-class) table))])]))
 
 
 (define (read-short-symbol-name [offset : Int] [len : Int] [contents : Bytes]) : Bytes
