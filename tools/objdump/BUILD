@@ -15,10 +15,8 @@ yaspl_binary(
         "//libraries/data:either",
         "//libraries/data:list",
         "//libraries/data:maybe",
+        "//libraries/data:numbers",
         "//libraries/formats:pe",
-        "//libraries/prim-language:prim-language-compiler_lib",
-        "//libraries/prim-language:prim-language-runtime",
-        "//libraries/yaspl:x86-64-assembly",
     ],
 )
 

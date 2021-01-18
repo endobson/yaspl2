@@ -1,23 +1,78 @@
 #:module (formats pe)
 #:import {
+  (bytes)
   (either)
   (io)
+  (list)
+  (numbers)
   (prim)
 }
 (export
-  (#:types PeFile)
+  (#:types PeFile CoffHeader SymbolTableEntry)
   (#:values read-pe)
-  (#:patterns))
+  (#:patterns pe-file coff-header symbol-table-entry))
 (types
   (define-type PeFile
     (pe-file
-      [section-headers : CoffHeader]
-      [section-header-names-index : Int]
+      [coff-header : CoffHeader]
+      [symbols : (List SymbolTableEntry)]
       [raw-contents : Bytes]))
 
-  (define-type CoffHeader))
+  (define-type CoffHeader
+    (coff-header
+      [num-sections : Int]
+      [symbol-table-offset : Int]
+      [num-symbols : Int]))
+  (define-type SymbolTableEntry
+    (symbol-table-entry [name : Bytes])))
 
 
 (define (read-pe [input : InputPort]) : (Either Bytes PeFile)
   (match-define raw-contents (read-all-bytes input))
-  (left #"Not Yet Implemented"))
+
+
+  (case (parse-coff-header raw-contents)
+    [(left v) (left v)]
+    [(right coff)
+     (case (parse-symbol-table (coff-header-symbol-table-offset coff)
+                               (coff-header-num-symbols coff) raw-contents)
+       [(left v) (left v)]
+       [(right sym-table)
+        (right (pe-file coff sym-table raw-contents))])]))
+
+(define (parse-coff-header [raw-contents : Bytes]) : (Either Bytes CoffHeader)
+  (case (bytes-ref/u16-le raw-contents 0)
+    [#x8664
+     (match-define num-sections (bytes-ref/u16-le raw-contents 2))
+     (match-define symbol-table-offset (bytes-ref/quad-le raw-contents 8))
+     (match-define num-symbols (bytes-ref/quad-le raw-contents 12))
+     (right (coff-header num-sections symbol-table-offset num-symbols))]
+    [v
+     (left (bytes-append
+             (varargs list #"Bad Magic Number 0x"
+                           (integer->hex-bytes v))))]))
+
+(define (parse-symbol-table [offset : Int] [num-symbols : Int] [contents : Bytes])
+  : (Either Bytes (List SymbolTableEntry))
+  (case num-symbols
+    [0 (right (empty))]
+    [_
+     (match-define num-aux-symbols (u8->s64 (bytes-ref contents (+ offset 17))))
+     (match-define symbol-size (+ 1 num-aux-symbols))
+     (match-define long-name (= 0 (bytes-ref/quad-le contents offset)))
+     (match-define name
+       (if long-name #"LONG" (read-short-symbol-name offset 8 contents)))
+
+
+     (case (parse-symbol-table (+ (* 18 symbol-size) offset) (- num-symbols symbol-size) contents)
+       [(left v) (left v)]
+       [(right table)
+        (right (cons (symbol-table-entry name) table))])]))
+
+
+(define (read-short-symbol-name [offset : Int] [len : Int] [contents : Bytes]) : Bytes
+  (if (= 0 len)
+      (panic #"Bad short symbol name")
+      (if (not (= (u8->s64 (bytes-ref contents (+ offset (- len 1)))) 0))
+          (subbytes contents offset (+ offset len))
+          (read-short-symbol-name offset (- len 1) contents))))

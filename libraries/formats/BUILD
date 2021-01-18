@@ -51,7 +51,10 @@ yaspl_bootstrap_library(
     srcs = ["pe.yaspl"],
     deps = [
         "//libraries:io",
+        "//libraries/data:bytes",
         "//libraries/data:either",
+        "//libraries/data:list",
+        "//libraries/data:numbers",
     ],
 )
 

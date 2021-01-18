@@ -2,16 +2,14 @@
 #:import {
   (bytes)
   (either)
+  (formats pe)
   (io)
   (list)
   (machine-code-writer)
-  (formats pe)
   (maybe)
+  (numbers)
   (prim)
-  (prim-language-compiler)
-  (prim-language-runtime)
   (system-abi)
-  (yaspl x86-64-assembly)
 }
 (export
   (#:values main))
@@ -37,7 +35,7 @@
        [(just abi)
         (right (args abi file-name))])]))
 
-(define (run [args : Bytes]) : (Maybe Bytes)
+(define (run [args : Bytes] [output : OutputPort]) : (Maybe Bytes)
   (case (parse-args (args->list args))
     [(left v) (just v)]
     [(right (args abi file-name))
@@ -50,10 +48,31 @@
         (case (call-with-input-file file-name read-pe)
           [(left v) (just v)]
           [(right pe-file)
-           (nothing)])])]))
+           (begin
+             (print-pe pe-file output)
+             (nothing))])])]))
+
+(define (print-pe [pe : PeFile] [output : OutputPort]) : Void
+  (match-define (pe-file (coff-header num-sections symbol-table-offset num-symbols) symbols _) pe)
+  (begin
+    (write-line #"-- Coff Header --" output)
+    (write-all-bytes #"Num Sections: " output)
+    (write-line (integer->decimal-bytes num-sections) output)
+    (write-all-bytes #"Symbol Table Offset: " output)
+    (write-line (integer->decimal-bytes symbol-table-offset) output)
+    (write-all-bytes #"Number of Symbols:  " output)
+    (write-line (integer->decimal-bytes num-symbols) output)
+    (write-line #"" output)
+    (write-line #"-- Symbol Table --" output)
+    (for-each
+      (lambda ([sym : SymbolTableEntry])
+        (match-define (symbol-table-entry name) sym)
+        (write-line name output))
+      symbols)
+    (void)))
 
 (define (main [args : Bytes] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]): Int
-  (case (run args)
+  (case (run args stdout)
     [(just v)
      (begin
        (write-all-bytes v stderr)
