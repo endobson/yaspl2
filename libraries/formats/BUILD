@@ -51,6 +51,7 @@ yaspl_bootstrap_library(
     srcs = ["pe.yaspl"],
     deps = [
         "//libraries:io",
+        "//libraries/data:aligned-bytes",
         "//libraries/data:bytes",
         "//libraries/data:either",
         "//libraries/data:lifted-primitives",

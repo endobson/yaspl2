@@ -195,8 +195,8 @@
           [num-symbols : Int]) : (JoinList Bytes)
   (make-coff-header 2 symbol-table-start num-symbols 0 (bitwise-ior #x2000 #x0020)))
 
-(define (make-executable-coff-header) : (JoinList Bytes)
-  (make-coff-header 4 0 0 #xf0 (bitwise-ior (bitwise-ior #x2000 #x0020) #x0002)))
+(define (make-executable-coff-header [num-sections : Int]) : (JoinList Bytes)
+  (make-coff-header num-sections 0 0 #xf0 (bitwise-ior (bitwise-ior #x2000 #x0020) #x0002)))
 
 
 (define (make-text-section-header
@@ -544,22 +544,70 @@
       _text-local-symbols)
     (combine-sections (map parsed-pe-text-section pe-files)))
 
+  (match-define
+    (program-section
+      (aligned-bytes rdata-section-contents _rdata-section-alignment)
+      rdata-relocations
+      rdata-global-symbols
+      _rdata-local-symbols)
+    (combine-sections (map parsed-pe-rdata-section pe-files)))
+
+  (match-define
+    (program-section
+      (aligned-bytes bss-section-contents _bss-section-alignment)
+      _bss-relocations
+      bss-global-symbols
+      _bss-local-symbols)
+    (combine-sections (map parsed-pe-bss-section pe-files)))
+
+  (match-define image-base #x180000000)
+
 
   (match-define symbol-addresses : (Dict Bytes LiftedInt)
     (dict-add-all
       (make-dict bytes-cmp)
-      (map
-        (lambda ([s : DefinedSymbol])
-          (case s
-            [(defined-symbol name addr)
-             (tuple2 name (lifted-int addr))]))
-        text-global-symbols)))
+      (append
+        (map
+          (lambda ([s : DefinedSymbol])
+            (case s
+              [(defined-symbol name addr)
+               (tuple2 name (lifted-int (+ image-base (+ #x3000 addr))))]))
+          bss-global-symbols)
+        (append
+          (map
+            (lambda ([s : DefinedSymbol])
+              (case s
+                [(defined-symbol name addr)
+                 (tuple2 name (lifted-int addr))]))
+            text-global-symbols)
+          (map
+            (lambda ([s : DefinedSymbol])
+              (case s
+                [(defined-symbol name addr)
+                 (tuple2 name (lifted-int (+ #x1000 addr)))]))
+            rdata-global-symbols)))))
+
 
   (match-define text-section-contents
     (apply-pe-relocations
       text-relocations
       symbol-addresses
       text-section-contents))
+
+  (match-define rdata-section-contents
+    (apply-pe-relocations
+      rdata-relocations
+      symbol-addresses
+      rdata-section-contents))
+
+
+  (match-define reloc-section-contents
+    (bytes-append
+      (varargs list
+        (bytes/u32-le (u32 #x2000))
+        (bytes/u32-le (u32 #x000c))
+        (bytes/u32-le (u32 #xa000)))))
+
 
 
   (match-define header-size #x400)
@@ -574,24 +622,24 @@
 
   (match-define rdata-virt-addr
                 (round-up (+ text-virt-addr text-virt-size) section-alignment))
-  (match-define rdata-virt-size #x744)
+  (match-define rdata-virt-size (bytes-length rdata-section-contents))
   (match-define rdata-file-offset (+ text-file-offset text-file-size))
   (match-define rdata-file-size (round-up rdata-virt-size file-alignment))
 
   (match-define data-virt-addr
                 (round-up (+ rdata-virt-addr rdata-virt-size) section-alignment))
-  (match-define data-virt-size #x20c094)
+  (match-define data-virt-size (bytes-length bss-section-contents))
   (match-define data-file-offset 0)
   (match-define data-file-size 0)
 
   (match-define reloc-virt-addr
                 (round-up (+ data-virt-addr data-virt-size) section-alignment))
-  (match-define reloc-virt-size #x34)
+  (match-define reloc-virt-size (bytes-length reloc-section-contents))
   (match-define reloc-file-offset (+ rdata-file-offset rdata-file-size))
   (match-define reloc-file-size (round-up reloc-virt-size file-alignment))
 
   (match-define all-data-size (+ (+ rdata-file-size data-file-size) reloc-file-size))
-  (match-define entry-point #x34b0)
+  (match-define entry-point #x1700)
   (match-define image-size (round-up (+ reloc-virt-addr reloc-virt-size) section-alignment))
 
 
@@ -600,9 +648,9 @@
       (varargs append-jl*
         (make-dos-header)
         (single-jl #"PE\x00\x00") ; Signature
-        (make-executable-coff-header)
+        (make-executable-coff-header 4)
         (make-pe-header
-          text-virt-addr
+          text-virt-addr ;; text-base
           text-file-size
           all-data-size
           entry-point
@@ -624,6 +672,12 @@
           reloc-file-offset reloc-file-size)
         (single-jl (make-bytes #x1e0))
         (single-jl text-section-contents)
+        (single-jl (make-bytes/fill (- text-file-size (bytes-length text-section-contents))
+                                    (u8 #xcc)))
+        (single-jl rdata-section-contents)
+        (single-jl (make-bytes (- rdata-file-size (bytes-length rdata-section-contents))))
+        (single-jl reloc-section-contents)
+        (single-jl (make-bytes (- reloc-file-size reloc-virt-size)))
         ))))
 
 
@@ -731,7 +785,7 @@
   (case relocations
     [(empty) section-contents]
     [(cons
-       (relocation _ offset symbol)
+       (relocation (pe-relocation-kind4) offset symbol)
        relocations)
      (begin
        (case (dict-ref symbol-addresses symbol)
@@ -739,4 +793,15 @@
           (bytes-set!/s32-le section-contents offset (s32 #xdeadface))]
          [(just (lifted-int sym-addr))
           (bytes-set!/s32-le section-contents offset (s32 (- (- sym-addr offset) 4)))])
-       (apply-pe-relocations relocations symbol-addresses section-contents))]))
+       (apply-pe-relocations relocations symbol-addresses section-contents))]
+    [(cons
+       (relocation (pe-relocation-kind1) offset symbol)
+       relocations)
+     (begin
+       (case (dict-ref symbol-addresses symbol)
+         [(nothing)
+          (bytes-set!/s32-le section-contents offset (s32 #xdeadface))]
+         [(just (lifted-int sym-addr))
+          (bytes-set!/u64-le section-contents offset (u64 sym-addr))])
+       (apply-pe-relocations relocations symbol-addresses section-contents))]
+    ))

@@ -12,14 +12,17 @@
 }
 (export
   (#:types PeRelocationKind ParsedPe)
-  (#:values parse-pe parsed-pe-text-section)
-  (#:patterns parsed-pe))
+  (#:values parse-pe parsed-pe-text-section parsed-pe-rdata-section
+            parsed-pe-bss-section)
+  (#:patterns parsed-pe  pe-relocation-kind1 pe-relocation-kind4))
 (types
   (define-type ParsedPe
     (parsed-pe
       [text-section : (ProgramSection PeRelocationKind)]
-      [const-section : (ProgramSection PeRelocationKind)]))
+      [rdata-section : (ProgramSection PeRelocationKind)]
+      [bss-section : (ProgramSection PeRelocationKind)]))
   (define-type PeRelocationKind
+    (pe-relocation-kind1)
     (pe-relocation-kind4)))
 
 
@@ -38,27 +41,65 @@
     [(cons _ (cons _ _))
      (left #"Too many text sections")]
     [(cons text-section (empty))
-     (match-define (section text-section-number _ text-section-contents
-                            text-relocation-entries) text-section)
+     (match-define text-program-section (section->program-section text-section symbols))
 
-     (match-define text-symbols
-       (filter-map
-         (lambda ([sym : SymbolTableEntry]) : (Maybe DefinedSymbol)
-           (match-define (symbol-table-entry _ name value sym-section-number storage-class) sym)
-           (if (and (= sym-section-number text-section-number)
-                    (= storage-class 2))
-               (just (defined-symbol name value))
-               (nothing)))
-         symbols))
+     (match-define rdata-program-section
+       (combine-sections
+         (stable-sort
+           (map (lambda ([sect : Section]) (section->program-section sect symbols))
+                (reverse (list-multi-dict-ref/empty section-dict #".rdata")))
+           (lambda ([sect1 : (ProgramSection PeRelocationKind)]
+                    [sect2 : (ProgramSection PeRelocationKind)])
+             (match-define (program-section (aligned-bytes _ align1) _ _ _) sect1)
+             (match-define (program-section (aligned-bytes _ align2) _ _ _) sect2)
+             (> align1 align2)))))
 
-     (match-define text-relocations
-       (map
-         (lambda ([reloc : RelocationEntry])
-           (match-define (relocation-entry addr sym _) reloc)
-           (relocation (pe-relocation-kind4) addr sym))
-         text-relocation-entries))
+     (match-define bss-program-section
+       (combine-sections
+         (stable-sort
+           (map (lambda ([sect : Section]) (section->program-section sect symbols))
+                (reverse (list-multi-dict-ref/empty section-dict #".bss")))
+           (lambda ([sect1 : (ProgramSection PeRelocationKind)]
+                    [sect2 : (ProgramSection PeRelocationKind)])
+             (match-define (program-section (aligned-bytes _ align1) _ _ _) sect1)
+             (match-define (program-section (aligned-bytes _ align2) _ _ _) sect2)
+             (> align1 align2)))))
+
 
      (right (parsed-pe
-              (program-section (aligned-bytes text-section-contents 4)
-                               text-relocations text-symbols (empty))
-              (program-section (aligned-bytes #"" 3) (empty) (empty) (empty))))]))
+              text-program-section
+              rdata-program-section
+              bss-program-section))]))
+
+(define (section->program-section [sect : Section] [symbols : (List SymbolTableEntry)])
+  : (ProgramSection PeRelocationKind)
+  (match-define (section section-number _ section-contents
+                         relocation-entries) sect)
+
+  (match-define section-symbols
+    (filter-map
+      (lambda ([sym : SymbolTableEntry]) : (Maybe DefinedSymbol)
+        (match-define (symbol-table-entry _ name value sym-section-number storage-class) sym)
+        (if (and (= sym-section-number section-number)
+                 (= storage-class 2))
+            (just (defined-symbol name value))
+            (nothing)))
+      symbols))
+
+  (match-define relocations
+    (map
+      (lambda ([reloc : RelocationEntry])
+        (match-define (relocation-entry addr sym int-kind) reloc)
+        (match-define kind : PeRelocationKind
+          (case int-kind
+            [1 (pe-relocation-kind1)]
+            [4 (pe-relocation-kind4)]
+            [_ (panic #"Unknown relocation kind")]))
+        (relocation kind addr sym))
+      relocation-entries))
+
+  (program-section
+    section-contents
+    relocations
+    section-symbols
+    (empty)))
