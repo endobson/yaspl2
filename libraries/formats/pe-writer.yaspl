@@ -562,7 +562,6 @@
 
   (match-define image-base #x180000000)
 
-
   (match-define symbol-addresses : (Dict Bytes LiftedInt)
     (dict-add-all
       (make-dict bytes-cmp)
@@ -578,13 +577,13 @@
             (lambda ([s : DefinedSymbol])
               (case s
                 [(defined-symbol name addr)
-                 (tuple2 name (lifted-int addr))]))
+                 (tuple2 name (lifted-int (+ #x1000 addr)))]))
             text-global-symbols)
           (map
             (lambda ([s : DefinedSymbol])
               (case s
                 [(defined-symbol name addr)
-                 (tuple2 name (lifted-int (+ #x1000 addr)))]))
+                 (tuple2 name (lifted-int (+ #x2000 addr)))]))
             rdata-global-symbols)))))
 
 
@@ -592,12 +591,14 @@
     (apply-pe-relocations
       text-relocations
       symbol-addresses
+      #x1000
       text-section-contents))
 
   (match-define rdata-section-contents
     (apply-pe-relocations
       rdata-relocations
       symbol-addresses
+      #x2000
       rdata-section-contents))
 
 
@@ -607,7 +608,6 @@
         (bytes/u32-le (u32 #x2000))
         (bytes/u32-le (u32 #x000c))
         (bytes/u32-le (u32 #xa000)))))
-
 
 
   (match-define header-size #x400)
@@ -639,8 +639,11 @@
   (match-define reloc-file-size (round-up reloc-virt-size file-alignment))
 
   (match-define all-data-size (+ (+ rdata-file-size data-file-size) reloc-file-size))
-  (match-define entry-point #x1700)
   (match-define image-size (round-up (+ reloc-virt-addr reloc-virt-size) section-alignment))
+  (match-define entry-point
+    (case (dict-ref symbol-addresses #"efi_main")
+      [(nothing) 0]
+      [(just (lifted-int v)) v]))
 
 
   (bytes-append
@@ -780,6 +783,7 @@
 
 (define (apply-pe-relocations [relocations : (List (Relocation PeRelocationKind))]
                               [symbol-addresses : (Dict Bytes LiftedInt)]
+                              [base-address : Int]
                               [section-contents : Bytes])
   : Bytes
   (case relocations
@@ -792,8 +796,9 @@
          [(nothing)
           (bytes-set!/s32-le section-contents offset (s32 #xdeadface))]
          [(just (lifted-int sym-addr))
-          (bytes-set!/s32-le section-contents offset (s32 (- (- sym-addr offset) 4)))])
-       (apply-pe-relocations relocations symbol-addresses section-contents))]
+          (match-define offset-addr (+ base-address offset))
+          (bytes-set!/s32-le section-contents offset (s32 (- (- sym-addr offset-addr) 4)))])
+       (apply-pe-relocations relocations symbol-addresses base-address section-contents))]
     [(cons
        (relocation (pe-relocation-kind1) offset symbol)
        relocations)
@@ -803,5 +808,5 @@
           (bytes-set!/s32-le section-contents offset (s32 #xdeadface))]
          [(just (lifted-int sym-addr))
           (bytes-set!/u64-le section-contents offset (u64 sym-addr))])
-       (apply-pe-relocations relocations symbol-addresses section-contents))]
+       (apply-pe-relocations relocations symbol-addresses base-address section-contents))]
     ))
