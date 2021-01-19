@@ -11,7 +11,8 @@
 }
 (export
   (#:types PeFile CoffHeader SymbolTableEntry SectionHeader Section RelocationEntry)
-  (#:values read-pe section-header-name section-header-raw-data-size)
+  (#:values read-pe section-header-name section-header-raw-data-size
+            section-name)
   (#:patterns pe-file coff-header symbol-table-entry section-header
               section relocation-entry))
 (types
@@ -56,7 +57,9 @@
 
   (define-type Section
     (section
+      [section-number : Int]
       [name : Bytes]
+      [contents : Bytes]
       [relocations : (List RelocationEntry)]))
   )
 
@@ -79,9 +82,9 @@
           [(left v) (left v)]
           [(right sym-table)
            (match-define sections
-             (map
-               (lambda ([header : SectionHeader])
-                 (parse-section header sym-table raw-contents))
+             (map/indexed
+               (lambda ([header : SectionHeader] [index : Int])
+                 (parse-section (+ index 1) header sym-table raw-contents))
                section-headers))
            (right (pe-file coff section-headers sym-table sections raw-contents))])])]))
 
@@ -146,17 +149,20 @@
       )))
 
 (define (parse-section
+          [index : Int]
           [section-header : SectionHeader]
           [sym-table : (List SymbolTableEntry)]
           [contents : Bytes]) : Section
-  (match-define (section-header name _ _ _ _ relocation-offset num-relocations _) section-header)
+  (match-define (section-header name _ _ data-offset data-size relocation-offset num-relocations _) section-header)
 
+  (match-define section-contents
+    (subbytes contents data-offset (+ data-offset data-size)))
   (match-define relocations
     (build-list num-relocations
       (lambda ([index : Int])
         (parse-relocation-entry contents (+ relocation-offset (* index 10)) sym-table))))
 
-  (section name relocations))
+  (section index name section-contents relocations))
 
 (define (parse-relocation-entry [contents : Bytes] [offset : Int]
                                 [sym-table : (List SymbolTableEntry)]) : RelocationEntry

@@ -6,41 +6,59 @@
   (formats pe)
   (list)
   (list-multi-dict)
+  (maybe)
   (prim)
   (structured-native-code)
 }
 (export
   (#:types PeRelocationKind ParsedPe)
-  (#:values parse-pe)
+  (#:values parse-pe parsed-pe-text-section)
   (#:patterns parsed-pe))
 (types
   (define-type ParsedPe
     (parsed-pe
       [text-section : (ProgramSection PeRelocationKind)]
       [const-section : (ProgramSection PeRelocationKind)]))
-  (define-type PeRelocationKind))
+  (define-type PeRelocationKind
+    (pe-relocation-kind4)))
 
 
 (define (parse-pe [pe : PeFile]) : (Either Bytes ParsedPe)
-  (match-define (pe-file _coff-header section-headers _symbols _sections raw-contents) pe)
+  (match-define (pe-file _coff-header _section-headers symbols sections _raw-contents) pe)
 
-  (match-define section-headers-dict : (ListMultiDict Bytes SectionHeader)
+  (match-define section-dict : (ListMultiDict Bytes Section)
     (foldl
-      (lambda ([sect : SectionHeader] [acc : (ListMultiDict Bytes SectionHeader)])
-        (list-multi-dict-add acc (section-header-name sect) sect))
-      section-headers
-      (ann (ListMultiDict Bytes SectionHeader) (make-list-multi-dict bytes-cmp))))
+      (lambda ([sect : Section] [acc : (ListMultiDict Bytes Section)])
+        (list-multi-dict-add acc (section-name sect) sect))
+      sections
+      (ann (ListMultiDict Bytes Section) (make-list-multi-dict bytes-cmp))))
 
-  (case (list-multi-dict-ref/empty section-headers-dict #".text")
+  (case (list-multi-dict-ref/empty section-dict #".text")
     [(empty) (left #"No text section")]
     [(cons _ (cons _ _))
      (left #"Too many text sections")]
-    [(cons text-section-header (empty))
-     (match-define (section-header _ _ _ data-ptr data-size _ _ _)
-       text-section-header)
-     (match-define text-section-contents
-       (subbytes raw-contents data-ptr (+ data-ptr data-size)))
+    [(cons text-section (empty))
+     (match-define (section text-section-number _ text-section-contents
+                            text-relocation-entries) text-section)
+
+     (match-define text-symbols
+       (filter-map
+         (lambda ([sym : SymbolTableEntry]) : (Maybe DefinedSymbol)
+           (match-define (symbol-table-entry _ name value sym-section-number storage-class) sym)
+           (if (and (= sym-section-number text-section-number)
+                    (= storage-class 2))
+               (just (defined-symbol name value))
+               (nothing)))
+         symbols))
+
+     (match-define text-relocations
+       (map
+         (lambda ([reloc : RelocationEntry])
+           (match-define (relocation-entry addr sym _) reloc)
+           (relocation (pe-relocation-kind4) addr sym))
+         text-relocation-entries))
 
      (right (parsed-pe
-              (program-section (aligned-bytes text-section-contents 4) (empty) (empty) (empty))
+              (program-section (aligned-bytes text-section-contents 4)
+                               text-relocations text-symbols (empty))
               (program-section (aligned-bytes #"" 3) (empty) (empty) (empty))))]))

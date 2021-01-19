@@ -536,15 +536,30 @@
 
 (define (serialize-pe-executable [pe-files : (List ParsedPe)]) : Bytes
 
-  (match-define (aligned-bytes text-section-contents _text-section-alignment)
-    (aligned-bytes-append
+  (match-define
+    (program-section
+      (aligned-bytes text-section-contents _text-section-alignment)
+      text-relocations
+      text-global-symbols
+      _text-local-symbols)
+    (combine-sections (map parsed-pe-text-section pe-files)))
+
+
+  (match-define symbol-addresses : (Dict Bytes LiftedInt)
+    (dict-add-all
+      (make-dict bytes-cmp)
       (map
-        (lambda ([pe : ParsedPe])
-          (match-define (parsed-pe text-section _const-section) pe)
-          (match-define (program-section text-contents _ _ _)
-                        text-section)
-          text-contents)
-        pe-files)))
+        (lambda ([s : DefinedSymbol])
+          (case s
+            [(defined-symbol name addr)
+             (tuple2 name (lifted-int addr))]))
+        text-global-symbols)))
+
+  (match-define text-section-contents
+    (apply-pe-relocations
+      text-relocations
+      symbol-addresses
+      text-section-contents))
 
 
   (match-define header-size #x400)
@@ -707,3 +722,21 @@
     (bytes/u64-le (u64 0))        ; CLR runtime header
     (bytes/u64-le (u64 0))        ; Reserved
     ))
+
+
+(define (apply-pe-relocations [relocations : (List (Relocation PeRelocationKind))]
+                              [symbol-addresses : (Dict Bytes LiftedInt)]
+                              [section-contents : Bytes])
+  : Bytes
+  (case relocations
+    [(empty) section-contents]
+    [(cons
+       (relocation _ offset symbol)
+       relocations)
+     (begin
+       (case (dict-ref symbol-addresses symbol)
+         [(nothing)
+          (bytes-set!/s32-le section-contents offset (s32 #xdeadface))]
+         [(just (lifted-int sym-addr))
+          (bytes-set!/s32-le section-contents offset (s32 (- (- sym-addr offset) 4)))])
+       (apply-pe-relocations relocations symbol-addresses section-contents))]))

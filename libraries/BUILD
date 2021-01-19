@@ -473,6 +473,7 @@ yaspl_bootstrap_library(
         "//libraries/data:either",
         "//libraries/data:list",
         "//libraries/data:list-multi-dict",
+        "//libraries/data:maybe",
         "//libraries/formats:pe",
     ],
 )
