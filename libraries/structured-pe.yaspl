@@ -13,13 +13,14 @@
 (export
   (#:types PeRelocationKind ParsedPe)
   (#:values parse-pe parsed-pe-text-section parsed-pe-rdata-section
-            parsed-pe-bss-section)
+            parsed-pe-bss-section parsed-pe-rdata-comdat-sections)
   (#:patterns parsed-pe  pe-relocation-kind1 pe-relocation-kind4))
 (types
   (define-type ParsedPe
     (parsed-pe
       [text-section : (ProgramSection PeRelocationKind)]
       [rdata-section : (ProgramSection PeRelocationKind)]
+      [rdata-comdat-sections : (List (ProgramSection PeRelocationKind))]
       [bss-section : (ProgramSection PeRelocationKind)]))
   (define-type PeRelocationKind
     (pe-relocation-kind1)
@@ -46,13 +47,32 @@
      (match-define rdata-program-section
        (combine-sections
          (stable-sort
-           (map (lambda ([sect : Section]) (section->program-section sect symbols))
-                (reverse (list-multi-dict-ref/empty section-dict #".rdata")))
+           (filter-map
+             (lambda ([sect : Section]) : (Maybe (ProgramSection PeRelocationKind))
+               (if (= 0 (bitwise-and #x00001000 (section-characteristics sect)))
+                   (just (section->program-section sect symbols))
+                   (nothing)))
+             (reverse (list-multi-dict-ref/empty section-dict #".rdata")))
            (lambda ([sect1 : (ProgramSection PeRelocationKind)]
                     [sect2 : (ProgramSection PeRelocationKind)])
              (match-define (program-section (aligned-bytes _ align1) _ _ _) sect1)
              (match-define (program-section (aligned-bytes _ align2) _ _ _) sect2)
              (> align1 align2)))))
+
+     (match-define rdata-comdat-sections
+       (stable-sort
+         (filter-map
+           (lambda ([sect : Section]) : (Maybe (ProgramSection PeRelocationKind))
+             (if (= 0 (bitwise-and #x00001000 (section-characteristics sect)))
+                 (nothing)
+                 (just (section->program-section sect symbols))))
+           (reverse (list-multi-dict-ref/empty section-dict #".rdata")))
+         (lambda ([sect1 : (ProgramSection PeRelocationKind)]
+                  [sect2 : (ProgramSection PeRelocationKind)])
+           (match-define (program-section (aligned-bytes _ align1) _ _ _) sect1)
+           (match-define (program-section (aligned-bytes _ align2) _ _ _) sect2)
+           (> align1 align2))))
+
 
      (match-define bss-program-section
        (combine-sections
@@ -69,12 +89,13 @@
      (right (parsed-pe
               text-program-section
               rdata-program-section
+              rdata-comdat-sections
               bss-program-section))]))
 
 (define (section->program-section [sect : Section] [symbols : (List SymbolTableEntry)])
   : (ProgramSection PeRelocationKind)
   (match-define (section section-number _ section-contents
-                         relocation-entries) sect)
+                         _ relocation-entries) sect)
 
   (match-define section-symbols
     (filter-map
