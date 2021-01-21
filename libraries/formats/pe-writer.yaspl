@@ -544,6 +544,17 @@
       _text-local-symbols)
     (combine-sections (map parsed-pe-text-section pe-files)))
 
+  ;; Sort the rdata-comdat sections to match the clang order.
+  (match-define rdata-comdat-sections
+    (stable-sort
+      (append* (map parsed-pe-rdata-comdat-sections pe-files))
+      (lambda ([sect1 : (ProgramSection PeRelocationKind)]
+               [sect2 : (ProgramSection PeRelocationKind)])
+        (match-define (program-section (aligned-bytes b1 _) _ _ _) sect1)
+        (match-define (program-section (aligned-bytes b2 _) _ _ _) sect2)
+        (bytes< (bytes-reverse b2) (bytes-reverse b1)))))
+
+
   (match-define
     (program-section
       (aligned-bytes rdata-section-contents _rdata-section-alignment)
@@ -553,7 +564,7 @@
     (combine-sections/fill
       (append
         (map parsed-pe-rdata-section pe-files)
-        (append* (map parsed-pe-rdata-comdat-sections pe-files)))
+        rdata-comdat-sections)
       (u8 #x00)))
 
   (match-define
@@ -565,54 +576,6 @@
     (combine-sections (map parsed-pe-bss-section pe-files)))
 
   (match-define image-base #x180000000)
-
-  (match-define symbol-addresses : (Dict Bytes LiftedInt)
-    (dict-add-all
-      (make-dict bytes-cmp)
-      (append
-        (map
-          (lambda ([s : DefinedSymbol])
-            (case s
-              [(defined-symbol name addr)
-               (tuple2 name (lifted-int (+ image-base (+ #x3000 addr))))]))
-          bss-global-symbols)
-        (append
-          (map
-            (lambda ([s : DefinedSymbol])
-              (case s
-                [(defined-symbol name addr)
-                 (tuple2 name (lifted-int (+ image-base (+ #x1000 addr))))]))
-            text-global-symbols)
-          (map
-            (lambda ([s : DefinedSymbol])
-              (case s
-                [(defined-symbol name addr)
-                 (tuple2 name (lifted-int (+ image-base (+ #x2000 addr))))]))
-            rdata-global-symbols)))))
-
-
-  (match-define text-section-contents
-    (apply-pe-relocations
-      text-relocations
-      symbol-addresses
-      (+ image-base #x1000)
-      text-section-contents))
-
-  (match-define rdata-section-contents
-    (apply-pe-relocations
-      rdata-relocations
-      symbol-addresses
-      (+ image-base #x2000)
-      rdata-section-contents))
-
-
-  (match-define reloc-section-contents
-    (bytes-append
-      (varargs list
-        (bytes/u32-le (u32 #x2000))
-        (bytes/u32-le (u32 #x000c))
-        (bytes/u32-le (u32 #xa008a000)))))
-
 
   (match-define header-size #x400)
   (match-define section-alignment #x1000)
@@ -636,6 +599,34 @@
   (match-define data-file-offset 0)
   (match-define data-file-size 0)
 
+  (match-define base-relocs : (List Bytes)
+    (map
+      (lambda ([v : LiftedInt])
+        (match-define (lifted-int offset) v)
+        (bytes/u16-le (u16 (bitwise-ior #xa000 offset))))
+      (sort
+        (filter-map
+          (lambda ([reloc : (Relocation PeRelocationKind)]) : (Maybe LiftedInt)
+            (match-define (relocation type offset _) reloc)
+            (case type
+              [(pe-relocation-kind1)
+               (just (lifted-int offset))]
+              [(pe-relocation-kind4)
+               (nothing)]))
+          rdata-relocations)
+        (lambda ([a : LiftedInt] [b : LiftedInt])
+          (match-define (lifted-int a) a)
+          (match-define (lifted-int b) b)
+          (< a b)))))
+
+  (match-define reloc-section-contents
+    (bytes-append
+      (append
+        (varargs list
+          (bytes/u32-le (u32 rdata-virt-addr))
+          (bytes/u32-le (u32 (+ 8 (bytes-length (bytes-append base-relocs))))))
+        base-relocs)))
+
   (match-define reloc-virt-addr
                 (round-up (+ data-virt-addr data-virt-size) section-alignment))
   (match-define reloc-virt-size (bytes-length reloc-section-contents))
@@ -644,6 +635,47 @@
 
   (match-define all-data-size (+ (+ rdata-file-size data-file-size) reloc-file-size))
   (match-define image-size (round-up (+ reloc-virt-addr reloc-virt-size) section-alignment))
+
+  (match-define symbol-addresses : (Dict Bytes LiftedInt)
+    (dict-add-all
+      (make-dict bytes-cmp)
+      (append
+        (map
+          (lambda ([s : DefinedSymbol])
+            (case s
+              [(defined-symbol name addr)
+               (tuple2 name (lifted-int (+ image-base (+ data-virt-addr addr))))]))
+          bss-global-symbols)
+        (append
+          (map
+            (lambda ([s : DefinedSymbol])
+              (case s
+                [(defined-symbol name addr)
+                 (tuple2 name (lifted-int (+ image-base (+ text-virt-addr addr))))]))
+            text-global-symbols)
+          (map
+            (lambda ([s : DefinedSymbol])
+              (case s
+                [(defined-symbol name addr)
+                 (tuple2 name (lifted-int (+ image-base (+ rdata-virt-addr addr))))]))
+            rdata-global-symbols)))))
+
+
+  (match-define text-section-contents
+    (apply-pe-relocations
+      text-relocations
+      symbol-addresses
+      (+ image-base text-virt-addr)
+      text-section-contents))
+
+  (match-define rdata-section-contents
+    (apply-pe-relocations
+      rdata-relocations
+      symbol-addresses
+      (+ image-base rdata-virt-addr)
+      rdata-section-contents))
+
+
   (match-define entry-point
     (case (dict-ref symbol-addresses #"efi_main")
       [(nothing) 0]
@@ -812,7 +844,7 @@
      (begin
        (case (dict-ref symbol-addresses symbol)
          [(nothing)
-          (bytes-set!/s32-le section-contents offset (s32 #xdeadface))]
+          (bytes-set!/s32-le section-contents offset (s32 #xdeadcafe))]
          [(just (lifted-int sym-addr))
           (bytes-set!/u64-le section-contents offset (u64 sym-addr))])
        (apply-pe-relocations relocations symbol-addresses base-address section-contents))]
