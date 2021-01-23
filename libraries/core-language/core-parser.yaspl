@@ -41,7 +41,9 @@
     (non-term/E1)
     (non-term/E2)
     (non-term/Arguments)
-    (non-term/NonEmptyArguments))
+    (non-term/NonEmptyArguments)
+    (non-term/StructFields)
+    (non-term/StructField))
   (define-type CoreTerm
     (term/punctuation [p : Punctuation])
     (term/language-keyword [v : Bytes])
@@ -61,6 +63,8 @@
     (form/expression [e : Expression])
     (form/expressions [es : (List Expression)])
     (form/type [t : PreType])
+    (form/struct-fields [fs : (List StructField)])
+    (form/struct-field [f : StructField])
 
     (form/token [t : Token])))
 
@@ -115,6 +119,8 @@
         [(non-term/E2) 15]
         [(non-term/Arguments) 16]
         [(non-term/NonEmptyArguments) 17]
+        [(non-term/StructFields) 18]
+        [(non-term/StructField) 19]
         )))
   (int-cmp (convert a) (convert b)))
 
@@ -137,6 +143,8 @@
     [(non-term/E2) #"E2"]
     [(non-term/Arguments) #"Arguments"]
     [(non-term/NonEmptyArguments) #"NonEmptyArguments"]
+    [(non-term/StructFields) #"StructFields"]
+    [(non-term/StructField) #"StructField"]
     ))
 
 (define (core-term->bytes [t : CoreTerm]) : Bytes
@@ -166,6 +174,7 @@
      (case k
        [#"module" (right (term/language-keyword k))]
        [#"define_function" (right (term/language-keyword k))]
+       [#"define_struct" (right (term/language-keyword k))]
        [#"declare_external" (right (term/language-keyword k))]
        [_ (left #"Bad keyword token")])]))
 
@@ -187,6 +196,8 @@
   (match-define E2* (non-term/E2))
   (match-define Arguments* (non-term/Arguments))
   (match-define NonEmptyArguments* (non-term/NonEmptyArguments))
+  (match-define StructFields* (non-term/StructFields))
+  (match-define StructField* (non-term/StructField))
   (match-define Type* (non-term/Type))
 
   (match-define symbol/term
@@ -211,6 +222,8 @@
   (match-define E2 (symbol/non-term (non-term/E2)))
   (match-define Arguments (symbol/non-term (non-term/Arguments)))
   (match-define NonEmptyArguments (symbol/non-term (non-term/NonEmptyArguments)))
+  (match-define StructFields (symbol/non-term (non-term/StructFields)))
+  (match-define StructField (symbol/non-term (non-term/StructField)))
   (match-define Type (symbol/non-term (non-term/Type)))
 
   (match-define + (symbol/term (term/punctuation (punct/plus))))
@@ -245,6 +258,7 @@
   (match-define as (symbol/term (term/language-keyword #"as")))
   (match-define module-keyword (symbol/term (term/language-keyword #"module")))
   (match-define define-function-keyword (symbol/term (term/language-keyword #"define_function")))
+  (match-define define-struct-keyword (symbol/term (term/language-keyword #"define_struct")))
   (match-define declare-external-keyword
                 (symbol/term (term/language-keyword #"declare_external")))
 
@@ -300,6 +314,37 @@
          ;; TODO
          (right (form/definition (external-definition name)))]
         [_ (left #"Bad forms for external function")])))
+
+  (match-define struct-definition*
+    (lambda ([forms : (List Form)]) : (Either Bytes Form)
+      (case forms
+        [(cons _keyword
+           (cons (form/token (symbol-token name))
+             (cons _brace-<
+               (cons (form/struct-fields fields)
+                 (cons _>-brace
+                       (empty))))))
+         (right (form/definition (struct-definition name fields)))]
+        [_ (left #"Bad forms for struct-definition")])))
+
+  (match-define struct-fields*
+    (lambda ([forms : (List Form)]) : (Either Bytes Form)
+      (case forms
+        [(empty)
+         (right (form/struct-fields (empty)))]
+        [(cons (form/struct-field f) (cons (form/struct-fields fs) (empty)))
+         (right (form/struct-fields (cons f fs)))]
+        [_ (left #"Bad forms for struct-fields")])))
+
+  (match-define struct-field*
+    (lambda ([forms : (List Form)]) : (Either Bytes Form)
+      (case forms
+        [(cons (form/type type)
+           (cons (form/token (symbol-token name))
+             (cons _semi-colon
+                   (empty))))
+         (right (form/struct-field (struct-field name type)))]
+        [_ (left #"Bad forms for struct-field")])))
 
 
   (match-define function-definition*
@@ -626,6 +671,9 @@
     (input-production-rule Definition*
       (varargs list declare-external-keyword id)
       external-function*)
+    (input-production-rule Definition*
+      (varargs list define-struct-keyword id brace-< StructFields >-brace)
+      struct-definition*)
     (input-production-rule ModName* (empty) mod-name*)
     (input-production-rule ModName* (varargs list id ModName) mod-name*)
     (input-production-rule Parameters* (empty) parameters*)
@@ -702,24 +750,17 @@
     (input-production-rule Type* (varargs list Type bracket-< >-bracket) array-type*)
     (input-production-rule Type* (varargs list Type *) pointer-type*)
 
-    ;(input-production-rule E* (varargs list id) var*)
-    ;(input-production-rule E* (varargs list num) num*)
 
-    ;(input-production-rule E* (varargs list E + T) bin-op*)
-    ;(input-production-rule E* (varargs list E - T) bin-op*)
-    ;(input-production-rule E* (varargs list T) identity*)
-    ;(input-production-rule T* (varargs list T * F) bin-op*)
-    ;(input-production-rule T* (varargs list T / F) bin-op*)
-    ;(input-production-rule T* (varargs list F) identity*)
-    ;(input-production-rule F* (varargs list paren-< E >-paren) parens*)
-    ;(input-production-rule F* (varargs list id) var*)
-    ;(input-production-rule F* (varargs list num) num*)
-    ;(input-production-rule S* (varargs list id := E !) assign*)
-    ;(input-production-rule S* (varargs list Type id := E !) local-variable*)
-    ;(input-production-rule S* (varargs list while paren-< E >-paren brace-< Ss >-brace) while*)
-    ;(input-production-rule Ss* (empty) statements*)
-    ;(input-production-rule Ss* (varargs list S Ss) statements*)
-    ;(input-production-rule Type* (varargs list id) var-type*)
+    ;; StructFields
+    (input-production-rule StructFields*
+      (varargs list StructField StructFields)
+      struct-fields*)
+    (input-production-rule StructFields*
+      (empty)
+      struct-fields*)
+    (input-production-rule StructField*
+      (varargs list Type id semi-colon)
+      struct-field*)
 
   ))
 
