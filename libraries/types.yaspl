@@ -15,16 +15,21 @@
 }
 (export
   (#:types Type Kind)
-  (#:values star-kind prim64-kind fun-kind kind=? serialize-kind
+  (#:values star-kind prim-kind type-size8 type-size16 type-size32 type-size64 fun-kind kind=? serialize-kind
             abstract-type var-type fun-type type-constructor type=? serialize-type
             kind->sexp sexp->kind type->sexp sexp->type type-cmp print-type type->kind
             substitute-types check-fresh)
   (#:patterns type-constructor fun-type abstract-type var-type
-              star-kind prim64-kind fun-kind))
+              star-kind prim-kind type-size8 type-size16 type-size32 type-size64 fun-kind))
 (types
+  (define-type TypeSize
+    (type-size8)
+    (type-size16)
+    (type-size32)
+    (type-size64))
   (define-type Kind
     (star-kind)
-    (prim64-kind)
+    (prim-kind [s : TypeSize])
     (fun-kind [args : (List Kind)] [result : Kind]))
   (define-type Type
     (fun-type [type-vars : (List Bytes)] [args : (List Type)] [result : Type])
@@ -32,24 +37,47 @@
     (abstract-type [module-name : ModName] [name : Bytes] [args : (List Type)] [kind : Kind])
     (type-constructor [module-name : ModName] [name : Bytes] [args : (List Kind)])))
 
+(define (type-size=? [s1 : TypeSize] [s2 : TypeSize]) : Boolean
+  (case (tuple2 s1 s2)
+    [(tuple2 (type-size8) (type-size8)) #t]
+    [(tuple2 (type-size16) (type-size16)) #t]
+    [(tuple2 (type-size32) (type-size32)) #t]
+    [(tuple2 (type-size64) (type-size64)) #t]
+    [_ #f]))
+
 (define (kind=? [k1 : Kind] [k2 : Kind]) : Boolean
   (case (tuple2 k1 k2)
     [(tuple2 (star-kind) (star-kind)) #t]
-    [(tuple2 (prim64-kind) (prim64-kind)) #t]
+    [(tuple2 (prim-kind s1) (prim-kind s2))
+     (type-size=? s1 s2)]
     [(tuple2 (fun-kind args1 result1) (fun-kind args2 result2))
      (if (kind=? result1 result2)
          ((list=? kind=?) args1 args2)
          #f)]
     [_ #f]))
 
+(define (type-size-cmp [s1 : TypeSize] [s2 : TypeSize]) : Ordering
+  (case (tuple2 s1 s2)
+    [(tuple2 (type-size8) (type-size8)) (equal-to)]
+    [(tuple2 (type-size8) _) (less-than)]
+    [(tuple2 _ (type-size8)) (greater-than)]
+    [(tuple2 (type-size16) (type-size16)) (equal-to)]
+    [(tuple2 (type-size16) _) (less-than)]
+    [(tuple2 _ (type-size16)) (greater-than)]
+    [(tuple2 (type-size32) (type-size32)) (equal-to)]
+    [(tuple2 (type-size32) _) (less-than)]
+    [(tuple2 _ (type-size32)) (greater-than)]
+    [(tuple2 (type-size64) (type-size64)) (equal-to)]))
+
 (define (kind-cmp [k1 : Kind] [k2 : Kind]) : Ordering
   (case (tuple2 k1 k2)
     [(tuple2 (star-kind) (star-kind)) (equal-to)]
     [(tuple2 (star-kind) _) (less-than)]
     [(tuple2 _ (star-kind)) (greater-than)]
-    [(tuple2 (prim64-kind) (prim64-kind)) (equal-to)]
-    [(tuple2 (prim64-kind) _) (less-than)]
-    [(tuple2 _ (prim64-kind)) (greater-than)]
+    [(tuple2 (prim-kind s1) (prim-kind s2))
+     (type-size-cmp s1 s2)]
+    [(tuple2 (prim-kind _) _) (less-than)]
+    [(tuple2 _ (prim-kind _)) (greater-than)]
     [(tuple2 (fun-kind args1 result1) (fun-kind args2 result2))
      (case ((list-cmp kind-cmp) args1 args2)
        [(equal-to)
@@ -216,7 +244,10 @@
 (define (kind->sexp [kind : Kind]) : Sexp/P
   (case kind
     [(star-kind) (symbol-sexp/p #"*")]
-    [(prim64-kind) (symbol-sexp/p #"^64")]
+    [(prim-kind (type-size8)) (symbol-sexp/p #"^8")]
+    [(prim-kind (type-size16)) (symbol-sexp/p #"^16")]
+    [(prim-kind (type-size32)) (symbol-sexp/p #"^32")]
+    [(prim-kind (type-size64)) (symbol-sexp/p #"^64")]
     [(fun-kind args result)
      (node/p (varargs list (node/p (map kind->sexp args))
                            (symbol-sexp/p #"->")
@@ -225,7 +256,10 @@
 (define (sexp->kind [sexp : Sexp]) : (Maybe Kind)
   (case sexp
     [(symbol-sexp #"*" _) (just (star-kind))]
-    [(symbol-sexp #"^64" _) (just (prim64-kind))]
+    [(symbol-sexp #"^8" _) (just (prim-kind (type-size8)))]
+    [(symbol-sexp #"^16" _) (just (prim-kind (type-size16)))]
+    [(symbol-sexp #"^32" _) (just (prim-kind (type-size32)))]
+    [(symbol-sexp #"^64" _) (just (prim-kind (type-size64)))]
     [(node (cons (node args _) (cons (symbol-sexp #"->" _) (cons result (empty)))) _)
      (case (extract-justs (map sexp->kind args))
        [(nothing) (nothing)]
