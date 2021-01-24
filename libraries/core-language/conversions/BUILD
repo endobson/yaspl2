@@ -103,5 +103,6 @@ yaspl_library(
         "//libraries/data:either",
         "//libraries/data:list",
         "//libraries/data:set",
+        "//libraries/data:tuples",
     ],
 )

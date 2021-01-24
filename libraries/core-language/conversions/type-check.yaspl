@@ -6,19 +6,54 @@
   (list)
   (prim)
   (set)
+  (tuples)
 }
 (export
   (#:types)
   (#:values type-check)
   (#:patterns))
-(types)
+(types
+  (define-type Environment
+    (environment)))
 
 (define (type-check [mod : Module]) : (Either Bytes Module)
-  (match-define (module _name _imports functions) mod)
+  (match-define (module name imports functions) mod)
 
   (match-define function-names
     (set-add-all (make-set bytes-cmp) (map function-definition-name functions)))
 
   (if (not (= (set-count function-names) (length functions)))
       (left #"Duplicate function name")
-      (right mod)))
+      (case (map/failure/env type-check/function functions (environment))
+        [(left v) (left v)]
+        [(right functions)
+         (right (module name imports functions))])))
+
+
+
+(define (type-check/function [f : FunctionDefinition] [env : Environment])
+  : (Either Bytes FunctionDefinition)
+  (match-define (function-definition name parameters body) f)
+
+  (case (type-check/statements body env)
+    [(left v) (left v)]
+    [(right body)
+     (right (function-definition name parameters body))]))
+
+
+(define (type-check/statements [ss : (List Statement)] [env : Environment])
+  : (Either Bytes (List Statement))
+  (case ss
+    [(empty) (right (empty))]
+    [(cons s ss)
+     (case (type-check/statement s env)
+       [(left v) (left v)]
+       [(right (tuple2 s env))
+        (case (type-check/statements ss env)
+          [(left v) (left v)]
+          [(right ss)
+           (right (cons s ss))])])]))
+
+(define (type-check/statement [s : Statement] [env : Environment])
+  : (Either Bytes (Tuple2 Statement Environment))
+  (right (tuple2 s env)))
