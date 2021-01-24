@@ -1,5 +1,6 @@
 #:module (yaspl optimize-intermediate)
 #:import {
+  (bytes)
   (dict)
   (intermediate-expression)
   (intermediate-language)
@@ -8,6 +9,8 @@
   (module-signature)
   (prim)
   (top-level-name)
+  (tuples)
+  (yaspl var)
 }
 (export
   (#:values optimize-intermediate-module))
@@ -15,7 +18,11 @@
   (define-type OptimizeEnvironment
     (optimize-environment
       [inlineable : (Dict TopLevelName InlineableFunction)]
-      [known-functions : (Dict TopLevelName TopLevelName)])))
+      [known-functions : (Dict TopLevelName TopLevelName)]
+      [locals : (Dict Var AbstractValue)]))
+  (define-type AbstractValue
+    (av-unknown)
+    (av-symbol [s : TopLevelName])))
 
 (define (make-optimize-environment [mod : Module]) : OptimizeEnvironment
   (optimize-environment
@@ -28,7 +35,8 @@
       (imports-static-info (module-imports mod))
       (add-all-known-functions
         (module-static-info mod)
-        (make-dict top-level-name-cmp)))))
+        (make-dict top-level-name-cmp)))
+    (make-dict var-cmp)))
 
 (define (add-all-inlineable-functions
           [sigs : (Dict TopLevelName TopLevelSignature)]
@@ -77,8 +85,8 @@
                                       [env : OptimizeEnvironment])
   : FunctionDefinition
   (match-define (function-definition name type args free-vars next-var body) function)
+  (match-define env (add-arguments (append args free-vars) env))
   (function-definition name type args free-vars next-var (optimize-expr body env)))
-
 
 (define (optimize-expr [expr : Expression] [env : OptimizeEnvironment]) : Expression
   (match-define recur (lambda ([e : Expression]) (optimize-expr e env)))
@@ -94,11 +102,12 @@
     [(create-closure-expr fun-name args)
      (create-closure-expr fun-name (map recur args))]
     [(call-closure-expr tail-position op args)
-     (case (expr->known-function op env)
+     (match-define op (recur op))
+     (case (abstract-value->known-function (expr->abstract-value op env) env)
        [(just fun-name)
         (recur (call-function-expr tail-position fun-name args))]
        [(nothing)
-        (call-closure-expr tail-position (recur op) (map recur args))])]
+        (call-closure-expr tail-position op (map recur args))])]
     [(call-function-expr tail-position fun-name args)
      (match-define opt-args (map recur args))
      (case (dict-ref (optimize-environment-inlineable env) fun-name)
@@ -119,7 +128,10 @@
        [(nothing)
         (call-function-expr tail-position fun-name opt-args)])]
     [(let-expr name expr body)
-     (let-expr name (recur expr) (recur body))]
+     (match-define expr (recur expr))
+     (match-define av (expr->abstract-value expr env))
+     (match-define body (optimize-expr body (add-local name av env)))
+     (let-expr name expr body)]
     [(int-case-expr expr (int-case-clause val body) (default-case-clause default))
      (int-case-expr
        (recur expr)
@@ -136,7 +148,9 @@
        (map (lambda ([v : VariantCaseClause])
               (case v
                 [(variant-case-clause info fields body)
-                 (variant-case-clause info fields (recur body))]))
+                 (match-define env
+                   (add-locals (map (lambda ([v : Var]) (tuple2 v (av-unknown))) fields) env))
+                 (variant-case-clause info fields (optimize-expr body env))]))
             clauses)
        (case default
          [(nothing) (nothing)]
@@ -169,8 +183,40 @@
     [(join-point-expr v expr body)
      (join-point-expr v (recur expr) (recur body))]))
 
-(define (expr->known-function [expr : Expression] [env : OptimizeEnvironment]) : (Maybe TopLevelName)
+(define (add-arguments [args : (List Var)] [env : OptimizeEnvironment]) : OptimizeEnvironment
+  (match-define (optimize-environment inlineable known locals) env)
+  (match-define locals
+    (dict-add-all
+      locals
+      (map
+        (lambda ([v : Var]) (tuple2 v (av-unknown)))
+        args)))
+  (optimize-environment inlineable known locals))
+
+(define (add-local [name : Var] [v : AbstractValue] [env : OptimizeEnvironment]) : OptimizeEnvironment
+  (match-define (optimize-environment inlineable known locals) env)
+  (match-define locals (dict-add locals name v))
+  (optimize-environment inlineable known locals))
+
+(define (add-locals [vars : (List (Tuple2 Var AbstractValue))] [env : OptimizeEnvironment])
+  : OptimizeEnvironment
+  (match-define (optimize-environment inlineable known locals) env)
+  (match-define locals (dict-add-all locals vars))
+  (optimize-environment inlineable known locals))
+
+
+(define (expr->abstract-value [expr : Expression] [env : OptimizeEnvironment]) : AbstractValue
   (case expr
-    [(global-var-expr v)
-     (dict-ref (optimize-environment-known-functions env) v)]
+    [(global-var-expr v) (av-symbol v)]
+    [(local-var-expr v)
+     (case (dict-ref (optimize-environment-locals env) v)
+       [(nothing) (panic (bytes-append (varargs list #"Unbound local: " (var->bytes v))))]
+       [(just av) av])]
+    [_ (av-unknown)]))
+
+(define (abstract-value->known-function [av : AbstractValue] [env : OptimizeEnvironment])
+  : (Maybe TopLevelName)
+  (case av
+    [(av-symbol s)
+     (dict-ref (optimize-environment-known-functions env) s)]
     [_ (nothing)]))
