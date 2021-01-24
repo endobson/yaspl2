@@ -83,7 +83,7 @@ yaspl_library(
     deps = [
         "//libraries:module-name",
         "//libraries:top-level-name",
-        "//libraries/core-language/languages:resolved-imports-language",
+        "//libraries/core-language/languages:resolved-types-language",
         "//libraries/core-language/languages:resolved-vars-language",
         "//libraries/data:bytes",
         "//libraries/data:dict",
@@ -98,7 +98,7 @@ yaspl_library(
     name = "type-check",
     srcs = ["type-check.yaspl"],
     deps = [
-        "//libraries/core-language/languages:resolved-imports-language",
+        "//libraries/core-language/languages:resolved-types-language",
         "//libraries/data:bytes",
         "//libraries/data:either",
         "//libraries/data:list",
