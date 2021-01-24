@@ -62,6 +62,22 @@ yaspl_library(
 )
 
 yaspl_library(
+    name = "resolve-types",
+    srcs = ["resolve-types.yaspl"],
+    deps = [
+        "//libraries:prim-types",
+        "//libraries:types",
+        "//libraries/core-language/languages:resolved-imports-language",
+        "//libraries/core-language/languages:resolved-types-language",
+        "//libraries/data:bytes",
+        "//libraries/data:dict",
+        "//libraries/data:either",
+        "//libraries/data:list",
+        "//libraries/data:maybe",
+    ],
+)
+
+yaspl_library(
     name = "resolve-vars",
     srcs = ["resolve-vars.yaspl"],
     deps = [

@@ -21,7 +21,6 @@ yaspl_library(
     ],
 )
 
-
 yaspl_library(
     name = "resolved-imports-language",
     srcs = ["resolved-imports-language.yaspl"],
@@ -30,6 +29,19 @@ yaspl_library(
         "//libraries/core-language:source-language",
         "//libraries/data:dict",
         "//libraries/data:list",
+    ],
+)
+
+yaspl_library(
+    name = "resolved-types-language",
+    srcs = ["resolved-types-language.yaspl"],
+    deps = [
+        ":resolved-imports-language",
+        "//libraries:module-name",
+        "//libraries:types",
+        "//libraries/data:dict",
+        "//libraries/data:list",
+        "//libraries/yaspl:math-operations",
     ],
 )
 

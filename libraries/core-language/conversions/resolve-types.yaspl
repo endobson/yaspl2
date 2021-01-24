@@ -1,0 +1,204 @@
+#:module (core-language conversions resolve-types)
+#:import {
+  (bytes)
+  {(core-language languages resolved-imports-language)
+    {#:types
+      [Expression ri:Expression]
+      [FunctionDefinition ri:FunctionDefinition]
+      [Module ri:Module]
+      [Parameter ri:Parameter]
+      PreType
+      [Statement ri:Statement]
+    }
+    {#:patterns
+      [array-index-expr ri:array-index-expr]
+      array-pre-type
+      [assignment-statement ri:assignment-statement]
+      [bin-op-expr ri:bin-op-expr]
+      [bytes-expr ri:bytes-expr]
+      [call-expr ri:call-expr]
+      [cast-expr ri:cast-expr]
+      [define-local-variable-statement ri:define-local-variable-statement]
+      [deref-expr ri:deref-expr]
+      [effect-statement ri:effect-statement]
+      [function-definition ri:function-definition]
+      [if-statement ri:if-statement]
+      [int-expr ri:int-expr]
+      [module ri:module]
+      [parameter ri:parameter]
+      [pointer-assignment-statement ri:pointer-assignment-statement]
+      pointer-pre-type
+      [return-statement ri:return-statement]
+      [var-expr ri:var-expr]
+      var-pre-type
+      [while-statement ri:while-statement]
+    }
+  }
+  (core-language languages resolved-types-language)
+  (dict)
+  (either)
+  (list)
+  (maybe)
+  (prim)
+  (prim-types)
+  (types)
+}
+(export
+  (#:types)
+  (#:values resolve-types)
+  (#:patterns))
+(types
+  (define-type Environment
+    (environment
+      [types : (Dict Bytes Type)])))
+
+(define (resolve-types [mod : ri:Module]) : (Either Bytes Module)
+  (match-define (ri:module mod-name imports functions) mod)
+
+  (match-define env : Environment
+    (environment
+      (dict-add
+        (make-dict bytes-cmp)
+        #"U64" (u64-type))))
+  (case (map/failure/env resolve-types/function functions env)
+    [(left v) (left v)]
+    [(right functions)
+     (right (module mod-name imports functions))]))
+
+(define (resolve-types/function [f : ri:FunctionDefinition] [env : Environment])
+  : (Either Bytes FunctionDefinition)
+  (match-define (ri:function-definition name params statements) f)
+  (case (map/failure/env resolve-types/parameter params env)
+    [(left v) (left v)]
+    [(right params)
+     (case (map/failure/env resolve-types/statement statements env)
+       [(left v) (left v)]
+       [(right statements)
+        (right (function-definition name params statements))])]))
+
+(define (resolve-types/parameter [param : ri:Parameter] [env : Environment])
+  : (Either Bytes Parameter)
+  (match-define (ri:parameter name pre-type) param)
+  (case (pre-type->type pre-type env)
+    [(left v) (left v)]
+    [(right t)
+     (right (parameter name t))]))
+
+(define (resolve-types/statement [s : ri:Statement] [env : Environment])
+  : (Either Bytes Statement)
+  (case s
+    [(ri:define-local-variable-statement v t e)
+     (case (pre-type->type t env)
+       [(left v) (left v)]
+       [(right t)
+        (case (resolve-types/expression e env)
+          [(left v) (left v)]
+          [(right e)
+           (right (define-local-variable-statement v t e))])])]
+    [(ri:return-statement e)
+     (case (resolve-types/expression e env)
+       [(left v) (left v)]
+       [(right e)
+        (right (return-statement e))])]
+    [(ri:effect-statement e)
+     (case (resolve-types/expression e env)
+       [(left v) (left v)]
+       [(right e)
+        (right (return-statement e))])]
+    [(ri:assignment-statement v e)
+     (case (resolve-types/expression e env)
+       [(left v) (left v)]
+       [(right e)
+        (right (assignment-statement v e))])]
+    [(ri:pointer-assignment-statement p e)
+     (case (resolve-types/expression p env)
+       [(left v) (left v)]
+       [(right p)
+        (case (resolve-types/expression e env)
+          [(left v) (left v)]
+          [(right e)
+           (right (pointer-assignment-statement p e))])])]
+    [(ri:while-statement e body)
+     (case (resolve-types/expression e env)
+       [(left v) (left v)]
+       [(right e)
+        (case (map/failure/env resolve-types/statement body env)
+          [(left v) (left v)]
+          [(right body)
+           (right (while-statement e body))])])]
+    [(ri:if-statement c t f)
+     (case (resolve-types/expression c env)
+       [(left v) (left v)]
+       [(right c)
+        (case (map/failure/env resolve-types/statement t env)
+          [(left v) (left v)]
+          [(right t)
+           (case (map/failure/env resolve-types/statement f env)
+             [(left v) (left v)]
+             [(right f)
+              (right (if-statement c t f))])])])]))
+
+(define (resolve-types/expression
+          [e : ri:Expression]
+          [env : Environment])
+  : (Either Bytes Expression)
+  (case e
+    [(ri:cast-expr t e)
+     (case (pre-type->type t env)
+       [(left v) (left v)]
+       [(right t)
+        (case (resolve-types/expression e env)
+          [(left v) (left v)]
+          [(right e)
+           (right (cast-expr t e))])])]
+    ;; Recur structually
+    [(ri:var-expr v)
+     (right (var-expr v))]
+    [(ri:int-expr v)
+     (right (int-expr v))]
+    [(ri:bytes-expr v)
+     (right (bytes-expr v))]
+    [(ri:deref-expr e)
+     (case (resolve-types/expression e env)
+       [(left v) (left v)]
+       [(right e)
+        (right (deref-expr e))])]
+    [(ri:array-index-expr e i)
+     (case (resolve-types/expression e env)
+       [(left v) (left v)]
+       [(right e)
+        (case (resolve-types/expression i env)
+          [(left v) (left v)]
+          [(right i)
+           (right (array-index-expr e i))])])]
+    [(ri:bin-op-expr op l r)
+     (case (resolve-types/expression l env)
+       [(left v) (left v)]
+       [(right l)
+        (case (resolve-types/expression r env)
+          [(left v) (left v)]
+          [(right r)
+           (right (bin-op-expr op l r))])])]
+    [(ri:call-expr f args)
+     (case (resolve-types/expression f env)
+       [(left v) (left v)]
+       [(right f)
+        (case (map/failure/env resolve-types/expression args env)
+          [(left v) (left v)]
+          [(right args)
+           (right (call-expr f args))])])]))
+
+(define (pre-type->type [t : PreType] [env : Environment]) : (Either Bytes Type)
+  (case t
+    [(var-pre-type v)
+     (case (dict-ref (environment-types env) v)
+       [(nothing) (left (bytes-append (varargs list #"Unbound type: " v)))]
+       [(just t) (right t)])]
+    [(array-pre-type t)
+     (case (pre-type->type t env)
+       [(left v) (left v)]
+       [(right t) (right (array-type t))])]
+    [(pointer-pre-type t)
+     (case (pre-type->type t env)
+       [(left v) (left v)]
+       [(right t) (right (pointer-type t))])]))
