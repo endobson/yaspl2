@@ -48,10 +48,11 @@
   (match-define new-blocks
     (remove-dead-blocks calling-convention
       (collapse-trivial-blocks
-        (remove-dead-instructions
-          (optimize-self-tail-calls name calling-convention
-            (optimize-constants abstract-values
-              (optimize-conditional-jumps abstract-values blocks)))))))
+        (delay-symbol-resolution
+          (remove-dead-instructions
+            (optimize-self-tail-calls name calling-convention
+              (optimize-constants abstract-values
+                (optimize-conditional-jumps abstract-values blocks))))))))
   (function-definition calling-convention new-blocks next-var-number next-block-number))
 
 (define (optimize-conditional-jumps
@@ -134,6 +135,47 @@
     [(symbol-address-inst _ _) #t]
     [(bin-op-inst _ _ _ _) #t]
     [(unary-op-inst _ _ _) #t]))
+
+
+;; Pass to push symbol loads as late as possible.
+;; TODO add support for pushing loads across blocks
+;; TODO Generalize to things other than symbols.
+(define (delay-symbol-resolution [blocks : (IndexedSet BasicBlock BlockNumber)])
+  : (IndexedSet BasicBlock BlockNumber)
+  (indexed-set-value-map blocks
+    (lambda ([b : BasicBlock])
+      (delay-symbol-resolution/block b))))
+
+(define (delay-symbol-resolution/block [b : BasicBlock]) : BasicBlock
+  (match-define (basic-block block-num args instructions terminal) b)
+  (match-define instructions
+    (delay-symbol-resolution/instructions instructions (make-dict var-cmp)))
+  (basic-block
+    block-num
+    args
+    instructions
+    terminal))
+
+(define (delay-symbol-resolution/instructions [instructions : (List Instruction)]
+                                              [symbols : (Dict Var Instruction)])
+  : (List Instruction)
+  (case instructions
+    [(empty)
+     (dict-values symbols)]
+    [(cons (symbol-address-inst v s) instructions)
+     (delay-symbol-resolution/instructions instructions (dict-add symbols v (symbol-address-inst v s)))]
+    [(cons instruction instructions)
+     (match-define referenced-vars : (List Var)
+       (set->list (used-vars/instruction instruction (make-set var-cmp))))
+     (append
+       (filter-map
+         (lambda ([v : Var]) (dict-ref symbols v))
+         referenced-vars)
+       (cons
+         instruction
+         (delay-symbol-resolution/instructions
+           instructions
+           (dict-remove-all symbols referenced-vars))))]))
 
 (define (optimize-constants
           [abstract-values : (Dict Var AbstractValue)]
