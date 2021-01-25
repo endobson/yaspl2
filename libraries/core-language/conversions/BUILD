@@ -27,9 +27,7 @@ yaspl_library(
     srcs = ["lower-to-register.yaspl"],
     deps = [
         "//libraries:module-signature",
-        "//libraries:prim-types",
         "//libraries:top-level-name",
-        "//libraries:types",
         "//libraries/core-language/languages:lifted-values-language",
         "//libraries/data:bytes",
         "//libraries/data:dict",
@@ -83,6 +81,7 @@ yaspl_library(
     deps = [
         "//libraries:module-name",
         "//libraries:top-level-name",
+        "//libraries:types",
         "//libraries/core-language/languages:resolved-types-language",
         "//libraries/core-language/languages:resolved-vars-language",
         "//libraries/data:bytes",
@@ -98,6 +97,7 @@ yaspl_library(
     name = "type-check",
     srcs = ["type-check.yaspl"],
     deps = [
+        "//libraries:types",
         "//libraries/core-language/languages:resolved-types-language",
         "//libraries/data:bytes",
         "//libraries/data:either",
