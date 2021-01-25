@@ -5,6 +5,7 @@
     {#:types
       [Expression ri:Expression]
       [FunctionDefinition ri:FunctionDefinition]
+      [Import ri:Import]
       [Module ri:Module]
       [Parameter ri:Parameter]
       PreType
@@ -12,7 +13,7 @@
     }
     {#:patterns
       [array-index-expr ri:array-index-expr]
-      array-pre-type
+      [array-pre-type ri:array-pre-type]
       [assignment-statement ri:assignment-statement]
       [bin-op-expr ri:bin-op-expr]
       [bytes-expr ri:bytes-expr]
@@ -22,15 +23,17 @@
       [deref-expr ri:deref-expr]
       [effect-statement ri:effect-statement]
       [function-definition ri:function-definition]
+      [function-pre-type ri:function-pre-type]
       [if-statement ri:if-statement]
+      [import-external ri:import-external]
       [int-expr ri:int-expr]
       [module ri:module]
       [parameter ri:parameter]
       [pointer-assignment-statement ri:pointer-assignment-statement]
-      pointer-pre-type
+      [pointer-pre-type ri:pointer-pre-type]
       [return-statement ri:return-statement]
       [var-expr ri:var-expr]
-      var-pre-type
+      [var-pre-type ri:var-pre-type]
       [while-statement ri:while-statement]
     }
   }
@@ -63,10 +66,31 @@
           #"U64" (u64-type))
         #"Bytes" (bytes-type))))
 
-  (case (map/failure/env resolve-types/function functions env)
+  (case (resolve-types/imports imports env)
     [(left v) (left v)]
-    [(right functions)
-     (right (module mod-name imports functions))]))
+    [(right imports)
+     (case (map/failure/env resolve-types/function functions env)
+       [(left v) (left v)]
+       [(right functions)
+        (right (module mod-name imports functions))])]))
+
+(define (resolve-types/imports [is : (Dict Bytes ri:Import)] [env : Environment])
+  : (Either Bytes (Dict Bytes Import))
+  (dict-fold
+    is
+    (lambda ([name : Bytes] [i : ri:Import] [acc : (Either Bytes (Dict Bytes Import))])
+      : (Either Bytes (Dict Bytes Import))
+      (case acc
+        [(left v) (left v)]
+        [(right acc)
+         (match-define (ri:import-external sym t) i)
+         (case (pre-type->type t env)
+           [(left v) (left v)]
+           [(right t)
+            (right (dict-add acc name (import-external sym t)))])]))
+    (ann (Either Bytes (Dict Bytes Import))
+      (right (make-dict bytes-cmp)))))
+
 
 (define (resolve-types/function [f : ri:FunctionDefinition] [env : Environment])
   : (Either Bytes FunctionDefinition)
@@ -196,15 +220,23 @@
 
 (define (pre-type->type [t : PreType] [env : Environment]) : (Either Bytes Type)
   (case t
-    [(var-pre-type v)
+    [(ri:var-pre-type v)
      (case (dict-ref (environment-types env) v)
        [(nothing) (left (bytes-append (varargs list #"Unbound type: " v)))]
        [(just t) (right t)])]
-    [(array-pre-type t)
+    [(ri:function-pre-type args return-type)
+     (case (map/failure/env pre-type->type args env)
+       [(left v) (left v)]
+       [(right args)
+        (case (pre-type->type return-type env)
+          [(left v) (left v)]
+          [(right return-type)
+           (right (fun-type (empty) args return-type))])])]
+    [(ri:array-pre-type t)
      (case (pre-type->type t env)
        [(left v) (left v)]
        [(right t) (right (array-type t))])]
-    [(pointer-pre-type t)
+    [(ri:pointer-pre-type t)
      (case (pre-type->type t env)
        [(left v) (left v)]
        [(right t) (right (pointer-type t))])]))

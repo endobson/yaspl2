@@ -37,7 +37,6 @@ yaspl_library(
     name = "resolved-types-language",
     srcs = ["resolved-types-language.yaspl"],
     deps = [
-        ":resolved-imports-language",
         "//libraries:module-name",
         "//libraries:types",
         "//libraries/data:dict",
