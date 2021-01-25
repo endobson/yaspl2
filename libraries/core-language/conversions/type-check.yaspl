@@ -2,8 +2,10 @@
 #:import {
   (bytes)
   (core-language languages resolved-types-language)
+  (dict)
   (either)
   (list)
+  (maybe)
   (prim)
   (prim-types)
   (set)
@@ -20,7 +22,8 @@
     (global-environment))
   (define-type Environment
     (environment
-      [return-type : Type])))
+      [return-type : Type]
+      [var-types : (Dict Bytes Type)])))
 
 (define (type-check [mod : Module]) : (Either Bytes Module)
   (match-define (module name imports functions) mod)
@@ -41,7 +44,7 @@
   : (Either Bytes FunctionDefinition)
   (match-define (function-definition name parameters return-type body) f)
 
-  (match-define env (environment return-type))
+  (match-define env (environment return-type (make-dict bytes-cmp)))
 
   (case (type-check/statements body env)
     [(left v) (left v)]
@@ -76,6 +79,27 @@
        [(right e)
         (match-define env (environment-add-local env v type))
         (right (tuple2 (define-local-variable-statement v type e) env))])]
+    [(effect-statement e)
+     (case (type-infer/expression e env)
+       [(left v) (left v)]
+       [(right (tuple2 e _))
+        (right (tuple2 (effect-statement e) env))])]
+    [(pointer-assignment-statement p e)
+     (case (type-infer/expression p env)
+       [(left v) (left v)]
+       [(right (tuple2 p p-ty))
+        (case (pointer-type->element-type p-ty)
+          [(nothing)
+           (left (bytes-append
+                   (varargs list
+                     #"Expected Pointer Type, got: "
+                     (print-sexp (type->sexp p-ty)))))]
+          [(just e-ty)
+           (case (type-check/expression e e-ty env)
+             [(left v) (left v)]
+             [(right e)
+              (right (tuple2 (pointer-assignment-statement p e) env))])])])]
+
     [_
      ;; TODO handle other statements
      (right (tuple2 s env))]))
@@ -107,11 +131,40 @@
        [(left v) (left v)]
        [(right (tuple2 e _))
         (right (tuple2 e t))])]
+    [(array-index-expr a i)
+     (case (type-infer/expression a env)
+       [(left v) (left v)]
+       [(right (tuple2 a pa-ty))
+        (case (pointer-type->element-type pa-ty)
+          [(nothing)
+           (left (bytes-append
+                   (varargs list
+                     #"Expected Pointer Type, got: "
+                     (print-sexp (type->sexp pa-ty)))))]
+          [(just a-ty)
+           (case (array-type->element-type a-ty)
+             [(nothing)
+              (left (bytes-append
+                      (varargs list
+                        #"Expected Array Type, got: "
+                        (print-sexp (type->sexp a-ty)))))]
+             [(just elem-ty)
+              (case (type-check/expression i (u64-type) env)
+                [(left v) (left v)]
+                [(right i)
+                 (right (tuple2 (array-index-expr a i) (pointer-type elem-ty)))])])])])]
+    [(var-expr v)
+     (case (dict-ref (environment-var-types env) v)
+       [(nothing)
+        ;; TODO make this an error
+        (right (tuple2 e (u64-type)))]
+       [(just ty)
+        (right (tuple2 e ty))])]
     [_
      ;; TODO handle other expressions
      (right (tuple2 e (u64-type)))]))
 
 (define (environment-add-local [env : Environment] [v : Bytes] [ty : Type])
   : Environment
-  ;; TODO actually extend environment
-  env)
+  (match-define (environment return-type vars) env)
+  (environment return-type (dict-set vars v ty)))

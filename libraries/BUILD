@@ -607,6 +607,7 @@ yaspl_bootstrap_library(
         ":module-name",
         ":types",
         "//libraries/data:list",
+        "//libraries/data:maybe",
     ],
 )
 
