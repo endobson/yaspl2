@@ -97,6 +97,8 @@ yaspl_library(
     name = "type-check",
     srcs = ["type-check.yaspl"],
     deps = [
+        "//libraries:prim-types",
+        "//libraries:sexp-printer",
         "//libraries:types",
         "//libraries/core-language/languages:resolved-types-language",
         "//libraries/data:bytes",
