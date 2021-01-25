@@ -12,6 +12,7 @@
   (sexp-printer)
   (tuples)
   (types)
+  (yaspl math-operations)
 }
 (export
   (#:types)
@@ -44,7 +45,16 @@
   : (Either Bytes FunctionDefinition)
   (match-define (function-definition name parameters return-type body) f)
 
-  (match-define env (environment return-type (make-dict bytes-cmp)))
+  (match-define initial-var-types : (Dict Bytes Type)
+    (dict-add-all
+      (make-dict bytes-cmp)
+      (map
+        (lambda ([p : Parameter])
+          (match-define (parameter name type) p)
+          (tuple2 name type))
+        parameters)))
+
+  (match-define env (environment return-type initial-var-types))
 
   (case (type-check/statements body env)
     [(left v) (left v)]
@@ -108,6 +118,15 @@
              [(left v) (left v)]
              [(right e)
               (right (tuple2 (pointer-assignment-statement p e) env))])])])]
+    [(while-statement e body)
+     (case (type-check/expression e (boolean-type) env)
+       [(left v) (left v)]
+       [(right e)
+        (case (type-check/statements body env)
+          [(left v) (left v)]
+          [(right body)
+           (right (tuple2 (while-statement e body) env))])])]
+
 
     [_
      ;; TODO handle other statements
@@ -169,6 +188,23 @@
         (right (tuple2 e (u64-type)))]
        [(just ty)
         (right (tuple2 e ty))])]
+    [(bin-op-expr (comparison-bin-op op) l r)
+     (case (type-check/expression l (u64-type) env)
+       [(left v) (left v)]
+       [(right l)
+        (case (type-check/expression r (u64-type) env)
+          [(left v) (left v)]
+          [(right r)
+           (right (tuple2 (bin-op-expr (comparison-bin-op op) l r) (boolean-type)))])])]
+    [(bin-op-expr (logical-bin-op op) l r)
+     (case (type-check/expression l (boolean-type) env)
+       [(left v) (left v)]
+       [(right l)
+        (case (type-check/expression r (boolean-type) env)
+          [(left v) (left v)]
+          [(right r)
+           (right (tuple2 (bin-op-expr (logical-bin-op op) l r) (boolean-type)))])])]
+
     [_
      ;; TODO handle other expressions
      (right (tuple2 e (u64-type)))]))

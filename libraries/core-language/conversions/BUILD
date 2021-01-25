@@ -108,5 +108,6 @@ yaspl_library(
         "//libraries/data:maybe",
         "//libraries/data:set",
         "//libraries/data:tuples",
+        "//libraries/yaspl:math-operations",
     ],
 )
