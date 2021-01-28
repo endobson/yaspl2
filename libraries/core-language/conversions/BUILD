@@ -12,6 +12,7 @@ yaspl_library(
     srcs = ["lift-values.yaspl"],
     deps = [
         "//libraries:module-name",
+        "//libraries:prim-types",
         "//libraries:top-level-name",
         "//libraries/core-language/languages:lifted-values-language",
         "//libraries/core-language/languages:resolved-vars-language",
@@ -27,12 +28,16 @@ yaspl_library(
     srcs = ["lower-to-register.yaspl"],
     deps = [
         "//libraries:module-signature",
+        "//libraries:panic",
         "//libraries:top-level-name",
+        "//libraries:types",
         "//libraries/core-language/languages:lifted-values-language",
         "//libraries/data:bytes",
         "//libraries/data:dict",
         "//libraries/data:indexed-set",
+        "//libraries/data:lifted-primitives",
         "//libraries/data:list",
+        "//libraries/data:maybe",
         "//libraries/data:set",
         "//libraries/data:tuples",
         "//libraries/prim-language:block-number",
@@ -72,6 +77,7 @@ yaspl_library(
         "//libraries/data:either",
         "//libraries/data:list",
         "//libraries/data:maybe",
+        "//libraries/data:tuples",
     ],
 )
 
