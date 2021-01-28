@@ -24,7 +24,6 @@
       closure-call
       cond-jump
       eight-byte-mem-op
-      one-byte-mem-op
       fixed-pointer-offset
       [function-definition r:function-definition]
       halt
@@ -32,6 +31,7 @@
       jump
       jump-target
       negated-var-condition
+      one-byte-mem-op
       plain-function-convention
       pointer-ref-inst
       pointer-set!-inst
@@ -168,13 +168,13 @@
      (match-define (tuple2 val acc)
        (convert-expr (var->bytes var) expr acc env))
      (tuple2 acc (env-replace env var val))]
-    [(pointer-assignment-statement pointer expr)
+    [(pointer-assignment-statement pointer type expr)
      (match-define (tuple2 p acc)
        (convert-expr #"ptr" pointer acc env))
      (match-define (tuple2 e acc)
        (convert-expr #"val" expr acc env))
      (tuple2
-       (add-instruction acc (pointer-set!-inst (eight-byte-mem-op) p (fixed-pointer-offset 0) e))
+       (add-instruction acc (pointer-set!-inst (type->mem-op-size type) p (fixed-pointer-offset 0) e))
        env)]
     [(if-statement cond t-statements f-statements)
 
@@ -299,17 +299,10 @@
     [(cast-expr _t e)
      (convert-expr base-name e acc env)]
     [(deref-expr e type)
-     (match-define mem-op-size : MemoryOperationSize
-       (case (type->bytes-size type)
-         [(nothing) (panic #"Pointer type must be of sized type")]
-         [(just (lifted-int 1)) (one-byte-mem-op)]
-         [(just (lifted-int 8)) (eight-byte-mem-op)]
-         [(just _) (panic #"Unsupported pointer type size")]))
-
      (match-define (tuple2 p acc) (convert-expr #"ptr" e acc env))
      (match-define (tuple2 (tuple2 _ name) acc) (fresh-name base-name acc))
-     (tuple2 name (add-instruction acc (pointer-ref-inst name mem-op-size p
-                                                              (fixed-pointer-offset 0))))]
+     (tuple2 name (add-instruction acc (pointer-ref-inst name (type->mem-op-size type) p
+                                                         (fixed-pointer-offset 0))))]
     [(array-index-expr ptr type offset)
      (match-define (tuple2 ptr acc) (convert-expr #"ptr" ptr acc env))
      (match-define (tuple2 offset acc) (convert-expr #"off" offset acc env))
@@ -348,11 +341,18 @@
     [(return-statement _) acc]
     [(effect-statement _) acc]
     [(define-local-variable-statement _ _ _)  acc]
-    [(pointer-assignment-statement _ _) acc]
+    [(pointer-assignment-statement _ _ _) acc]
     [(assignment-statement v _) (set-add acc v)]
     [(while-statement _ body) (foldl mutated-vars* body acc)]
     [(if-statement _ then else)
      (foldl mutated-vars* else (foldl mutated-vars* then acc))]))
+
+(define (type->mem-op-size [type : Type]) : MemoryOperationSize
+  (case (type->bytes-size type)
+    [(nothing) (panic #"Pointer type must be of sized type")]
+    [(just (lifted-int 1)) (one-byte-mem-op)]
+    [(just (lifted-int 8)) (eight-byte-mem-op)]
+    [(just _) (panic #"Unsupported pointer type size")]))
 
 (define (add-all-args [args : (List (Tuple2 Var Var))] [env : Environment]) : Environment
   (case env

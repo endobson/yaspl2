@@ -16,6 +16,7 @@ yaspl_test(
     deps = [
         ":example-functions",
         "//libraries:yunit",
+        "//libraries/data:bytes",
         "//libraries/data:list",
         "//libraries/data:maybe",
     ],
