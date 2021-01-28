@@ -1,7 +1,39 @@
 #:module (core-language conversions type-check)
 #:import {
   (bytes)
-  (core-language languages resolved-types-language)
+  {(core-language languages resolved-types-language)
+    {#:types
+      [Expression rt:Expression]
+      [FunctionDefinition rt:FunctionDefinition]
+      [Module rt:Module]
+      [Statement rt:Statement]
+    }
+    {#:values
+      [function-definition-name rt:function-definition-name]
+      import-external-type
+    }
+    {#:patterns
+      [array-index-expr rt:array-index-expr]
+      [assignment-statement rt:assignment-statement]
+      [bin-op-expr rt:bin-op-expr]
+      [bytes-expr rt:bytes-expr]
+      [call-expr rt:call-expr]
+      [cast-expr rt:cast-expr]
+      [define-local-variable-statement rt:define-local-variable-statement]
+      [deref-expr rt:deref-expr]
+      [effect-statement rt:effect-statement]
+      [function-definition rt:function-definition]
+      [if-statement rt:if-statement]
+      [int-expr rt:int-expr]
+      [module rt:module]
+      [pointer-assignment-statement rt:pointer-assignment-statement]
+      [return-statement rt:return-statement]
+      [struct-field-expr rt:struct-field-expr]
+      [var-expr rt:var-expr]
+      [while-statement rt:while-statement]
+    }
+  }
+  (core-language languages type-checked-language)
   (dict)
   (either)
   (list)
@@ -27,11 +59,11 @@
       [return-type : Type]
       [var-types : (Dict Bytes Type)])))
 
-(define (type-check [mod : Module]) : (Either Bytes Module)
-  (match-define (module name imports functions) mod)
+(define (type-check [mod : rt:Module]) : (Either Bytes Module)
+  (match-define (rt:module name imports functions) mod)
 
   (match-define function-names
-    (set-add-all (make-set bytes-cmp) (map function-definition-name functions)))
+    (set-add-all (make-set bytes-cmp) (map rt:function-definition-name functions)))
 
 
   (if (not (= (set-count function-names) (length functions)))
@@ -41,8 +73,8 @@
                (dict-add-all
                  (make-dict bytes-cmp)
                  (map
-                   (lambda ([f : FunctionDefinition])
-                     (match-define (function-definition name parameters return-type _) f)
+                   (lambda ([f : rt:FunctionDefinition])
+                     (match-define (rt:function-definition name parameters return-type _) f)
                      (tuple2
                        name
                        (fun-type
@@ -64,9 +96,9 @@
 
 
 
-(define (type-check/function [f : FunctionDefinition] [env : GlobalEnvironment])
+(define (type-check/function [f : rt:FunctionDefinition] [env : GlobalEnvironment])
   : (Either Bytes FunctionDefinition)
-  (match-define (function-definition name parameters return-type body) f)
+  (match-define (rt:function-definition name parameters return-type body) f)
 
   (match-define initial-var-types : (Dict Bytes Type)
     (dict-add-all
@@ -85,7 +117,7 @@
      (right (function-definition name parameters return-type body))]))
 
 
-(define (type-check/statements [ss : (List Statement)] [env : Environment])
+(define (type-check/statements [ss : (List rt:Statement)] [env : Environment])
   : (Either Bytes (List Statement))
   (case ss
     [(empty) (right (empty))]
@@ -98,21 +130,21 @@
           [(right ss)
            (right (cons s ss))])])]))
 
-(define (type-check/statement [s : Statement] [env : Environment])
+(define (type-check/statement [s : rt:Statement] [env : Environment])
   : (Either Bytes (Tuple2 Statement Environment))
   (case s
-    [(return-statement e)
+    [(rt:return-statement e)
      (case (type-check/expression e (environment-return-type env) env)
        [(left v) (left v)]
        [(right e)
         (right (tuple2 (return-statement e) env))])]
-    [(define-local-variable-statement v type e)
+    [(rt:define-local-variable-statement v type e)
      (case (type-check/expression e type env)
        [(left v) (left v)]
        [(right e)
         (match-define env (environment-add-local env v type))
         (right (tuple2 (define-local-variable-statement v type e) env))])]
-    [(assignment-statement v e)
+    [(rt:assignment-statement v e)
      (case (dict-ref (environment-var-types env) v)
        [(nothing)
         (left #"Cannot assign to unbound variable.")]
@@ -121,12 +153,12 @@
           [(left v) (left v)]
           [(right e)
            (right (tuple2 (assignment-statement v e) env))])])]
-    [(effect-statement e)
+    [(rt:effect-statement e)
      (case (type-infer/expression e env)
        [(left v) (left v)]
        [(right (tuple2 e _))
         (right (tuple2 (effect-statement e) env))])]
-    [(pointer-assignment-statement p e)
+    [(rt:pointer-assignment-statement p e)
      (case (type-infer/expression p env)
        [(left v) (left v)]
        [(right (tuple2 p p-ty))
@@ -141,7 +173,7 @@
              [(left v) (left v)]
              [(right e)
               (right (tuple2 (pointer-assignment-statement p e) env))])])])]
-    [(while-statement e body)
+    [(rt:while-statement e body)
      (case (type-check/expression e (boolean-type) env)
        [(left v) (left v)]
        [(right e)
@@ -149,7 +181,7 @@
           [(left v) (left v)]
           [(right body)
            (right (tuple2 (while-statement e body) env))])])]
-    [(if-statement c t f)
+    [(rt:if-statement c t f)
      (case (type-check/expression c (boolean-type) env)
        [(left v) (left v)]
        [(right c)
@@ -161,7 +193,7 @@
              [(right f)
               (right (tuple2 (if-statement c t f) env))])])])]))
 
-(define (type-check/expression [e : Expression] [expected-type : Type] [env : Environment])
+(define (type-check/expression [e : rt:Expression] [expected-type : Type] [env : Environment])
   : (Either Bytes Expression)
   (case (type-infer/expression e env)
     [(left v) (left v)]
@@ -176,19 +208,19 @@
                #"\nExpected: "
                (print-sexp (type->sexp expected-type))))))]))
 
-(define (type-infer/expression [e : Expression] [env : Environment])
+(define (type-infer/expression [e : rt:Expression] [env : Environment])
   : (Either Bytes (Tuple2 Expression Type))
   (case e
-    [(int-expr _)
-     (right (tuple2 e (u64-type)))]
-    [(bytes-expr _)
-     (right (tuple2 e (bytes-type)))]
-    [(cast-expr t e)
+    [(rt:int-expr i)
+     (right (tuple2 (int-expr i) (u64-type)))]
+    [(rt:bytes-expr b)
+     (right (tuple2 (bytes-expr b) (bytes-type)))]
+    [(rt:cast-expr t e)
      (case (type-infer/expression e env)
        [(left v) (left v)]
        [(right (tuple2 e _))
         (right (tuple2 e t))])]
-    [(array-index-expr a i)
+    [(rt:array-index-expr a i)
      (case (type-infer/expression a env)
        [(left v) (left v)]
        [(right (tuple2 a pa-ty))
@@ -210,16 +242,16 @@
                 [(left v) (left v)]
                 [(right i)
                  (right (tuple2 (array-index-expr a i) (pointer-type elem-ty)))])])])])]
-    [(struct-field-expr e _f)
+    [(rt:struct-field-expr e _f)
      ;; TODO actually resolve the field access
      (type-infer/expression e env)]
-    [(var-expr v)
+    [(rt:var-expr v)
      (case (dict-ref (environment-var-types env) v)
        [(nothing)
         (left (bytes-append (varargs list #"Unbound variable: " v)))]
        [(just ty)
-        (right (tuple2 e ty))])]
-    [(bin-op-expr (numeric-bin-op op) l r)
+        (right (tuple2 (var-expr v) ty))])]
+    [(rt:bin-op-expr (numeric-bin-op op) l r)
      (case (type-check/expression l (u64-type) env)
        [(left v) (left v)]
        [(right l)
@@ -227,7 +259,7 @@
           [(left v) (left v)]
           [(right r)
            (right (tuple2 (bin-op-expr (numeric-bin-op op) l r) (u64-type)))])])]
-    [(bin-op-expr (comparison-bin-op op) l r)
+    [(rt:bin-op-expr (comparison-bin-op op) l r)
      (case (type-check/expression l (u64-type) env)
        [(left v) (left v)]
        [(right l)
@@ -235,7 +267,7 @@
           [(left v) (left v)]
           [(right r)
            (right (tuple2 (bin-op-expr (comparison-bin-op op) l r) (boolean-type)))])])]
-    [(bin-op-expr (logical-bin-op op) l r)
+    [(rt:bin-op-expr (logical-bin-op op) l r)
      (case (type-check/expression l (boolean-type) env)
        [(left v) (left v)]
        [(right l)
@@ -243,7 +275,7 @@
           [(left v) (left v)]
           [(right r)
            (right (tuple2 (bin-op-expr (logical-bin-op op) l r) (boolean-type)))])])]
-    [(deref-expr e)
+    [(rt:deref-expr e)
      (case (type-infer/expression e env)
        [(left v) (left v)]
        [(right (tuple2 e e-ty))
@@ -255,7 +287,7 @@
                      (print-sexp (type->sexp e-ty)))))]
           [(just elem-ty)
            (right (tuple2 (deref-expr e) elem-ty))])])]
-    [(call-expr f args)
+    [(rt:call-expr f args)
      (case (type-infer/expression f env)
        [(left v) (left v)]
        [(right (tuple2 f f-type))
@@ -265,7 +297,7 @@
              [(nothing)
               (left #"Function must be called with right number of arguments.")]
              [(just arg-tuples)
-              (case (extract-rights (map (lambda ([arg-ty : (Tuple2 Expression Type)])
+              (case (extract-rights (map (lambda ([arg-ty : (Tuple2 rt:Expression Type)])
                                            (match-define (tuple2 arg ty) arg-ty)
                                            (type-check/expression arg ty env)) arg-tuples))
                 [(left v) (left v)]

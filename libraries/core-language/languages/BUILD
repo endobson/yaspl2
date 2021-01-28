@@ -58,3 +58,16 @@ yaspl_library(
         "//libraries/yaspl:var",
     ],
 )
+
+yaspl_library(
+    name = "type-checked-language",
+    srcs = ["type-checked-language.yaspl"],
+    deps = [
+        ":resolved-types-language",
+        "//libraries:module-name",
+        "//libraries:types",
+        "//libraries/data:dict",
+        "//libraries/data:list",
+        "//libraries/yaspl:math-operations",
+    ],
+)
