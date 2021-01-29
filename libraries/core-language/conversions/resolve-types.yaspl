@@ -10,6 +10,7 @@
       [Parameter ri:Parameter]
       PreType
       [Statement ri:Statement]
+      [StructDefinition ri:StructDefinition]
     }
     {#:patterns
       [array-index-expr ri:array-index-expr]
@@ -32,6 +33,7 @@
       [pointer-assignment-statement ri:pointer-assignment-statement]
       [pointer-pre-type ri:pointer-pre-type]
       [return-statement ri:return-statement]
+      [struct-definition ri:struct-definition]
       [struct-field-expr ri:struct-field-expr]
       [var-expr ri:var-expr]
       [var-pre-type ri:var-pre-type]
@@ -58,12 +60,21 @@
       [types : (Dict Bytes Type)])))
 
 (define (resolve-types [mod : ri:Module]) : (Either Bytes Module)
-  (match-define (ri:module mod-name imports functions) mod)
+  (match-define (ri:module mod-name imports structs functions) mod)
+
+  (match-define struct-types : (Dict Bytes Type)
+    (dict-add-all
+      (make-dict bytes-cmp)
+      (map
+        (lambda ([s : ri:StructDefinition])
+          (match-define (ri:struct-definition name _) s)
+          (tuple2 name (abstract-type mod-name name (empty) (memory-kind))))
+        structs)))
 
   (match-define env : Environment
     (environment
       (dict-add-all
-        (make-dict bytes-cmp)
+        struct-types
         (varargs list
           (tuple2 #"U8" (u8-type))
           (tuple2 #"U64" (u64-type))
@@ -72,10 +83,13 @@
   (case (resolve-types/imports imports env)
     [(left v) (left v)]
     [(right imports)
-     (case (map/failure/env resolve-types/function functions env)
+     (case (map/failure/env resolve-types/struct structs env)
        [(left v) (left v)]
-       [(right functions)
-        (right (module mod-name imports functions))])]))
+       [(right structs)
+        (case (map/failure/env resolve-types/function functions env)
+          [(left v) (left v)]
+          [(right functions)
+           (right (module mod-name imports structs functions))])])]))
 
 (define (resolve-types/imports [is : (Dict Bytes ri:Import)] [env : Environment])
   : (Either Bytes (Dict Bytes Import))
@@ -94,6 +108,11 @@
     (ann (Either Bytes (Dict Bytes Import))
       (right (make-dict bytes-cmp)))))
 
+(define (resolve-types/struct [s : ri:StructDefinition] [env : Environment])
+  : (Either Bytes StructDefinition)
+  (match-define (ri:struct-definition name _fields) s)
+  (match-define struct-type (dict-ref/panic (environment-types env) name))
+  (right (struct-definition struct-type)))
 
 (define (resolve-types/function [f : ri:FunctionDefinition] [env : Environment])
   : (Either Bytes FunctionDefinition)
