@@ -30,6 +30,7 @@ racket_library(
     name = "gpt",
     srcs = ["gpt.rkt"],
     deps = [
+        ":fat32",
         ":util",
     ],
 )
