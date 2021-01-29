@@ -8,6 +8,18 @@ package(
 )
 
 yaspl_library(
+    name = "processed-structs-language",
+    srcs = ["processed-structs-language.yaspl"],
+    deps = [
+        ":resolved-types-language",
+        "//libraries:module-name",
+        "//libraries:types",
+        "//libraries/data:dict",
+        "//libraries/data:list",
+    ],
+)
+
+yaspl_library(
     name = "lifted-values-language",
     srcs = ["lifted-values-language.yaspl"],
     deps = [

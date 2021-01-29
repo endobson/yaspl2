@@ -50,6 +50,16 @@ yaspl_library(
 )
 
 yaspl_library(
+    name = "process-structs",
+    srcs = ["process-structs.yaspl"],
+    deps = [
+        "//libraries/core-language/languages:processed-structs-language",
+        "//libraries/core-language/languages:resolved-types-language",
+        "//libraries/data:either",
+    ],
+)
+
+yaspl_library(
     name = "resolve-imports",
     srcs = ["resolve-imports.yaspl"],
     deps = [
@@ -105,7 +115,7 @@ yaspl_library(
         "//libraries:prim-types",
         "//libraries:sexp-printer",
         "//libraries:types",
-        "//libraries/core-language/languages:resolved-types-language",
+        "//libraries/core-language/languages:processed-structs-language",
         "//libraries/core-language/languages:type-checked-language",
         "//libraries/data:bytes",
         "//libraries/data:dict",

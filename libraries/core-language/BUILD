@@ -176,6 +176,7 @@ yaspl_library(
         "//libraries/core-language/conversions:lower-to-register",
         "//libraries/core-language/conversions:resolve-imports",
         "//libraries/core-language/conversions:resolve-types",
+        "//libraries/core-language/conversions:process-structs",
         "//libraries/core-language/conversions:resolve-vars",
         "//libraries/core-language/conversions:type-check",
         "//libraries/data:either",
