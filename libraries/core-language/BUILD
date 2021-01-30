@@ -174,14 +174,23 @@ yaspl_library(
         ":source-language",
         "//libraries/core-language/conversions:lift-values",
         "//libraries/core-language/conversions:lower-to-register",
+        "//libraries/core-language/conversions:process-structs",
         "//libraries/core-language/conversions:resolve-imports",
         "//libraries/core-language/conversions:resolve-types",
-        "//libraries/core-language/conversions:process-structs",
         "//libraries/core-language/conversions:resolve-vars",
         "//libraries/core-language/conversions:type-check",
         "//libraries/data:either",
         "//libraries/yaspl:top-level-object-optimizer",
         "//libraries/yaspl:top-level-objects",
+    ],
+)
+
+yaspl_library(
+    name = "struct-info",
+    srcs = ["struct-info.yaspl"],
+    deps = [
+        "//libraries:types",
+        "//libraries/data:dict",
     ],
 )
 

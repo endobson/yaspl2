@@ -14,6 +14,7 @@ yaspl_library(
         ":resolved-types-language",
         "//libraries:module-name",
         "//libraries:types",
+        "//libraries/core-language:struct-info",
         "//libraries/data:dict",
         "//libraries/data:list",
     ],

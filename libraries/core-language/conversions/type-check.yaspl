@@ -34,6 +34,7 @@
     }
   }
   (core-language languages type-checked-language)
+  (core-language struct-info)
   (dict)
   (either)
   (list)
@@ -53,14 +54,16 @@
 (types
   (define-type GlobalEnvironment
     (global-environment
-      [var-types : (Dict Bytes Type)]))
+      [var-types : (Dict Bytes Type)]
+      [struct-infos : (Dict Type StructDestructionInfo)]))
   (define-type Environment
     (environment
       [return-type : Type]
-      [var-types : (Dict Bytes Type)])))
+      [var-types : (Dict Bytes Type)]
+      [struct-infos : (Dict Type StructDestructionInfo)])))
 
 (define (type-check [mod : ps:Module]) : (Either Bytes Module)
-  (match-define (ps:module name imports functions) mod)
+  (match-define (ps:module name imports structs functions) mod)
 
   (match-define function-names
     (set-add-all (make-set bytes-cmp) (map ps:function-definition-name functions)))
@@ -88,7 +91,8 @@
             import-external-type))
         (match-define env
           (global-environment (merge-dicts imported-function-types
-                                           local-function-types)))
+                                           local-function-types)
+                              structs))
         (case (map/failure/env type-check/function functions env)
           [(left v) (left v)]
           [(right functions)
@@ -99,17 +103,18 @@
 (define (type-check/function [f : ps:FunctionDefinition] [env : GlobalEnvironment])
   : (Either Bytes FunctionDefinition)
   (match-define (ps:function-definition name parameters return-type body) f)
+  (match-define (global-environment global-var-types struct-infos) env)
 
   (match-define initial-var-types : (Dict Bytes Type)
     (dict-add-all
-      (global-environment-var-types env)
+      global-var-types
       (map
         (lambda ([p : Parameter])
           (match-define (parameter name type) p)
           (tuple2 name type))
         parameters)))
 
-  (match-define env (environment return-type initial-var-types))
+  (match-define env (environment return-type initial-var-types struct-infos))
 
   (case (type-check/statements body env)
     [(left v) (left v)]
@@ -242,9 +247,30 @@
                 [(left v) (left v)]
                 [(right i)
                  (right (tuple2 (array-index-expr a elem-ty i) (pointer-type elem-ty)))])])])])]
-    [(ps:struct-field-expr e _f)
-     ;; TODO actually resolve the field access
-     (type-infer/expression e env)]
+    [(ps:struct-field-expr e f)
+     (case (type-infer/expression e env)
+       [(left v) (left v)]
+       [(right (tuple2 p p-ty))
+        (case (pointer-type->element-type p-ty)
+          [(nothing)
+           (left (bytes-append
+                   (varargs list
+                     #"Expected Pointer Type, got: "
+                     (print-sexp (type->sexp p-ty)))))]
+          [(just s-ty)
+           (case (dict-ref (environment-struct-infos env) s-ty)
+             [(nothing)
+              (left (bytes-append
+                      (varargs list
+                        #"Expected Struct Type, got: "
+                        (print-sexp (type->sexp s-ty)))))]
+             [(just (struct-destruction-info fields))
+              (case (dict-ref fields f)
+                [(nothing)
+                 (left #"No matching struct field")]
+                [(just (struct-field _offset _field-type))
+                 ;; TODO actually derefence the field
+                 (right (tuple2 p p-ty))])])])])]
     [(ps:var-expr v)
      (case (dict-ref (environment-var-types env) v)
        [(nothing)
@@ -310,5 +336,5 @@
 
 (define (environment-add-local [env : Environment] [v : Bytes] [ty : Type])
   : Environment
-  (match-define (environment return-type vars) env)
-  (environment return-type (dict-set vars v ty)))
+  (match-define (environment return-type vars struct-infos) env)
+  (environment return-type (dict-set vars v ty) struct-infos))
