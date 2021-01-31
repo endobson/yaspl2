@@ -29,6 +29,7 @@
     (non-term/ModName)
     (non-term/Definitions)
     (non-term/Definition)
+    (non-term/SpaceType)
     (non-term/Type)
     (non-term/TypeArguments)
     (non-term/NonEmptyTypeArguments)
@@ -64,6 +65,7 @@
     (form/statement [s : Statement])
     (form/expression [e : Expression])
     (form/expressions [es : (List Expression)])
+    (form/space-type [t : PreSpaceType])
     (form/type [t : PreType])
     (form/types [ts : (List PreType)])
     (form/struct-fields [fs : (List StructField)])
@@ -126,6 +128,7 @@
         [(non-term/StructField) 19]
         [(non-term/TypeArguments) 20]
         [(non-term/NonEmptyTypeArguments) 21]
+        [(non-term/SpaceType) 22]
         )))
   (int-cmp (convert a) (convert b)))
 
@@ -141,6 +144,7 @@
     [(non-term/Statements) #"Statements"]
     [(non-term/Statement) #"Statement"]
     [(non-term/Expression) #"Expression"]
+    [(non-term/SpaceType) #"SpaceType"]
     [(non-term/Type) #"Type"]
     [(non-term/TypeArguments) #"TypeArguments"]
     [(non-term/NonEmptyTypeArguments) #"NonEmptyTypeArguments"]
@@ -215,6 +219,7 @@
   (match-define Statements (symbol/non-term* (non-term/Statements)))
   (match-define StructFields (symbol/non-term* (non-term/StructFields)))
   (match-define StructField (symbol/non-term* (non-term/StructField)))
+  (match-define SpaceType (symbol/non-term* (non-term/SpaceType)))
   (match-define Type (symbol/non-term* (non-term/Type)))
 
   (match-define paren-< (symbol/term* (term/punctuation (punct/left-paren))))
@@ -308,7 +313,7 @@
   (match-define struct-field*
     (lambda ([forms : (List Form)]) : (Either Bytes Form)
       (case forms
-        [(cons (form/type type)
+        [(cons (form/space-type type)
            (cons (form/token (symbol-token name))
              (cons _semi-colon
                    (empty))))
@@ -395,7 +400,7 @@
       (empty)
       struct-fields*)
     (input-production-rule StructField*
-      (varargs list Type id semi-colon)
+      (varargs list SpaceType id semi-colon)
       struct-field*)))
 
 (define (type-production-rules) : (List (InputProductionRule CoreNonTerm CoreTerm Form))
@@ -411,8 +416,10 @@
   (match-define -> (symbol/term* (term/punctuation (punct/pointer-field-access))))
   (match-define comma (symbol/term* (term/punctuation (punct/comma))))
 
+  (match-define number (symbol/term* (term/number)))
   (match-define id (symbol/term* (term/id)))
 
+  (match-define SpaceType* (non-term/SpaceType))
   (match-define Type* (non-term/Type))
   (match-define TypeArguments* (non-term/TypeArguments))
   (match-define NonEmptyTypeArguments* (non-term/NonEmptyTypeArguments))
@@ -468,6 +475,35 @@
          (right (form/types (cons t ts)))]
         [_ (left #"Bad forms for non-empty type arguments")])))
 
+  (match-define fixed-array-space-type*
+    (lambda ([forms : (List Form)]) : (Either Bytes Form)
+      (case forms
+        [(cons (form/type t)
+           (cons _<
+             (cons (form/token (decimal-number-token v))
+               (cons _>
+                 (empty)))))
+         (case (decimal-bytes->integer v)
+           [(nothing) (left #"Bad decimal number token")]
+           [(just (lifted-int v)) (right (form/space-type (fixed-array-pre-space-type t v)))])]
+        [(cons (form/type t)
+           (cons _<
+             (cons (form/token (hexadecimal-number-token v))
+               (cons _>
+                 (empty)))))
+         (case (hexadecimal-bytes->integer v)
+           [(nothing) (left #"Bad hexadecimal number token")]
+           [(just (lifted-int v)) (right (form/space-type (fixed-array-pre-space-type t v)))])]
+        [_ (left #"Bad forms for fixed array type")])))
+
+  (match-define raw-space-type*
+    (lambda ([forms : (List Form)]) : (Either Bytes Form)
+      (case forms
+        [(cons (form/type t) (empty))
+         (right (form/space-type (raw-pre-space-type t)))]
+        [_ (left #"Bad forms for raw space type")])))
+
+
   (varargs list
     ;; Types
     (input-production-rule Type* (varargs list id) var-type*)
@@ -483,6 +519,12 @@
     (input-production-rule NonEmptyTypeArguments*
       (varargs list Type comma NonEmptyTypeArguments)
       non-empty-type-arguments*)
+
+    ;; Space Types
+    (input-production-rule SpaceType* (varargs list Type)
+                           raw-space-type*)
+    (input-production-rule SpaceType* (varargs list Type bracket-< number >-bracket)
+                           fixed-array-space-type*)
     ))
 
 (define (statement-production-rules) : (List (InputProductionRule CoreNonTerm CoreTerm Form))

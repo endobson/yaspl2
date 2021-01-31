@@ -53,6 +53,7 @@ yaspl_library(
     name = "process-structs",
     srcs = ["process-structs.yaspl"],
     deps = [
+        "//libraries:prim-types",
         "//libraries:types",
         "//libraries/core-language:sized-types",
         "//libraries/core-language:struct-info",
