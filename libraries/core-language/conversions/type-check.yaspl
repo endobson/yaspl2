@@ -34,7 +34,9 @@
     }
   }
   (core-language languages type-checked-language)
+  (core-language sized-types)
   (core-language struct-info)
+  (data lifted-primitives)
   (dict)
   (either)
   (list)
@@ -55,12 +57,12 @@
   (define-type GlobalEnvironment
     (global-environment
       [var-types : (Dict Bytes Type)]
-      [struct-infos : (Dict Type StructDestructionInfo)]))
+      [struct-infos : (Dict Type StructInfo)]))
   (define-type Environment
     (environment
       [return-type : Type]
       [var-types : (Dict Bytes Type)]
-      [struct-infos : (Dict Type StructDestructionInfo)])))
+      [struct-infos : (Dict Type StructInfo)])))
 
 (define (type-check [mod : ps:Module]) : (Either Bytes Module)
   (match-define (ps:module name imports structs functions) mod)
@@ -246,7 +248,10 @@
               (case (type-check/expression i (u64-type) env)
                 [(left v) (left v)]
                 [(right i)
-                 (right (tuple2 (array-index-expr a elem-ty i) (pointer-type elem-ty)))])])])])]
+                 (case (type->sized-type elem-ty env)
+                   [(left v) (left v)]
+                   [(right sized-ty)
+                    (right (tuple2 (array-index-expr a sized-ty i) (pointer-type elem-ty)))])])])])])]
     [(ps:struct-field-expr e f)
      (case (type-infer/expression e env)
        [(left v) (left v)]
@@ -264,7 +269,7 @@
                       (varargs list
                         #"Expected Struct Type, got: "
                         (print-sexp (type->sexp s-ty)))))]
-             [(just (struct-destruction-info fields))
+             [(just (struct-info (struct-destruction-info fields) _))
               (case (dict-ref fields f)
                 [(nothing)
                  (left #"No matching struct field")]
@@ -338,3 +343,17 @@
   : Environment
   (match-define (environment return-type vars struct-infos) env)
   (environment return-type (dict-set vars v ty) struct-infos))
+
+(define (type->sized-type [ty : Type] [env : Environment])
+  : (Either Bytes SizedType)
+  (case (kind->bytes-size (type->kind ty))
+    [(just (lifted-int size)) (right (sized-type ty size))]
+    [(nothing)
+     (case (dict-ref (environment-struct-infos env) ty)
+       [(nothing)
+        (left (bytes-append
+                (varargs list
+                  #"Expected Sized Type, got: "
+                  (print-sexp (type->sexp ty)))))]
+       [(just (struct-info _ size))
+        (right (sized-type ty size))])]))

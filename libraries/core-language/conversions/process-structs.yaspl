@@ -34,44 +34,49 @@
 (define (process-structs [mod : rt:Module]) : (Either Bytes Module)
   (match-define (rt:module mod-name imports structs functions) mod)
 
-  (case (definitions->destruction-infos structs (make-dict type-cmp))
+  (case (definitions->struct-infos structs (make-dict type-cmp))
     [(left v) (left v)]
     [(right structs)
      (right (module mod-name imports structs functions))]))
 
-(define (definitions->destruction-infos
+(define (definitions->struct-infos
           [defs : (List rt:StructDefinition)]
-          [acc : (Dict Type StructDestructionInfo)])
-  : (Either Bytes (Dict Type StructDestructionInfo))
+          [acc : (Dict Type StructInfo)])
+  : (Either Bytes (Dict Type StructInfo))
   (case defs
     [(empty) (right acc)]
     [(cons def defs)
-     (case (definition->destruction-info def)
+     (case (definition->struct-info def)
        [(left v) (left v)]
        [(right (tuple2 ty info))
-        (definitions->destruction-infos defs (dict-add acc ty info))])]))
+        (definitions->struct-infos defs (dict-add acc ty info))])]))
 
 
-(define (definition->destruction-info [def : rt:StructDefinition])
-  : (Either Bytes (Tuple2 Type StructDestructionInfo))
+(define (definition->struct-info
+          [def : rt:StructDefinition])
+  : (Either Bytes (Tuple2 Type StructInfo))
   (match-define (rt:struct-definition type field-list) def)
   (case (process-fields field-list 0 (make-dict bytes-cmp))
     [(left v) (left v)]
-    [(right field-dict)
-     (right (tuple2 type (struct-destruction-info field-dict)))]))
+    [(right (tuple2 (lifted-int size) field-dict))
+     (right (tuple2 type (struct-info (struct-destruction-info field-dict) size)))]))
 
 (define (process-fields [fields : (List rt:StructField)]
                         [offset : Int]
                         [acc : (Dict Bytes StructField)])
-  : (Either Bytes (Dict Bytes StructField))
+  : (Either Bytes (Tuple2 LiftedInt (Dict Bytes StructField)))
   (case fields
-    [(empty) (right acc)]
-    [(cons (rt:struct-field name st) fields)
-     (match-define type (sized-type->type st))
+    [(empty) (right (tuple2 (lifted-int offset) acc))]
+    [(cons (rt:struct-field name type) fields)
      (case (dict-maybe-add acc name (struct-field offset type))
        [(nothing) (left #"Duplicate field")]
        [(just acc)
-        (case (sized-type->bytes-size st)
+        (case (type->sized-type type)
           [(nothing) (left #"Struct field must be of sized type")]
-          [(just (lifted-int size))
-           (process-fields fields (+ offset size) acc)])])]))
+          [(just st)
+           (process-fields fields (+ offset (sized-type->bytes-size st)) acc)])])]))
+
+(define (type->sized-type [ty : Type]) : (Maybe SizedType)
+  (case (kind->bytes-size (type->kind ty))
+    [(just (lifted-int size)) (just (sized-type ty size))]
+    [(nothing) (nothing)]))
