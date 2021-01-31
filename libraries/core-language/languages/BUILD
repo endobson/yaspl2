@@ -28,6 +28,7 @@ yaspl_library(
         "//libraries:module-name",
         "//libraries:top-level-name",
         "//libraries:types",
+        "//libraries/core-language:struct-info",
         "//libraries/data:dict",
         "//libraries/data:list",
         "//libraries/yaspl:math-operations",

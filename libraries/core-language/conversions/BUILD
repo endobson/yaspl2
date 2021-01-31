@@ -30,6 +30,7 @@ yaspl_library(
         "//libraries:panic",
         "//libraries:top-level-name",
         "//libraries:types",
+        "//libraries/core-language:struct-info",
         "//libraries/core-language/languages:lifted-values-language",
         "//libraries/data:bytes",
         "//libraries/data:dict",
@@ -60,7 +61,9 @@ yaspl_library(
         "//libraries/data:bytes",
         "//libraries/data:dict",
         "//libraries/data:either",
+        "//libraries/data:lifted-primitives",
         "//libraries/data:list",
+        "//libraries/data:maybe",
         "//libraries/data:tuples",
     ],
 )
