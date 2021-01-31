@@ -158,6 +158,16 @@ yaspl_test(
 )
 
 yaspl_library(
+    name = "sized-types",
+    srcs = ["sized-types.yaspl"],
+    deps = [
+        "//libraries:types",
+        "//libraries/data:lifted-primitives",
+        "//libraries/data:maybe",
+    ],
+)
+
+yaspl_library(
     name = "source-language",
     srcs = ["source-language.yaspl"],
     deps = [

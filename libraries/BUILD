@@ -872,7 +872,6 @@ yaspl_bootstrap_library(
         ":sexp-printer",
         "//libraries/data:bytes",
         "//libraries/data:dict",
-        "//libraries/data:lifted-primitives",
         "//libraries/data:list",
         "//libraries/data:maybe",
         "//libraries/data:ordering",

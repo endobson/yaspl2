@@ -28,6 +28,7 @@ yaspl_library(
         "//libraries:module-name",
         "//libraries:top-level-name",
         "//libraries:types",
+        "//libraries/core-language:sized-types",
         "//libraries/core-language:struct-info",
         "//libraries/data:dict",
         "//libraries/data:list",
@@ -53,6 +54,7 @@ yaspl_library(
     deps = [
         "//libraries:module-name",
         "//libraries:types",
+        "//libraries/core-language:sized-types",
         "//libraries/data:dict",
         "//libraries/data:list",
         "//libraries/yaspl:math-operations",
@@ -66,6 +68,7 @@ yaspl_library(
         "//libraries:module-name",
         "//libraries:top-level-name",
         "//libraries:types",
+        "//libraries/core-language:sized-types",
         "//libraries/core-language:struct-info",
         "//libraries/data:dict",
         "//libraries/data:list",

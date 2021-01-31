@@ -30,6 +30,7 @@ yaspl_library(
         "//libraries:panic",
         "//libraries:top-level-name",
         "//libraries:types",
+        "//libraries/core-language:sized-types",
         "//libraries/core-language:struct-info",
         "//libraries/core-language/languages:lifted-values-language",
         "//libraries/data:bytes",
@@ -55,6 +56,7 @@ yaspl_library(
     srcs = ["process-structs.yaspl"],
     deps = [
         "//libraries:types",
+        "//libraries/core-language:sized-types",
         "//libraries/core-language:struct-info",
         "//libraries/core-language/languages:processed-structs-language",
         "//libraries/core-language/languages:resolved-types-language",
@@ -88,6 +90,7 @@ yaspl_library(
     deps = [
         "//libraries:prim-types",
         "//libraries:types",
+        "//libraries/core-language:sized-types",
         "//libraries/core-language/languages:resolved-imports-language",
         "//libraries/core-language/languages:resolved-types-language",
         "//libraries/data:bytes",
@@ -106,6 +109,7 @@ yaspl_library(
         "//libraries:module-name",
         "//libraries:top-level-name",
         "//libraries:types",
+        "//libraries/core-language:sized-types",
         "//libraries/core-language/languages:resolved-vars-language",
         "//libraries/core-language/languages:type-checked-language",
         "//libraries/data:bytes",
