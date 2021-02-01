@@ -40,15 +40,18 @@ register_toolchains(
 )
 
 http_archive(
-  name = "io_bazel_rules_docker",
-  sha256 = "aed1c249d4ec8f703edddf35cbe9dfaca0b5f5ea6e4cd9e83e99f3b0d1136c3d",
-  strip_prefix = "rules_docker-0.7.0",
-  urls = ["https://github.com/bazelbuild/rules_docker/archive/v0.7.0.tar.gz"],
+    name = "io_bazel_rules_docker",
+    sha256 = "c15ef66698f5d2122a3e875c327d9ecd34a231a9dc4753b9500e70518464cc21",
+    strip_prefix = "rules_docker-7da0de3d094aae5601c45ae0855b64fb2771cd72",
+    urls = ["https://github.com/bazelbuild/rules_docker/archive/7da0de3d094aae5601c45ae0855b64fb2771cd72.tar.gz"],
 )
 
 load("@io_bazel_rules_docker//repositories:repositories.bzl",
      container_repositories = "repositories")
 container_repositories()
+
+load("@io_bazel_rules_docker//repositories:deps.bzl", container_deps = "deps")
+container_deps()
 
 http_file(
   name = "ovmf_code",
