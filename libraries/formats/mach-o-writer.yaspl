@@ -94,19 +94,19 @@
           [relocations : (List (Relocation AbstractRelocationKind))]
           [symbols : (List Bytes)]
           [output : OutputPort]) : Void
-  (case relocations
-    [(empty) (void)]
-    [(cons (relocation reloc-kind offset symbol) relocations)
-     (begin
-       (write-u32-le (u32 offset) output)
-       (case (find-index (lambda ([x : Bytes]) (bytes=? symbol x)) symbols)
-         [(nothing)
-          (panic/void #"Bad symbol")]
-         [(just (lifted-int index))
-          (let ([reloc-byte (u8->s64 (relocation-kind->u8
-                                       (abstract-relocation->mach-o-relocation reloc-kind)))])
-            (write-u32-le (u32 (bitwise-ior index (logical-shift-left reloc-byte 24))) output))])
-       (write-relocations relocations symbols output))]))
+  (for-each
+    (lambda ([r : (Relocation AbstractRelocationKind)])
+      (match-define (relocation reloc-kind offset symbol) r)
+      (begin
+        (write-u32-le (u32 offset) output)
+        (case (find-index (lambda ([x : Bytes]) (bytes=? symbol x)) symbols)
+          [(nothing)
+           (panic/void #"Bad symbol")]
+          [(just (lifted-int index))
+           (let ([reloc-byte (u8->s64 (relocation-kind->u8
+                                        (abstract-relocation->mach-o-relocation reloc-kind)))])
+             (write-u32-le (u32 (bitwise-ior index (logical-shift-left reloc-byte 24))) output))])))
+    relocations))
 
 (define (find-start-address [symbols : (List SymbolTableEntry)]) : U64
   (case (findf (lambda ([entry : SymbolTableEntry])
@@ -399,7 +399,19 @@
   (match-define segment-size (+ (bytes-length text-section-contents)
                                 (+ inter-section-padding-size
                                    (bytes-length const-section-contents))))
-  (match-define reloc-base (+ 352 (round-up segment-size 8)))
+  (match-define segment-file-offset 352)
+  (match-define reloc-base (+ segment-file-offset (round-up segment-size 8)))
+  (match-define text-reloc-offset reloc-base)
+  (match-define text-reloc-size (* 8 num-text-relocations))
+  (match-define text-reloc-end (+ text-reloc-offset text-reloc-size))
+  (match-define const-reloc-offset text-reloc-end)
+  (match-define const-reloc-size (* 8 num-const-relocations))
+  (match-define const-reloc-end (+ const-reloc-offset const-reloc-size))
+  (match-define reloc-end const-reloc-end)
+  (match-define link-edit-start reloc-end)
+  (match-define link-edit-end link-edit-start)
+  (match-define symbol-table-start link-edit-end)
+
   (match-define symbol-strings-length-unrounded
     (+ (length exported-symbols)
        (sum bytes-length
@@ -415,7 +427,7 @@
               (load-segment64 #""
                 (u64 #x0000000000000000)
                 (u64 segment-size)
-                (u64 352)
+                (u64 segment-file-offset)
                 (u64 segment-size)
                 (u32 #x07)
                 (u32 #x07)
@@ -424,42 +436,45 @@
                   (section64 #"__text" #"__TEXT"
                              (u64 text-section-offset)
                              (u64 (bytes-length text-section-contents))
-                             (u32 352)
+                             (u32 (+ segment-file-offset text-section-offset))
                              (u32 text-section-alignment)
-                             (u32 reloc-base)
+                             (u32 text-reloc-offset)
                              (u32 num-text-relocations)
                              (u32 #x80000400))
                   (section64 #"__const" #"__TEXT"
                              (u64 const-section-offset)
                              (u64 (bytes-length const-section-contents))
-                             (u32 (+ 352 const-section-offset))
+                             (u32 (+ segment-file-offset const-section-offset))
                              (u32 const-section-alignment)
-                             (u32 (+ reloc-base (* 8 num-text-relocations)))
+                             (u32 const-reloc-offset)
                              (u32 num-const-relocations)
                              (u32 0)))))
             (lc-symbol-table
               (symbol-table
-                (u32 (+ reloc-base (* 8 (+ num-text-relocations num-const-relocations))))
+                (u32 symbol-table-start)
                 (u32 (length exported-symbols))
-                (u32 (+ (+ reloc-base
-                           (* 8 (+ num-text-relocations
-                                   num-const-relocations)))
+                (u32 (+ symbol-table-start
                         (* (length exported-symbols) #x10)))
                 (u32 (round-up symbol-strings-length-unrounded 8))))
             (lc-version-min-macosx
               (version-min (u8 10) (u8 11) (u8 0) (u8 10) (u8 11) (u8 0)))
             (lc-data-in-code
               (linkedit-data
-                (u32 (+ reloc-base (* 8 (+ num-text-relocations num-const-relocations))))
+                (u32 link-edit-start)
                 (u32 0))))
           output)
+        ;; Pad the headers out to segment-file-offset length
         (write-all-bytes (make-bytes 32) output)
+
+        ;; Write out the segment
         (write-all-bytes text-section-contents output)
         (write-all-bytes (make-bytes inter-section-padding-size) output)
         (write-all-bytes const-section-contents output)
         (write-all-bytes
           (make-bytes
             (- (round-up segment-size 8) segment-size)) output)
+
+        ;; Write out the relocations
         (write-relocations
           (append text-relocations const-relocations)
           (map symbol-table-entry-name exported-symbols)
