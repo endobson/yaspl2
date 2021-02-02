@@ -47,6 +47,42 @@ yaspl_library(
 )
 
 yaspl_bootstrap_library(
+    name = "mach-o",
+    srcs = ["mach-o.yaspl"],
+    deps = [
+        "//libraries:io",
+        "//libraries:panic",
+        "//libraries/data:bytes",
+        "//libraries/data:either",
+        "//libraries/data:lifted-primitives",
+        "//libraries/data:list",
+        "//libraries/data:numbers",
+        "//libraries/data:tuples",
+    ],
+)
+
+yaspl_bootstrap_library(
+    name = "mach-o-writer",
+    srcs = ["mach-o-writer.yaspl"],
+    deps = [
+        "//libraries:io",
+        ":mach-o",
+        "//libraries:panic",
+        "//libraries:structured-mach-o",
+        "//libraries:structured-native-code",
+        "//libraries/data:aligned-bytes",
+        "//libraries/data:bytes",
+        "//libraries/data:either",
+        "//libraries/data:indexed-set",
+        "//libraries/data:lifted-primitives",
+        "//libraries/data:list",
+        "//libraries/data:maybe",
+        "//libraries/data:numbers",
+        "//libraries/data:set",
+    ],
+)
+
+yaspl_bootstrap_library(
     name = "pe",
     srcs = ["pe.yaspl"],
     deps = [
