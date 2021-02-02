@@ -15,6 +15,7 @@
   (set)
   (structured-mach-o)
   (structured-native-code)
+  (tuples)
 }
 (export
   (#:values write-mach-o-library write-mach-o-executable))
@@ -89,6 +90,23 @@
        (write-all-bytes (bytes/4 type sect desc (u8 0)) output)
        (write-u64-le value output)
        (write-symbol-entries symbols (+ string-offset (+ 1 (bytes-length name))) output))]))
+
+(define (make-serialize-symbol-table [symbols : (List SymbolTableEntry)])
+  : (Tuple2 LiftedInt (OutputPort -> Void))
+  (match-define symbol-strings-length-unrounded
+    (+ (length symbols)
+       (sum bytes-length (map symbol-table-entry-name symbols))))
+  (match-define symbol-strings-length (round-up symbol-strings-length-unrounded 8))
+
+  (tuple2
+    (lifted-int symbol-strings-length)
+    (lambda ([output : OutputPort])
+      (begin
+        (write-symbol-entries symbols 0 output)
+        (write-symbol-strings symbols output)
+        (write-all-bytes
+          (make-bytes (- symbol-strings-length symbol-strings-length-unrounded))
+          output)))))
 
 (define (write-relocations
           [relocations : (List (Relocation AbstractRelocationKind))]
@@ -249,11 +267,11 @@
            (just msg)]
           [(nothing)
            (match-define num-symbols (length symbol-table-entries))
-           (match-define symbol-strings-length-unrounded
-             (+ (length symbol-table-entries)
-                (sum bytes-length (map symbol-table-entry-name
-                                       symbol-table-entries))))
-           (match-define symbol-strings-length (round-up symbol-strings-length-unrounded 8))
+           (match-define
+             (tuple2 (lifted-int symbol-strings-length) serialize-symbol-table)
+             (make-serialize-symbol-table symbol-table-entries))
+
+
            (match-define start-address (find-start-address symbol-table-entries))
            (call-with-output-file output-file-name
              (lambda ([output : OutputPort])
@@ -346,11 +364,9 @@
                  (write-all-bytes
                    (make-bytes (- rounded-text-segment-length const-section-end-file-offset))
                    output)
-                 (write-symbol-entries symbol-table-entries 0 output)
-                 (write-symbol-strings symbol-table-entries output)
-                 (write-all-bytes
-                   (make-bytes (- symbol-strings-length symbol-strings-length-unrounded))
-                   output)
+
+                 ;; Write out the symbol table
+                 (serialize-symbol-table output)
 
                  (nothing))))])])]))
 
@@ -412,10 +428,9 @@
   (match-define link-edit-end link-edit-start)
   (match-define symbol-table-start link-edit-end)
 
-  (match-define symbol-strings-length-unrounded
-    (+ (length exported-symbols)
-       (sum bytes-length
-            (map symbol-table-entry-name exported-symbols))))
+  (match-define
+    (tuple2 (lifted-int symbol-strings-length) serialize-symbol-table)
+    (make-serialize-symbol-table exported-symbols))
 
 
   (call-with-output-file/void output-file-name
@@ -455,7 +470,7 @@
                 (u32 (length exported-symbols))
                 (u32 (+ symbol-table-start
                         (* (length exported-symbols) #x10)))
-                (u32 (round-up symbol-strings-length-unrounded 8))))
+                (u32 symbol-strings-length)))
             (lc-version-min-macosx
               (version-min (u8 10) (u8 11) (u8 0) (u8 10) (u8 11) (u8 0)))
             (lc-data-in-code
@@ -479,13 +494,9 @@
           (append text-relocations const-relocations)
           (map symbol-table-entry-name exported-symbols)
           output)
-        (write-symbol-entries exported-symbols 0 output)
-        (write-symbol-strings exported-symbols output)
-        (write-all-bytes
-          (make-bytes
-              (- (round-up symbol-strings-length-unrounded 8)
-                 symbol-strings-length-unrounded))
-          output)))))
+
+        ;; Write out the symbol table
+        (serialize-symbol-table output)))))
 
 (define (write-u8 [v : U8] [output : OutputPort]) : Void
   (write-all-bytes (bytes/u8 v) output))

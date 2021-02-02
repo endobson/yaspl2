@@ -65,8 +65,8 @@ yaspl_bootstrap_library(
     name = "mach-o-writer",
     srcs = ["mach-o-writer.yaspl"],
     deps = [
-        "//libraries:io",
         ":mach-o",
+        "//libraries:io",
         "//libraries:panic",
         "//libraries:structured-mach-o",
         "//libraries:structured-native-code",
@@ -79,6 +79,7 @@ yaspl_bootstrap_library(
         "//libraries/data:maybe",
         "//libraries/data:numbers",
         "//libraries/data:set",
+        "//libraries/data:tuples",
     ],
 )
 
