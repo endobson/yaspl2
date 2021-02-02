@@ -249,11 +249,11 @@
            (just msg)]
           [(nothing)
            (match-define num-symbols (length symbol-table-entries))
-           (match-define symbols-length-unrounded
-             (+ (+ 2 (length symbol-table-entries))
+           (match-define symbol-strings-length-unrounded
+             (+ (length symbol-table-entries)
                 (sum bytes-length (map symbol-table-entry-name
                                        symbol-table-entries))))
-           (match-define symbols-length (round-up symbols-length-unrounded 8))
+           (match-define symbol-strings-length (round-up symbol-strings-length-unrounded 8))
            (match-define start-address (find-start-address symbol-table-entries))
            (call-with-output-file output-file-name
              (lambda ([output : OutputPort])
@@ -318,10 +318,10 @@
                        (load-segment64 #"__LINKEDIT"
                          (u64 (+ page-zero-size rounded-text-segment-length))
                          (u64 (round-up
-                                (+ (* num-symbols 16) symbols-length)
+                                (+ (* num-symbols 16) symbol-strings-length)
                                 #x1000))
                          (u64 rounded-text-segment-length)
-                         (u64 (+ (* num-symbols 16) symbols-length))
+                         (u64 (+ (* num-symbols 16) symbol-strings-length))
                          (u32 #x07)
                          (u32 #x01)
                          (u32 #x00)
@@ -331,7 +331,7 @@
                          (u32 rounded-text-segment-length)
                          (u32 num-symbols)
                          (u32 (+ rounded-text-segment-length (* num-symbols 16)))
-                         (u32 symbols-length)))
+                         (u32 symbol-strings-length)))
                      (lc-unix-thread (unix-thread start-address)))
                    output)
                  ;; Write all the contents with appropriate padding
@@ -346,14 +346,10 @@
                  (write-all-bytes
                    (make-bytes (- rounded-text-segment-length const-section-end-file-offset))
                    output)
-                 (write-symbol-entries symbol-table-entries 2 output)
-                 ;(write-all-bytes (make-bytes (- (* num-symbols 16) 2)) output)
-
-                 (write-all-bytes (bytes/2 (u8 32) (u8 0)) output)
+                 (write-symbol-entries symbol-table-entries 0 output)
                  (write-symbol-strings symbol-table-entries output)
                  (write-all-bytes
-                   (make-bytes
-                     (- symbols-length symbols-length-unrounded))
+                   (make-bytes (- symbol-strings-length symbol-strings-length-unrounded))
                    output)
 
                  (nothing))))])])]))
@@ -404,6 +400,12 @@
                                 (+ inter-section-padding-size
                                    (bytes-length const-section-contents))))
   (match-define reloc-base (+ 352 (round-up segment-size 8)))
+  (match-define symbol-strings-length-unrounded
+    (+ (length exported-symbols)
+       (sum bytes-length
+            (map symbol-table-entry-name exported-symbols))))
+
+
   (call-with-output-file/void output-file-name
     (lambda ([output : OutputPort])
       (begin
@@ -443,11 +445,7 @@
                            (* 8 (+ num-text-relocations
                                    num-const-relocations)))
                         (* (length exported-symbols) #x10)))
-                (u32 (round-up
-                       (+ (+ 2 (length exported-symbols))
-                          (sum bytes-length
-                               (map symbol-table-entry-name exported-symbols)))
-                       8))))
+                (u32 (round-up symbol-strings-length-unrounded 8))))
             (lc-version-min-macosx
               (version-min (u8 10) (u8 11) (u8 0) (u8 10) (u8 11) (u8 0)))
             (lc-data-in-code
@@ -466,37 +464,25 @@
           (append text-relocations const-relocations)
           (map symbol-table-entry-name exported-symbols)
           output)
-        (write-symbol-entries exported-symbols 2 output)
-        (write-all-bytes (bytes/2 (u8 32) (u8 0)) output)
+        (write-symbol-entries exported-symbols 0 output)
         (write-symbol-strings exported-symbols output)
         (write-all-bytes
           (make-bytes
-            (-
-              (round-up
-                (+ (+ 2 (length exported-symbols))
-                   (sum bytes-length
-                        (map symbol-table-entry-name exported-symbols)))
-                8)
-              (+ (+ 2 (length exported-symbols))
-                 (sum bytes-length
-                      (map symbol-table-entry-name exported-symbols)))))
+              (- (round-up symbol-strings-length-unrounded 8)
+                 symbol-strings-length-unrounded))
           output)))))
 
 (define (write-u8 [v : U8] [output : OutputPort]) : Void
-  (write-all-bytes (bytes/1 v) output))
+  (write-all-bytes (bytes/u8 v) output))
+
+(define (write-u16-le [v : U16] [output : OutputPort]) : Void
+  (write-all-bytes (bytes/u16-le v) output))
 
 (define (write-u32-le [v : U32] [output : OutputPort]) : Void
-  (let ([bytes (make-bytes 4)])
-    (begin
-      (bytes-set!/quad-le bytes 0 v)
-      (write-all-bytes bytes output))))
+  (write-all-bytes (bytes/u32-le v) output))
 
 (define (write-u64-le [v : U64] [output : OutputPort]) : Void
-  (let ([bytes (make-bytes 8)])
-    (begin
-      (bytes-set!/u64-le bytes 0 v)
-      (write-all-bytes bytes output))))
-
+  (write-all-bytes (bytes/u64-le v) output))
 
 (define (load-commands-size [lcs : (List MachOLoadCommand)]) : Int
   (sum load-command-size lcs))
