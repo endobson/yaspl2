@@ -405,6 +405,12 @@
               (logical-shift-left 1 const-section-alignment)))
   (match-define inter-section-padding-size
     (- const-section-offset (bytes-length text-section-contents)))
+  (match-define segment-size (+ (bytes-length text-section-contents)
+                                (+ inter-section-padding-size
+                                   (bytes-length const-section-contents))))
+  (match-define segment-rounded-size (round-up segment-size 8))
+  (match-define segment-padding-size (- segment-rounded-size segment-size))
+
 
   (match-define exported-symbols
     (construct-symbol-table-entries
@@ -412,11 +418,10 @@
       const-section-offset const-section))
   (match-define num-text-relocations (length text-relocations))
   (match-define num-const-relocations (length const-relocations))
-  (match-define segment-size (+ (bytes-length text-section-contents)
-                                (+ inter-section-padding-size
-                                   (bytes-length const-section-contents))))
-  (match-define segment-file-offset 352)
-  (match-define reloc-base (+ segment-file-offset (round-up segment-size 8)))
+  ;; The segment-file-offset is double checked later.
+  (match-define segment-file-offset 320)
+  (match-define segment-end (+ segment-file-offset segment-rounded-size))
+  (match-define reloc-base segment-end)
   (match-define text-reloc-offset reloc-base)
   (match-define text-reloc-size (* 8 num-text-relocations))
   (match-define text-reloc-end (+ text-reloc-offset text-reloc-size))
@@ -433,61 +438,65 @@
     (make-serialize-symbol-table exported-symbols))
 
 
+  (match-define load-commands
+    (varargs list
+      (lc-load-segment64
+        (load-segment64 #""
+          (u64 #x0000000000000000)
+          (u64 segment-size)
+          (u64 segment-file-offset)
+          (u64 segment-size)
+          (u32 #x07)
+          (u32 #x07)
+          (u32 0)
+          (varargs list
+            (section64 #"__text" #"__TEXT"
+                       (u64 text-section-offset)
+                       (u64 (bytes-length text-section-contents))
+                       (u32 (+ segment-file-offset text-section-offset))
+                       (u32 text-section-alignment)
+                       (u32 text-reloc-offset)
+                       (u32 num-text-relocations)
+                       (u32 #x80000400))
+            (section64 #"__const" #"__TEXT"
+                       (u64 const-section-offset)
+                       (u64 (bytes-length const-section-contents))
+                       (u32 (+ segment-file-offset const-section-offset))
+                       (u32 const-section-alignment)
+                       (u32 const-reloc-offset)
+                       (u32 num-const-relocations)
+                       (u32 0)))))
+      (lc-symbol-table
+        (symbol-table
+          (u32 symbol-table-start)
+          (u32 (length exported-symbols))
+          (u32 (+ symbol-table-start
+                  (* (length exported-symbols) #x10)))
+          (u32 symbol-strings-length)))
+      (lc-version-min-macosx
+        (version-min (u8 10) (u8 11) (u8 0) (u8 10) (u8 11) (u8 0)))
+      (lc-data-in-code
+        (linkedit-data
+          (u32 link-edit-start)
+          (u32 0)))))
+  (match-define mach-o-header-size 32)
+  (match-define commands-size (load-commands-size load-commands))
+
+  (match-define _check-segment-file-offset : Void
+    (if (= (+ mach-o-header-size commands-size) segment-file-offset)
+        (void)
+        (panic/void #"Commands don't match expected size")))
+
   (call-with-output-file/void output-file-name
     (lambda ([output : OutputPort])
       (begin
-        (write-library-mach-o-header-and-load-commands
-          (varargs list
-            (lc-load-segment64
-              (load-segment64 #""
-                (u64 #x0000000000000000)
-                (u64 segment-size)
-                (u64 segment-file-offset)
-                (u64 segment-size)
-                (u32 #x07)
-                (u32 #x07)
-                (u32 0)
-                (varargs list
-                  (section64 #"__text" #"__TEXT"
-                             (u64 text-section-offset)
-                             (u64 (bytes-length text-section-contents))
-                             (u32 (+ segment-file-offset text-section-offset))
-                             (u32 text-section-alignment)
-                             (u32 text-reloc-offset)
-                             (u32 num-text-relocations)
-                             (u32 #x80000400))
-                  (section64 #"__const" #"__TEXT"
-                             (u64 const-section-offset)
-                             (u64 (bytes-length const-section-contents))
-                             (u32 (+ segment-file-offset const-section-offset))
-                             (u32 const-section-alignment)
-                             (u32 const-reloc-offset)
-                             (u32 num-const-relocations)
-                             (u32 0)))))
-            (lc-symbol-table
-              (symbol-table
-                (u32 symbol-table-start)
-                (u32 (length exported-symbols))
-                (u32 (+ symbol-table-start
-                        (* (length exported-symbols) #x10)))
-                (u32 symbol-strings-length)))
-            (lc-version-min-macosx
-              (version-min (u8 10) (u8 11) (u8 0) (u8 10) (u8 11) (u8 0)))
-            (lc-data-in-code
-              (linkedit-data
-                (u32 link-edit-start)
-                (u32 0))))
-          output)
-        ;; Pad the headers out to segment-file-offset length
-        (write-all-bytes (make-bytes 32) output)
+        (write-library-mach-o-header-and-load-commands load-commands output)
 
         ;; Write out the segment
         (write-all-bytes text-section-contents output)
         (write-all-bytes (make-bytes inter-section-padding-size) output)
         (write-all-bytes const-section-contents output)
-        (write-all-bytes
-          (make-bytes
-            (- (round-up segment-size 8) segment-size)) output)
+        (write-all-bytes (make-bytes segment-padding-size) output)
 
         ;; Write out the relocations
         (write-relocations
