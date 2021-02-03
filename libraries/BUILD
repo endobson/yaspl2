@@ -149,7 +149,6 @@ yaspl_library(
     srcs = ["stack-trace.yaspl"],
     deps = [
         ":in-memory-mach-o",
-        "//libraries/formats:mach-o",
         "//libraries/data:bytes",
         "//libraries/data:either",
         "//libraries/data:join-list",
@@ -159,6 +158,7 @@ yaspl_library(
         "//libraries/data:ordering",
         "//libraries/data:red-black-tree",
         "//libraries/data:tuples",
+        "//libraries/formats:mach-o",
         "//libraries/yaspl/runtime:fill-stack",
     ],
 )
@@ -324,11 +324,13 @@ yaspl_bootstrap_library(
     deps = [
         ":assembler",
         ":io",
-        "//libraries/formats:mach-o-writer",
         ":module-signature-serialization",
+        ":structured-native-code",
         ":system-abi",
+        "//libraries/data:list",
         "//libraries/data:maybe",
         "//libraries/formats:elf-writer",
+        "//libraries/formats:mach-o-writer",
         "//libraries/formats:pe-writer",
         "//libraries/yaspl:top-level-objects",
         "//libraries/yaspl:top-level-objects-to-x86-64",
@@ -369,8 +371,6 @@ yaspl_bootstrap_library(
     srcs = ["linker.yaspl"],
     deps = [
         ":io",
-        "//libraries/formats:mach-o",
-        "//libraries/formats:mach-o-writer",
         ":structured-elf",
         ":structured-mach-o",
         ":structured-native-code",
@@ -381,6 +381,8 @@ yaspl_bootstrap_library(
         "//libraries/data:maybe",
         "//libraries/formats:elf",
         "//libraries/formats:elf-writer",
+        "//libraries/formats:mach-o",
+        "//libraries/formats:mach-o-writer",
         "//libraries/formats:pe",
         "//libraries/formats:pe-writer",
     ],
@@ -400,11 +402,11 @@ yaspl_library(
     name = "in-memory-mach-o",
     srcs = ["in-memory-mach-o.yaspl"],
     deps = [
-        "//libraries/formats:mach-o",
         "//libraries/data:bytes",
         "//libraries/data:either",
         "//libraries/data:lifted-primitives",
         "//libraries/data:tuples",
+        "//libraries/formats:mach-o",
     ],
 )
 
@@ -428,12 +430,12 @@ yaspl_bootstrap_library(
     name = "structured-mach-o",
     srcs = ["structured-mach-o.yaspl"],
     deps = [
-        "//libraries/formats:mach-o",
         ":structured-native-code",
         "//libraries/data:aligned-bytes",
         "//libraries/data:either",
         "//libraries/data:list",
         "//libraries/data:maybe",
+        "//libraries/formats:mach-o",
     ],
 )
 
