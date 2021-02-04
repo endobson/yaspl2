@@ -1,7 +1,6 @@
 #:module (yaspl x86-64-assembly-printer)
 #:import {
   (bytes)
-  (io)
   (join-list)
   (list)
   (numbers)
@@ -10,13 +9,9 @@
   (yaspl x86-64-assembly)
 }
 (export
-  (#:types AssemblyStyle AssemblyCommand AssemblerDirective)
-  (#:values write-fragments const-fragment->commands text-fragment->commands assembly-commands->bytes
-            linux-assembly-style osx-assembly-style))
+  (#:types AssemblyCommand AssemblerDirective)
+  (#:values const-fragment->commands text-fragment->commands assembly-commands->bytes))
 (types
-  (define-type AssemblyStyle
-    (linux-assembly-style)
-    (osx-assembly-style))
   (define-type AssemblyCommand
     (directive-cmd [directive : AssemblerDirective])
     (instruction-cmd [instruction : Instruction]))
@@ -24,7 +19,6 @@
     (const-data-section-directive)
     (text-section-directive)
     (alignment-directive [alignment : Int] [fill : U8])
-    (local-directive [label : Bytes])
     (global-directive [label : Bytes])
     (label-directive [name : Bytes])
     (quad-directive/label [label : Bytes] [addend : Int])
@@ -145,46 +139,31 @@
 
 ;; Generates a text version of the assembly commands.
 (define (assembly-commands->bytes
-          [style : AssemblyStyle]
           [cmds : (List AssemblyCommand)])
   : (JoinList Bytes)
   (case cmds
     [(empty) (empty-jl)]
     [(cons cmd cmds)
      (append-jl
-       (assembly-command->bytes style cmd)
+       (assembly-command->bytes cmd)
        (cons-jl
          #"\n"
-         (assembly-commands->bytes style cmds)))]))
+         (assembly-commands->bytes cmds)))]))
 
-(define (assembly-command->bytes [style : AssemblyStyle] [cmd : AssemblyCommand]) : (JoinList Bytes)
+(define (assembly-command->bytes [cmd : AssemblyCommand]) : (JoinList Bytes)
   (case cmd
-    [(directive-cmd directive) (assembler-directive->bytes style directive)]
-    [(instruction-cmd instruction) (instruction->assembly-bytes style instruction)]))
+    [(directive-cmd directive) (assembler-directive->bytes directive)]
+    [(instruction-cmd instruction) (instruction->assembly-bytes instruction)]))
 
-(define (assembler-directive->bytes [style : AssemblyStyle] [dir : AssemblerDirective]) : (JoinList Bytes)
+(define (assembler-directive->bytes [dir : AssemblerDirective]) : (JoinList Bytes)
   (case dir
     [(text-section-directive)
-     (case style
-       [(osx-assembly-style)
-        (single-jl #".section __TEXT, __text")]
-       [(linux-assembly-style)
-        (single-jl #".section .text")])]
+     (single-jl #".section __TEXT, __text") ]
     [(const-data-section-directive)
-     (case style
-       [(osx-assembly-style)
-        (single-jl #".section __TEXT, __const")]
-       [(linux-assembly-style)
-        (single-jl #".section .rodata")])]
+     (single-jl #".section __TEXT, __const") ]
     [(alignment-directive alignment fill)
      (varargs join-list #".p2align " (integer->decimal-bytes alignment)
               #", 0x" (integer->hex-bytes (u8->s64 fill)))]
-    [(local-directive label)
-     (case style
-       [(osx-assembly-style)
-        (empty-jl)]
-       [(linux-assembly-style)
-        (varargs join-list #".local \"" label #"\"")])]
     [(global-directive label)
      (varargs join-list #".global \"" label #"\"")]
     [(label-directive name)
@@ -205,7 +184,7 @@
                                 #"\\"
                                 (integer->triple-octal-bytes v))))))
 
-(define (instruction->assembly-bytes [style : AssemblyStyle] [inst : Instruction]) : (JoinList Bytes)
+(define (instruction->assembly-bytes [inst : Instruction]) : (JoinList Bytes)
   (case inst
     [(addq rmi1 rm2)
      (varargs join-list
@@ -266,28 +245,28 @@
     [(incq reg)
      (varargs join-list #"incq " (register64->bytes reg))]
     [(jb label)
-     (varargs join-list #"jb" (jump-suffix style) #" " label)]
+     (varargs join-list #"jb " label)]
     [(jbe label)
-     (varargs join-list #"jbe" (jump-suffix style) #" " label)]
+     (varargs join-list #"jbe " label)]
     [(je label)
-     (varargs join-list #"je" (jump-suffix style) #" " label)]
+     (varargs join-list #"je " label)]
     [(jl label)
-     (varargs join-list #"jl" (jump-suffix style) #" " label)]
+     (varargs join-list #"jl " label)]
     [(jg label)
-     (varargs join-list #"jg" (jump-suffix style) #" " label)]
+     (varargs join-list #"jg " label)]
     [(jle label)
-     (varargs join-list #"jle" (jump-suffix style) #" " label)]
+     (varargs join-list #"jle " label)]
     [(jge label)
-     (varargs join-list #"jge" (jump-suffix style) #" " label)]
+     (varargs join-list #"jge " label)]
     [(jmp label)
-     (varargs join-list #"jmp" (jump-suffix style) #" " label)]
+     (varargs join-list #"jmp " label)]
     ;; Don't use a suffix on indirect jumps as displacements aren't currently generated.
     [(jmp/indirect rm)
      (varargs join-list #"jmp *" (r64m->bytes rm))]
     [(jne label)
-     (varargs join-list #"jne" (jump-suffix style) #" " label)]
+     (varargs join-list #"jne " label)]
     [(jnz label)
-     (varargs join-list #"jnz" (jump-suffix style) #" " label)]
+     (varargs join-list #"jnz " label)]
     [(lahf)
      (single-jl #"lahf")]
     [(leaq mem reg)
@@ -405,58 +384,6 @@
         #", "
         (register64->bytes reg))]))
 
-(define (jump-suffix [style : AssemblyStyle]) : Bytes
-  (case style
-    [(osx-assembly-style) #""]
-    [(linux-assembly-style) #".d32"]))
-
-(define (write-assembly-commands
-          [style : AssemblyStyle]
-          [cmds : (List AssemblyCommand)]
-          [output : OutputPort])
-  : Void
-  (write-lines (map (lambda ([cmd : AssemblyCommand]) (assembly-command->bytes style cmd)) cmds) output))
-
-(define (line->bytes [line : (JoinList Bytes)]) : Bytes
-  (case (jl->list line)
-    [(empty) #""]
-    [(cons entry (empty)) entry]
-    [entries (bytes-append entries)]))
-
-(define (write-lines [lines : (List (JoinList Bytes))] [output : OutputPort]) : Void
-  (for-each
-    (lambda ([line : (JoinList Bytes)])
-      (begin
-        (write-line (line->bytes line) output)))
-    lines))
-
-(define (write-fragments
-          [style : AssemblyStyle]
-          [fragments : AssemblyFragments]
-          [output : OutputPort])
-  : Void
-  (write-assembly-commands style (jl->list (fragments->commands fragments)) output))
-
-(define (fragments->commands [fragments : AssemblyFragments]) : (JoinList AssemblyCommand)
-  (case fragments
-    [(assembly-fragments text-fragments const-fragments)
-     (match-define text-commands
-       (concat-map-jl/list text-fragment->commands text-fragments))
-     (match-define const-commands
-       (concat-map-jl/list const-fragment->commands const-fragments))
-     (match-define text-scope-commands
-        (text-commands->scope-commands (jl->list text-commands)))
-     (match-define const-scope-commands
-        (const-commands->scope-commands (jl->list const-commands)))
-     ;; TODO move the section directives here instead of per fragment
-     (varargs append-jl*
-       (varargs join-list
-         (directive-cmd (text-section-directive))
-         (directive-cmd (const-data-section-directive)))
-       (list->jl text-scope-commands)
-       (list->jl const-scope-commands)
-       text-commands
-       const-commands)]))
 
 (define (text-fragment->commands [frag : TextFragment]) : (JoinList AssemblyCommand)
   (case frag
@@ -501,37 +428,3 @@
         [(instruction-fragment inst)
          (single-jl (instruction-cmd inst))]))
     parts))
-
-(define (text-commands->scope-commands [cmds : (List AssemblyCommand)]) : (List AssemblyCommand)
-  (text-commands->scope-commands* cmds (empty) (make-set bytes-cmp)))
-
-(define (text-commands->scope-commands*
-          [cmds : (List AssemblyCommand)]
-          [rev-commands : (List AssemblyCommand)]
-          [globals : (Set Bytes)])
-  : (List AssemblyCommand)
-  (case cmds
-    [(empty)
-     (reverse rev-commands)]
-    [(cons (directive-cmd (global-directive sym)) cmds)
-     (text-commands->scope-commands* cmds rev-commands (set-add globals sym))]
-    [(cons (directive-cmd (label-directive sym)) cmds)
-     (text-commands->scope-commands*
-       cmds
-       (cons (directive-cmd
-               (if (set-member? globals sym)
-                   (global-directive sym)
-                   (local-directive sym)))
-             rev-commands)
-       globals)]
-    [(cons _ cmds)
-     (text-commands->scope-commands* cmds rev-commands globals)]))
-
-(define (const-commands->scope-commands [cmds : (List AssemblyCommand)]) : (List AssemblyCommand)
-  (filter
-    (lambda ([cmd : AssemblyCommand])
-      (case cmd
-        [(directive-cmd (global-directive _)) #t]
-        [(directive-cmd (local-directive _)) #t]
-        [_ #f]))
-    cmds))

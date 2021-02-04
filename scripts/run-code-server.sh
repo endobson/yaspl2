@@ -6,7 +6,7 @@ if [ $# -ne 1 ]; then
 fi
 
 bazel build //libraries/code-http-server && \
-bazel-bin/libraries/code-http-server/code-http-server 127.0.0.1 8080 \
+bazel-bin/libraries/code-http-server/code-http-server 127.0.0.1 8081 \
 `bazel query "filter('.src_dep', deps($1))" | \
    sed -e 's|^//||' -e 's|:|/|' -e 's|.src_dep$||' | \
    tail -r`
