@@ -1,7 +1,6 @@
 #:module (code-http-server assembly)
 #:import {
   (bytes)
-  (either)
   (formats html)
   (formats xml)
   (join-list)
@@ -26,10 +25,12 @@
           (head (empty))
           (body
             (case fragments
-              [(assembly-fragments text const)
+              [(assembly-fragments text const zd)
                (append
                  (map text-fragment->node text)
-                 (map const-fragment->node const))]))))
+                 (append
+                   (map const-fragment->node const)
+                   (map zero-data-fragment->node zd)))]))))
       (case (find-fragment name fragments)
         [(nothing) (not-found)]
         [(just fragment)
@@ -42,8 +43,12 @@
                               (assembly-commands->bytes
                                 (jl->list
                                   (case fragment
-                                    [(left text) (text-fragment->commands text)]
-                                    [(right const) (const-fragment->commands const)]))))))
+                                    [(assembly-text-fragment text)
+                                     (text-fragment->commands text)]
+                                    [(assembly-const-fragment const)
+                                     (const-fragment->commands const)]
+                                    [(assembly-zero-data-fragment zd)
+                                     (zero-data-fragment->commands zd)]))))))
                  (empty)))))])))
 
 (define (text-fragment->node [fragment : TextFragment]) : Node
@@ -56,16 +61,24 @@
     [(const-fragment name _ _)
      (div (link (single-jl name) (text-node/escape (single-jl name))))]))
 
+(define (zero-data-fragment->node [fragment : ZeroDataFragment]) : Node
+  (case fragment
+    [(zero-data-fragment name _ _)
+     (div (link (single-jl name) (text-node/escape (single-jl name))))]))
+
 (define (find-fragment [name : Bytes] [fragments : AssemblyFragments])
-  : (Maybe (Either TextFragment ConstFragment))
+  : (Maybe AssemblyFragment)
   (case fragments
-    [(assembly-fragments text const)
+    [(assembly-fragments text const zd)
      (case (find-text-fragment name text)
-       [(just v) (just (left v))]
+       [(just v) (just (assembly-text-fragment v))]
        [(nothing)
         (case (find-const-fragment name const)
-          [(just v) (just (right v))]
-          [(nothing) (nothing)])])]))
+          [(just v) (just (assembly-const-fragment v))]
+          [(nothing)
+           (case (find-zero-data-fragment name zd)
+             [(just v) (just (assembly-zero-data-fragment v))]
+             [(nothing) (nothing)])])])]))
 
 (define (find-text-fragment [name : Bytes] [fragments : (List TextFragment)]) : (Maybe TextFragment)
   (findf
@@ -80,5 +93,14 @@
     (lambda ([frag : ConstFragment])
       (case frag
         [(const-fragment name2 _ _)
+         (bytes=? name name2)]))
+    fragments))
+
+(define (find-zero-data-fragment [name : Bytes] [fragments : (List ZeroDataFragment)])
+  : (Maybe ZeroDataFragment)
+  (findf
+    (lambda ([frag : ZeroDataFragment])
+      (case frag
+        [(zero-data-fragment name2 _ _)
          (bytes=? name name2)]))
     fragments))

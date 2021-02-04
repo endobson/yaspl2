@@ -10,20 +10,23 @@
 }
 (export
   (#:types AssemblyCommand AssemblerDirective)
-  (#:values const-fragment->commands text-fragment->commands assembly-commands->bytes))
+  (#:values const-fragment->commands text-fragment->commands zero-data-fragment->commands
+            assembly-commands->bytes))
 (types
   (define-type AssemblyCommand
     (directive-cmd [directive : AssemblerDirective])
     (instruction-cmd [instruction : Instruction]))
   (define-type AssemblerDirective
     (const-data-section-directive)
+    (zero-data-section-directive)
     (text-section-directive)
     (alignment-directive [alignment : Int] [fill : U8])
     (global-directive [label : Bytes])
     (label-directive [name : Bytes])
     (quad-directive/label [label : Bytes] [addend : Int])
     (quad-directive/integer [value : Int])
-    (ascii-directive [value : Bytes])))
+    (ascii-directive [value : Bytes])
+    (zero-data-directive [size : Int])))
 
 (define (register8->bytes [reg : Register8]) : Bytes
   (case reg
@@ -161,6 +164,8 @@
      (single-jl #".section __TEXT, __text") ]
     [(const-data-section-directive)
      (single-jl #".section __TEXT, __const") ]
+    [(zero-data-section-directive)
+     (single-jl #".section __DATA, __common") ]
     [(alignment-directive alignment fill)
      (varargs join-list #".p2align " (integer->decimal-bytes alignment)
               #", 0x" (integer->hex-bytes (u8->s64 fill)))]
@@ -176,7 +181,9 @@
      (varargs append-jl*
        (single-jl #".ascii \"")
        (escape-bytes value)
-       (single-jl #"\""))]))
+       (single-jl #"\""))]
+    [(zero-data-directive size)
+     (varargs join-list #".zero " (integer->decimal-bytes size))]))
 
 (define (escape-bytes [src : Bytes]) : (JoinList Bytes)
   (concat-jl (bytes-map src (lambda ([v : U8])
@@ -413,6 +420,16 @@
             [(bytes-fragment value)
              (directive-cmd (ascii-directive value))]))
         parts))))
+
+(define (zero-data-fragment->commands [frag : ZeroDataFragment]) : (JoinList AssemblyCommand)
+  (match-define (zero-data-fragment name align size) frag)
+  (varargs join-list
+    (directive-cmd (zero-data-section-directive))
+    (directive-cmd (alignment-directive align (u8 #x00)))
+    (directive-cmd (global-directive name))
+    (directive-cmd (label-directive name))
+    (directive-cmd (zero-data-directive size))))
+
 
 (define (parts->commands [function-name : Bytes]
                          [parts : (JoinList TextFragmentPart)])

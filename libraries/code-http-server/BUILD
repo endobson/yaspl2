@@ -39,7 +39,6 @@ yaspl_library(
     srcs = ["assembly.yaspl"],
     deps = [
         "//libraries/data:bytes",
-        "//libraries/data:either",
         "//libraries/data:join-list",
         "//libraries/data:list",
         "//libraries/data:maybe",
