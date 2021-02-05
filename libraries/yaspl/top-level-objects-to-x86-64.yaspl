@@ -10,7 +10,6 @@
       [compile-function r:compile-function]
     }
   }
-  (tuples)
   (yaspl top-level-objects)
   (yaspl x86-64-assembly)
 }
@@ -19,16 +18,14 @@
 (types)
 
 (define (convert-objects [objects : (List TopLevelObject)]) : AssemblyFragments
-  (match-define (tuple2 text-fragments const-fragments)
-    (partition-eithers (reverse-map convert-object objects)))
-  (assembly-fragments text-fragments const-fragments (empty)))
+  (combine-fragments (reverse-map convert-object objects)))
 
-(define (convert-object [object : TopLevelObject]) : (Either TextFragment ConstFragment)
+(define (convert-object [object : TopLevelObject]) : AssemblyFragment
   (case object
     [(register-function-tlo name fun)
      (case (r:compile-function name fun)
        [(left v) (panic v)]
-       [(right v) (left v)])]
+       [(right v) (assembly-text-fragment v)])]
     [(bytes-tlo name value)
      (match-define parts
        (varargs list
@@ -36,7 +33,7 @@
          (bytes-fragment (bytes/u64-le (u64 (bytes-length value))))
          (bytes-fragment value)))
      ;; The alignment is 3 so that the tag and length fields are naturally aligned
-     (right (const-fragment name 3 parts))]
+     (assembly-const-fragment (const-fragment name 3 parts))]
     [(variant-descriptor-tlo name variant-name num-star-fields num-i64-fields)
      (match-define parts
        (varargs list
@@ -44,10 +41,11 @@
          (bytes-fragment (bytes/u64-le (u64 num-star-fields)))
          (bytes-fragment (bytes/u64-le (u64 num-i64-fields)))))
      ;; The descriptor needs to have an alignment of 8, so that it can be combined with a tag.
-     (right (const-fragment name 8 parts))]
+     (assembly-const-fragment (const-fragment name 8 parts))]
     [(trivial-variant-tlo name desc-name tag)
      ;; The alignment is 3 so that the variant-descriptor/tag is naturally aligned.
      ;; The tag is the address of the variant descriptor combined with the tag.
-     (right (const-fragment name 3 (varargs list (address-fragment desc-name (u8->s64 tag)))))]
+     (assembly-const-fragment
+       (const-fragment name 3 (varargs list (address-fragment desc-name (u8->s64 tag)))))]
     [(trivial-closure-tlo name fun-name)
-     (right (closure-fragment name (trivial-closure-descriptor-symbol) fun-name))]))
+     (assembly-const-fragment (closure-fragment name (trivial-closure-descriptor-symbol) fun-name))]))

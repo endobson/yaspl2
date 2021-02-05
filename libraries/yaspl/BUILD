@@ -126,7 +126,6 @@ yaspl_bootstrap_library(
         "//libraries/data:bytes",
         "//libraries/data:either",
         "//libraries/data:list",
-        "//libraries/data:tuples",
         "//libraries/prim-language:register-language-compiler",
     ],
 )
