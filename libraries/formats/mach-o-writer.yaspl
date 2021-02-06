@@ -241,6 +241,16 @@
     (program-section (aligned-bytes const-section-contents const-section-alignment)
                      const-relocations _const-global-symbols _const-local-symbols)
     const-section)
+
+  (match-define page-zero-start-address 0)
+  (match-define page-zero-memory-size #x0000000100000000)
+  (match-define page-zero-file-offset 0)
+  (match-define page-zero-file-size 0)
+  (match-define page-zero-end-address (+ page-zero-start-address page-zero-memory-size))
+
+  (match-define text-segment-start-address page-zero-end-address)
+  (match-define text-segment-start-file-offset 0)
+
   (match-define mach-o-header-end-file-offset #x300)
   (match-define text-section-start-file-offset
     (round-up mach-o-header-end-file-offset (logical-shift-left 1 text-section-alignment)))
@@ -250,16 +260,44 @@
     (round-up text-section-end-file-offset (logical-shift-left 1 const-section-alignment)))
   (match-define const-section-end-file-offset
     (+ const-section-start-file-offset (bytes-length const-section-contents)))
-  (match-define rounded-text-segment-length
-    (round-up const-section-end-file-offset #x1000))
-
-  (match-define page-zero-size #x0000000100000000)
+  (match-define text-segment-file-size
+    (- (round-up const-section-end-file-offset #x1000) text-segment-start-file-offset))
+  (match-define text-segment-memory-size text-segment-file-size)
 
   ;; This is where the actual content starts.
   (match-define text-section-start-address
-    (+ page-zero-size text-section-start-file-offset))
+    (+ text-segment-start-address text-section-start-file-offset))
   (match-define const-section-start-address
-    (+ page-zero-size const-section-start-file-offset))
+    (+ text-segment-start-address const-section-start-file-offset))
+  (match-define text-segment-end-address
+    (+ text-segment-start-address text-segment-memory-size))
+  (match-define text-segment-end-file-offset
+    (+ text-segment-start-file-offset text-segment-file-size))
+
+  (match-define data-segment-start-address text-segment-end-address)
+  (match-define data-segment-start-file-offset text-segment-end-file-offset)
+  (match-define data-section-start-address data-segment-start-address)
+  (match-define data-section-start-file-offset data-segment-start-file-offset)
+
+  (match-define data-section-memory-size 0)
+  (match-define data-section-file-size 0)
+  (match-define data-section-alignment 0)
+
+  (match-define data-section-end-address
+    (+ data-section-start-address data-section-memory-size))
+  (match-define data-section-end-file-offset
+    (+ data-section-start-file-offset data-section-file-size))
+  (match-define data-segment-end-address
+    (round-up data-section-end-address #x1000))
+  (match-define data-segment-end-file-offset
+    (round-up data-section-end-file-offset #x1000))
+  (match-define data-segment-file-size
+    (- data-segment-end-file-offset data-segment-start-file-offset))
+  (match-define data-segment-memory-size
+    (- data-segment-end-address data-segment-start-address))
+
+  (match-define linkedit-segment-start-address data-segment-end-address)
+  (match-define linkedit-segment-start-file-offset data-segment-end-file-offset)
 
   (match-define symbol-table-entries
     (construct-symbol-table-entries
@@ -267,6 +305,28 @@
       const-section-start-address const-section
       ;; TODO use a real zero data section
       0 (zero-data-section 0 0 (empty))))
+
+  (match-define num-symbols (length symbol-table-entries))
+  (match-define
+    (tuple2 (lifted-int symbol-strings-length) serialize-symbol-table)
+    (make-serialize-symbol-table symbol-table-entries))
+
+  (match-define symbol-table-start-file-offset linkedit-segment-start-file-offset)
+  (match-define symbol-table-end-file-offset
+    (+ symbol-table-start-file-offset (* 16 num-symbols)))
+  (match-define string-table-start-file-offset symbol-table-end-file-offset)
+
+  (match-define string-table-end-file-offset
+    (+ string-table-start-file-offset symbol-strings-length))
+
+  (match-define linkedit-segment-end-file-offset
+    string-table-end-file-offset)
+  (match-define linkedit-segment-file-size
+    (- linkedit-segment-end-file-offset linkedit-segment-start-file-offset))
+  (match-define linkedit-segment-memory-size
+    (round-up linkedit-segment-file-size #x1000))
+
+
   (case (make-symbol-table-lookup symbol-table-entries)
     [(left msg) (just msg)]
     [(right symbol-table-lookup)
@@ -286,10 +346,6 @@
           [(just msg)
            (just msg)]
           [(nothing)
-           (match-define num-symbols (length symbol-table-entries))
-           (match-define
-             (tuple2 (lifted-int symbol-strings-length) serialize-symbol-table)
-             (make-serialize-symbol-table symbol-table-entries))
 
 
            (match-define start-address (find-start-address symbol-table-entries))
@@ -300,20 +356,20 @@
                    (varargs list
                      (lc-load-segment64
                        (load-segment64 #"__PAGEZERO"
-                         (u64 #x0000000000000000)
-                         (u64 page-zero-size)
-                         (u64 0)
-                         (u64 0)
+                         (u64 page-zero-start-address)
+                         (u64 page-zero-memory-size)
+                         (u64 page-zero-file-offset)
+                         (u64 page-zero-file-size)
                          (u32 #x00)
                          (u32 #x00)
                          (u32 0)
                          (empty)))
                      (lc-load-segment64
                        (load-segment64 #"__TEXT"
-                         (u64 page-zero-size)
-                         (u64 rounded-text-segment-length)
-                         (u64 #x0)
-                         (u64 rounded-text-segment-length)
+                         (u64 text-segment-start-address)
+                         (u64 text-segment-memory-size)
+                         (u64 text-segment-start-file-offset)
+                         (u64 text-segment-file-size)
                          (u32 #x07)
                          (u32 #x05)
                          (u32 0)
@@ -336,39 +392,37 @@
                                       (u32 0)))))
                      (lc-load-segment64
                        (load-segment64 #"__DATA"
-                         (u64 (+ page-zero-size rounded-text-segment-length))
-                         (u64 #x0000000000000000)
-                         (u64 rounded-text-segment-length)
-                         (u64 #x0)
+                         (u64 data-segment-start-address)
+                         (u64 data-segment-memory-size)
+                         (u64 data-segment-start-file-offset)
+                         (u64 data-segment-file-size)
                          (u32 #x07)
                          (u32 #x03)
                          (u32 #x04)
                          (varargs list
                            (section64 #"__data" #"__DATA"
-                                      (u64 (+ page-zero-size rounded-text-segment-length))
-                                      (u64 #x0000000000000000)
-                                      (u32 rounded-text-segment-length)
-                                      (u32 0)
+                                      (u64 data-section-start-address)
+                                      (u64 data-section-memory-size)
+                                      (u32 data-section-start-file-offset)
+                                      (u32 data-section-alignment)
                                       (u32 0)
                                       (u32 0)
                                       (u32 0)))))
                      (lc-load-segment64
                        (load-segment64 #"__LINKEDIT"
-                         (u64 (+ page-zero-size rounded-text-segment-length))
-                         (u64 (round-up
-                                (+ (* num-symbols 16) symbol-strings-length)
-                                #x1000))
-                         (u64 rounded-text-segment-length)
-                         (u64 (+ (* num-symbols 16) symbol-strings-length))
+                         (u64 linkedit-segment-start-address)
+                         (u64 linkedit-segment-memory-size)
+                         (u64 linkedit-segment-start-file-offset)
+                         (u64 linkedit-segment-file-size)
                          (u32 #x07)
                          (u32 #x01)
                          (u32 #x00)
                          (empty)))
                      (lc-symbol-table
                        (symbol-table
-                         (u32 rounded-text-segment-length)
+                         (u32 symbol-table-start-file-offset)
                          (u32 num-symbols)
-                         (u32 (+ rounded-text-segment-length (* num-symbols 16)))
+                         (u32 string-table-start-file-offset)
                          (u32 symbol-strings-length)))
                      (lc-unix-thread (unix-thread start-address)))
                    output)
@@ -382,7 +436,7 @@
                    output)
                  (write-all-bytes const-section-contents output)
                  (write-all-bytes
-                   (make-bytes (- rounded-text-segment-length const-section-end-file-offset))
+                   (make-bytes (- text-segment-file-size const-section-end-file-offset))
                    output)
 
                  ;; Write out the symbol table
