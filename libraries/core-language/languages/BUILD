@@ -80,7 +80,7 @@ yaspl_library(
     name = "type-checked-language",
     srcs = ["type-checked-language.yaspl"],
     deps = [
-        ":resolved-types-language",
+        ":processed-structs-language",
         "//libraries:module-name",
         "//libraries:types",
         "//libraries/core-language:sized-types",

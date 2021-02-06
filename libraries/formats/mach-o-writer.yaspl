@@ -25,11 +25,14 @@
     (mach-o-executable-file)))
 
 
-;; These assume that the text section is the first section and the const section is the second.
+;; These assume that the text section is the first section, the const section is the second, and the
+;; common data section is the third.
 (define (text-symbol-table-entry [name : Bytes] [value : U64]) : SymbolTableEntry
   (symbol-table-entry name (u8 #x0f) (u8 #x01) (u8 #x20) value))
 (define (const-symbol-table-entry [name : Bytes] [value : U64]) : SymbolTableEntry
   (symbol-table-entry name (u8 #x0f) (u8 #x02) (u8 #x20) value))
+(define (zero-data-symbol-table-entry [name : Bytes] [value : U64]) : SymbolTableEntry
+  (symbol-table-entry name (u8 #x0f) (u8 #x03) (u8 #x20) value))
 (define (undefined-symbol-table-entry [name : Bytes]) : SymbolTableEntry
   (symbol-table-entry name (u8 #x01) (u8 #x00) (u8 #x00) (u64 0)))
 
@@ -38,10 +41,13 @@
     [text-section-start-address : Int]
     [text-section : (ProgramSection RelocationKind)]
     [const-section-start-address : Int]
-    [const-section : (ProgramSection RelocationKind)])
+    [const-section : (ProgramSection RelocationKind)]
+    [zero-data-section-start-address : Int]
+    [zero-data-section : ZeroDataSection])
   : (List SymbolTableEntry)
   (match-define (program-section _ text-relocations text-global-symbols _text-local-symbols) text-section)
   (match-define (program-section _ const-relocations const-global-symbols _const-local-symbols) const-section)
+  (match-define (zero-data-section _ _ zero-data-symbols) zero-data-section)
 
   (match-define undefined-symbols
     (set->list
@@ -59,12 +65,19 @@
             [(defined-symbol name offset)
              (text-symbol-table-entry name (u64 (+ text-section-start-address offset)))]))
         (sort text-global-symbols defined-symbol<))
-      (map
-        (lambda ([s : DefinedSymbol])
-          (case s
-            [(defined-symbol name offset)
-             (const-symbol-table-entry name (u64 (+ const-section-start-address offset)))]))
-        (sort const-global-symbols defined-symbol<)))
+      (append
+        (map
+          (lambda ([s : DefinedSymbol])
+            (case s
+              [(defined-symbol name offset)
+               (const-symbol-table-entry name (u64 (+ const-section-start-address offset)))]))
+          (sort const-global-symbols defined-symbol<))
+        (map
+          (lambda ([s : DefinedSymbol])
+            (case s
+              [(defined-symbol name offset)
+               (zero-data-symbol-table-entry name (u64 (+ zero-data-section-start-address offset)))]))
+          (sort zero-data-symbols defined-symbol<))))
     (map
       undefined-symbol-table-entry
       (sort undefined-symbols bytes<))))
@@ -251,7 +264,9 @@
   (match-define symbol-table-entries
     (construct-symbol-table-entries
       text-section-start-address text-section
-      const-section-start-address const-section))
+      const-section-start-address const-section
+      ;; TODO use a real zero data section
+      0 (zero-data-section 0 0 (empty))))
   (case (make-symbol-table-lookup symbol-table-entries)
     [(left msg) (just msg)]
     [(right symbol-table-lookup)
@@ -434,7 +449,8 @@
   (match-define exported-symbols
     (construct-symbol-table-entries
       text-section-offset text-section
-      const-section-offset const-section))
+      const-section-offset const-section
+      zero-data-section-offset zero-data-section))
   (match-define num-text-relocations (length text-relocations))
   (match-define num-const-relocations (length const-relocations))
   ;; The segment-file-offset is double checked later.

@@ -4,6 +4,7 @@
   (core-language languages processed-structs-language)
   {(core-language languages resolved-types-language)
     {#:types
+      [GlobalDefinition rt:GlobalDefinition]
       [Module rt:Module]
       [SpaceType rt:SpaceType]
       [StructDefinition rt:StructDefinition]
@@ -11,6 +12,7 @@
     }
     {#:patterns
       [fixed-array-space-type rt:fixed-array-space-type]
+      [global-definition rt:global-definition]
       [module rt:module]
       [raw-space-type rt:raw-space-type]
       [struct-definition rt:struct-definition]
@@ -36,12 +38,15 @@
 (types)
 
 (define (process-structs [mod : rt:Module]) : (Either Bytes Module)
-  (match-define (rt:module mod-name imports structs functions) mod)
+  (match-define (rt:module mod-name imports structs globals functions) mod)
 
   (case (definitions->struct-infos structs (make-dict type-cmp))
     [(left v) (left v)]
     [(right structs)
-     (right (module mod-name imports structs functions))]))
+     (case (definitions->global-infos globals structs (make-dict bytes-cmp))
+       [(left v) (left v)]
+       [(right globals)
+        (right (module mod-name imports structs globals functions))])]))
 
 (define (definitions->struct-infos
           [defs : (List rt:StructDefinition)]
@@ -82,6 +87,24 @@
           [(nothing) (left #"Struct field must be of sized type")]
           [(just (lifted-int size))
            (process-fields fields (+ offset size) known-structs acc)])])]))
+
+
+(define (definitions->global-infos
+          [defs : (List rt:GlobalDefinition)]
+          [known-structs : (Dict Type StructInfo)]
+          [acc : (Dict Bytes GlobalInfo)])
+  : (Either Bytes (Dict Bytes GlobalInfo))
+  (case defs
+    [(empty) (right acc)]
+    [(cons (rt:global-definition name type) defs)
+     (case (space-type->size type known-structs)
+       [(nothing) (left #"Global's type must be a sized type")]
+       [(just (lifted-int size))
+        (definitions->global-infos
+          defs
+          known-structs
+          (dict-add acc name (global-info (space-type->type type) size)))])]))
+
 
 (define (space-type->type [t : rt:SpaceType]) : Type
   (case t
