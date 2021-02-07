@@ -13,13 +13,15 @@
   (#:values
      relocation-kind->u8 u8->relocation-kind
      abstract-relocation->mach-o-relocation
-     parse-mach-o parsed-mach-o-text-section parsed-mach-o-const-section)
+     parse-mach-o parsed-mach-o-text-section parsed-mach-o-const-section
+     parsed-mach-o-zero-data-section)
   (#:patterns mach-o-branch-relocation mach-o-signed-relocation mach-o-unsigned-relocation))
 (types
   (define-type ParsedMachO
     (parsed-mach-o
       [text-section : (ProgramSection MachORelocationKind)]
-      [const-section : (ProgramSection MachORelocationKind)]))
+      [const-section : (ProgramSection MachORelocationKind)]
+      [zero-data-section : ZeroDataSection]))
 
   (define-type MachORelocationKind
     (mach-o-branch-relocation)
@@ -84,6 +86,25 @@
        [_ (find-const-section* secs)])]))
 
 
+(define (find-common-data-section [load-commands : (List MachOLoadCommand)]) : Section64
+  (case load-commands
+    [(empty) (panic #"No common data section")]
+    [(cons (lc-load-segment64 (load-segment64 _ _ _ _ _ _ _ _ sections)) lc)
+     (case (find-common-data-section* sections)
+       [(just sec) sec]
+       [_ (find-common-data-section lc)])]
+    [(cons _ lc) (find-common-data-section lc)]))
+
+(define (find-common-data-section* [sections : (List Section64)]) : (Maybe Section64)
+  (case sections
+    [(empty) (nothing)]
+    [(cons sec secs)
+     (case sec
+       [(section64 #"__common" #"__DATA" _ _ _ _ _ _ _)
+        (just sec)]
+       [_ (find-common-data-section* secs)])]))
+
+
 (define (symbol-entries->defined-symbols
           [section-base-address : Int]
           [entries : (List SymbolTableEntry)]) : (List DefinedSymbol)
@@ -106,6 +127,10 @@
   (case entry
     [(symbol-table-entry _ _ section _ _)
      (= (u8->s64 section) 2)]))
+(define (common-data-symbol? [entry : SymbolTableEntry]) : Boolean
+  (case entry
+    [(symbol-table-entry _ _ section _ _)
+     (= (u8->s64 section) 3)]))
 
 
 (define (lookup-symbol [symbols : (List SymbolTableEntry)] [symbol-num : Int])
@@ -134,7 +159,8 @@
   (right
     (parsed-mach-o
       (parse-text-section mach-o all-symbols)
-      (parse-const-section mach-o all-symbols))))
+      (parse-const-section mach-o all-symbols)
+      (parse-common-data-section mach-o all-symbols))))
 
 (define (parse-text-section [mach-o : MachOFile] [symbols : (List SymbolTableEntry)])
   : (ProgramSection MachORelocationKind)
@@ -171,3 +197,17 @@
           (resolve-relocations (read-relocations num-relocations relocation-offset contents) symbols)
           (symbol-entries->defined-symbols address (filter const-symbol? symbols))
           (empty))])]))
+
+(define (parse-common-data-section [mach-o : MachOFile] [symbols : (List SymbolTableEntry)])
+  : ZeroDataSection
+  (case mach-o
+    [(mach-o-file _header load-commands _)
+     (case (find-common-data-section load-commands)
+       [(section64 _ _ address size _ alignment _ _ _)
+        (match-define size (u64->s64 size))
+        (match-define alignment (u32->s64 alignment))
+        (match-define address (u64->s64 address))
+        (zero-data-section
+          size
+          alignment
+          (symbol-entries->defined-symbols address (filter common-data-symbol? symbols)))])]))
