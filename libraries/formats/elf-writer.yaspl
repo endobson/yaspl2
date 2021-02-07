@@ -29,7 +29,8 @@
 
 (define (serialize-elf-library
           [text-section : (ProgramSection AbstractRelocationKind)]
-          [const-section : (ProgramSection AbstractRelocationKind)])
+          [const-section : (ProgramSection AbstractRelocationKind)]
+          [zero-data-section : ZeroDataSection])
   : Bytes
   (match-define (program-section (aligned-bytes text-section-contents text-section-alignment)
                                  text-relocations text-global-symbols text-local-symbols)
@@ -43,11 +44,16 @@
   (match-define const-symbols (append const-global-symbols const-local-symbols))
   (match-define const-section-size (bytes-length const-section-contents))
 
+  (match-define (zero-data-section zero-data-section-size zero-data-section-alignment
+                                   zero-data-symbols)
+    zero-data-section)
+
   (match-define defined-symbols
     (map defined-symbol-name
          (append* (varargs list
                     text-local-symbols text-global-symbols
-                    const-local-symbols const-global-symbols))))
+                    const-local-symbols const-global-symbols
+                    zero-data-symbols))))
 
   (match-define undefined-symbols
     (let ([defined-symbols-set (set-add-all (make-set bytes-cmp) defined-symbols)])
@@ -71,6 +77,10 @@
     (indexed-set-add-all
       (make-indexed-set defined-symbol-name bytes-cmp)
       const-symbols))
+  (match-define indexed-zero-data-symbols
+    (indexed-set-add-all
+      (make-indexed-set defined-symbol-name bytes-cmp)
+      zero-data-symbols))
   (match-define text-global-symbol-names-set
     (set-add-all
       (make-set bytes-cmp)
@@ -132,7 +142,8 @@
 
 
   (match-define bss-section-start data-section-end)
-  (match-define bss-section-size 0)
+  (match-define bss-section-size zero-data-section-size)
+  (match-define bss-section-alignment zero-data-section-alignment)
   (match-define bss-section-end bss-section-start)
 
   (match-define const-section-start
@@ -238,7 +249,7 @@
         0 ;; Address
         bss-section-start bss-section-size
         0 0 ;; No link or info
-        1 ;; Alignment
+        (logical-shift-left 1 bss-section-alignment) ;; Alignment
         0) ;; Not fixed entries
       (section-header/bytes
         (section-name-offset #".rodata")
@@ -345,7 +356,11 @@
                                          5
                                          addr)]
                     [(nothing)
-                     (symbol-table-entry name-offset #x10 0 0)])])]))
+                     (case (indexed-set-ref indexed-zero-data-symbols sym)
+                       [(just (defined-symbol _ addr))
+                        (symbol-table-entry name-offset #x10 4 addr)]
+                       [(nothing)
+                        (symbol-table-entry name-offset #x10 0 0)])])])]))
           offset-symbols)
         (single-jl (make-null-terminated #""))
         (concat-map-jl/list
