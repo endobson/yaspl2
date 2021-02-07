@@ -10,6 +10,7 @@
   (list)
   (maybe)
   (numbers)
+  (panic)
   (prim)
   (set)
   (structured-elf)
@@ -125,20 +126,29 @@
 
   (match-define symbol-table-size (* (+ 1 (+ (length named-sections) (dict-count symbol-indices))) #x18))
 
-  (match-define section-string-table-strings
-    (map make-null-terminated
-      (varargs list
-        #""
-        #".symtab"
-        #".strtab"
-        #".shstrtab"
-        #".rela.text"
-        #".data"
-        #".bss"
-        #".rela.rodata")))
+  (match-define section-string-table-contents
+    (bytes-append
+      (map make-null-terminated
+        (varargs list
+          #""
+          #".symtab"
+          #".strtab"
+          #".shstrtab"
+          #".rela.text"
+          #".data"
+          #".bss"
+          #".rela.rodata"))))
 
   (match-define section-string-table-size
-    (sum bytes-length section-string-table-strings))
+    (bytes-length section-string-table-contents))
+
+  (match-define section-name-offset
+    (lambda ([name : Bytes]) : Int
+      (case (bytes-find-subbytes-first-index
+              section-string-table-contents
+              (make-null-terminated name))
+        [(nothing) (panic/int #"Couldn't find section name")]
+        [(just (lifted-int v)) v])))
 
   (match-define symbol-table-start (round-up const-section-end 8))
   (match-define string-table-start (round-up (+ symbol-table-start symbol-table-size) 8))
@@ -167,29 +177,38 @@
   (match-define section-headers : (List (JoinList Bytes))
     (varargs list
       (padding (* 16 4)) ;; Empty section header
-      ;; .text section
-      (section-header/bytes 32 1 6 0 text-section-start text-section-length 0 0
-                      (logical-shift-left 1 text-section-alignment) 0)
-      ;; .rela.text section
-      (section-header/bytes 27 4 64 0 rela-text-section-start rela-text-section-size
-                      7 1 8 #x18)
-      ;; .data section
-      (section-header/bytes 38 1 3 0 text-section-end 0 0 0 1 0)
-      ;; .bss section
-      (section-header/bytes 44 8 3 0 text-section-end 0 0 0 1 0)
-      ;; .rodata section
-      (section-header/bytes 54 1 2 0 const-section-start const-section-length 0 0
-                            (logical-shift-left 1 const-section-alignment) 0)
-      ;; .rela.rodata section
-      (section-header/bytes 49 4 64 0 rela-const-section-start rela-const-section-size
-                            7 5 8 #x18)
-      ;; .symtab section
-      (section-header/bytes 1 2 0 0 symbol-table-start symbol-table-size
-                            8 (+ 5 (+ (length text-local-symbols) (length const-local-symbols))) 8 24)
-      ;; .strtab section
-      (section-header/bytes 9 3 0 0 string-table-start string-table-size 0 0 1 0)
-      ;; .shstrtab section
-      (section-header/bytes 17 3 0 0 section-string-table-start section-string-table-size 0 0 1 0)))
+      (section-header/bytes
+        (section-name-offset #".text")
+        1 6 0 text-section-start text-section-length 0 0
+        (logical-shift-left 1 text-section-alignment) 0)
+      (section-header/bytes
+        (section-name-offset #".rela.text")
+        4 64 0 rela-text-section-start rela-text-section-size
+        7 1 8 #x18)
+      (section-header/bytes
+        (section-name-offset #".data")
+        1 3 0 text-section-end 0 0 0 1 0)
+      (section-header/bytes
+        (section-name-offset #".bss")
+        8 3 0 text-section-end 0 0 0 1 0)
+      (section-header/bytes
+        (section-name-offset #".rodata")
+        1 2 0 const-section-start const-section-length 0 0
+        (logical-shift-left 1 const-section-alignment) 0)
+      (section-header/bytes
+        (section-name-offset #".rela.rodata")
+        4 64 0 rela-const-section-start rela-const-section-size
+        7 5 8 #x18)
+      (section-header/bytes
+        (section-name-offset #".symtab")
+        2 0 0 symbol-table-start symbol-table-size
+        8 (+ 5 (+ (length text-local-symbols) (length const-local-symbols))) 8 24)
+      (section-header/bytes
+        (section-name-offset #".strtab")
+        3 0 0 string-table-start string-table-size 0 0 1 0)
+      (section-header/bytes
+        (section-name-offset #".shstrtab")
+        3 0 0 section-string-table-start section-string-table-size 0 0 1 0)))
 
   (bytes-append
     (jl->list
@@ -255,7 +274,7 @@
         (padding (- rela-text-section-start string-table-end))
         (concat-map-jl/list serialize-relocation ordered-text-relocations)
         (concat-map-jl/list serialize-relocation const-relocations)
-        (concat-map-jl/list (lambda ([v : Bytes]) (single-jl v)) section-string-table-strings)
+        (single-jl section-string-table-contents)
         (padding (- section-header-start section-string-table-end))
         (concat-jl section-headers)))))
 
