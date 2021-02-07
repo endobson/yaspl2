@@ -475,17 +475,19 @@
 (define (write-elf-executable
           [text-section : (ProgramSection ElfRelocationKind)]
           [const-section : (ProgramSection ElfRelocationKind)]
+          [zero-data-section : ZeroDataSection]
           [output-file-name : Bytes]) : (Maybe Bytes)
   (call-with-output-file output-file-name
     (lambda ([p : OutputPort])
       (begin
         (write-all-bytes
-          (serialize-elf-executable text-section const-section) p)
+          (serialize-elf-executable text-section const-section zero-data-section) p)
         (nothing)))))
 
 (define (serialize-elf-executable
           [text-section : (ProgramSection ElfRelocationKind)]
-          [const-section : (ProgramSection ElfRelocationKind)]) : Bytes
+          [const-section : (ProgramSection ElfRelocationKind)]
+          [zero-data-section : ZeroDataSection]) : Bytes
 
   (match-define
     (program-section (aligned-bytes text-section-contents text-section-alignment)
@@ -499,9 +501,15 @@
     const-section)
   (match-define const-section-length (bytes-length const-section-contents))
 
+  (match-define
+    (zero-data-section zero-data-section-size zero-data-section-alignment
+                       zero-data-symbols)
+    zero-data-section)
+
   ;; Move the local symbols to earlier in the symbol list.
   (match-define local-symbols (append const-local-symbols text-local-symbols))
-  (match-define global-symbols (append const-global-symbols text-global-symbols))
+  (match-define global-symbols
+    (append const-global-symbols (append text-global-symbols zero-data-symbols)))
   (match-define ordered-symbols
     (remove-duplicates
       (append
@@ -513,6 +521,12 @@
 
   (match-define offset-symbols-dict : (Dict Bytes LiftedInt)
     (dict-add-all (make-dict bytes-cmp) offset-symbols))
+
+  (match-define text-symbols-set
+    (set-add-all
+       (make-set bytes-cmp)
+       (map defined-symbol-name
+            (append text-local-symbols text-global-symbols))))
 
   (match-define const-symbols-set
     (set-add-all
@@ -536,7 +550,8 @@
   (match-define data-section-size 0)
   (match-define data-section-end (+ data-section-start data-section-size))
   (match-define bss-section-start (round-up data-section-end #x1000))
-  (match-define bss-section-size 0)
+  (match-define bss-section-size zero-data-section-size)
+  (match-define bss-section-alignment zero-data-section-alignment)
   (match-define bss-section-end bss-section-start)
 
   (match-define linker-comment-start (round-up bss-section-end #x1000))
@@ -553,12 +568,19 @@
               [(defined-symbol name addr)
                (tuple2 name (lifted-int (+ (+ address-offset text-section-start) addr)))]))
           (append text-local-symbols text-global-symbols))
-        (map
-          (lambda ([s : DefinedSymbol])
-            (case s
-              [(defined-symbol name addr)
-               (tuple2 name (lifted-int (+ (+ address-offset const-section-start) addr)))]))
-          (append const-local-symbols const-global-symbols)))))
+        (append
+          (map
+            (lambda ([s : DefinedSymbol])
+              (case s
+                [(defined-symbol name addr)
+                 (tuple2 name (lifted-int (+ (+ address-offset const-section-start) addr)))]))
+            (append const-local-symbols const-global-symbols))
+          (map
+            (lambda ([s : DefinedSymbol])
+              (case s
+                [(defined-symbol name addr)
+                 (tuple2 name (lifted-int (+ (+ address-offset bss-section-start) addr)))]))
+            zero-data-symbols)))))
 
   (match-define symbol-table-start (round-up linker-comment-end 8))
   (match-define num-symbol-table-entries (+ 1 (length offset-symbols)))
@@ -658,7 +680,11 @@
               (case (dict-ref/panic offset-symbols-dict sym)
                 [(lifted-int v) v])
               (if (set-member? local-symbols-set sym) #x00 #x10)
-              (if (set-member? const-symbols-set sym) 1 2)
+              (if (set-member? const-symbols-set sym)
+                  1
+                  (if (set-member? text-symbols-set sym)
+                      2
+                      4))
               (case (dict-ref/panic symbol-addresses sym)
                 [(lifted-int v) v])))
           ordered-symbols)
@@ -710,7 +736,7 @@
           (+ address-offset bss-section-start)
           bss-section-start bss-section-size
           0 0 ;; No link or info
-          1 ;; Alignment
+          (logical-shift-left 1 bss-section-alignment)
           0) ;; Not fixed entries
         (section-header/bytes
           (section-name-offset #".comment")
