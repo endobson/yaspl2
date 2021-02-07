@@ -249,7 +249,7 @@
         0 ;; Address
         bss-section-start bss-section-size
         0 0 ;; No link or info
-        (logical-shift-left 1 bss-section-alignment) ;; Alignment
+        (logical-shift-left 1 bss-section-alignment)
         0) ;; Not fixed entries
       (section-header/bytes
         (section-name-offset #".rodata")
@@ -531,7 +531,15 @@
   (match-define const-section-end (+ const-section-start const-section-length))
   (match-define text-section-start (round-up const-section-end #x1000))
   (match-define text-section-end (+ text-section-start text-section-length))
-  (match-define linker-comment-start (round-up text-section-end #x1000))
+
+  (match-define data-section-start (round-up text-section-end #x1000))
+  (match-define data-section-size 0)
+  (match-define data-section-end (+ data-section-start data-section-size))
+  (match-define bss-section-start (round-up data-section-end #x1000))
+  (match-define bss-section-size 0)
+  (match-define bss-section-end bss-section-start)
+
+  (match-define linker-comment-start (round-up bss-section-end #x1000))
   (match-define linker-comment-size 18)
   (match-define linker-comment-end (+ linker-comment-start linker-comment-size))
 
@@ -586,6 +594,40 @@
     (case (dict-ref/panic symbol-addresses #"_start")
       [(lifted-int v) v]))
 
+  (match-define section-string-table-contents
+    (bytes-append
+      (map make-null-terminated
+        (varargs list
+          #""
+          #".rodata"
+          #".text"
+          #".data"
+          #".bss"
+          #".comment"
+          #".symtab"
+          #".shstrtab"
+          #".strtab"))))
+
+  (match-define section-name-offset
+    (lambda ([name : Bytes]) : Int
+      (case (bytes-find-subbytes-first-index
+              section-string-table-contents
+              (make-null-terminated name))
+        [(nothing) (panic/int #"Couldn't find section name")]
+        [(just (lifted-int v)) v])))
+
+
+  (match-define section-type/progbits 1)
+  (match-define section-type/symtab 2)
+  (match-define section-type/strtab 3)
+  (match-define section-type/nobits 8)
+
+  (match-define section-flags/none #x00)
+  (match-define section-flags/writeable  #x01)
+  (match-define section-flags/alloc      #x02)
+  (match-define section-flags/executable #x04)
+
+
   (bytes-append
     (jl->list
       (varargs append-jl*
@@ -622,19 +664,7 @@
           ordered-symbols)
 
 
-        (concat-map-jl/list
-          (lambda ([s : Bytes])
-            (single-jl (make-null-terminated s)))
-          (varargs list
-            #""
-            #".rodata"
-            #".text"
-            #".data"
-            #".bss"
-            #".comment"
-            #".symtab"
-            #".shstrtab"
-            #".strtab"))
+        (single-jl section-string-table-contents)
 
         (single-jl (make-null-terminated #""))
         (concat-map-jl/list
@@ -646,19 +676,78 @@
 
         (padding (- section-header-start string-table-end))
         (padding (* 16 4)) ;; Empty section header
-        (section-header/bytes 1 1 2 (+ address-offset const-section-start)
-                              const-section-start const-section-length
-                              0 0 (logical-shift-left 1 const-section-alignment) 0)
-        (section-header/bytes 9 1 6 (+ address-offset text-section-start)
-                              text-section-start text-section-length
-                              0 0 (logical-shift-left 1 text-section-alignment) 0)
-        (section-header/bytes 15 1 3 (+ address-offset linker-comment-start) linker-comment-start 0 0 0 1 0)
-        (section-header/bytes 21 8 3 (+ address-offset linker-comment-start) linker-comment-start 0 0 0 1 0)
-        (section-header/bytes 26 1 #x30 0 linker-comment-start #x12 0 0 1 1)
-        (section-header/bytes 35 2 0 0 symbol-table-start symbol-table-size 8
-                              (+ (length text-local-symbols) 1) #x08 #x18)
-        (section-header/bytes 43 3 0 0 section-string-table-start section-string-table-size 0 0 1 0)
-        (section-header/bytes 53 3 0 0 string-table-start string-table-size 0 0 1 0)))))
+        (section-header/bytes
+          (section-name-offset #".rodata")
+          section-type/progbits
+          section-flags/alloc
+          (+ address-offset const-section-start)
+          const-section-start const-section-length
+          0 0 ;; No link or info
+          (logical-shift-left 1 const-section-alignment)
+          0) ;; Not fixed entries
+        (section-header/bytes
+          (section-name-offset #".text")
+          section-type/progbits
+          (bitwise-ior section-flags/alloc section-flags/executable)
+          (+ address-offset text-section-start)
+          text-section-start text-section-length
+          0 0 ;; No link or info
+          (logical-shift-left 1 text-section-alignment)
+          0) ;; Not fixed entries
+        (section-header/bytes
+          (section-name-offset #".data")
+          section-type/progbits
+          (bitwise-ior section-flags/writeable section-flags/alloc)
+          (+ address-offset data-section-start)
+          data-section-start data-section-size
+          0 0 ;; No link or info
+          1 ;; Alignment
+          0) ;; Not fixed entries
+        (section-header/bytes
+          (section-name-offset #".bss")
+          section-type/nobits
+          (bitwise-ior section-flags/writeable section-flags/alloc)
+          (+ address-offset bss-section-start)
+          bss-section-start bss-section-size
+          0 0 ;; No link or info
+          1 ;; Alignment
+          0) ;; Not fixed entries
+        (section-header/bytes
+          (section-name-offset #".comment")
+          section-type/progbits
+          #x30 ;; Comment section flags
+          0 ;; Address
+          linker-comment-start linker-comment-size
+          0 0 ;; No link or info
+          1 ;; Alignment
+          1)
+        (section-header/bytes
+          (section-name-offset #".symtab")
+          section-type/symtab
+          section-flags/none
+          0 ;; Address
+          symbol-table-start symbol-table-size
+          8 (+ (length text-local-symbols) 1)
+          #x08 ;; Alignment
+          #x18) ;; Not fixed entries
+        (section-header/bytes
+          (section-name-offset #".shstrtab")
+          section-type/strtab
+          section-flags/none
+          0 ;; Address
+          section-string-table-start section-string-table-size
+          0 0 ;; No link or info
+          1 ;; Alignment
+          0) ;; Not fixed entries
+        (section-header/bytes
+          (section-name-offset #".strtab")
+          section-type/strtab
+          section-flags/none
+          0 ;; Address
+          string-table-start string-table-size
+          0 0 ;; No link or info
+          1 ;; Alignment
+          0))))) ;; Not fixed entries
 
 (define (executable-program-header
           [start-address : Int]
