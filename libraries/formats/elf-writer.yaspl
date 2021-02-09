@@ -539,9 +539,11 @@
        (make-set bytes-cmp)
        (map defined-symbol-name local-symbols)))
 
+  (match-define header-size (+ #x40 (* 5 #x38)))
 
   (match-define address-offset #x200000)
-  (match-define const-section-start (round-up #x120 (logical-shift-left 1 const-section-alignment)))
+  (match-define const-section-start
+    (round-up header-size (logical-shift-left 1 const-section-alignment)))
   (match-define const-section-end (+ const-section-start const-section-length))
   (match-define text-section-start (round-up const-section-end #x1000))
   (match-define text-section-end (+ text-section-start text-section-length))
@@ -660,9 +662,11 @@
           const-section-length
           text-section-start
           text-section-length
+          bss-section-start
+          bss-section-size
           section-header-start)
 
-        (padding (- const-section-start #x120))
+        (padding (- const-section-start header-size))
         (single-jl const-section-contents)
         (padding (- text-section-start const-section-end))
         (single-jl text-section-contents)
@@ -782,8 +786,20 @@
           [const-section-length : Int]
           [text-section-start : Int]
           [text-section-length : Int]
+          [bss-section-start : Int]
+          [bss-section-length : Int]
           [section-header-start : Int])
   : (JoinList Bytes)
+  (match-define elf-header-size #x40)
+  (match-define elf-header-end elf-header-size)
+
+  (match-define program-headers-start elf-header-end)
+
+  (match-define num-program-header-entries 5)
+  (match-define program-header-entry-size #x38)
+  (match-define program-headers-size
+    (* num-program-header-entries program-header-entry-size))
+
   (varargs append-jl*
     (varargs join-list
       #"\x7FELF" ;; Magic
@@ -794,17 +810,18 @@
       #"\x00")   ;; OS ABI version
     (padding 7) ;; Padding
 
+
     (varargs join-list
       (bytes/u16-le (u16 2)) ;; Executable file
       (bytes/u16-le (u16 #x3E)) ;; Machine type X86_64
       (bytes/u32-le (u32 1)) ;; Version
       (bytes/u64-le (u64 start-address)) ;; Start address
-      (bytes/u64-le (u64 #x40)) ;; Program header offset
+      (bytes/u64-le (u64 program-headers-start)) ;; Program header offset
       (bytes/u64-le (u64 section-header-start)) ;; Section header offset
       (bytes/u32-le (u32 0)) ;; FLAGS
-      (bytes/u16-le (u16 #x40)) ;; ELF header size
-      (bytes/u16-le (u16 #x38)) ;; Size of program header entry
-      (bytes/u16-le (u16 #x04)) ;; Number of program header entries
+      (bytes/u16-le (u16 elf-header-size))            ;; ELF header size
+      (bytes/u16-le (u16 program-header-entry-size))  ;; Size of program header entry
+      (bytes/u16-le (u16 num-program-header-entries)) ;; Number of program header entries
 
       (bytes/u16-le (u16 #x40)) ;; size of section header entry
       (bytes/u16-le (u16 #x09)) ;; Number of section header entries
@@ -812,11 +829,11 @@
 
       (bytes/u32-le (u32 #x06))  ;; Segment type (Program Header)
       (bytes/u32-le (u32 #x04))  ;; Segment flags (Read)
-      (bytes/u64-le (u64 #x40))  ;; Segment offset
-      (bytes/u64-le (u64 (+ address-offset #x40)))  ;; Segment virtual address
-      (bytes/u64-le (u64 (+ address-offset #x40)))  ;; Segment physical address
-      (bytes/u64-le (u64 #x118))  ;; Segment file size
-      (bytes/u64-le (u64 #x118))  ;; Segment memory size
+      (bytes/u64-le (u64 program-headers-start))  ;; Segment offset
+      (bytes/u64-le (u64 (+ address-offset program-headers-start)))  ;; Segment virtual address
+      (bytes/u64-le (u64 (+ address-offset program-headers-start)))  ;; Segment physical address
+      (bytes/u64-le (u64 program-headers-size))  ;; Segment file size
+      (bytes/u64-le (u64 program-headers-size))  ;; Segment memory size
       (bytes/u64-le (u64 #x08))  ;; Segment alignment
 
       ;; The const segment includes all the elf and program headers.
@@ -836,6 +853,15 @@
       (bytes/u64-le (u64 (+ address-offset text-section-start)))  ;; Segment physical address
       (bytes/u64-le (u64 (round-up text-section-length #x1000)))  ;; Segment file size
       (bytes/u64-le (u64 (round-up text-section-length #x1000)))  ;; Segment memory size
+      (bytes/u64-le (u64 #x1000))  ;; Segment alignment
+
+      (bytes/u32-le (u32 #x01))  ;; Segment type (Loadable)
+      (bytes/u32-le (u32 #x06))  ;; Segment flags (Read/Write)
+      (bytes/u64-le (u64 bss-section-start))  ;; Segment offset
+      (bytes/u64-le (u64 (+ address-offset bss-section-start)))  ;; Segment virtual address
+      (bytes/u64-le (u64 (+ address-offset bss-section-start)))  ;; Segment physical address
+      (bytes/u64-le (u64 0))                                     ;; Segment file size
+      (bytes/u64-le (u64 (round-up bss-section-length #x1000)))  ;; Segment memory size
       (bytes/u64-le (u64 #x1000))  ;; Segment alignment
 
       (bytes/u32-le (u32 #x6474e551))  ;; Segment type (GNU Stack)
