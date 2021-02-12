@@ -7,6 +7,11 @@
 #:declare_external read_serial U64
 #:declare_external write_serial U64
 
+// External functions for interrupts
+#:declare_external irqfun_com1 U64
+#:declare_external irqfun_nic U64
+#:declare_external irqfun_default U64
+
 #:define_function
 U64 a(U64 arg, U64 arg2, U64 arg3, U64 arg4) {
   return arg4 + 7;
@@ -71,6 +76,17 @@ U64 welcomeMessage() {
   return 0;
 }
 
+
+#:define_function
+U64 memset(U8[]* memory, U8 value, U64 size) {
+  U64 index := 0;
+  while (index < size) {
+    *memory->&[index] <- value;
+    index := index + 1;
+  }
+  return 0;
+}
+
 #:define_struct EfiHandle {}
 
 #:define_struct EfiTableHeader {
@@ -94,6 +110,29 @@ U64 welcomeMessage() {
     EfiUnknown*    FreePages;
     U64            GetMemoryMap;
     U64            AllocatePool;
+    EfiUnknown*    FreePool;
+    EfiUnknown*    CreateEvent;
+    EfiUnknown*    SetTimer;
+    EfiUnknown*    WaitForEvent;
+    EfiUnknown*    SignalEvent;
+    EfiUnknown*    CloseEvent;
+    EfiUnknown*    CheckEvent;
+    EfiUnknown*    InstallProtocolInterface;
+    EfiUnknown*    ReinstallProtocolInterface;
+    EfiUnknown*    UninstallProtocolInterface;
+    EfiUnknown*    HandleProtocol;
+    EfiUnknown*    Reserved;
+    EfiUnknown*    RegisterProtocolNotify;
+    EfiUnknown*    LocateHandle;
+    EfiUnknown*    LocateDevicePath;
+    EfiUnknown*    InstallConfigurationTable;
+    EfiUnknown*    LoadImage;
+    EfiUnknown*    StartImage;
+    EfiUnknown*    Exit;
+    EfiUnknown*    UnloadImage;
+    U64            ExitBootServices;
+
+
 }
 
 #:define_struct EfiSystemTable {
@@ -122,7 +161,7 @@ U64 welcomeMessage() {
 #:define_struct EfiMemoryMap {}
 
 #:define_global U64 efi_memory_map_size
-#:define_global EfiMemoryMap* efi_memory_map
+#:define_global U8[4096] efi_memory_map_space
 #:define_global U64 efi_memory_map_key
 #:define_global U64 efi_memory_descriptor_size
 #:define_global U32 efi_memory_descriptor_version
@@ -179,57 +218,88 @@ U64 efi_writer_add_hex_U64(U64 v) {
 
 
 #:define_function
-U64 testEfiPrinter(EfiSystemTable* st, U64 fn) {
+U64 exitBootServices(U64 image_handle, EfiSystemTable* st) {
   EfiSimpleTextOutputProtocol* output := st->console_out;
-  EfiTextString* fn2 := output->output_string;
 
-  Bytes b := #"\x35\x00\r\x00\n\x00\x00\x00";
-  U64 bytes_addr := as<U64>(b) + 16;
-  <> call_ms2c(as<U64>(output->output_string), as<U64>(output), bytes_addr);
-
-  <> reset_efi_writer();
-  <> efi_writer_add_hex_U64(as<U64>(output->output_string));
-  <> efi_writer_add_byte(as<U8>(#x20));
-  <> efi_writer_add_hex_U64((st->boot_services)->GetMemoryMap);
-  <> efi_writer_add_byte(as<U8>(#x20));
-  <> efi_writer_add_hex_U64(as<U64>(efi_memory_map_size));
-  <> efi_writer_add_byte(as<U8>(#x20));
-  <> efi_writer_add_hex_U64(as<U64>(efi_memory_map));
-  <> efi_writer_add_byte(as<U8>(#x20));
-  <> efi_writer_add_hex_U64(as<U64>(efi_memory_map_key));
-  <> efi_writer_add_byte(as<U8>(#x0d));
-  <> efi_writer_add_byte(as<U8>(#x0a));
-  <> terminate_efi_writer();
-  <> call_ms2c(as<U64>(output->output_string), as<U64>(output), as<U64>(efi_output_buffer));
-
-  // *efi_output_buffer->&[0] <- as<U8>(#x36);
-  // *efi_output_buffer->&[2] <- as<U8>(#x0d);
-  // *efi_output_buffer->&[4] <- as<U8>(#x0a);
-  // *efi_output_buffer->&[8] <- as<U8>(#x00);
-  // <> call_ms2c(as<U64>(output->output_string), as<U64>(output), as<U64>(efi_output_buffer));
-
-
-  <> reset_efi_writer();
-  <> efi_writer_add_hex_U64(*efi_memory_map_size);
-  <> efi_writer_add_byte(as<U8>(#x0d));
-  <> efi_writer_add_byte(as<U8>(#x0a));
-  <> terminate_efi_writer();
-  <> call_ms2c(as<U64>(output->output_string), as<U64>(output), as<U64>(efi_output_buffer));
-
+  *efi_memory_map_size <- 4096;
   U64 status := call_ms5c((st->boot_services)->GetMemoryMap,
                           as<U64>(efi_memory_map_size),
-                          as<U64>(efi_memory_map),
+                          as<U64>(efi_memory_map_space),
                           as<U64>(efi_memory_map_key),
                           as<U64>(efi_memory_descriptor_size),
                           as<U64>(efi_memory_descriptor_version));
+  if (status != 0) {
+    <> reset_efi_writer();
+    <> efi_writer_add_hex_U64(status);
+    <> efi_writer_add_byte(as<U8>(#x0d));
+    <> efi_writer_add_byte(as<U8>(#x0a));
+    <> terminate_efi_writer();
+    <> call_ms2c(as<U64>(output->output_string), as<U64>(output), as<U64>(efi_output_buffer));
+    return status;
+  }
 
-  <> reset_efi_writer();
-  <> efi_writer_add_hex_U64(*efi_memory_map_size);
-  <> efi_writer_add_byte(as<U8>(#x0d));
-  <> efi_writer_add_byte(as<U8>(#x0a));
-  <> terminate_efi_writer();
-  <> call_ms2c(as<U64>(output->output_string), as<U64>(output), as<U64>(efi_output_buffer));
+  status := call_ms2c((st->boot_services)->ExitBootServices, image_handle, *efi_memory_map_key);
+  if (status != 0) {
+    <> reset_efi_writer();
+    <> efi_writer_add_hex_U64(status);
+    <> efi_writer_add_byte(as<U8>(#x0d));
+    <> efi_writer_add_byte(as<U8>(#x0a));
+    <> terminate_efi_writer();
+    <> call_ms2c(as<U64>(output->output_string), as<U64>(output), as<U64>(efi_output_buffer));
+    return status;
+  }
 
+  return 0;
+}
+
+#:define_struct IdtEntry {
+  U16 offset_1;  // offset bits 0..15
+  U16 selector;  // a code segment selector in GDT or LDT
+  U8  ist;       // bits 0..2 holds Interrupt Stack Table offset, rest of bits zero.
+  U8  type_attr; // type and attributes
+  U16 offset_2;  // offset bits 16..31
+  U32 offset_3;  // offset bits 32..63
+  U32 zero;      // reserved
+}
+
+#:define_struct IdtDescriptor {
+  U16 limit;
+  U64 base_address;
+}
+
+#:define_global IdtEntry[256] idt_entries
+#:define_global IdtDescriptor idt_descriptor
+
+
+#:define_function
+U64 initializeIdt() {
+  <> write_bytes(#"IDT code\r\n");
+  U64 idt_entry_size := 16;
+  <> memset(as<U8[]*>(idt_entries), as<U8>(0), idt_entry_size * 256);
+  U64 i := 0;
+  while (i < 256) {
+    U64 irq_addr := irqfun_default;
+    // if (i == 36) {
+    //   irq_addr := irqfun_com1;
+    // } else if (i == 43) {
+    //   irq_addr := irqfun_nic;
+    // } else {
+    //   irq_addr := irqfun_default;
+    // }
+
+    // *(idt_entries->&[i])->&offset_1 <- as<U16>(irq_addr & #xffff);
+    //idt_entries[i].selector = 0x38;
+    *(idt_entries->&[i])->&ist <- as<U8>(0);
+    //idt_entries[i].type_attr = 0x8e;
+    //idt_entries[i].offset_2 = (irq_addr >> 16) & 0xffff;
+    //idt_entries[i].offset_3 = irq_addr >> 32;
+    //idt_entries[i].zero = 0;
+    i := i + 1;
+  }
+//
+//  idt_descr.limit = sizeof(IDTEntry) * 256 - 1;
+//  idt_descr.base_addr = (uint64_t) &idt_entries;
+//  load_idt(&idt_descr);
 
   return 0;
 }
