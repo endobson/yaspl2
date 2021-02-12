@@ -3,6 +3,7 @@
 #:declare_external call_ms0c (U64 -> U64)
 #:declare_external call_ms1c (U64, U64 -> U64)
 #:declare_external call_ms2c (U64, U64, U64 -> U64)
+#:declare_external call_ms5c (U64, U64, U64, U64, U64, U64 -> U64)
 #:declare_external read_serial U64
 #:declare_external write_serial U64
 
@@ -72,12 +73,31 @@ U64 welcomeMessage() {
 
 #:define_struct EfiHandle {}
 
-#:define_struct EfiSystemTable {
+#:define_struct EfiTableHeader {
   U32 signature;
   U32 revision;
   U32 header_size;
   U32 crc32;
   U32 reserved1;
+}
+
+#:define_struct EfiRuntimeServices {}
+
+#:define_struct EfiUnknown {}
+
+#:define_struct EfiBootServices {
+    EfiTableHeader Hdr;
+    U32 padding1;
+    EfiUnknown*    RaiseTPL;
+    EfiUnknown*    RestoreTPL;
+    EfiUnknown*    AllocatePages;
+    EfiUnknown*    FreePages;
+    U64            GetMemoryMap;
+    U64            AllocatePool;
+}
+
+#:define_struct EfiSystemTable {
+  EfiTableHeader header;
   U32 padding1;
   U16* firmware_vendor;
   U32 firmware_revision;
@@ -88,6 +108,8 @@ U64 welcomeMessage() {
   EfiSimpleTextOutputProtocol* console_out;
   EfiHandle* console_err_handle;
   EfiSimpleTextOutputProtocol* console_err;
+  EfiRuntimeServices* runtime_services;
+  EfiBootServices* boot_services;
 }
 
 #:define_struct EfiTextString {}
@@ -97,6 +119,65 @@ U64 welcomeMessage() {
   EfiTextString* output_string;
 }
 
+#:define_struct EfiMemoryMap {}
+
+#:define_global U64 efi_memory_map_size
+#:define_global EfiMemoryMap* efi_memory_map
+#:define_global U64 efi_memory_map_key
+#:define_global U64 efi_memory_descriptor_size
+#:define_global U32 efi_memory_descriptor_version
+
+#:define_global U8[4096] efi_output_buffer
+#:define_global U8*      efi_writer
+
+#:define_function
+U64 reset_efi_writer() {
+  *efi_writer <- efi_output_buffer->&[0];
+  return 0;
+}
+
+#:define_function
+U64 terminate_efi_writer() {
+  return efi_writer_add_byte(as<U8>(0));
+}
+
+#:define_function
+U64 efi_writer_add_byte(U8 v) {
+  *(*efi_writer) <- v;
+  *efi_writer <- as<U8*>(as<U64>(*efi_writer) + 2);
+  return 0;
+}
+
+#:define_function
+U64 efi_writer_add_hex_U8(U8 byte) {
+  <> efi_writer_add_byte(as<U8>(nibble_to_hex((as<U64>(byte) / 16) & #x0f)));
+  <> efi_writer_add_byte(as<U8>(nibble_to_hex(as<U64>(byte) & #x0f)));
+  return 0;
+}
+
+#:define_function
+U64 efi_writer_add_hex_U64(U64 v) {
+  // <> efi_writer_add_hex_U8(as<U8>(nibble_to_hex((v / 268435456) & #x0f)));
+  // <> efi_writer_add_hex_U8(as<U8>(nibble_to_hex((v /  16777216) & #x0f)));
+  // <> efi_writer_add_hex_U8(as<U8>(nibble_to_hex((v /   1048576) & #x0f)));
+  // <> efi_writer_add_hex_U8(as<U8>(nibble_to_hex((v /     65536) & #x0f)));
+  // <> efi_writer_add_hex_U8(as<U8>(nibble_to_hex((v /      4096) & #x0f)));
+  // <> efi_writer_add_hex_U8(as<U8>(nibble_to_hex((v /       256) & #x0f)));
+  // <> efi_writer_add_hex_U8(as<U8>(nibble_to_hex((v /        16) & #x0f)));
+  // <> efi_writer_add_hex_U8(as<U8>(nibble_to_hex((v /         1) & #x0f)));
+  <> efi_writer_add_hex_U8(as<U8>(((v /  16777216) /  16777216) & #xff));
+  <> efi_writer_add_hex_U8(as<U8>(((v /  16777216) /     65536) & #xff));
+  <> efi_writer_add_hex_U8(as<U8>(((v /  16777216) /       256) & #xff));
+  <> efi_writer_add_hex_U8(as<U8>(((v /  16777216) /         1) & #xff));
+  <> efi_writer_add_hex_U8(as<U8>((v /   16777216) & #xff));
+  <> efi_writer_add_hex_U8(as<U8>((v /      65536) & #xff));
+  <> efi_writer_add_hex_U8(as<U8>((v /        256) & #xff));
+  <> efi_writer_add_hex_U8(as<U8>((v /          1) & #xff));
+  return 0;
+}
+
+
+
 #:define_function
 U64 testEfiPrinter(EfiSystemTable* st, U64 fn) {
   EfiSimpleTextOutputProtocol* output := st->console_out;
@@ -105,5 +186,50 @@ U64 testEfiPrinter(EfiSystemTable* st, U64 fn) {
   Bytes b := #"\x35\x00\r\x00\n\x00\x00\x00";
   U64 bytes_addr := as<U64>(b) + 16;
   <> call_ms2c(as<U64>(output->output_string), as<U64>(output), bytes_addr);
+
+  <> reset_efi_writer();
+  <> efi_writer_add_hex_U64(as<U64>(output->output_string));
+  <> efi_writer_add_byte(as<U8>(#x20));
+  <> efi_writer_add_hex_U64((st->boot_services)->GetMemoryMap);
+  <> efi_writer_add_byte(as<U8>(#x20));
+  <> efi_writer_add_hex_U64(as<U64>(efi_memory_map_size));
+  <> efi_writer_add_byte(as<U8>(#x20));
+  <> efi_writer_add_hex_U64(as<U64>(efi_memory_map));
+  <> efi_writer_add_byte(as<U8>(#x20));
+  <> efi_writer_add_hex_U64(as<U64>(efi_memory_map_key));
+  <> efi_writer_add_byte(as<U8>(#x0d));
+  <> efi_writer_add_byte(as<U8>(#x0a));
+  <> terminate_efi_writer();
+  <> call_ms2c(as<U64>(output->output_string), as<U64>(output), as<U64>(efi_output_buffer));
+
+  // *efi_output_buffer->&[0] <- as<U8>(#x36);
+  // *efi_output_buffer->&[2] <- as<U8>(#x0d);
+  // *efi_output_buffer->&[4] <- as<U8>(#x0a);
+  // *efi_output_buffer->&[8] <- as<U8>(#x00);
+  // <> call_ms2c(as<U64>(output->output_string), as<U64>(output), as<U64>(efi_output_buffer));
+
+
+  <> reset_efi_writer();
+  <> efi_writer_add_hex_U64(*efi_memory_map_size);
+  <> efi_writer_add_byte(as<U8>(#x0d));
+  <> efi_writer_add_byte(as<U8>(#x0a));
+  <> terminate_efi_writer();
+  <> call_ms2c(as<U64>(output->output_string), as<U64>(output), as<U64>(efi_output_buffer));
+
+  U64 status := call_ms5c((st->boot_services)->GetMemoryMap,
+                          as<U64>(efi_memory_map_size),
+                          as<U64>(efi_memory_map),
+                          as<U64>(efi_memory_map_key),
+                          as<U64>(efi_memory_descriptor_size),
+                          as<U64>(efi_memory_descriptor_version));
+
+  <> reset_efi_writer();
+  <> efi_writer_add_hex_U64(*efi_memory_map_size);
+  <> efi_writer_add_byte(as<U8>(#x0d));
+  <> efi_writer_add_byte(as<U8>(#x0a));
+  <> terminate_efi_writer();
+  <> call_ms2c(as<U64>(output->output_string), as<U64>(output), as<U64>(efi_output_buffer));
+
+
   return 0;
 }
