@@ -344,18 +344,25 @@
 
 
 (define (mutated-vars/statements [ss : (List Statement)]) : (Set Var)
-  (foldl mutated-vars* ss (make-set var-cmp)))
-
-(define (mutated-vars* [s : Statement] [acc : (Set Var)]) : (Set Var)
-  (case s
-    [(return-statement _) acc]
-    [(effect-statement _) acc]
-    [(define-local-variable-statement _ _ _)  acc]
-    [(pointer-assignment-statement _ _ _) acc]
-    [(assignment-statement v _) (set-add acc v)]
-    [(while-statement _ body) (foldl mutated-vars* body acc)]
-    [(if-statement _ then else)
-     (foldl mutated-vars* else (foldl mutated-vars* then acc))]))
+  (case ss
+    [(empty) (make-set var-cmp)]
+    [(cons (return-statement _) ss)
+     (mutated-vars/statements ss)]
+    [(cons (effect-statement _) ss)
+     (mutated-vars/statements ss)]
+    [(cons (define-local-variable-statement v _ _) ss)
+     (set-remove (mutated-vars/statements ss) v)]
+    [(cons (pointer-assignment-statement _ _ _) ss)
+     (mutated-vars/statements ss)]
+    [(cons (assignment-statement v _) ss)
+     (set-add (mutated-vars/statements ss) v)]
+    [(cons (while-statement _ body) ss)
+     (set-union (mutated-vars/statements body)
+                (mutated-vars/statements ss))]
+    [(cons (if-statement _ then else) ss)
+     (set-union (set-union (mutated-vars/statements then)
+                           (mutated-vars/statements else))
+                (mutated-vars/statements ss))]))
 
 (define (type->mem-op-size [type : Type]) : MemoryOperationSize
   (case (type->type-size type)
@@ -383,7 +390,9 @@
     (set->list (dict-keys vars))))
 
 (define (env-ref [env : Environment] [name : Var]) : Var
-  (dict-ref/panic (environment-vars env) name))
+  (case (dict-ref (environment-vars env) name)
+    [(nothing) (panic (bytes-append (varargs list #"env-ref: " (var->bytes name))))]
+    [(just v) v]))
 
 (define (env-ref* [env : Environment] [names : (List Var)]) : (List Var)
   (map (lambda ([name : Var]) (env-ref env name)) names))
