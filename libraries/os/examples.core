@@ -521,11 +521,62 @@ U64 initializeScheduler() {
   // Initialize root_task
   *root_task->&stack_pointer <- 0;
   *root_task->&next <- root_task;
-  *root_task->&state <- as<U32>(0);
+  *root_task->&state <- as<U32>(0); // Runnable
 
   // Initialize the current task as the root_task;
   *current_task <- root_task;
 
   <> write_bytes(#"Scheduler code done\r\n");
+  return 0;
+}
+
+// Address of the code at the start of a task.
+#:declare_external scheduler_start_task U64
+
+#:define_function
+U64 add_task(TaskDescriptor* task, U64 stack_address, U64 start_func) {
+
+  // Push initial values onto the stack.
+  U64 stack_pointer := stack_address;
+
+  // First return address
+  stack_pointer := stack_pointer - 8;
+  *(as<U64*>(stack_pointer)) <- scheduler_start_task;
+  // Setup initial registers.
+  U64 i := 0;
+  while (i < 15) {
+    U64 val := 0;
+    if (i == 2) { // rcx
+      val := start_func;
+    }
+
+    stack_pointer := stack_pointer - 8;
+    *(as<U64*>(stack_pointer)) <- val;
+    i := i + 1;
+  }
+
+  *task->&stack_pointer <- stack_pointer;
+
+  // Add the task and mark as runnable.
+  *task->&state <- as<U32>(0); // Runnable
+  *task->&next <- (*current_task)->next;
+  *((*current_task)->&next) <- task;
+
+  return 0;
+}
+
+#:declare_external serial_task TaskDescriptor*
+#:declare_external network_task TaskDescriptor*
+#:declare_external serial_task_stack U8[]*
+#:declare_external network_task_stack U8[]*
+#:declare_external yos_serialTaskStart U64
+#:declare_external network_task_start U64
+
+#:define_function
+U64 addInitialTasks() {
+  <> write_bytes(#"Initial tasks\r\n");
+  <> add_task(serial_task, as<U64>(serial_task_stack->&[8192]), yos_serialTaskStart);
+  <> add_task(network_task, as<U64>(network_task_stack->&[8192]), network_task_start);
+  <> write_bytes(#"Initial tasks done\r\n");
   return 0;
 }
