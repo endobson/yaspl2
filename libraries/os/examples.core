@@ -11,6 +11,7 @@
 #:declare_external irqfun_com1 U64
 #:declare_external irqfun_nic U64
 #:declare_external irqfun_default U64
+#:declare_external y_lidtc (U64 -> U64)
 
 #:define_function
 U64 a(U64 arg, U64 arg2, U64 arg3, U64 arg4) {
@@ -196,22 +197,14 @@ U64 efi_writer_add_hex_U8(U8 byte) {
 
 #:define_function
 U64 efi_writer_add_hex_U64(U64 v) {
-  // <> efi_writer_add_hex_U8(as<U8>(nibble_to_hex((v / 268435456) & #x0f)));
-  // <> efi_writer_add_hex_U8(as<U8>(nibble_to_hex((v /  16777216) & #x0f)));
-  // <> efi_writer_add_hex_U8(as<U8>(nibble_to_hex((v /   1048576) & #x0f)));
-  // <> efi_writer_add_hex_U8(as<U8>(nibble_to_hex((v /     65536) & #x0f)));
-  // <> efi_writer_add_hex_U8(as<U8>(nibble_to_hex((v /      4096) & #x0f)));
-  // <> efi_writer_add_hex_U8(as<U8>(nibble_to_hex((v /       256) & #x0f)));
-  // <> efi_writer_add_hex_U8(as<U8>(nibble_to_hex((v /        16) & #x0f)));
-  // <> efi_writer_add_hex_U8(as<U8>(nibble_to_hex((v /         1) & #x0f)));
-  <> efi_writer_add_hex_U8(as<U8>(((v /  16777216) /  16777216) & #xff));
-  <> efi_writer_add_hex_U8(as<U8>(((v /  16777216) /     65536) & #xff));
-  <> efi_writer_add_hex_U8(as<U8>(((v /  16777216) /       256) & #xff));
-  <> efi_writer_add_hex_U8(as<U8>(((v /  16777216) /         1) & #xff));
-  <> efi_writer_add_hex_U8(as<U8>((v /   16777216) & #xff));
-  <> efi_writer_add_hex_U8(as<U8>((v /      65536) & #xff));
-  <> efi_writer_add_hex_U8(as<U8>((v /        256) & #xff));
-  <> efi_writer_add_hex_U8(as<U8>((v /          1) & #xff));
+  <> efi_writer_add_hex_U8(as<U8>(((v /  4294967296) /  16777216) & #xff));
+  <> efi_writer_add_hex_U8(as<U8>(((v /  4294967296) /     65536) & #xff));
+  <> efi_writer_add_hex_U8(as<U8>(((v /  4294967296) /       256) & #xff));
+  <> efi_writer_add_hex_U8(as<U8>(((v /  4294967296) /         1) & #xff));
+  <> efi_writer_add_hex_U8(as<U8>((v /     16777216) & #xff));
+  <> efi_writer_add_hex_U8(as<U8>((v /        65536) & #xff));
+  <> efi_writer_add_hex_U8(as<U8>((v /          256) & #xff));
+  <> efi_writer_add_hex_U8(as<U8>((v /            1) & #xff));
   return 0;
 }
 
@@ -279,27 +272,27 @@ U64 initializeIdt() {
   U64 i := 0;
   while (i < 256) {
     U64 irq_addr := irqfun_default;
-    // if (i == 36) {
-    //   irq_addr := irqfun_com1;
-    // } else if (i == 43) {
-    //   irq_addr := irqfun_nic;
-    // } else {
-    //   irq_addr := irqfun_default;
-    // }
+    if (i == 36) {
+      irq_addr := irqfun_com1;
+    } else if (i == 43) {
+      irq_addr := irqfun_nic;
+    } else {
+      irq_addr := irqfun_default;
+    }
 
-    // *(idt_entries->&[i])->&offset_1 <- as<U16>(irq_addr & #xffff);
-    //idt_entries[i].selector = 0x38;
+    *(idt_entries->&[i])->&offset_1 <- as<U16>(irq_addr & #xffff);
+    *(idt_entries->&[i])->&selector <- as<U16>(#x38);
     *(idt_entries->&[i])->&ist <- as<U8>(0);
-    //idt_entries[i].type_attr = 0x8e;
-    //idt_entries[i].offset_2 = (irq_addr >> 16) & 0xffff;
-    //idt_entries[i].offset_3 = irq_addr >> 32;
-    //idt_entries[i].zero = 0;
+    *(idt_entries->&[i])->&type_attr <- as<U8>(#x8e);
+    *(idt_entries->&[i])->&offset_2 <- as<U16>((irq_addr / 65536) & #xffff);
+    *(idt_entries->&[i])->&offset_3 <- as<U32>(irq_addr / 4294967296);
+    *(idt_entries->&[i])->&zero <- as<U32>(0);
     i := i + 1;
   }
-//
-//  idt_descr.limit = sizeof(IDTEntry) * 256 - 1;
-//  idt_descr.base_addr = (uint64_t) &idt_entries;
-//  load_idt(&idt_descr);
 
+  *idt_descriptor->&limit <- as<U16>(idt_entry_size * 256 - 1);
+  *idt_descriptor->&base_address <- as<U64>(idt_entries);
+  <> y_lidtc(as<U64>(idt_descriptor));
+  <> write_bytes(#"IDT code done\r\n");
   return 0;
 }
