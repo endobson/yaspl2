@@ -41,7 +41,7 @@ U64 write_bytes(Bytes bytes) {
 
 #:define_function
 U64 write_hex_byte(U64 byte) {
-  <> call_ms1c(write_serial, nibble_to_hex((byte / 16) & #x0f));
+  <> call_ms1c(write_serial, nibble_to_hex((byte >> 4) & #x0f));
   <> call_ms1c(write_serial, nibble_to_hex(byte & #x0f));
   return 0;
 }
@@ -191,21 +191,21 @@ U64 efi_writer_add_byte(U8 v) {
 
 #:define_function
 U64 efi_writer_add_hex_U8(U8 byte) {
-  <> efi_writer_add_byte(as<U8>(nibble_to_hex((as<U64>(byte) / 16) & #x0f)));
+  <> efi_writer_add_byte(as<U8>(nibble_to_hex((as<U64>(byte) >> 4) & #x0f)));
   <> efi_writer_add_byte(as<U8>(nibble_to_hex(as<U64>(byte) & #x0f)));
   return 0;
 }
 
 #:define_function
 U64 efi_writer_add_hex_U64(U64 v) {
-  <> efi_writer_add_hex_U8(as<U8>(((v /  4294967296) /  16777216) & #xff));
-  <> efi_writer_add_hex_U8(as<U8>(((v /  4294967296) /     65536) & #xff));
-  <> efi_writer_add_hex_U8(as<U8>(((v /  4294967296) /       256) & #xff));
-  <> efi_writer_add_hex_U8(as<U8>(((v /  4294967296) /         1) & #xff));
-  <> efi_writer_add_hex_U8(as<U8>((v /     16777216) & #xff));
-  <> efi_writer_add_hex_U8(as<U8>((v /        65536) & #xff));
-  <> efi_writer_add_hex_U8(as<U8>((v /          256) & #xff));
-  <> efi_writer_add_hex_U8(as<U8>((v /            1) & #xff));
+  <> efi_writer_add_hex_U8(as<U8>((v >> 56) & #xff));
+  <> efi_writer_add_hex_U8(as<U8>((v >> 48) & #xff));
+  <> efi_writer_add_hex_U8(as<U8>((v >> 40) & #xff));
+  <> efi_writer_add_hex_U8(as<U8>((v >> 32) & #xff));
+  <> efi_writer_add_hex_U8(as<U8>((v >> 24) & #xff));
+  <> efi_writer_add_hex_U8(as<U8>((v >> 16) & #xff));
+  <> efi_writer_add_hex_U8(as<U8>((v >>  8) & #xff));
+  <> efi_writer_add_hex_U8(as<U8>((v >>  0) & #xff));
   return 0;
 }
 
@@ -285,8 +285,8 @@ U64 initializeIdt() {
     *(idt_entries->&[i])->&selector <- as<U16>(#x38);
     *(idt_entries->&[i])->&ist <- as<U8>(0);
     *(idt_entries->&[i])->&type_attr <- as<U8>(#x8e);
-    *(idt_entries->&[i])->&offset_2 <- as<U16>((irq_addr / 65536) & #xffff);
-    *(idt_entries->&[i])->&offset_3 <- as<U32>(irq_addr / 4294967296);
+    *(idt_entries->&[i])->&offset_2 <- as<U16>((irq_addr >> 16) & #xffff);
+    *(idt_entries->&[i])->&offset_3 <- as<U32>(irq_addr >> 32);
     *(idt_entries->&[i])->&zero <- as<U32>(0);
     i := i + 1;
   }
@@ -307,18 +307,18 @@ U64 initializeSerial() {
 
   // Disable all interrupts on the port while setup happens
   <> y_outbc(as<U8>(#x00), as<U16>(port + 1));
-  // // Enable the DLAB. This changes the meaning of ports 0/1 which allows
-  // // setting the baud rate divisor.
+  // Enable the DLAB. This changes the meaning of ports 0/1 which allows
+  // setting the baud rate divisor.
   <> y_outbc(as<U8>(#x80), as<U16>(port + 3));
-  // // Set divisor to 3 (low byte) 38400 baud
+  // Set divisor to 3 (low byte) 38400 baud
   <> y_outbc(as<U8>(#x03), as<U16>(port + 0));
   <> y_outbc(as<U8>(#x00), as<U16>(port + 1));
 
-  // // Clear the DLAB, and set the protcol as:
-  // // 8 bits, no parity, one stop bit
+  // Clear the DLAB, and set the protcol as:
+  // 8 bits, no parity, one stop bit
   <> y_outbc(as<U8>(#x03), as<U16>(port + 3));
-  // // Don't set FIFOs as they don't seem to do anything in QEMU.
-  // // Enable IRQs on Receive.
+  // Don't set FIFOs as they don't seem to do anything in QEMU.
+  // Enable IRQs on Receive.
   <> y_outbc(as<U8>(#x01), as<U16>(port + 1));
 
   <> write_bytes(#"Serial code done\r\n");
@@ -344,12 +344,13 @@ U64 initializePic() {
   <> y_outbc(as<U8>(icw1_init | icw1_icw4), as<U16>(pic1_command));
   <> y_outbc(as<U8>(icw1_init | icw1_icw4), as<U16>(pic2_command));
 
-  // // Set the PICs to use the entries in the IDT range [32, 47).
+  // Set the PICs to use the entries in the IDT range [32, 47).
   U64 offset1 := 32;
   U64 offset2 := 40;
   <> y_outbc(as<U8>(offset1), as<U16>(pic1_data));    // ICW2: Master PIC vector offset
   <> y_outbc(as<U8>(offset2), as<U16>(pic2_data));    // ICW2: Slave PIC vector offset
-  <> y_outbc(as<U8>(#x04), as<U16>(pic1_data));  // ICW3: tell Master PIC that there is a slave PIC at IRQ2 (0b00000100)
+  // ICW3: tell Master PIC that there is a slave PIC at IRQ2 (0b00000100)
+  <> y_outbc(as<U8>(#x04), as<U16>(pic1_data));
   <> y_outbc(as<U8>(#x02), as<U16>(pic2_data));  // ICW3: tell Slave PIC its cascade identity
 
   // // Set 8086 mode
