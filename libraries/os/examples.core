@@ -13,6 +13,11 @@
 #:declare_external irqfun_default U64
 #:declare_external y_lidtc (U64 -> U64)
 #:declare_external y_outbc (U8, U16 -> U64)
+#:declare_external y_outwc (U16, U16 -> U64)
+#:declare_external y_outdc (U32, U16 -> U64)
+#:declare_external y_inbc (U16 -> U8)
+#:declare_external y_inwc (U16 -> U16)
+#:declare_external y_indc (U16 -> U32)
 
 #:define_function
 U64 a(U64 arg, U64 arg2, U64 arg3, U64 arg4) {
@@ -370,5 +375,157 @@ U64 initializePic() {
 
 
   <> write_bytes(#"PIC code done\r\n");
+  return 0;
+}
+
+#:define_struct VirtioQueue256BufferInfo {
+  U64 address;
+  U32 length;
+  U16 flags;
+  U16 next;
+}
+
+#:define_struct VirtioQueue256AvailableInfo {
+  U16 flags;
+  U16 index;
+  U16[256] ring;
+  U16 event_index;
+}
+
+#:define_struct VirtioQueue256UsedRingInfo {
+  U32 index;
+  U32 length;
+}
+
+#:define_struct VirtioQueue256UsedInfo {
+  U16 flags;
+  U16 index;
+  VirtioQueue256UsedRingInfo[256] ring;
+  U16 avail_event;
+}
+
+#:define_struct VirtioQueue256 {
+  VirtioQueue256BufferInfo[256] buffers;
+  VirtioQueue256AvailableInfo available;
+  U8[3578] padding;
+  VirtioQueue256UsedInfo used;
+}
+
+
+#:declare_external net_send_queue VirtioQueue256[]*
+#:declare_external net_recv_queue VirtioQueue256[]*
+
+#:define_struct VirtioBuffer {
+  U8[4096] bytes;
+}
+
+#:declare_external net_send_buffers VirtioBuffer[]*
+#:declare_external net_recv_buffers VirtioBuffer[]*
+
+#:define_function
+U64 initializeNetwork() {
+  <> write_bytes(#"Network code\r\n");
+
+  U64 feature_mac := 5;
+  U64 device_features_port := #x00;
+  U64 guest_features_port  := #x04;
+  U64 queue_address_port   := #x08;
+  U64 queue_size_port      := #x0c;
+  U64 queue_select_port    := #x0e;
+  U64 device_status_port   := #x12;
+
+  U64 device_acknowledged := #x01;
+  U64 device_driver       := #x02;
+  U64 device_features_ok  := #x08;
+  U64 device_driver_ok    := #x04;
+
+  U64 net_base_port := #x6060;
+
+
+  // Acknowledge the device.
+  <> y_outbc(as<U8>(device_acknowledged),
+             as<U16>(net_base_port + device_status_port));
+  // Tell the device that we know how to drive it.
+  <> y_outbc(as<U8>(device_acknowledged | device_driver),
+             as<U16>(net_base_port + device_status_port));
+
+  U64 device_features := as<U64>(y_indc(as<U16>(net_base_port + device_features_port)));
+  if ((device_features & (1 << feature_mac)) == 0) {
+     return 1;
+  }
+
+  U32 guest_features := as<U32>(1 << feature_mac);
+  <> y_outdc(guest_features, as<U16>(net_base_port + guest_features_port));
+
+  // Tell the device that we are finalized on our feature decisions.
+  <> y_outbc(as<U8>(device_acknowledged | device_driver | device_features_ok),
+             as<U16>(net_base_port + device_status_port));
+
+  U64 device_status := as<U64>(y_inbc(as<U16>(net_base_port + device_status_port)));
+  if (device_status != (device_acknowledged | device_driver | device_features_ok)) {
+    return 1;
+  }
+
+  U64 queue_num := 0;
+  while (queue_num < 2) {
+    <> y_outwc(as<U16>(queue_num), as<U16>(net_base_port + queue_select_port));
+    U64 queue_size := as<U64>(y_inwc(as<U16>(net_base_port + queue_size_port)));
+    if (queue_size != #x100) {
+      return 1;
+    }
+
+    queue_num := queue_num + 1;
+  }
+
+  U64 net_queue_size := (256 * 16) + (4096) + 6 + (256 * 8);
+
+  <> memset(as<U8[]*>(net_send_queue), as<U8>(0), net_queue_size);
+  <> memset(as<U8[]*>(net_recv_queue), as<U8>(0), net_queue_size);
+
+
+  // Tell the device about our queues
+  <> y_outwc(as<U16>(0), as<U16>(net_base_port + queue_select_port));
+  <> y_outdc(as<U32>(as<U64>(net_recv_queue) >> 12),
+             as<U16>(net_base_port + queue_address_port));
+
+  <> y_outwc(as<U16>(1), as<U16>(net_base_port + queue_select_port));
+  <> y_outdc(as<U32>(as<U64>(net_send_queue) >> 12),
+             as<U16>(net_base_port + queue_address_port));
+
+  // Tell the device that we are ready!
+  <> y_outbc(as<U8>(device_acknowledged | device_driver | device_features_ok | device_driver_ok),
+             as<U16>(net_base_port + device_status_port));
+  device_status := as<U64>(y_inbc(as<U16>(net_base_port + device_status_port)));
+  if (device_status != (device_acknowledged | device_driver | device_features_ok | device_driver_ok)) {
+    return 1;
+  }
+
+  <> write_bytes(#"Network code done\r\n");
+  return 0;
+}
+
+#:define_struct TaskDescriptor {
+  U64 stack_pointer;
+  TaskDescriptor* next;
+  U32 state;
+}
+
+#:declare_external root_task TaskDescriptor*
+#:declare_external current_task TaskDescriptor**
+
+
+#:define_function
+U64 initializeScheduler() {
+  <> write_bytes(#"Scheduler code\r\n");
+
+  // Initialize root_task
+  *root_task->&stack_pointer <- 0;
+  *root_task->&next <- root_task;
+  *root_task->&state <- as<U32>(0);
+
+  // Initialize the current task as the root_task;
+  *current_task <- root_task;
+
+  <> write_bytes(#"Scheduler code done\r\n");
   return 0;
 }
