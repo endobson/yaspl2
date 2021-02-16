@@ -4,7 +4,6 @@
 #:declare_external call_ms1c (U64, U64 -> U64)
 #:declare_external call_ms2c (U64, U64, U64 -> U64)
 #:declare_external call_ms5c (U64, U64, U64, U64, U64, U64 -> U64)
-#:declare_external write_serial U64
 
 // External functions for interrupts
 #:declare_external irqfun_com1 U64
@@ -29,6 +28,28 @@ U64 g(U64 arg, U64 arg2) {
 }
 
 #:define_function
+Boolean is_transmit_empty() {
+  // #x3F8 is SERIAL_COM1_BASE
+  U64 port := #x3F8;
+  U64 result := as<U64>(y_inbc(as<U16>(port + 5)));
+  return (result & #x20) != 0;
+}
+
+#:define_function
+U64 write_serial(U8 v) {
+  // #x3F8 is SERIAL_COM1_BASE
+  U64 port := #x3F8;
+
+  while (!is_transmit_empty()) {
+    // Busy Loop
+  }
+
+  <> y_outbc(v, as<U16>(port));
+  return 0;
+}
+
+
+#:define_function
 U64 write_bytes(Bytes bytes) {
   U64[]* bytes_ptr := as<U64[]*>(bytes);
   U64 size := bytes_ptr->[1];
@@ -37,7 +58,7 @@ U64 write_bytes(Bytes bytes) {
     U64 base := as<U64>(bytes_ptr->&[2]);
     U64* addr := as<U64*>(base + index);
     U64 value := (*addr) & #xff;
-    <> call_ms1c(write_serial, value);
+    <> write_serial(as<U8>(value));
     index := index + 1;
   }
   return 0;
@@ -46,18 +67,18 @@ U64 write_bytes(Bytes bytes) {
 #:define_function
 U64 write_hex_byte(U8 b) {
   U64 v := as<U64>(b);
-  <> call_ms1c(write_serial, nibble_to_hex((v >> 4) & #x0f));
-  <> call_ms1c(write_serial, nibble_to_hex(v & #x0f));
+  <> write_serial(nibble_to_hex((v >> 4) & #x0f));
+  <> write_serial(nibble_to_hex(v & #x0f));
   return 0;
 }
 
 
 #:define_function
-U64 nibble_to_hex(U64 v) {
+U8 nibble_to_hex(U64 v) {
   if (v < 10) {
-    return 48 + v;
+    return as<U8>(48 + v);
   } else {
-    return 87 + v;
+    return as<U8>(87 + v);
   }
 }
 
@@ -221,8 +242,8 @@ U64 efi_writer_add_byte(U8 v) {
 
 #:define_function
 U64 efi_writer_add_hex_U8(U8 byte) {
-  <> efi_writer_add_byte(as<U8>(nibble_to_hex((as<U64>(byte) >> 4) & #x0f)));
-  <> efi_writer_add_byte(as<U8>(nibble_to_hex(as<U64>(byte) & #x0f)));
+  <> efi_writer_add_byte(nibble_to_hex((as<U64>(byte) >> 4) & #x0f));
+  <> efi_writer_add_byte(nibble_to_hex(as<U64>(byte) & #x0f));
   return 0;
 }
 
