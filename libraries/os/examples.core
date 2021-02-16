@@ -4,7 +4,6 @@
 #:declare_external call_ms1c (U64, U64 -> U64)
 #:declare_external call_ms2c (U64, U64, U64 -> U64)
 #:declare_external call_ms5c (U64, U64, U64, U64, U64, U64 -> U64)
-#:declare_external read_serial U64
 #:declare_external write_serial U64
 
 // External functions for interrupts
@@ -45,9 +44,10 @@ U64 write_bytes(Bytes bytes) {
 }
 
 #:define_function
-U64 write_hex_byte(U64 byte) {
-  <> call_ms1c(write_serial, nibble_to_hex((byte >> 4) & #x0f));
-  <> call_ms1c(write_serial, nibble_to_hex(byte & #x0f));
+U64 write_hex_byte(U8 b) {
+  U64 v := as<U64>(b);
+  <> call_ms1c(write_serial, nibble_to_hex((v >> 4) & #x0f));
+  <> call_ms1c(write_serial, nibble_to_hex(v & #x0f));
   return 0;
 }
 
@@ -61,18 +61,43 @@ U64 nibble_to_hex(U64 v) {
   }
 }
 
-#:define_global U64 serial_counter
+#:define_function
+Boolean serial_received() {
+  // #x3F8 is SERIAL_COM1_BASE
+  U64 port := #x3F8;
+  U64 result := as<U64>(y_inbc(as<U16>(port + 5)));
+  return (result & 1) != 0;
+}
+
+#:define_function
+U8 read_serial() {
+
+ if (!serial_received()) {
+   <> disable_interruptsc();
+   while (!serial_received()) {
+      <> yield(as<U32>(1)); // Blocked
+   }
+   <> enable_interruptsc();
+ }
+
+ // #x3F8 is SERIAL_COM1_BASE
+ U64 port := #x3F8;
+ return y_inbc(as<U16>(port));
+}
+
+
+#:define_global U8 serial_counter
 
 #:define_function
 U64 serialTaskStart(U64 arg, U64 arg2, U64 arg3, U64 arg4) {
   while (1 > 0) {
-    U64 v := call_ms0c(read_serial);
+    U8 v := read_serial();
     <> write_bytes(#"SerialInput (");
     <> write_hex_byte(*serial_counter);
     <> write_bytes(#"): ");
     <> write_hex_byte(v);
     <> write_bytes(#"\n");
-    *serial_counter <- (*serial_counter) + 1;
+    *serial_counter <- as<U8>(as<U64>(*serial_counter) + 1);
   }
 }
 
