@@ -16,6 +16,7 @@
 #:declare_external y_inbc (U16 -> U8)
 #:declare_external y_inwc (U16 -> U16)
 #:declare_external y_indc (U16 -> U32)
+#:declare_external y_panicc (-> U64)
 
 #:define_function
 U64 a(U64 arg, U64 arg2, U64 arg3, U64 arg4) {
@@ -1005,5 +1006,139 @@ U64 sendArpPacket() {
   <> enable_interruptsc();
 
   <> write_bytes(#"Done sending Yaspl Arp Packet\r\n");
+  return 0;
+}
+
+#:define_function
+U16 be_u16_to_le(BigEndianU16* be) {
+  return as<U16>((as<U64>(be->byte0) << 8) |
+                 (as<U64>(be->byte1) << 0));
+}
+
+#:define_function
+U64 waitNetworkInterrupt() {
+
+  U64 net_base_port      := #x6060;
+  U64 device_status_port := #x12;
+  U64 isr_status_port    := #x13;
+  U64 queue_notify_port  := #x10;
+
+
+  U64 index := as<U64>((net_recv_queue->&available)->index);
+
+  U64 i := index % 256;
+
+  *((net_recv_queue->&buffers)->&[i])->&address <- as<U64>(net_recv_buffers->&[i]);
+  *((net_recv_queue->&buffers)->&[i])->&length  <- as<U32>(4096);
+  *((net_recv_queue->&buffers)->&[i])->&flags   <- as<U16>(2); // Device writable
+  *((net_recv_queue->&buffers)->&[i])->&next    <- as<U16>(0);
+
+  *((net_recv_queue->&available)->&ring)->&[i] <- as<U16>(i);
+  *(net_recv_queue->&available)->&index <- as<U16>(as<U64>((net_recv_queue->&available)->index) + 1);
+
+  // Tell the device that queue 0 (recv) has a new buffer.
+  <> y_outwc(as<U16>(0), as<U16>(net_base_port + queue_notify_port));
+
+  <> disable_interruptsc();
+  Boolean msg_recieved := 1 == 0;
+  while (!msg_recieved) {
+    // Read the interrupt status register to clear the interrupt state.
+    <> y_inbc(as<U16>(net_base_port + isr_status_port));
+    msg_recieved := as<U64>((net_recv_queue->&used)->index) == ((index + 1) & #xffff);
+    if (!msg_recieved) {
+      <> yield(as<U32>(1)); // Blocked
+    }
+  }
+  <> enable_interruptsc();
+
+
+  U64 ring_i := index % 256;
+  U64 buffer_i := as<U64>((((net_recv_queue->&used)->&ring)->&[ring_i])->index);
+  if (buffer_i != ring_i) {
+    <> y_panicc();
+  }
+  U64 remaining_packet_length := as<U64>((((net_recv_queue->&used)->&ring)->&[ring_i])->length);
+  U8[]* raw_buffer := as<U8[]*>(((net_recv_queue->&buffers)->&[buffer_i])->address);
+
+  U64 virtio_net_header_size := 10;
+  U64 ethernet_header_size := 14;
+
+
+  if (remaining_packet_length < virtio_net_header_size) {
+    <> y_panicc();
+  }
+  VirtioNetHeader* virtio_header := as<VirtioNetHeader*>(raw_buffer);
+  remaining_packet_length := remaining_packet_length - virtio_net_header_size;
+
+  if (remaining_packet_length < ethernet_header_size) {
+    <> y_panicc();
+  }
+  EthernetHeader* ethernet_header := as<EthernetHeader*>(virtio_header->&data);
+  remaining_packet_length := remaining_packet_length - ethernet_header_size;
+
+  if ((as<U64>((ethernet_header->&ethertype)->byte0) == #x08) &&
+      (as<U64>((ethernet_header->&ethertype)->byte1) == #x06)) {
+    U64 arp_packet_size := 28;
+    if (remaining_packet_length < arp_packet_size) {
+      <> y_panicc();
+    }
+    ArpPacket* arp_packet := as<ArpPacket*>(ethernet_header->&data);
+    remaining_packet_length := remaining_packet_length - arp_packet_size;
+
+    if (remaining_packet_length != 0) {
+      <> y_panicc();
+    }
+
+    if (as<U64>(be_u16_to_le(arp_packet->&hardware_type)) != 1) {
+      <> y_panicc();
+    }
+    if (as<U64>(be_u16_to_le(arp_packet->&protocol_type)) != #x0800) {
+      <> y_panicc();
+    }
+    if (as<U64>(arp_packet->hardware_length) != 6) {
+      <> y_panicc();
+    }
+    if (as<U64>(arp_packet->protocol_length) != 4) {
+      <> y_panicc();
+    }
+
+
+    <> sendArpPacket();
+  } else if ((as<U64>((ethernet_header->&ethertype)->byte0) == #x08) &&
+             (as<U64>((ethernet_header->&ethertype)->byte1) == #x00)) {
+    <> write_bytes(#"IPv4 packet\r\n");
+
+    U64 udp_header_size := 8;
+    U64 ip_header_size := 20;
+
+    if (remaining_packet_length < ip_header_size) {
+        <> y_panicc();
+    }
+    IpHeader* ip_header := as<IpHeader*>(ethernet_header->&data);
+
+    if (remaining_packet_length != as<U64>(be_u16_to_le(ip_header->&total_length))) {
+       <> y_panicc();
+    }
+
+    U64 header_length := as<U64>(ip_header->version_header_length) & #x0F;
+    if (header_length != 5) {
+      <> y_panicc();
+    }
+    remaining_packet_length := remaining_packet_length - ip_header_size;
+
+    if (remaining_packet_length < udp_header_size) {
+      <> y_panicc();
+    }
+    UdpHeader* udp_header := as<UdpHeader*>(ip_header->&data);
+
+    if (remaining_packet_length != as<U64>(be_u16_to_le(udp_header->&length))) {
+      <> y_panicc();
+    }
+    remaining_packet_length := remaining_packet_length - udp_header_size;
+
+    <> sendUdpPacket(be_u16_to_le(udp_header->&source_port));
+  } else {
+    <> write_bytes(#"Unknown packet type\r\n");
+  }
   return 0;
 }
