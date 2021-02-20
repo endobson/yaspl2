@@ -21,6 +21,7 @@
 #:declare_external enable_interruptsc (-> U64)
 #:declare_external enable_interrupts_and_haltc (-> U64)
 #:declare_external disable_interruptsc (-> U64)
+#:declare_external y_switch_to_taskc (TaskDescriptor*, TaskDescriptor* -> U64)
 
 // External datastructures for network
 #:declare_external net_send_queue VirtioQueue256*
@@ -29,14 +30,10 @@
 #:declare_external net_send_buffers VirtioBuffer[]*
 #:declare_external net_recv_buffers VirtioBuffer[]*
 
-
-// Address of the code at the start of a task.
-#:declare_external scheduler_start_task U64
-
+// External datastructures for tasks
 #:declare_external serial_task_stack U8[]*
 #:declare_external network_task_stack U8[]*
 
-#:declare_external y_switch_to_taskc (TaskDescriptor*, TaskDescriptor* -> U64)
 
 
 #:define_function
@@ -613,20 +610,27 @@ U64 initializeScheduler() {
 }
 
 #:define_function
-U64 add_task(TaskDescriptor* task, U64 stack_address, U64 start_func) {
+U64 scheduler_start_task((-> U64) func) {
+  <> enable_interruptsc();
+
+  <> func();
+}
+
+#:define_function
+U64 add_task(TaskDescriptor* task, U64 stack_address, (-> U64) start_func) {
 
   // Push initial values onto the stack.
   U64 stack_pointer := stack_address;
 
   // First return address
   stack_pointer := stack_pointer - 8;
-  *(as<U64*>(stack_pointer)) <- scheduler_start_task;
+  *(as<U64*>(stack_pointer)) <- as<U64[]*>(scheduler_start_task)->[1];
   // Setup initial registers.
   U64 i := 0;
   while (i < 15) {
     U64 val := 0;
-    if (i == 2) { // rcx
-      val := start_func;
+    if (i == 6) { // rdi
+      val := as<U64>(start_func);
     }
 
     stack_pointer := stack_pointer - 8;
@@ -652,9 +656,9 @@ U64 addInitialTasks() {
   <> write_bytes(#"Initial tasks\r\n");
 
   <> add_task(serial_task, as<U64>(serial_task_stack->&[8192]),
-                                   as<U64[]*>(serialTaskStart)->[1]);
+                                   serialTaskStart);
   <> add_task(network_task, as<U64>(network_task_stack->&[8192]),
-                                   as<U64[]*>(networkTaskStart)->[1]);
+                                   networkTaskStart);
   <> write_bytes(#"Initial tasks done\r\n");
   return 0;
 }
