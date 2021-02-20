@@ -12,5 +12,5 @@ bazel build //libraries:linker
 
 rm -f tmp/kernel.efi
 bazel-bin/libraries/linker yasplos tmp/kernel.efi \
-  tmp/os/{hello-c,primitives,examples,msabi-runtime}.obj
+  tmp/os/{hello-c,examples,msabi-runtime}.obj
 
