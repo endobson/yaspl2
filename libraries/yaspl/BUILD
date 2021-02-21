@@ -1,4 +1,10 @@
-load("//libraries:yaspl.bzl", "yaspl_bootstrap_library", "yaspl_test", "yaspl_toolchain")
+load(
+    "//libraries:yaspl.bzl",
+    "yaspl_bootstrap_library",
+    "yaspl_make_variables",
+    "yaspl_test",
+    "yaspl_toolchain",
+)
 
 package(
     default_visibility = ["//visibility:public"],
@@ -34,6 +40,25 @@ toolchain(
     ],
     toolchain = ":linux_yaspl_toolchain_impl",
     toolchain_type = ":yaspl_toolchain",
+)
+
+yaspl_toolchain(
+    name = "yasplos_yaspl_toolchain_impl",
+    platform = "yasplos",
+)
+
+toolchain(
+    name = "yasplos_yaspl_toolchain",
+    target_compatible_with = [
+        "//constraints/os:yasplos",
+        "@platforms//cpu:x86_64",
+    ],
+    toolchain = ":yasplos_yaspl_toolchain_impl",
+    toolchain_type = ":yaspl_toolchain",
+)
+
+yaspl_make_variables(
+    name = "make_variables",
 )
 
 yaspl_bootstrap_library(

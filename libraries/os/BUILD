@@ -116,7 +116,8 @@ yaspl_binary(
 genrule(
     name = "gen-msabi-runtime",
     outs = ["msabi-runtime.o"],
-    cmd = "$(location :gen-msabi) yasplos $@",
+    cmd = "$(location :gen-msabi) $(YASPL_PLATFORM) $@",
+    toolchains = ["//libraries/yaspl:make_variables"],
     tools = [":gen-msabi"],
 )
 
@@ -127,9 +128,10 @@ genrule(
         ":msabi-runtime.o",
     ],
     outs = ["kernel.efi"],
-    cmd = "$(location //libraries:linker) yasplos $@ " +
+    cmd = "$(location //libraries:linker) $(YASPL_PLATFORM) $@ " +
           "$(RULEDIR)/examples.o $(RULEDIR)/msabi-runtime.o",
     tags = ["manual"],
+    toolchains = ["//libraries/yaspl:make_variables"],
     tools = ["//libraries:linker"],
 )
 

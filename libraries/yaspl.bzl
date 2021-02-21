@@ -217,6 +217,20 @@ yaspl_toolchain = rule(
   }
 )
 
+def _yaspl_make_variables_impl(ctx):
+  toolchain = ctx.toolchains["//libraries/yaspl:yaspl_toolchain"]
+
+  return [
+    platform_common.TemplateVariableInfo({
+        "YASPL_PLATFORM": toolchain.platform,
+    }),
+  ]
+
+yaspl_make_variables = rule(
+  implementation = _yaspl_make_variables_impl,
+  toolchains = ["//libraries/yaspl:yaspl_toolchain"],
+)
+
 def yaspl_test(name, srcs=[], deps=[], size="medium", tags = []):
   yaspl_library(
     # TODO make this testonly once aspects work better

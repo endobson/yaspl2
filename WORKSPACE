@@ -29,6 +29,7 @@ register_toolchains(
 register_toolchains(
     '//libraries/yaspl:osx_yaspl_toolchain',
     '//libraries/yaspl:linux_yaspl_toolchain',
+    '//libraries/yaspl:yasplos_yaspl_toolchain',
 )
 register_toolchains(
     '@minimal_racket//:osx_racket_bootstrap_toolchain',
