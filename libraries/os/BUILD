@@ -128,6 +128,7 @@ genrule(
     cmd = "$(location //libraries:linker) yasplos $@ " +
           "$(RULEDIR)/examples.o $(RULEDIR)/msabi-runtime.o",
     tools = ["//libraries:linker"],
+    tags = [":manual"],
 )
 
 
