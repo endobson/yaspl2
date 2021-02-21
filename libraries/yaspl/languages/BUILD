@@ -41,8 +41,8 @@ yaspl_bootstrap_library(
     name = "expanded-varargs-language",
     srcs = ["expanded-varargs-language.yaspl"],
     deps = [
-        "//libraries:module-name",
         ":resolved-vars-language",
+        "//libraries:module-name",
         "//libraries:top-level-name",
         "//libraries:types",
         "//libraries/data:list",

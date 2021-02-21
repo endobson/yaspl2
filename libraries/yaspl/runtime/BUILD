@@ -58,7 +58,6 @@ filegroup(
         ":read-memory",
         ":variant-descriptor",
     ],
-    visibility = ["//visibility:public"],
 )
 
 filegroup(
@@ -75,11 +74,9 @@ filegroup(
 test_suite(
     name = "package_tests",
     testonly = 0,
-    visibility = ["//visibility:public"],
 )
 
 filegroup(
     name = "package_binaries",
     srcs = [],
-    visibility = ["//visibility:public"],
 )
