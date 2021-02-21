@@ -120,6 +120,18 @@ genrule(
     tools = [":gen-msabi"],
 )
 
+
+genrule(
+    name = "gen-kernel",
+    outs = ["kernel.efi"],
+    srcs = [":examples", ":msabi-runtime.o"],
+    cmd = "$(location //libraries:linker) yasplos $@ " +
+          "$(RULEDIR)/examples.o $(RULEDIR)/msabi-runtime.o",
+    tools = ["//libraries:linker"],
+)
+
+
+
 racket_library(
     name = "inflate",
     srcs = ["inflate.rkt"],

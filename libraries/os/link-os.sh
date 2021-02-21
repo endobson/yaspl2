@@ -2,15 +2,7 @@
 
 set -e
 
-bazel build //libraries/os:{examples,msabi-runtime.o} \
+bazel build //libraries/os:kernel.efi \
   --platforms=//constraints/platforms:yasplos_x86_64
 
-cp -f bazel-bin/libraries/os/examples.o tmp/os/examples.obj
-cp -f bazel-bin/libraries/os/msabi-runtime.o tmp/os/msabi-runtime.obj
-
-bazel build //libraries:linker 
-
-rm -f tmp/kernel.efi
-bazel-bin/libraries/linker yasplos tmp/kernel.efi \
-  tmp/os/{examples,msabi-runtime}.obj
-
+cp -f bazel-bin/libraries/os/kernel.efi tmp/kernel.efi
