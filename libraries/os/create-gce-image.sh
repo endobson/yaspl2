@@ -1,13 +1,18 @@
 #!/bin/bash
 
 set -e
+set -x
 
-bazel build //libraries/os:{make-exe,make-gpt}
+rm -f tmp/kernel.efi tmp/disk.raw tmp/compressed-image.tar.gz
 
-rm -f tmp/prog.efi tmp/disk.raw tmp/compressed-image.tar.gz
+bazel build //libraries/os:kernel.efi \
+  --platforms=//constraints/platforms:yasplos_x86_64
 
-bazel-bin/libraries/os/make-exe tmp/prog.efi
-bazel-bin/libraries/os/make-gpt tmp/prog.efi tmp/disk.raw
+cp -f bazel-bin/libraries/os/kernel.efi tmp/kernel.efi
+
+bazel build //libraries/os:make-gpt
+
+bazel-bin/libraries/os/make-gpt tmp/kernel.efi tmp/disk.raw
 
 gtar --format=oldgnu -Sczf tmp/compressed-image.tar.gz -C tmp disk.raw
 
