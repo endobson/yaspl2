@@ -130,7 +130,6 @@ genrule(
     outs = ["kernel.efi"],
     cmd = "$(location //libraries:linker) $(YASPL_PLATFORM) $@ " +
           "$(RULEDIR)/examples.o $(RULEDIR)/msabi-runtime.o",
-    tags = ["manual"],
     toolchains = ["//libraries/yaspl:make_variables"],
     tools = ["//libraries:linker"],
 )
