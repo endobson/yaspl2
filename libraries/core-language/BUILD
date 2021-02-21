@@ -172,7 +172,9 @@ yaspl_library(
     srcs = ["source-language.yaspl"],
     deps = [
         "//libraries:module-name",
+        "//libraries/data:lifted-primitives",
         "//libraries/data:list",
+        "//libraries/data:maybe",
         "//libraries/yaspl:math-operations",
     ],
 )

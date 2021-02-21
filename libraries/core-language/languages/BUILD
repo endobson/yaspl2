@@ -44,7 +44,9 @@ yaspl_library(
         "//libraries:module-name",
         "//libraries/core-language:source-language",
         "//libraries/data:dict",
+        "//libraries/data:lifted-primitives",
         "//libraries/data:list",
+        "//libraries/data:maybe",
     ],
 )
 
@@ -55,7 +57,9 @@ yaspl_library(
         "//libraries:module-name",
         "//libraries:types",
         "//libraries/data:dict",
+        "//libraries/data:lifted-primitives",
         "//libraries/data:list",
+        "//libraries/data:maybe",
         "//libraries/yaspl:math-operations",
     ],
 )
