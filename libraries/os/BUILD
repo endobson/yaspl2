@@ -16,6 +16,7 @@ racket_library(
 core_library(
     name = "examples",
     srcs = ["examples.core"],
+    signatures = ["msabi-runtime.sig"],
 )
 
 racket_library(
@@ -104,8 +105,13 @@ yaspl_binary(
         ":msabi",
         "//libraries:io",
         "//libraries:machine-code-writer",
+        "//libraries:module-name",
+        "//libraries:module-signature",
+        "//libraries:module-signature-serialization",
         "//libraries:system-abi",
+        "//libraries:top-level-name",
         "//libraries/data:bytes",
+        "//libraries/data:dict",
         "//libraries/data:either",
         "//libraries/data:list",
         "//libraries/data:maybe",
@@ -115,8 +121,9 @@ yaspl_binary(
 
 genrule(
     name = "gen-msabi-runtime",
-    outs = ["msabi-runtime.o"],
-    cmd = "$(location :gen-msabi) $(YASPL_PLATFORM) $@",
+    outs = ["msabi-runtime.o", "msabi-runtime.sig"],
+    cmd = "$(location :gen-msabi) $(YASPL_PLATFORM) "+
+          "$(location :msabi-runtime.o) $(location :msabi-runtime.sig)",
     toolchains = ["//libraries/yaspl:make_variables"],
     tools = [":gen-msabi"],
 )

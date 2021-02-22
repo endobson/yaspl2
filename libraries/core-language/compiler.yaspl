@@ -12,6 +12,7 @@
   (maybe)
   (prim)
   (system-abi)
+  (yaspl parser)
 }
 (export
   (#:values main))
@@ -21,7 +22,8 @@
       [abi : SystemAbi]
       [output-object-file : Bytes]
       [output-signature-file : Bytes]
-      [module-file : Bytes])))
+      [module-file : Bytes]
+      [sig-files : (List Bytes)])))
 
 (define (parse-args [input : (List Bytes)]) : (Either Bytes Args)
   (case input
@@ -35,22 +37,20 @@
      (left #"No output signature file name supplied.")]
     [(cons _ (cons _ (cons _ (cons _ (empty)))))
      (left #"No module file name supplied.")]
-    [(cons _ (cons _ (cons _ (cons _ (cons _ (cons _ _))))))
-     (left #"Too many arguments supplied.")]
     [(cons _ (cons abi
                    (cons output-object-file
                          (cons output-signature-file
-                               (cons module-file (empty))))))
+                               (cons module-file signature-files)))))
      (case (parse-system-abi abi)
        [(nothing) (left (bytes-append (varargs list #"Unknown abi:" abi)))]
        [(just abi)
-        (right (args abi output-object-file output-signature-file module-file))])]))
+        (right (args abi output-object-file output-signature-file module-file signature-files))])]))
 
 
 (define (run [input : (List Bytes)]) : (Maybe Bytes)
   (case (parse-args input)
     [(left v) (just v)]
-    [(right (args abi output-object-file output-signature-file module-file))
+    [(right (args abi output-object-file output-signature-file module-file sig-files))
      (match-define input-contents (sourced-bytes-from-file module-file))
      (match-define lexer (make-core-lexer input-contents))
      (case (make-module-parser)
@@ -62,14 +62,17 @@
            (case (run-parser parser lexer)
              [(left v) (just v)]
              [(right (form/module m))
-              (case (compile-module m)
+              (case (parse-signature-files sig-files)
                 [(left v) (just v)]
-                [(right mod)
-                 (begin
-                   (write-compiled-module mod abi output-object-file output-signature-file)
-                   (nothing))])]
-             [(right _)
-              (just #"Parser didn't produce a module form")])])])]))
+                [(right signatures)
+                 (case (compile-module m signatures)
+                   [(left v) (just v)]
+                   [(right mod)
+                    (begin
+                      (write-compiled-module mod abi output-object-file output-signature-file)
+                      (nothing))])])]
+                [(right _)
+                 (just #"Parser didn't produce a module form")])])])]))
 
 (define (main [args : Bytes] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Int
   (case (run (args->list args))

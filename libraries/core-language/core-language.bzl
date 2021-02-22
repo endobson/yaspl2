@@ -11,16 +11,18 @@ def _lib_impl(ctx):
 
   toolchain = ctx.toolchains["//libraries/core-language:core_language_toolchain"]
 
+  args = ctx.actions.args()
+  args.add(toolchain.platform)
+  args.add(output_object.path)
+  args.add(output_signature.path)
+  args.add(src_file.path)
+  args.add_all(ctx.files.signatures)
+
   ctx.actions.run(
-    inputs = ctx.files.srcs,
+    inputs = ctx.files.srcs + ctx.files.signatures,
     outputs = [output_object, output_signature],
     executable = ctx.executable._compiler,
-    arguments = [
-      toolchain.platform,
-      output_object.path,
-      output_signature.path,
-      ctx.files.srcs[0].path,
-    ]
+    arguments = [args],
   )
 
   ctx.actions.run_shell(
@@ -49,6 +51,10 @@ core_library = rule(
     "srcs": attr.label_list(
       allow_files=[".core"],
       mandatory=True,
+      allow_empty=True
+    ),
+    "signatures": attr.label_list(
+      allow_files=[".sig"],
       allow_empty=True
     ),
     "_compiler": attr.label(
