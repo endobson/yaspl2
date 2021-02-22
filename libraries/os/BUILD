@@ -92,6 +92,7 @@ yaspl_library(
     name = "msabi",
     srcs = ["msabi.yaspl"],
     deps = [
+        "//libraries/data:bytes",
         "//libraries/data:join-list",
         "//libraries/data:list",
         "//libraries/yaspl:x86-64-assembly",
@@ -121,8 +122,11 @@ yaspl_binary(
 
 genrule(
     name = "gen-msabi-runtime",
-    outs = ["msabi-runtime.o", "msabi-runtime.sig"],
-    cmd = "$(location :gen-msabi) $(YASPL_PLATFORM) "+
+    outs = [
+        "msabi-runtime.o",
+        "msabi-runtime.sig",
+    ],
+    cmd = "$(location :gen-msabi) $(YASPL_PLATFORM) " +
           "$(location :msabi-runtime.o) $(location :msabi-runtime.sig)",
     toolchains = ["//libraries/yaspl:make_variables"],
     tools = [":gen-msabi"],
