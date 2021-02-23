@@ -56,8 +56,8 @@ yaspl_library(
     deps = [
         ":lexer",
         ":lr-parser",
-        ":source-language",
         "//libraries:module-name",
+        "//libraries/core-language/languages:source-language",
         "//libraries/data:bytes",
         "//libraries/data:either",
         "//libraries/data:lifted-primitives",
@@ -169,22 +169,9 @@ yaspl_library(
 )
 
 yaspl_library(
-    name = "source-language",
-    srcs = ["source-language.yaspl"],
-    deps = [
-        "//libraries:module-name",
-        "//libraries/data:lifted-primitives",
-        "//libraries/data:list",
-        "//libraries/data:maybe",
-        "//libraries/yaspl:math-operations",
-    ],
-)
-
-yaspl_library(
     name = "source-to-register",
     srcs = ["source-to-register.yaspl"],
     deps = [
-        ":source-language",
         "//libraries:module-signature",
         "//libraries/core-language/conversions:lift-values",
         "//libraries/core-language/conversions:lower-to-register",
@@ -193,6 +180,7 @@ yaspl_library(
         "//libraries/core-language/conversions:resolve-types",
         "//libraries/core-language/conversions:resolve-vars",
         "//libraries/core-language/conversions:type-check",
+        "//libraries/core-language/languages:source-language",
         "//libraries/data:either",
         "//libraries/data:list",
         "//libraries/yaspl:top-level-object-optimizer",

@@ -41,8 +41,8 @@ yaspl_library(
     name = "resolved-imports-language",
     srcs = ["resolved-imports-language.yaspl"],
     deps = [
+        ":source-language",
         "//libraries:module-name",
-        "//libraries/core-language:source-language",
         "//libraries/data:dict",
         "//libraries/data:lifted-primitives",
         "//libraries/data:list",
@@ -77,6 +77,18 @@ yaspl_library(
         "//libraries/data:list",
         "//libraries/yaspl:math-operations",
         "//libraries/yaspl:var",
+    ],
+)
+
+yaspl_library(
+    name = "source-language",
+    srcs = ["source-language.yaspl"],
+    deps = [
+        "//libraries:module-name",
+        "//libraries/data:lifted-primitives",
+        "//libraries/data:list",
+        "//libraries/data:maybe",
+        "//libraries/yaspl:math-operations",
     ],
 )
 

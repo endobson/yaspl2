@@ -74,8 +74,8 @@ yaspl_library(
     srcs = ["resolve-imports.yaspl"],
     deps = [
         "//libraries:module-signature",
-        "//libraries/core-language:source-language",
         "//libraries/core-language/languages:resolved-imports-language",
+        "//libraries/core-language/languages:source-language",
         "//libraries/data:bytes",
         "//libraries/data:dict",
         "//libraries/data:either",
