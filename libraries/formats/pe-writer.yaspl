@@ -4,6 +4,7 @@
   (bytes)
   (data lifted-primitives)
   (dict)
+  (either)
   (io)
   (join-list)
   (list)
@@ -598,11 +599,14 @@
           [output-file-name : Bytes]) : (Maybe Bytes)
   (call-with-output-file output-file-name
     (lambda ([p : OutputPort])
-      (begin
-        (write-all-bytes (serialize-pe-executable pe-files) p)
-        (nothing)))))
+      (case (serialize-pe-executable pe-files)
+        [(left v) (just v)]
+        [(right contents)
+         (begin
+           (write-all-bytes contents p)
+           (nothing))]))))
 
-(define (serialize-pe-executable [pe-files : (List ParsedPe)]) : Bytes
+(define (serialize-pe-executable [pe-files : (List ParsedPe)]) : (Either Bytes Bytes)
 
   (match-define
     (program-section
@@ -735,63 +739,62 @@
             rdata-global-symbols)))))
 
 
-  (match-define text-section-contents
-    (apply-pe-relocations
-      text-relocations
-      symbol-addresses
-      (+ image-base text-virt-addr)
-      text-section-contents))
+  (case (apply-pe-relocations
+          text-relocations
+          symbol-addresses
+          (+ image-base text-virt-addr)
+          text-section-contents)
+    [(left v) (left v)]
+    [(right text-section-contents)
+     (case (apply-pe-relocations
+             rdata-relocations
+             symbol-addresses
+             (+ image-base rdata-virt-addr)
+             rdata-section-contents)
+       [(left v) (left v)]
+       [(right rdata-section-contents)
+        (match-define entry-point
+          (case (dict-ref symbol-addresses #"efi_main")
+            [(nothing) 0]
+            [(just (lifted-int v)) (- v image-base)]))
 
-  (match-define rdata-section-contents
-    (apply-pe-relocations
-      rdata-relocations
-      symbol-addresses
-      (+ image-base rdata-virt-addr)
-      rdata-section-contents))
-
-
-  (match-define entry-point
-    (case (dict-ref symbol-addresses #"efi_main")
-      [(nothing) 0]
-      [(just (lifted-int v)) (- v image-base)]))
-
-
-  (bytes-append
-    (jl->list
-      (varargs append-jl*
-        (make-dos-header)
-        (single-jl #"PE\x00\x00") ; Signature
-        (make-executable-coff-header 4)
-        (make-pe-header
-          text-virt-addr ;; text-base
-          text-file-size
-          all-data-size
-          entry-point
-          image-size
-          reloc-virt-addr
-          reloc-virt-size
-          header-size)
-        (make-executable-text-section-header
-          text-virt-addr text-virt-size
-          text-file-offset text-file-size)
-        (make-executable-rdata-section-header
-          rdata-virt-addr rdata-virt-size
-          rdata-file-offset rdata-file-size)
-        (make-executable-data-section-header
-          data-virt-addr data-virt-size
-          data-file-offset data-file-size)
-        (make-executable-reloc-section-header
-          reloc-virt-addr reloc-virt-size
-          reloc-file-offset reloc-file-size)
-        (single-jl (make-bytes #x1e0))
-        (single-jl text-section-contents)
-        (single-jl (make-bytes/fill (- text-file-size (bytes-length text-section-contents))
-                                    (u8 #xcc)))
-        (single-jl rdata-section-contents)
-        (single-jl (make-bytes (- rdata-file-size (bytes-length rdata-section-contents))))
-        (single-jl reloc-section-contents)
-        (single-jl (make-bytes (- reloc-file-size reloc-virt-size)))
-        ))))
+        (right
+          (bytes-append
+            (jl->list
+              (varargs append-jl*
+                (make-dos-header)
+                (single-jl #"PE\x00\x00") ; Signature
+                (make-executable-coff-header 4)
+                (make-pe-header
+                  text-virt-addr ;; text-base
+                  text-file-size
+                  all-data-size
+                  entry-point
+                  image-size
+                  reloc-virt-addr
+                  reloc-virt-size
+                  header-size)
+                (make-executable-text-section-header
+                  text-virt-addr text-virt-size
+                  text-file-offset text-file-size)
+                (make-executable-rdata-section-header
+                  rdata-virt-addr rdata-virt-size
+                  rdata-file-offset rdata-file-size)
+                (make-executable-data-section-header
+                  data-virt-addr data-virt-size
+                  data-file-offset data-file-size)
+                (make-executable-reloc-section-header
+                  reloc-virt-addr reloc-virt-size
+                  reloc-file-offset reloc-file-size)
+                (single-jl (make-bytes #x1e0))
+                (single-jl text-section-contents)
+                (single-jl (make-bytes/fill (- text-file-size (bytes-length text-section-contents))
+                                            (u8 #xcc)))
+                (single-jl rdata-section-contents)
+                (single-jl (make-bytes (- rdata-file-size (bytes-length rdata-section-contents))))
+                (single-jl reloc-section-contents)
+                (single-jl (make-bytes (- reloc-file-size reloc-virt-size)))
+                ))))])]))
 
 
 (define (make-dos-header) : (JoinList Bytes)
@@ -895,31 +898,30 @@
                               [symbol-addresses : (Dict Bytes LiftedInt)]
                               [base-address : Int]
                               [section-contents : Bytes])
-  : Bytes
+  : (Either Bytes Bytes)
   (case relocations
-    [(empty) section-contents]
+    [(empty) (right section-contents)]
     [(cons
        (relocation (pe-relocation-kind4) offset symbol)
        relocations)
-     (begin
-       (case (dict-ref symbol-addresses symbol)
-         [(nothing)
-          (bytes-set!/s32-le section-contents offset (s32 #xdeadface))]
-         [(just (lifted-int sym-addr))
-          (match-define offset-addr (+ base-address offset))
-          (match-define delta (- (- sym-addr offset-addr) 4))
-          (match-define base-value (bytes-ref/quad-le section-contents offset))
-          (match-define updated-value (s32 (+ base-value delta)))
-          (bytes-set!/s32-le section-contents offset updated-value)])
-       (apply-pe-relocations relocations symbol-addresses base-address section-contents))]
+     (case (dict-ref symbol-addresses symbol)
+       [(nothing)
+        (left (bytes-append (varargs list #"Undefined symbol: " symbol)))]
+       [(just (lifted-int sym-addr))
+        (match-define offset-addr (+ base-address offset))
+        (match-define delta (- (- sym-addr offset-addr) 4))
+        (match-define base-value (bytes-ref/quad-le section-contents offset))
+        (match-define updated-value (s32 (+ base-value delta)))
+        (begin
+          (bytes-set!/s32-le section-contents offset updated-value)
+          (apply-pe-relocations relocations symbol-addresses base-address section-contents))])]
     [(cons
        (relocation (pe-relocation-kind1) offset symbol)
        relocations)
-     (begin
-       (case (dict-ref symbol-addresses symbol)
-         [(nothing)
-          (bytes-set!/s32-le section-contents offset (s32 #xdeadcafe))]
-         [(just (lifted-int sym-addr))
-          (bytes-set!/u64-le section-contents offset (u64 sym-addr))])
-       (apply-pe-relocations relocations symbol-addresses base-address section-contents))]
-    ))
+     (case (dict-ref symbol-addresses symbol)
+       [(nothing)
+        (left (bytes-append (varargs list #"Undefined symbol: " symbol)))]
+       [(just (lifted-int sym-addr))
+        (begin
+          (bytes-set!/u64-le section-contents offset (u64 sym-addr))
+          (apply-pe-relocations relocations symbol-addresses base-address section-contents))])]))
