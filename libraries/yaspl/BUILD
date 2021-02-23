@@ -62,6 +62,19 @@ yaspl_make_variables(
 )
 
 yaspl_bootstrap_library(
+    name = "assembly-function",
+    srcs = ["assembly-function.yaspl"],
+    deps = [
+        ":x86-64-assembly",
+        "//libraries:prim-implementation",
+        "//libraries/data:bytes",
+        "//libraries/data:join-list",
+        "//libraries/data:list",
+        "//libraries/data:tuples",
+    ],
+)
+
+yaspl_bootstrap_library(
     name = "intermediate-to-register",
     srcs = ["intermediate-to-register.yaspl"],
     deps = [
@@ -205,6 +218,7 @@ yaspl_bootstrap_library(
     name = "x86-64-runtime",
     srcs = ["x86-64-runtime.yaspl"],
     deps = [
+        ":assembly-function",
         ":intermediate-to-register",
         ":x86-64-assembly",
         "//libraries:prim-implementation",
