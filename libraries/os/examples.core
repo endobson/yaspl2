@@ -1,50 +1,12 @@
 #:module (os)
 
-#:declare_external call_ms0c (U64 -> U64)
-#:declare_external call_ms1c (U64, U64 -> U64)
-#:declare_external call_ms2c (U64, U64, U64 -> U64)
-#:declare_external call_ms5c (U64, U64, U64, U64, U64, U64 -> U64)
-
-// External functions for interrupts
-#:declare_external y_irqfun_com1 U64
-#:declare_external y_irqfun_nic U64
-#:declare_external y_irqfun_default U64
-#:declare_external y_lidtc (U64 -> U64)
-#:declare_external y_outbc (U8, U16 -> U64)
-#:declare_external y_outwc (U16, U16 -> U64)
-#:declare_external y_outdc (U32, U16 -> U64)
-#:declare_external y_inbc (U16 -> U8)
-#:declare_external y_inwc (U16 -> U16)
-#:declare_external y_indc (U16 -> U32)
-#:declare_external y_panicc (-> U64)
-
-#:declare_external enable_interruptsc (-> U64)
-#:declare_external enable_interrupts_and_haltc (-> U64)
-#:declare_external disable_interruptsc (-> U64)
-#:declare_external y_switch_to_taskc (TaskDescriptor*, TaskDescriptor* -> U64)
-
-// External datastructures for network
-//#:declare_external net_send_queue VirtioQueue256*
-//#:declare_external net_recv_queue VirtioQueue256*
-
-
-
-
-#:define_function
-U64 a(U64 arg, U64 arg2, U64 arg3, U64 arg4) {
-  return arg4 + 7;
-}
-
-#:define_function
-U64 g(U64 arg, U64 arg2) {
-  return arg2;
-}
+#:import_module (prim os)
 
 #:define_function
 Boolean is_transmit_empty() {
   // #x3F8 is SERIAL_COM1_BASE
   U64 port := #x3F8;
-  U64 result := as<U64>(y_inbc(as<U16>(port + 5)));
+  U64 result := as<U64>(inb(as<U16>(port + 5)));
   return (result & #x20) != 0;
 }
 
@@ -57,7 +19,7 @@ U64 write_serial(U8 v) {
     // Busy Loop
   }
 
-  <> y_outbc(v, as<U16>(port));
+  <> outb(v, as<U16>(port));
   return 0;
 }
 
@@ -113,7 +75,7 @@ U64 write_hex_U64(U64 v) {
 Boolean serial_received() {
   // #x3F8 is SERIAL_COM1_BASE
   U64 port := #x3F8;
-  U64 result := as<U64>(y_inbc(as<U16>(port + 5)));
+  U64 result := as<U64>(inb(as<U16>(port + 5)));
   return (result & 1) != 0;
 }
 
@@ -121,16 +83,16 @@ Boolean serial_received() {
 U8 read_serial() {
 
  if (!serial_received()) {
-   <> disable_interruptsc();
+   <> disable_interrupts();
    while (!serial_received()) {
       <> yield(as<U32>(1)); // Blocked
    }
-   <> enable_interruptsc();
+   <> enable_interrupts();
  }
 
  // #x3F8 is SERIAL_COM1_BASE
  U64 port := #x3F8;
- return y_inbc(as<U16>(port));
+ return inb(as<U16>(port));
 }
 
 
@@ -302,30 +264,30 @@ U64 exitBootServices(U64 image_handle, EfiSystemTable* st) {
   EfiSimpleTextOutputProtocol* output := st->console_out;
 
   *efi_memory_map_size <- 4096;
-  U64 status := call_ms5c((st->boot_services)->GetMemoryMap,
-                          as<U64>(efi_memory_map_size),
-                          as<U64>(efi_memory_map_space),
-                          as<U64>(efi_memory_map_key),
-                          as<U64>(efi_memory_descriptor_size),
-                          as<U64>(efi_memory_descriptor_version));
+  U64 status := call_ms5((st->boot_services)->GetMemoryMap,
+                         as<U64>(efi_memory_map_size),
+                         as<U64>(efi_memory_map_space),
+                         as<U64>(efi_memory_map_key),
+                         as<U64>(efi_memory_descriptor_size),
+                         as<U64>(efi_memory_descriptor_version));
   if (status != 0) {
     <> reset_efi_writer();
     <> efi_writer_add_hex_U64(status);
     <> efi_writer_add_byte(as<U8>(#x0d));
     <> efi_writer_add_byte(as<U8>(#x0a));
     <> terminate_efi_writer();
-    <> call_ms2c(as<U64>(output->output_string), as<U64>(output), as<U64>(efi_output_buffer));
+    <> call_ms2(as<U64>(output->output_string), as<U64>(output), as<U64>(efi_output_buffer));
     return status;
   }
 
-  status := call_ms2c((st->boot_services)->ExitBootServices, image_handle, *efi_memory_map_key);
+  status := call_ms2((st->boot_services)->ExitBootServices, image_handle, *efi_memory_map_key);
   if (status != 0) {
     <> reset_efi_writer();
     <> efi_writer_add_hex_U64(status);
     <> efi_writer_add_byte(as<U8>(#x0d));
     <> efi_writer_add_byte(as<U8>(#x0a));
     <> terminate_efi_writer();
-    <> call_ms2c(as<U64>(output->output_string), as<U64>(output), as<U64>(efi_output_buffer));
+    <> call_ms2(as<U64>(output->output_string), as<U64>(output), as<U64>(efi_output_buffer));
     return status;
   }
 
@@ -358,11 +320,11 @@ U64 initializeIdt() {
   <> memset(as<U8[]*>(idt_entries), as<U8>(0), idt_entry_size * 256);
   U64 i := 0;
   while (i < 256) {
-    U64 irq_addr := y_irqfun_default;
+    U64 irq_addr := as<U64[]*>(irqfun_default)->[1];
     if (i == 36) {
-      irq_addr := y_irqfun_com1;
+      irq_addr := as<U64[]*>(irqfun_com1)->[1];
     } else if (i == 43) {
-      irq_addr := y_irqfun_nic;
+      irq_addr := as<U64[]*>(irqfun_nic)->[1];
     }
 
     *(idt_entries->&[i])->&offset_1 <- as<U16>(irq_addr & #xffff);
@@ -377,7 +339,7 @@ U64 initializeIdt() {
 
   *idt_descriptor->&limit <- as<U16>(idt_entry_size * 256 - 1);
   *idt_descriptor->&base_address <- as<U64>(idt_entries);
-  <> y_lidtc(as<U64>(idt_descriptor));
+  <> lidt(as<U64>(idt_descriptor));
   <> write_bytes(#"IDT code done\r\n");
   return 0;
 }
@@ -390,20 +352,20 @@ U64 initializeSerial() {
   U64 port := #x3F8;
 
   // Disable all interrupts on the port while setup happens
-  <> y_outbc(as<U8>(#x00), as<U16>(port + 1));
+  <> outb(as<U8>(#x00), as<U16>(port + 1));
   // Enable the DLAB. This changes the meaning of ports 0/1 which allows
   // setting the baud rate divisor.
-  <> y_outbc(as<U8>(#x80), as<U16>(port + 3));
+  <> outb(as<U8>(#x80), as<U16>(port + 3));
   // Set divisor to 3 (low byte) 38400 baud
-  <> y_outbc(as<U8>(#x03), as<U16>(port + 0));
-  <> y_outbc(as<U8>(#x00), as<U16>(port + 1));
+  <> outb(as<U8>(#x03), as<U16>(port + 0));
+  <> outb(as<U8>(#x00), as<U16>(port + 1));
 
   // Clear the DLAB, and set the protcol as:
   // 8 bits, no parity, one stop bit
-  <> y_outbc(as<U8>(#x03), as<U16>(port + 3));
+  <> outb(as<U8>(#x03), as<U16>(port + 3));
   // Don't set FIFOs as they don't seem to do anything in QEMU.
   // Enable IRQs on Receive.
-  <> y_outbc(as<U8>(#x01), as<U16>(port + 1));
+  <> outb(as<U8>(#x01), as<U16>(port + 1));
 
   <> write_bytes(#"Serial code done\r\n");
   return 0;
@@ -425,22 +387,22 @@ U64 initializePic() {
   U64 icw1_init := #x10; // This is an initialization command
   U64 icw1_icw4 := #x01; // This initialization uses command word 4
   // Start the initialization sequence (in cascade mode)
-  <> y_outbc(as<U8>(icw1_init | icw1_icw4), as<U16>(pic1_command));
-  <> y_outbc(as<U8>(icw1_init | icw1_icw4), as<U16>(pic2_command));
+  <> outb(as<U8>(icw1_init | icw1_icw4), as<U16>(pic1_command));
+  <> outb(as<U8>(icw1_init | icw1_icw4), as<U16>(pic2_command));
 
   // Set the PICs to use the entries in the IDT range [32, 47).
   U64 offset1 := 32;
   U64 offset2 := 40;
-  <> y_outbc(as<U8>(offset1), as<U16>(pic1_data));    // ICW2: Master PIC vector offset
-  <> y_outbc(as<U8>(offset2), as<U16>(pic2_data));    // ICW2: Slave PIC vector offset
+  <> outb(as<U8>(offset1), as<U16>(pic1_data));    // ICW2: Master PIC vector offset
+  <> outb(as<U8>(offset2), as<U16>(pic2_data));    // ICW2: Slave PIC vector offset
   // ICW3: tell Master PIC that there is a slave PIC at IRQ2 (0b00000100)
-  <> y_outbc(as<U8>(#x04), as<U16>(pic1_data));
-  <> y_outbc(as<U8>(#x02), as<U16>(pic2_data));  // ICW3: tell Slave PIC its cascade identity
+  <> outb(as<U8>(#x04), as<U16>(pic1_data));
+  <> outb(as<U8>(#x02), as<U16>(pic2_data));  // ICW3: tell Slave PIC its cascade identity
 
   // // Set 8086 mode
   U64 icw4_8086 := #x01;
-  <> y_outbc(as<U8>(icw4_8086), as<U16>(pic1_data));
-  <> y_outbc(as<U8>(icw4_8086), as<U16>(pic2_data));
+  <> outb(as<U8>(icw4_8086), as<U16>(pic1_data));
+  <> outb(as<U8>(icw4_8086), as<U16>(pic2_data));
 
   // Only enable some interrupts.
   // PIC 1, bit 2: Allow PIC2 through
@@ -449,8 +411,8 @@ U64 initializePic() {
   // // PIC 2, bit 3: NIC
   U64 pic2_interrupts := #xF7; // ~(1 << 3);
   // Mask all interrupts that shouldn't be enabled.
-  <> y_outbc(as<U8>(pic1_interrupts), as<U16>(pic1_data));
-  <> y_outbc(as<U8>(pic2_interrupts), as<U16>(pic2_data));
+  <> outb(as<U8>(pic1_interrupts), as<U16>(pic1_data));
+  <> outb(as<U8>(pic2_interrupts), as<U16>(pic2_data));
 
 
   <> write_bytes(#"PIC code done\r\n");
@@ -517,33 +479,33 @@ U64 initializeNetwork() {
 
 
   // Acknowledge the device.
-  <> y_outbc(as<U8>(device_acknowledged),
-             as<U16>(net_base_port + device_status_port));
+  <> outb(as<U8>(device_acknowledged),
+          as<U16>(net_base_port + device_status_port));
   // Tell the device that we know how to drive it.
-  <> y_outbc(as<U8>(device_acknowledged | device_driver),
-             as<U16>(net_base_port + device_status_port));
+  <> outb(as<U8>(device_acknowledged | device_driver),
+          as<U16>(net_base_port + device_status_port));
 
-  U64 device_features := as<U64>(y_indc(as<U16>(net_base_port + device_features_port)));
+  U64 device_features := as<U64>(ind(as<U16>(net_base_port + device_features_port)));
   if ((device_features & (1 << feature_mac)) == 0) {
      return 1;
   }
 
   U32 guest_features := as<U32>(1 << feature_mac);
-  <> y_outdc(guest_features, as<U16>(net_base_port + guest_features_port));
+  <> outd(guest_features, as<U16>(net_base_port + guest_features_port));
 
   // Tell the device that we are finalized on our feature decisions.
-  <> y_outbc(as<U8>(device_acknowledged | device_driver | device_features_ok),
-             as<U16>(net_base_port + device_status_port));
+  <> outb(as<U8>(device_acknowledged | device_driver | device_features_ok),
+          as<U16>(net_base_port + device_status_port));
 
-  U64 device_status := as<U64>(y_inbc(as<U16>(net_base_port + device_status_port)));
+  U64 device_status := as<U64>(inb(as<U16>(net_base_port + device_status_port)));
   if (device_status != (device_acknowledged | device_driver | device_features_ok)) {
     return 1;
   }
 
   U64 queue_num := 0;
   while (queue_num < 2) {
-    <> y_outwc(as<U16>(queue_num), as<U16>(net_base_port + queue_select_port));
-    U64 queue_size := as<U64>(y_inwc(as<U16>(net_base_port + queue_size_port)));
+    <> outw(as<U16>(queue_num), as<U16>(net_base_port + queue_select_port));
+    U64 queue_size := as<U64>(inw(as<U16>(net_base_port + queue_size_port)));
     if (queue_size != #x100) {
       return 1;
     }
@@ -558,18 +520,18 @@ U64 initializeNetwork() {
 
 
   // Tell the device about our queues
-  <> y_outwc(as<U16>(0), as<U16>(net_base_port + queue_select_port));
-  <> y_outdc(as<U32>(as<U64>(net_recv_queue) >> 12),
+  <> outw(as<U16>(0), as<U16>(net_base_port + queue_select_port));
+  <> outd(as<U32>(as<U64>(net_recv_queue) >> 12),
              as<U16>(net_base_port + queue_address_port));
 
-  <> y_outwc(as<U16>(1), as<U16>(net_base_port + queue_select_port));
-  <> y_outdc(as<U32>(as<U64>(net_send_queue) >> 12),
+  <> outw(as<U16>(1), as<U16>(net_base_port + queue_select_port));
+  <> outd(as<U32>(as<U64>(net_send_queue) >> 12),
              as<U16>(net_base_port + queue_address_port));
 
   // Tell the device that we are ready!
-  <> y_outbc(as<U8>(device_acknowledged | device_driver | device_features_ok | device_driver_ok),
-             as<U16>(net_base_port + device_status_port));
-  device_status := as<U64>(y_inbc(as<U16>(net_base_port + device_status_port)));
+  <> outb(as<U8>(device_acknowledged | device_driver | device_features_ok | device_driver_ok),
+          as<U16>(net_base_port + device_status_port));
+  device_status := as<U64>(inb(as<U16>(net_base_port + device_status_port)));
   if (device_status != (device_acknowledged | device_driver | device_features_ok | device_driver_ok)) {
     return 1;
   }
@@ -605,7 +567,7 @@ U64 initializeScheduler() {
 
 #:define_function
 U64 scheduler_start_task((-> U64) func) {
-  <> enable_interruptsc();
+  <> enable_interrupts();
 
   <> func();
 }
@@ -663,10 +625,10 @@ U64 addInitialTasks() {
 #:define_function
 U64 runSchedulerLoop() {
   while (1 != 0) {
-    <> disable_interruptsc();
+    <> disable_interrupts();
     // 0 for input = Runnable, 0 for output = no other Runnable tasks
     while (yield(as<U32>(0))) {}
-    <> enable_interrupts_and_haltc();
+    <> enable_interrupts_and_halt();
   }
 }
 
@@ -699,7 +661,7 @@ Boolean yield(U32 new_old_state) {
     ret_val := (1 == 1);
     *old_task->&state <- new_old_state;
     *current_task <- new_task;
-    <> y_switch_to_taskc(old_task, new_task);
+    <> switch_stack(old_task->&stack_pointer, new_task->&stack_pointer);
   }
 
   return ret_val;
@@ -720,7 +682,7 @@ U64 postBootServices() {
 
   <> initializeScheduler();
   <> addInitialTasks();
-  <> enable_interruptsc();
+  <> enable_interrupts();
 
   <> welcomeMessage();
   // Run the main OS loop
@@ -902,20 +864,20 @@ U64 sendUdpPacket(U16 dest_port) {
   *(net_send_queue->&available)->&index <- as<U16>(as<U64>((net_send_queue->&available)->index) + 1);
 
   // Tell the device that queue 1 (send) has a new buffer.
-  <> y_outwc(as<U16>(1), as<U16>(net_base_port + queue_notify_port));
+  <> outw(as<U16>(1), as<U16>(net_base_port + queue_notify_port));
 
 
-  <> disable_interruptsc();
+  <> disable_interrupts();
   Boolean msg_recieved := 1 == 0;
   while (!msg_recieved) {
     // Read the interrupt status register to clear the interrupt state.
-    <> y_inbc(as<U16>(net_base_port + isr_status_port));
+    <> inb(as<U16>(net_base_port + isr_status_port));
     msg_recieved := as<U64>((net_send_queue->&used)->index) == ((index + 1) & #xffff);
     if (!msg_recieved) {
       <> yield(as<U32>(1)); // Blocked
     }
   }
-  <> enable_interruptsc();
+  <> enable_interrupts();
 
 
 
@@ -1011,19 +973,19 @@ U64 sendArpPacket() {
   *(net_send_queue->&available)->&index <- as<U16>(as<U64>((net_send_queue->&available)->index) + 1);
 
   // Tell the device that queue 1 (send) has a new buffer.
-  <> y_outwc(as<U16>(1), as<U16>(net_base_port + queue_notify_port));
+  <> outw(as<U16>(1), as<U16>(net_base_port + queue_notify_port));
 
-  <> disable_interruptsc();
+  <> disable_interrupts();
   Boolean msg_recieved := 1 == 0;
   while (!msg_recieved) {
     // Read the interrupt status register to clear the interrupt state.
-    <> y_inbc(as<U16>(net_base_port + isr_status_port));
+    <> inb(as<U16>(net_base_port + isr_status_port));
     msg_recieved := as<U64>((net_send_queue->&used)->index) == ((index + 1) & #xffff);
     if (!msg_recieved) {
       <> yield(as<U32>(1)); // Blocked
     }
   }
-  <> enable_interruptsc();
+  <> enable_interrupts();
 
   <> write_bytes(#"Done sending Yaspl Arp Packet\r\n");
   return 0;
@@ -1057,25 +1019,25 @@ U64 waitNetworkInterrupt() {
   *(net_recv_queue->&available)->&index <- as<U16>(as<U64>((net_recv_queue->&available)->index) + 1);
 
   // Tell the device that queue 0 (recv) has a new buffer.
-  <> y_outwc(as<U16>(0), as<U16>(net_base_port + queue_notify_port));
+  <> outw(as<U16>(0), as<U16>(net_base_port + queue_notify_port));
 
-  <> disable_interruptsc();
+  <> disable_interrupts();
   Boolean msg_recieved := 1 == 0;
   while (!msg_recieved) {
     // Read the interrupt status register to clear the interrupt state.
-    <> y_inbc(as<U16>(net_base_port + isr_status_port));
+    <> inb(as<U16>(net_base_port + isr_status_port));
     msg_recieved := as<U64>((net_recv_queue->&used)->index) == ((index + 1) & #xffff);
     if (!msg_recieved) {
       <> yield(as<U32>(1)); // Blocked
     }
   }
-  <> enable_interruptsc();
+  <> enable_interrupts();
 
 
   U64 ring_i := index % 256;
   U64 buffer_i := as<U64>((((net_recv_queue->&used)->&ring)->&[ring_i])->index);
   if (buffer_i != ring_i) {
-    <> y_panicc();
+    <> panic();
   }
   U64 remaining_packet_length := as<U64>((((net_recv_queue->&used)->&ring)->&[ring_i])->length);
   U8[]* raw_buffer := as<U8[]*>(((net_recv_queue->&buffers)->&[buffer_i])->address);
@@ -1085,13 +1047,13 @@ U64 waitNetworkInterrupt() {
 
 
   if (remaining_packet_length < virtio_net_header_size) {
-    <> y_panicc();
+    <> panic();
   }
   VirtioNetHeader* virtio_header := as<VirtioNetHeader*>(raw_buffer);
   remaining_packet_length := remaining_packet_length - virtio_net_header_size;
 
   if (remaining_packet_length < ethernet_header_size) {
-    <> y_panicc();
+    <> panic();
   }
   EthernetHeader* ethernet_header := as<EthernetHeader*>(virtio_header->&data);
   remaining_packet_length := remaining_packet_length - ethernet_header_size;
@@ -1100,26 +1062,26 @@ U64 waitNetworkInterrupt() {
       (as<U64>((ethernet_header->&ethertype)->byte1) == #x06)) {
     U64 arp_packet_size := 28;
     if (remaining_packet_length < arp_packet_size) {
-      <> y_panicc();
+      <> panic();
     }
     ArpPacket* arp_packet := as<ArpPacket*>(ethernet_header->&data);
     remaining_packet_length := remaining_packet_length - arp_packet_size;
 
     if (remaining_packet_length != 0) {
-      <> y_panicc();
+      <> panic();
     }
 
     if (as<U64>(be_u16_to_le(arp_packet->&hardware_type)) != 1) {
-      <> y_panicc();
+      <> panic();
     }
     if (as<U64>(be_u16_to_le(arp_packet->&protocol_type)) != #x0800) {
-      <> y_panicc();
+      <> panic();
     }
     if (as<U64>(arp_packet->hardware_length) != 6) {
-      <> y_panicc();
+      <> panic();
     }
     if (as<U64>(arp_packet->protocol_length) != 4) {
-      <> y_panicc();
+      <> panic();
     }
 
 
@@ -1132,27 +1094,27 @@ U64 waitNetworkInterrupt() {
     U64 ip_header_size := 20;
 
     if (remaining_packet_length < ip_header_size) {
-        <> y_panicc();
+        <> panic();
     }
     IpHeader* ip_header := as<IpHeader*>(ethernet_header->&data);
 
     if (remaining_packet_length != as<U64>(be_u16_to_le(ip_header->&total_length))) {
-       <> y_panicc();
+       <> panic();
     }
 
     U64 header_length := as<U64>(ip_header->version_header_length) & #x0F;
     if (header_length != 5) {
-      <> y_panicc();
+      <> panic();
     }
     remaining_packet_length := remaining_packet_length - ip_header_size;
 
     if (remaining_packet_length < udp_header_size) {
-      <> y_panicc();
+      <> panic();
     }
     UdpHeader* udp_header := as<UdpHeader*>(ip_header->&data);
 
     if (remaining_packet_length != as<U64>(be_u16_to_le(udp_header->&length))) {
-      <> y_panicc();
+      <> panic();
     }
     remaining_packet_length := remaining_packet_length - udp_header_size;
 

@@ -8,8 +8,11 @@
   (module-signature)
   (prim)
   (prim-names)
+  (prim-types)
   (top-level-name)
   (tuples)
+  (types)
+  (yaspl assembly-function)
   (yaspl x86-64-assembly)
 }
 (export
@@ -20,262 +23,378 @@
 
 (define (make-assembly-fragments/signature) :
   (Tuple2 AssemblyFragments ModuleSignature)
-  (match-define functions (make-function-fragments))
-  (match-define closures (map make-closure-fragment functions))
+  (match-define start-functions (make-start-function-fragments))
+
+  (match-define (tuple2 functions closures)
+    (unzip (map prim-assembly-function->fragments (make-functions))))
 
 
   (tuple2
     (assembly-fragments
-      functions
-      (append
-        closures
-        (make-data-fragments))
+      (append start-functions functions)
+      (append (make-data-fragments) closures)
       (empty))
     (make-signature)))
 
 
 (define (make-signature) : ModuleSignature
+  (match-define value-export
+    (lambda ([name : Bytes] [type : Type]) : (Tuple2 Bytes ValueSignature)
+      (tuple2 name (value-signature type
+                                    (prim-name (bytes-append (varargs list name #"_closure")))))))
+
   (module-signature
     (mod-name
       (varargs list #"prim" #"os"))
-    (make-dict bytes-cmp)
+    (dict-add-all
+      (make-dict bytes-cmp)
+      (varargs list
+        (value-export #"lidt" (fun1-type (u64-type) (u64-type)))
+        (value-export #"outb" (fun2-type (u8-type) (u16-type) (u64-type)))
+        (value-export #"outw" (fun2-type (u16-type) (u16-type) (u64-type)))
+        (value-export #"outd" (fun2-type (u32-type) (u16-type) (u64-type)))
+        (value-export #"inb" (fun1-type (u16-type) (u8-type)))
+        (value-export #"inw" (fun1-type (u16-type) (u16-type)))
+        (value-export #"ind" (fun1-type (u16-type) (u32-type)))
+        (value-export #"panic" (fun0-type (u64-type)))
+        (value-export #"enable_interrupts" (fun0-type (u64-type)))
+        (value-export #"enable_interrupts_and_halt" (fun0-type (u64-type)))
+        (value-export #"disable_interrupts" (fun0-type (u64-type)))
+        (value-export #"switch_stack"
+          (fun2-type (pointer-type (u64-type)) (pointer-type (u64-type)) (u64-type)))
+
+        (value-export #"call_ms0" (fun1-type (u64-type) (u64-type)))
+        (value-export #"call_ms1" (fun2-type (u64-type) (u64-type) (u64-type)))
+        (value-export #"call_ms2" (fun3-type (u64-type) (u64-type) (u64-type) (u64-type)))
+        (value-export #"call_ms5"
+          (fun6-type (u64-type) (u64-type) (u64-type) (u64-type) (u64-type) (u64-type) (u64-type)))
+
+        (value-export #"irqfun_com1" (fun0-type (u64-type)))
+        (value-export #"irqfun_nic" (fun0-type (u64-type)))
+        (value-export #"irqfun_default" (fun0-type (u64-type)))
+        ))
     (make-dict bytes-cmp)
     (make-dict bytes-cmp)
     (make-dict bytes-cmp)
     (make-dict top-level-name-cmp)))
 
 
-(define (make-closure-fragment [f : TextFragment]) : ConstFragment
-  (match-define (function-fragment name _blocks) f)
-
-  (const-fragment
-    (bytes-append (varargs list name #"c"))
-    3
-    (varargs list
-      (bytes-fragment (make-bytes 8))
-      (address-fragment name 0))))
-
-
-(define (make-function-fragments) : (List TextFragment)
+(define (make-functions) : (List PrimAssemblyFunction)
   (varargs list
-    (function-fragment
+    (prim-assembly-function
       #"call_ms0"
-      (varargs append-jl*
-        (named-block #"call_ms0_0"
-          (varargs join-list
-            (pushq (r64mi-reg (rbp)))
-            (movq (r64mi-reg (rsp)) (r64m-reg (rbp)))
-            ;; Shadow space
-            (subq (imm64/s32 32) (rsp))
-            (call/indirect (r64m-reg (rdi)))
-            (addq (imm64/s32 32) (r64m-reg (rsp)))
+      (varargs join-list
+        (pushq (r64mi-reg (rbp)))
+        (movq (r64mi-reg (rsp)) (r64m-reg (rbp)))
+        ;; Shadow space
+        (subq (imm64/s32 32) (rsp))
+        (call/indirect (r64m-reg (rdi)))
+        (addq (imm64/s32 32) (r64m-reg (rsp)))
 
-            (popq (r64m-reg (rbp)))
-            (ret)))))
+        (popq (r64m-reg (rbp)))
+        (ret)))
 
-    (function-fragment
+    (prim-assembly-function
       #"call_ms1"
-      (varargs append-jl*
-        (named-block #"call_ms1_0"
-          (varargs join-list
-            (pushq (r64mi-reg (rbp)))
-            (movq (r64mi-reg (rsp)) (r64m-reg (rbp)))
-            ;; Shadow space
-            (subq (imm64/s32 32) (rsp))
-            (movq (r64mi-reg (rsi)) (r64m-reg (rcx)))
-            (call/indirect (r64m-reg (rdi)))
-            (addq (imm64/s32 32) (r64m-reg (rsp)))
+      (varargs join-list
+        (pushq (r64mi-reg (rbp)))
+        (movq (r64mi-reg (rsp)) (r64m-reg (rbp)))
+        ;; Shadow space
+        (subq (imm64/s32 32) (rsp))
+        (movq (r64mi-reg (rsi)) (r64m-reg (rcx)))
+        (call/indirect (r64m-reg (rdi)))
+        (addq (imm64/s32 32) (r64m-reg (rsp)))
 
-            (popq (r64m-reg (rbp)))
-            (ret)))))
+        (popq (r64m-reg (rbp)))
+        (ret)))
 
-    (function-fragment
+    (prim-assembly-function
       #"call_ms2"
-      (varargs append-jl*
-        (named-block #"call_ms2_0"
-          (varargs join-list
-            (pushq (r64mi-reg (rbp)))
-            (movq (r64mi-reg (rsp)) (r64m-reg (rbp)))
-            ;; Shadow space
-            (subq (imm64/s32 32) (rsp))
-            (movq (r64mi-reg (rsi)) (r64m-reg (rcx)))
-            ; This happens to be a noop.
-            ; (movq (r64mi-reg (rdx)) (r64m-reg (rdx)))
-            (call/indirect (r64m-reg (rdi)))
-            (addq (imm64/s32 32) (r64m-reg (rsp)))
+      (varargs join-list
+        (pushq (r64mi-reg (rbp)))
+        (movq (r64mi-reg (rsp)) (r64m-reg (rbp)))
+        ;; Shadow space
+        (subq (imm64/s32 32) (rsp))
+        (movq (r64mi-reg (rsi)) (r64m-reg (rcx)))
+        ; This happens to be a noop.
+        ; (movq (r64mi-reg (rdx)) (r64m-reg (rdx)))
+        (call/indirect (r64m-reg (rdi)))
+        (addq (imm64/s32 32) (r64m-reg (rsp)))
 
-            (popq (r64m-reg (rbp)))
-            (ret)))))
+        (popq (r64m-reg (rbp)))
+        (ret)))
 
 
-    (function-fragment
+    (prim-assembly-function
       #"call_ms5"
-      (varargs append-jl*
-        (named-block #"call_ms5_0"
-          (varargs join-list
-            (pushq (r64mi-reg (rbp)))
-            (movq (r64mi-reg (rsp)) (r64m-reg (rbp)))
-            ;; Do arguments in reverse order to avoid overwriting.
-            (pushq (imm64/s32 0))                       ;; Padding to keep 16 byte aligned
-            (pushq (r64mi-reg (r9)))                    ;; Argument 5
-            ;; Shadow space
-            (subq (imm64/s32 32) (rsp))
-            (movq (r64mi-reg (r8)) (r64m-reg (r9)))     ;; Argument 4
-            (movq (r64mi-reg (rcx)) (r64m-reg (r8)))    ;; Argument 3
-            ; This happens to be a noop.
-            ; (movq (r64mi-reg (rdx)) (r64m-reg (rdx))) ;; Argument 2
-            (movq (r64mi-reg (rsi)) (r64m-reg (rcx)))   ;; Argument 1
-            (call/indirect (r64m-reg (rdi)))
-            (addq (imm64/s32 48) (r64m-reg (rsp)))
+      (varargs join-list
+        (pushq (r64mi-reg (rbp)))
+        (movq (r64mi-reg (rsp)) (r64m-reg (rbp)))
+        ;; Do arguments in reverse order to avoid overwriting.
+        (pushq (imm64/s32 0))                       ;; Padding to keep 16 byte aligned
+        (pushq (r64mi-reg (r9)))                    ;; Argument 5
+        ;; Shadow space
+        (subq (imm64/s32 32) (rsp))
+        (movq (r64mi-reg (r8)) (r64m-reg (r9)))     ;; Argument 4
+        (movq (r64mi-reg (rcx)) (r64m-reg (r8)))    ;; Argument 3
+        ; This happens to be a noop.
+        ; (movq (r64mi-reg (rdx)) (r64m-reg (rdx))) ;; Argument 2
+        (movq (r64mi-reg (rsi)) (r64m-reg (rcx)))   ;; Argument 1
+        (call/indirect (r64m-reg (rdi)))
+        (addq (imm64/s32 48) (r64m-reg (rsp)))
 
-            (popq (r64m-reg (rbp)))
-            (ret)))))
+        (popq (r64m-reg (rbp)))
+        (ret)))
 
 
+    (prim-assembly-function
+      #"lidt"
+      (varargs join-list
+        (lidt (mem (rdi) 0))
+        (ret)))
 
-    (function-fragment
-      #"call_sysv0"
-      (varargs append-jl*
-        (named-block #"call_sysv0_0"
-          (varargs join-list
-            (pushq (r64mi-reg (rbp)))
-            (movq (r64mi-reg (rsp)) (r64m-reg (rbp)))
-            ;; Save RDI and RSI
-            (pushq (r64mi-reg (rdi)))
-            (pushq (r64mi-reg (rsi)))
-            (call/indirect (r64m-reg (rcx)))
-            (popq (r64m-reg (rsi)))
-            (popq (r64m-reg (rdi)))
+    (prim-assembly-function
+      #"outb"
+      (varargs join-list
+        (movq (r64mi-reg (rdi)) (r64m-reg (rax)))
+        (movq (r64mi-reg (rsi)) (r64m-reg (rdx)))
+        (outb)
+        (ret)))
 
-            (popq (r64m-reg (rbp)))
-            (ret)))))
+    (prim-assembly-function
+      #"outw"
+      (varargs join-list
+        (movq (r64mi-reg (rdi)) (r64m-reg (rax)))
+        (movq (r64mi-reg (rsi)) (r64m-reg (rdx)))
+        (outw)
+        (ret)))
 
+    (prim-assembly-function
+      #"outd"
+      (varargs join-list
+        (movq (r64mi-reg (rdi)) (r64m-reg (rax)))
+        (movq (r64mi-reg (rsi)) (r64m-reg (rdx)))
+        (outd)
+        (ret)))
 
-    (function-fragment
-      #"call_sysv1"
-      (varargs append-jl*
-        (named-block #"call_sysv1_0"
-          (varargs join-list
-            (pushq (r64mi-reg (rbp)))
-            (movq (r64mi-reg (rsp)) (r64m-reg (rbp)))
-            ;; Save RDI and RSI
-            (pushq (r64mi-reg (rdi)))
-            (pushq (r64mi-reg (rsi)))
-            (movq (r64mi-reg (rdx)) (r64m-reg (rdi)))
-            (call/indirect (r64m-reg (rcx)))
-            (popq (r64m-reg (rsi)))
-            (popq (r64m-reg (rdi)))
+    (prim-assembly-function
+      #"inb"
+      (varargs join-list
+        (movq (r64mi-reg (rdi)) (r64m-reg (rdx)))
+        (inb)
+        (ret)))
 
-            (popq (r64m-reg (rbp)))
-            (ret)))))
+    (prim-assembly-function
+      #"inw"
+      (varargs join-list
+        (movq (r64mi-reg (rdi)) (r64m-reg (rdx)))
+        (inw)
+        (ret)))
 
-    (function-fragment
-      #"call_sysv2"
-      (varargs append-jl*
-        (named-block #"call_sysv2_0"
-          (varargs join-list
-            (pushq (r64mi-reg (rbp)))
-            (movq (r64mi-reg (rsp)) (r64m-reg (rbp)))
-            ;; Save RDI and RSI
-            (pushq (r64mi-reg (rdi)))
-            (pushq (r64mi-reg (rsi)))
-            (movq (r64mi-reg (rdx)) (r64m-reg (rdi)))
-            (movq (r64mi-reg (r8)) (r64m-reg (rsi)))
-            (call/indirect (r64m-reg (rcx)))
-            (popq (r64m-reg (rsi)))
-            (popq (r64m-reg (rdi)))
+    (prim-assembly-function
+      #"ind"
+      (varargs join-list
+        (movq (r64mi-reg (rdi)) (r64m-reg (rdx)))
+        (ind)
+        (ret)))
 
-            (popq (r64m-reg (rbp)))
-            (ret)))))
-
-    (function-fragment
-      #"y_lidt"
-      (varargs append-jl*
-        (named-block #"y_lidt_0"
-          (varargs join-list
-            (lidt (mem (rdi) 0))
-            (ret)))))
-
-    (function-fragment
-      #"y_outb"
-      (varargs append-jl*
-        (named-block #"y_outb_0"
-          (varargs join-list
-            (movq (r64mi-reg (rdi)) (r64m-reg (rax)))
-            (movq (r64mi-reg (rsi)) (r64m-reg (rdx)))
-            (outb)
-            (ret)))))
-
-
-    (function-fragment
-      #"y_outw"
-      (varargs append-jl*
-        (named-block #"y_outw_0"
-          (varargs join-list
-            (movq (r64mi-reg (rdi)) (r64m-reg (rax)))
-            (movq (r64mi-reg (rsi)) (r64m-reg (rdx)))
-            (outw)
-            (ret)))))
-
-    (function-fragment
-      #"y_outd"
-      (varargs append-jl*
-        (named-block #"y_outd_0"
-          (varargs join-list
-            (movq (r64mi-reg (rdi)) (r64m-reg (rax)))
-            (movq (r64mi-reg (rsi)) (r64m-reg (rdx)))
-            (outd)
-            (ret)))))
-
-    (function-fragment
-      #"y_inb"
-      (varargs append-jl*
-        (named-block #"y_inb_0"
-          (varargs join-list
-            (movq (r64mi-reg (rdi)) (r64m-reg (rdx)))
-            (inb)
-            (ret)))))
-
-    (function-fragment
-      #"y_inw"
-      (varargs append-jl*
-        (named-block #"y_inw_0"
-          (varargs join-list
-            (movq (r64mi-reg (rdi)) (r64m-reg (rdx)))
-            (inw)
-            (ret)))))
-
-    (function-fragment
-      #"y_ind"
-      (varargs append-jl*
-        (named-block #"y_ind_0"
-          (varargs join-list
-            (movq (r64mi-reg (rdi)) (r64m-reg (rdx)))
-            (ind)
-            (ret)))))
-
-    (function-fragment
+    (prim-assembly-function
       #"enable_interrupts"
-      (varargs append-jl*
-        (named-block #"enable_interrupts_0"
-          (varargs join-list
-            (sti)
-            (ret)))))
-    (function-fragment
+      (varargs join-list
+        (sti)
+        (ret)))
+    (prim-assembly-function
       #"enable_interrupts_and_halt"
-      (varargs append-jl*
-        (named-block #"enable_interrupts_and_halt_0"
-          (varargs join-list
-            (sti)
-            (hlt)
-            (ret)))))
-    (function-fragment
+      (varargs join-list
+        (sti)
+        (hlt)
+        (ret)))
+    (prim-assembly-function
       #"disable_interrupts"
-      (varargs append-jl*
-        (named-block #"disable_interrupts_0"
-          (varargs join-list
-            (cli)
-            (ret)))))
+      (varargs join-list
+        (cli)
+        (ret)))
+
+    (prim-assembly-function
+      #"efi_main"
+      (varargs join-list
+        (movq (r64mi-reg (rcx)) (r64m-reg (rdi)))
+        (movq (r64mi-reg (rdx)) (r64m-reg (rsi)))
+        (call #"yos_main")))
+
+    ;; OSX start
+    (prim-assembly-function
+      #"start"
+      (varargs join-list
+        (ud2)))
+
+    ;; Linux start
+    (prim-assembly-function
+      #"_start"
+      (varargs join-list
+        (ud2)))
+
+
+    ; Panic, and stop forever
+    ; Disables interupts
+    (prim-assembly-function
+      #"panic"
+      (varargs join-list
+        (cli)
+        (movq/imm* #xDEADDEAD (rax))
+        (hlt)
+        (jmp #"yprim_panic")))
+
+
+    (prim-assembly-function
+      #"irqfun_default"
+      (varargs join-list
+        (jmp #"yprim_panic")))
+
+    (prim-assembly-function
+      #"irqfun_com1"
+      (varargs join-list
+        (pushfq)
+        (pushq (r64mi-reg (rax)))
+        (pushq (r64mi-reg (rdx)))
+        (cld)
+
+        ; Disable other interrupts
+        (sti)
+        (pushq (r64mi-reg (rax)))
+        (pushq (r64mi-reg (rcx)))
+        (pushq (r64mi-reg (rdx)))
+        (pushq (r64mi-reg (rdi)))
+        (pushq (r64mi-reg (rsi)))
+        (pushq (r64mi-reg (r8)))
+        (pushq (r64mi-reg (r9)))
+        (pushq (r64mi-reg (r10)))
+        (pushq (r64mi-reg (r11)))
+
+        (call #"yos_markAllRunnable")
+
+        (popq (r64m-reg (r11)))
+        (popq (r64m-reg (r10)))
+        (popq (r64m-reg (r9)))
+        (popq (r64m-reg (r8)))
+        (popq (r64m-reg (rsi)))
+        (popq (r64m-reg (rdi)))
+        (popq (r64m-reg (rdx)))
+        (popq (r64m-reg (rcx)))
+        (popq (r64m-reg (rax)))
+        ; Reenable interrupts
+        (cli)
+
+        ; Port for PIC 1
+        (movq/imm* #x20 (rdx))
+        ; EOI (End of Interrupt) command
+        (movq/imm* #x20 (rax))
+        ; Send command
+        (outb)
+
+        (popq (r64m-reg (rdx)))
+        (popq (r64m-reg (rax)))
+        (popfq)
+        (iretq)))
+
+    (prim-assembly-function
+      #"irqfun_nic"
+      (varargs join-list
+        (pushfq)
+        (pushq (r64mi-reg (rax)))
+        (pushq (r64mi-reg (rdx)))
+        (cld)
+
+        ; Disable other interrupts
+        (sti)
+        (pushq (r64mi-reg (rax)))
+        (pushq (r64mi-reg (rcx)))
+        (pushq (r64mi-reg (rdx)))
+        (pushq (r64mi-reg (rdi)))
+        (pushq (r64mi-reg (rsi)))
+        (pushq (r64mi-reg (r8)))
+        (pushq (r64mi-reg (r9)))
+        (pushq (r64mi-reg (r10)))
+        (pushq (r64mi-reg (r11)))
+
+        (call #"yos_markAllRunnable")
+
+        (popq (r64m-reg (r11)))
+        (popq (r64m-reg (r10)))
+        (popq (r64m-reg (r9)))
+        (popq (r64m-reg (r8)))
+        (popq (r64m-reg (rsi)))
+        (popq (r64m-reg (rdi)))
+        (popq (r64m-reg (rdx)))
+        (popq (r64m-reg (rcx)))
+        (popq (r64m-reg (rax)))
+        ; Reenable interrupts
+        (cli)
+
+        ; Port for PIC 1
+        (movq/imm* #x20 (rdx))
+        ; EOI (End of Interrupt) command
+        (movq/imm* #x20 (rax))
+        ; Send command
+        (outb)
+
+        ; Port for PIC 2
+        (movq/imm* #xa0 (rdx))
+        ; Send command (Still EOI)
+        (outb)
+
+        (popq (r64m-reg (rdx)))
+        (popq (r64m-reg (rax)))
+        (popfq)
+        (iretq)))
+
+
+    (prim-assembly-function
+      #"switch_stack"
+      (varargs join-list
+        (pushq (r64mi-reg (rax)))
+        (pushq (r64mi-reg (rbx)))
+        (pushq (r64mi-reg (rcx)))
+        (pushq (r64mi-reg (rdx)))
+        (pushq (r64mi-reg (rbp)))
+        (pushq (r64mi-reg (rsi)))
+        (pushq (r64mi-reg (rdi)))
+        (pushq (r64mi-reg (r8)))
+        (pushq (r64mi-reg (r9)))
+        (pushq (r64mi-reg (r10)))
+        (pushq (r64mi-reg (r11)))
+        (pushq (r64mi-reg (r12)))
+        (pushq (r64mi-reg (r13)))
+        (pushq (r64mi-reg (r14)))
+        (pushq (r64mi-reg (r15)))
+
+        (movq (r64mi-reg (rsp)) (r64m-mem (mem (rdi) 0)))
+        (movq (r64mi-mem (mem (rsi) 0)) (r64m-reg (rsp)))
+
+        (popq (r64m-reg (r15)))
+        (popq (r64m-reg (r14)))
+        (popq (r64m-reg (r13)))
+        (popq (r64m-reg (r12)))
+        (popq (r64m-reg (r11)))
+        (popq (r64m-reg (r10)))
+        (popq (r64m-reg (r9)))
+        (popq (r64m-reg (r8)))
+        (popq (r64m-reg (rdi)))
+        (popq (r64m-reg (rsi)))
+        (popq (r64m-reg (rbp)))
+        (popq (r64m-reg (rdx)))
+        (popq (r64m-reg (rcx)))
+        (popq (r64m-reg (rbx)))
+        (popq (r64m-reg (rax)))
+        (ret)))
+
+
+    ))
+
+
+
+(define (make-start-function-fragments) : (List TextFragment)
+  (varargs list
 
     (function-fragment
       #"efi_main"
@@ -301,177 +420,7 @@
       (varargs append-jl*
         (named-block #"_start_0"
           (varargs join-list
-            (ud2)))))
-
-
-    ; Panic, and stop forever
-    ; Disables interupts
-    (function-fragment
-      #"y_panic"
-      (varargs append-jl*
-        (named-block #"y_panic_0"
-          (varargs join-list
-            (cli)
-            (movq/imm* #xDEADDEAD (rax))
-            (hlt)
-            (jmp #"y_panic")))))
-
-
-    (function-fragment
-      #"y_irqfun_default"
-      (varargs append-jl*
-        (named-block #"y_irqfun_default_0"
-          (varargs join-list
-            (jmp #"y_panic")
-            ))))
-
-    (function-fragment
-      #"y_irqfun_com1"
-      (varargs append-jl*
-        (named-block #"y_irqfun_com1_0"
-          (varargs join-list
-            (pushfq)
-            (pushq (r64mi-reg (rax)))
-            (pushq (r64mi-reg (rdx)))
-            (cld)
-
-            ; Disable other interrupts
-            (sti)
-            (pushq (r64mi-reg (rax)))
-            (pushq (r64mi-reg (rcx)))
-            (pushq (r64mi-reg (rdx)))
-            (pushq (r64mi-reg (rdi)))
-            (pushq (r64mi-reg (rsi)))
-            (pushq (r64mi-reg (r8)))
-            (pushq (r64mi-reg (r9)))
-            (pushq (r64mi-reg (r10)))
-            (pushq (r64mi-reg (r11)))
-
-            (call #"yos_markAllRunnable")
-
-            (popq (r64m-reg (r11)))
-            (popq (r64m-reg (r10)))
-            (popq (r64m-reg (r9)))
-            (popq (r64m-reg (r8)))
-            (popq (r64m-reg (rsi)))
-            (popq (r64m-reg (rdi)))
-            (popq (r64m-reg (rdx)))
-            (popq (r64m-reg (rcx)))
-            (popq (r64m-reg (rax)))
-            ; Reenable interrupts
-            (cli)
-
-            ; Port for PIC 1
-            (movq/imm* #x20 (rdx))
-            ; EOI (End of Interrupt) command
-            (movq/imm* #x20 (rax))
-            ; Send command
-            (outb)
-
-            (popq (r64m-reg (rdx)))
-            (popq (r64m-reg (rax)))
-            (popfq)
-            (iretq)
-            ))))
-
-    (function-fragment
-      #"y_irqfun_nic"
-      (varargs append-jl*
-        (named-block #"y_irqfun_nic_0"
-          (varargs join-list
-            (pushfq)
-            (pushq (r64mi-reg (rax)))
-            (pushq (r64mi-reg (rdx)))
-            (cld)
-
-            ; Disable other interrupts
-            (sti)
-            (pushq (r64mi-reg (rax)))
-            (pushq (r64mi-reg (rcx)))
-            (pushq (r64mi-reg (rdx)))
-            (pushq (r64mi-reg (rdi)))
-            (pushq (r64mi-reg (rsi)))
-            (pushq (r64mi-reg (r8)))
-            (pushq (r64mi-reg (r9)))
-            (pushq (r64mi-reg (r10)))
-            (pushq (r64mi-reg (r11)))
-
-            (call #"yos_markAllRunnable")
-
-            (popq (r64m-reg (r11)))
-            (popq (r64m-reg (r10)))
-            (popq (r64m-reg (r9)))
-            (popq (r64m-reg (r8)))
-            (popq (r64m-reg (rsi)))
-            (popq (r64m-reg (rdi)))
-            (popq (r64m-reg (rdx)))
-            (popq (r64m-reg (rcx)))
-            (popq (r64m-reg (rax)))
-            ; Reenable interrupts
-            (cli)
-
-            ; Port for PIC 1
-            (movq/imm* #x20 (rdx))
-            ; EOI (End of Interrupt) command
-            (movq/imm* #x20 (rax))
-            ; Send command
-            (outb)
-
-            ; Port for PIC 2
-            (movq/imm* #xa0 (rdx))
-            ; Send command (Still EOI)
-            (outb)
-
-            (popq (r64m-reg (rdx)))
-            (popq (r64m-reg (rax)))
-            (popfq)
-            (iretq)
-            ))))
-
-
-    (function-fragment
-      #"y_switch_to_task"
-      (varargs append-jl*
-        (named-block #"y_switch_to_task_0"
-          (varargs join-list
-            (pushq (r64mi-reg (rax)))
-            (pushq (r64mi-reg (rbx)))
-            (pushq (r64mi-reg (rcx)))
-            (pushq (r64mi-reg (rdx)))
-            (pushq (r64mi-reg (rbp)))
-            (pushq (r64mi-reg (rsi)))
-            (pushq (r64mi-reg (rdi)))
-            (pushq (r64mi-reg (r8)))
-            (pushq (r64mi-reg (r9)))
-            (pushq (r64mi-reg (r10)))
-            (pushq (r64mi-reg (r11)))
-            (pushq (r64mi-reg (r12)))
-            (pushq (r64mi-reg (r13)))
-            (pushq (r64mi-reg (r14)))
-            (pushq (r64mi-reg (r15)))
-
-            (movq (r64mi-reg (rsp)) (r64m-mem (mem (rdi) 0)))
-            (movq (r64mi-mem (mem (rsi) 0)) (r64m-reg (rsp)))
-
-            (popq (r64m-reg (r15)))
-            (popq (r64m-reg (r14)))
-            (popq (r64m-reg (r13)))
-            (popq (r64m-reg (r12)))
-            (popq (r64m-reg (r11)))
-            (popq (r64m-reg (r10)))
-            (popq (r64m-reg (r9)))
-            (popq (r64m-reg (r8)))
-            (popq (r64m-reg (rdi)))
-            (popq (r64m-reg (rsi)))
-            (popq (r64m-reg (rbp)))
-            (popq (r64m-reg (rdx)))
-            (popq (r64m-reg (rcx)))
-            (popq (r64m-reg (rbx)))
-            (popq (r64m-reg (rax)))
-            (ret)))))
-
-
-    ))
+            (ud2)))))))
 
 (define (make-data-fragments) : (List ConstFragment)
   (varargs list
