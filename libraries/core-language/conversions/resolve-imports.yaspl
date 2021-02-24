@@ -11,14 +11,17 @@
       [external-definition s:external-definition]
       [function-definition s:function-definition]
       [global-definition s:global-definition]
+      [import-module s:import-module]
       [module s:module]
       [struct-definition s:struct-definition]
     }
   }
+  (data indexed-set)
   (dict)
   (either)
   (list)
   (maybe)
+  (module-name)
   (module-signature)
   (prim)
   (tuples)
@@ -30,54 +33,84 @@
 (types)
 
 
-
 (define (resolve-imports [mod : s:Module] [sigs : (List ModuleSignature)]) : (Either Bytes Module)
-  ;; TODO actually use signatures
   (match-define (s:module mod-name definitions) mod)
 
-  (match-define imports : (Dict Bytes Import)
-    (dict-add-all
-      (make-dict bytes-cmp)
-      (filter-map
-        (lambda ([def : s:Definition]) : (Maybe (Tuple2 Bytes Import))
+  (case (indexed-set-maybe-add-all
+          (make-indexed-set module-signature-name mod-name-cmp)
+          sigs)
+    [(left sig)
+     (left
+       (bytes-append (varargs list #"Duplicate signature for module: "
+                              (mod-name->bytes (module-signature-name sig)))))]
+    [(right sigs)
+
+
+     (match-define imports (resolve-imports/imports definitions sigs))
+     (match-define functions (split-imports/functions definitions))
+     (match-define structs (split-imports/structs definitions))
+     (match-define globals (split-imports/globals definitions))
+
+     (right (module mod-name imports structs globals functions))]))
+
+(define (resolve-imports/imports
+          [definitions : (List s:Definition)]
+          [sigs : (IndexedSet ModuleSignature ModName)])
+  : (Dict Bytes Import)
+  (dict-add-all
+    (make-dict bytes-cmp)
+    (append*
+      (map
+        (lambda ([def : s:Definition]) : (List (Tuple2 Bytes Import))
           (case def
             [(s:external-definition name ty)
-             (just (tuple2 name (import-external name ty)))]
-            [(s:global-definition _ _ _) (nothing)]
-            [(s:struct-definition _ _) (nothing)]
-            [(s:function-definition _ _ _ _) (nothing)]))
-        definitions)))
+             (varargs list (tuple2 name (import-external name ty)))]
+            [(s:global-definition _ _ _) (empty)]
+            [(s:import-module mod-name)
+             (case (indexed-set-ref sigs mod-name)
+               [(nothing) (panic #"Bad mod name")]
+               [(just (module-signature _ values _ _ _ _))
+                (dict-map
+                  values
+                  (lambda ([v : Bytes] [sig : ValueSignature])
+                    (tuple2 v (import-value sig))))])]
+            [(s:struct-definition _ _) (empty)]
+            [(s:function-definition _ _ _ _) (empty)]))
+        definitions))))
 
-  (match-define functions : (List FunctionDefinition)
-    (filter-map
-      (lambda ([def : s:Definition]): (Maybe FunctionDefinition)
-        (case def
-          [(s:external-definition _ _) (nothing)]
-          [(s:struct-definition _ _) (nothing)]
-          [(s:global-definition _ _ _) (nothing)]
-          [(s:function-definition name params return-type body)
-           (just (function-definition name params return-type body))]))
-      definitions))
 
-  (match-define structs : (List StructDefinition)
-    (filter-map
-      (lambda ([def : s:Definition]): (Maybe StructDefinition)
-        (case def
-          [(s:external-definition _ _) (nothing)]
-          [(s:struct-definition name fields) (just (struct-definition name fields))]
-          [(s:global-definition _ _ _) (nothing)]
-          [(s:function-definition _ _ _ _) (nothing)]))
-      definitions))
 
-  (match-define globals : (List GlobalDefinition)
-    (filter-map
-      (lambda ([def : s:Definition]): (Maybe GlobalDefinition)
-        (case def
-          [(s:external-definition _ _) (nothing)]
-          [(s:struct-definition _ _) (nothing)]
-          [(s:global-definition name type alignment)
-           (just (global-definition name type alignment))]
-          [(s:function-definition _ _ _ _) (nothing)]))
-      definitions))
+(define (split-imports/functions [definitions : (List s:Definition)]) : (List FunctionDefinition)
+  (filter-map
+    (lambda ([def : s:Definition]): (Maybe FunctionDefinition)
+      (case def
+        [(s:external-definition _ _) (nothing)]
+        [(s:import-module _) (nothing)]
+        [(s:struct-definition _ _) (nothing)]
+        [(s:global-definition _ _ _) (nothing)]
+        [(s:function-definition name params return-type body)
+         (just (function-definition name params return-type body))]))
+    definitions))
 
-  (right (module mod-name imports structs globals functions)))
+(define (split-imports/structs [definitions : (List s:Definition)]) : (List StructDefinition)
+  (filter-map
+    (lambda ([def : s:Definition]): (Maybe StructDefinition)
+      (case def
+        [(s:external-definition _ _) (nothing)]
+        [(s:import-module _) (nothing)]
+        [(s:struct-definition name fields) (just (struct-definition name fields))]
+        [(s:global-definition _ _ _) (nothing)]
+        [(s:function-definition _ _ _ _) (nothing)]))
+    definitions))
+
+(define (split-imports/globals [definitions : (List s:Definition)]) : (List GlobalDefinition)
+  (filter-map
+    (lambda ([def : s:Definition]): (Maybe GlobalDefinition)
+      (case def
+        [(s:external-definition _ _) (nothing)]
+        [(s:import-module _) (nothing)]
+        [(s:struct-definition _ _) (nothing)]
+        [(s:global-definition name type alignment)
+         (just (global-definition name type alignment))]
+        [(s:function-definition _ _ _ _) (nothing)]))
+    definitions))
