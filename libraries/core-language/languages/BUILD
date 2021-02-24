@@ -43,6 +43,7 @@ yaspl_library(
     deps = [
         ":source-language",
         "//libraries:module-name",
+        "//libraries:module-signature",
         "//libraries/data:dict",
         "//libraries/data:lifted-primitives",
         "//libraries/data:list",
@@ -55,6 +56,7 @@ yaspl_library(
     srcs = ["resolved-types-language.yaspl"],
     deps = [
         "//libraries:module-name",
+        "//libraries:top-level-name",
         "//libraries:types",
         "//libraries/data:dict",
         "//libraries/data:lifted-primitives",

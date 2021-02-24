@@ -89,6 +89,7 @@ yaspl_library(
     name = "resolve-types",
     srcs = ["resolve-types.yaspl"],
     deps = [
+        "//libraries:module-signature",
         "//libraries:prim-types",
         "//libraries:types",
         "//libraries/core-language/languages:resolved-imports-language",
