@@ -23,10 +23,17 @@
       [(linux-abi) (linux-syscall-abi)]
       [(yasplos-abi) (panic #"Syscalls not supported")]))
   (match-define (tuple2 text-fragments const-fragments)
-    (unzip (append (prim-function-fragments syscall-abi)
-                   (prim-subroutine-fragments syscall-abi))))
+    (unzip (prim-function-fragments syscall-abi)))
+
+  (match-define subroutine-text-fragments
+    (prim-subroutine-fragments syscall-abi))
+
   (assembly-fragments
-    (append (start-function-fragments main-function-name syscall-abi) text-fragments)
+    (append*
+      (varargs list
+        (start-function-fragments main-function-name syscall-abi)
+        subroutine-text-fragments
+        text-fragments))
     const-fragments
     (empty)))
 
@@ -815,35 +822,34 @@
 ;; These are not native functions, but just native subroutines
 ;; They do not follow standard calling conventions
 (define (prim-subroutine-fragments [abi : SyscallAbi])
-  : (List (Tuple2 TextFragment ConstFragment))
+  : (List TextFragment)
   (varargs list
-    (tuple2
-      (function-fragment
-        #"yprim_heap_allocate"
-        (varargs append-jl*
-          (named-block #"yprim_heap_allocate_0"
-            (varargs join-list
-              (xaddq (rax) (r15))
-              (cmpq (r64mi-reg (r15)) (r64m-mem (mem (r14) 0)))
-              (jbe #"yprim_heap_allocate_slow")
-              (ret)))
-          (named-block #"yprim_heap_allocate_slow"
-            (varargs join-list
-             ;; Reverse the xadd
-             (subq (r64mi-reg (r15)) (rax))
-             (negq (rax))
-             ;; 'allocate' the requested memory rounded up to units of 2MiB.
-             (movq (r64mi-mem (mem (r14) 0)) (r64m-reg (r15)))
-             (addq (r64mi-reg (rax)) (r64m-mem (mem (r14) 0)))
-             (addq (imm64/s32 #x1FFFFF) (r64m-mem (mem (r14) 0)))
-             (andq (imm64/s32 (- 0 #x200000)) (r64m-mem (mem (r14) 0)))
-             (jmp #"yprim_heap_allocate")))))
-      (closure-fragment
-        #"yprim_heap_allocate_closure"
-        (trivial-closure-variant-descriptor-symbol)
-        #"yprim_heap_allocate"))
+    ;; heap-allocate
+    (function-fragment
+      #"yprim_heap_allocate"
+      (varargs append-jl*
+        (named-block #"yprim_heap_allocate_0"
+          (varargs join-list
+            (xaddq (rax) (r15))
+            (cmpq (r64mi-reg (r15)) (r64m-mem (mem (r14) 0)))
+            (jbe #"yprim_heap_allocate_slow")
+            (ret)))
+        (named-block #"yprim_heap_allocate_slow"
+          (varargs join-list
+           ;; Reverse the xadd
+           (subq (r64mi-reg (r15)) (rax))
+           (negq (rax))
+           ;; 'allocate' the requested memory rounded up to units of 2MiB.
+           (movq (r64mi-mem (mem (r14) 0)) (r64m-reg (r15)))
+           (addq (r64mi-reg (rax)) (r64m-mem (mem (r14) 0)))
+           (addq (imm64/s32 #x1FFFFF) (r64m-mem (mem (r14) 0)))
+           (andq (imm64/s32 (- 0 #x200000)) (r64m-mem (mem (r14) 0)))
+           (jmp #"yprim_heap_allocate")))))
 
     ;; variant-panic
-    (prim-assembly-function #"variant_panic"
-      (varargs join-list
-        (ud2)))))
+    (function-fragment
+      #"yprim_variant_panic"
+      (varargs append-jl*
+        (named-block #"yprim_variant_panic_0"
+          (varargs join-list
+            (ud2)))))))
