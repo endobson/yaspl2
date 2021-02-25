@@ -549,6 +549,7 @@ yaspl_bootstrap_library(
         ":intermediate-expression",
         ":intermediate-language",
         ":module-signature",
+        ":prim-names",
         ":prim-types",
         ":top-level-name",
         ":types",
@@ -558,10 +559,20 @@ yaspl_bootstrap_library(
         "//libraries/data:maybe",
         "//libraries/data:tuples",
         "//libraries/yaspl:intermediate-to-register",
-        "//libraries/yaspl:mangle-names",
         "//libraries/yaspl:math-operations",
         "//libraries/yaspl:top-level-objects",
         "//libraries/yaspl:var",
+    ],
+)
+
+yaspl_bootstrap_library(
+    name = "prim-names",
+    srcs = ["prim-names.yaspl"],
+    deps = [
+        ":module-name",
+        ":top-level-name",
+        "//libraries/data:list",
+        "//libraries/yaspl:mangle-names",
     ],
 )
 
@@ -570,6 +581,7 @@ yaspl_bootstrap_library(
     srcs = ["prim-types.yaspl"],
     deps = [
         ":module-name",
+        ":prim-names",
         ":types",
         "//libraries/data:list",
         "//libraries/data:maybe",

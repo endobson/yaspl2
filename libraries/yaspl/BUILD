@@ -66,7 +66,7 @@ yaspl_bootstrap_library(
     srcs = ["assembly-function.yaspl"],
     deps = [
         ":x86-64-assembly",
-        "//libraries:prim-implementation",
+        "//libraries:prim-names",
         "//libraries/data:bytes",
         "//libraries/data:join-list",
         "//libraries/data:list",
@@ -172,7 +172,7 @@ yaspl_bootstrap_library(
     deps = [
         ":top-level-objects",
         ":x86-64-assembly",
-        "//libraries:prim-implementation",
+        "//libraries:prim-names",
         "//libraries/data:bytes",
         "//libraries/data:either",
         "//libraries/data:list",
@@ -233,7 +233,7 @@ yaspl_bootstrap_library(
         ":assembly-function",
         ":mangle-names",
         ":x86-64-assembly",
-        "//libraries:prim-implementation",
+        "//libraries:prim-names",
         "//libraries:system-abi",
         "//libraries:top-level-name",
         "//libraries/data:bytes",

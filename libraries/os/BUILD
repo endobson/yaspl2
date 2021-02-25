@@ -94,6 +94,7 @@ yaspl_library(
     deps = [
         "//libraries:module-name",
         "//libraries:module-signature",
+        "//libraries:prim-names",
         "//libraries:top-level-name",
         "//libraries/data:bytes",
         "//libraries/data:dict",

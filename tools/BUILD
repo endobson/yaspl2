@@ -106,7 +106,7 @@ yaspl_binary(
         ":module-index-parser",
         "//libraries:io",
         "//libraries:module-name",
-        "//libraries:prim-types",
+        "//libraries:prim-names",
         "//libraries:sexp-parser",
         "//libraries/data:bytes",
         "//libraries/data:dict",
