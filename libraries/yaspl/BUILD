@@ -247,6 +247,7 @@ yaspl_test(
     name = "x86-64-runtime-test",
     srcs = ["x86-64-runtime-test.yaspl"],
     deps = [
+        ":assembly-function",
         ":x86-64-assembly",
         ":x86-64-runtime",
         "//libraries:system-abi",

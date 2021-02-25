@@ -13,7 +13,7 @@
   (yaspl x86-64-assembly)
 }
 (export
-  (#:values yaspl-runtime prim-function-fragments))
+  (#:values yaspl-runtime prim-functions))
 (types)
 
 (define (yaspl-runtime [main-function-name : TopLevelName] [abi : SystemAbi]) : AssemblyFragments
@@ -23,7 +23,7 @@
       [(linux-abi) (linux-syscall-abi)]
       [(yasplos-abi) (panic #"Syscalls not supported")]))
   (match-define (tuple2 text-fragments const-fragments)
-    (unzip (prim-function-fragments syscall-abi)))
+    (unzip (map prim-assembly-function->fragments (prim-functions syscall-abi))))
 
   (match-define subroutine-text-fragments
     (prim-subroutine-fragments syscall-abi))
@@ -248,7 +248,7 @@
           [linux-syscall-number : Int]
           [abi : SyscallAbi]
           [body : (JoinList Instruction)])
- : (Tuple2 TextFragment ConstFragment)
+ : PrimAssemblyFunction
  (prim-assembly-function/panic name
    (append-jl
      body
@@ -268,7 +268,7 @@
           (ret))]))))
 
 ;; write-bytes
-(define (write-bytes-impl [abi : SyscallAbi]) : (Tuple2 TextFragment ConstFragment)
+(define (write-bytes-impl [abi : SyscallAbi]) : PrimAssemblyFunction
   (prim-syscall #"write_bytes" #x04 #x01 abi
     (varargs join-list
       ;; Swap %rdi and %rsi
@@ -284,7 +284,7 @@
       (movq (r64mi-reg (rcx)) (r64m-reg (rdx))))))
 
 ;; read-bytes
-(define (read-bytes-impl [abi : SyscallAbi]) : (Tuple2 TextFragment ConstFragment)
+(define (read-bytes-impl [abi : SyscallAbi]) : PrimAssemblyFunction
   (prim-syscall #"read_bytes" #x03 #x00 abi
     (varargs join-list
       ;; Swap %rdi and %rsi
@@ -300,7 +300,7 @@
       (movq (r64mi-reg (rcx)) (r64m-reg (rdx))))))
 
 ;; open-input-file
-(define (open-input-file-impl [abi : SyscallAbi]) : (Tuple2 TextFragment ConstFragment)
+(define (open-input-file-impl [abi : SyscallAbi]) : PrimAssemblyFunction
   (prim-syscall #"open_input_file" #x05 #x02 abi
     (varargs join-list
       ;; Make %rdi point at start of null terminated path
@@ -308,7 +308,7 @@
       (movq (imm64/s32 0) (r64m-reg (rsi)))))) ;; 0 is read only
 
 ;; open-output-file
-(define (open-output-file-impl [abi : SyscallAbi]) : (Tuple2 TextFragment ConstFragment)
+(define (open-output-file-impl [abi : SyscallAbi]) : PrimAssemblyFunction
   (prim-syscall #"open_output_file" #x05 #x02 abi
     (varargs join-list
       ;; Make %rdi point at start of null terminated path
@@ -324,19 +324,19 @@
 
 ;; close-output-port
 ;; close-input-port
-(define (close-port-impl [abi : SyscallAbi]) : (Tuple2 TextFragment ConstFragment)
+(define (close-port-impl [abi : SyscallAbi]) : PrimAssemblyFunction
   (prim-syscall #"close_port" #x06 #x03 abi
     (empty-jl)))
 
 ;; delete-file
-(define (delete-file-impl [abi : SyscallAbi]) : (Tuple2 TextFragment ConstFragment)
+(define (delete-file-impl [abi : SyscallAbi]) : PrimAssemblyFunction
   (prim-syscall #"delete_file" #x0a #x57 abi
     (varargs join-list
       ;; Make %rdi point at start of null terminated path
       (addq (imm64/s32 16) (r64m-reg (rdi))))))
 
 ;; make-directory
-(define (make-director-impl [abi : SyscallAbi]) : (Tuple2 TextFragment ConstFragment)
+(define (make-director-impl [abi : SyscallAbi]) : PrimAssemblyFunction
   (prim-syscall #"make_directory" #x88 #x53 abi
     (varargs join-list
       ;; Make %rdi point at start of null terminated path
@@ -345,7 +345,7 @@
 
 
 ;; set-file-or-directory-permissions
-(define (set-file-or-directory-permissions-impl [abi : SyscallAbi]) : (Tuple2 TextFragment ConstFragment)
+(define (set-file-or-directory-permissions-impl [abi : SyscallAbi]) : PrimAssemblyFunction
   (prim-syscall #"set_file_or_directory_permissions" #x0f #x5a abi
     (varargs join-list
       ;; Make %rdi point at start of null terminated path
@@ -354,7 +354,7 @@
       )))
 
 ;; socket
-(define (socket-impl [abi : SyscallAbi]) : (Tuple2 TextFragment ConstFragment)
+(define (socket-impl [abi : SyscallAbi]) : PrimAssemblyFunction
   (prim-syscall #"socket" #x61 #x29 abi
     (empty-jl
       ;; Argument 1: domain
@@ -363,7 +363,7 @@
       )))
 
 ;; bind
-(define (bind-impl [abi : SyscallAbi]) : (Tuple2 TextFragment ConstFragment)
+(define (bind-impl [abi : SyscallAbi]) : PrimAssemblyFunction
   (prim-syscall #"bind" #x68 #x31 abi
     (varargs join-list
       ;; Argument 1: socket
@@ -372,7 +372,7 @@
       (addq (imm64/s32 16) (r64m-reg (rsi))))))
 
 ;; sendto
-(define (sendto-impl [abi : SyscallAbi]) : (Tuple2 TextFragment ConstFragment)
+(define (sendto-impl [abi : SyscallAbi]) : PrimAssemblyFunction
   (prim-syscall #"sendto" #x85 #x2c abi
     (varargs join-list
       ;; Argument 1: socket
@@ -386,7 +386,7 @@
       (movq (r64mi-reg (rcx)) (r64m-reg (r10))))))
 
 ;; recvfrom
-(define (recvfrom-impl [abi : SyscallAbi]) : (Tuple2 TextFragment ConstFragment)
+(define (recvfrom-impl [abi : SyscallAbi]) : PrimAssemblyFunction
   (prim-syscall #"recvfrom" #x1d #x2d abi
     (varargs join-list
       ;; Argument 1: socket
@@ -401,7 +401,7 @@
       (movq (r64mi-reg (rcx)) (r64m-reg (r10))))))
 
 ;; connect
-(define (connect-impl [abi : SyscallAbi]) : (Tuple2 TextFragment ConstFragment)
+(define (connect-impl [abi : SyscallAbi]) : PrimAssemblyFunction
   (prim-syscall #"connect" #x62 #x2a abi
     (varargs join-list
       ;; Argument 1: socket
@@ -410,7 +410,7 @@
       (addq (imm64/s32 16) (r64m-reg (rsi))))))
 
 ;; shutdown
-(define (shutdown-impl [abi : SyscallAbi]) : (Tuple2 TextFragment ConstFragment)
+(define (shutdown-impl [abi : SyscallAbi]) : PrimAssemblyFunction
   (prim-syscall #"shutdown" #x86 #x30 abi
     (empty-jl
       ;; Argument 1: socket
@@ -418,7 +418,7 @@
       )))
 
 ;; listen
-(define (listen-impl [abi : SyscallAbi]) : (Tuple2 TextFragment ConstFragment)
+(define (listen-impl [abi : SyscallAbi]) : PrimAssemblyFunction
   (prim-syscall #"listen" #x6A #x32 abi
     (empty-jl
       ;; Argument 1: socket
@@ -426,7 +426,7 @@
       )))
 
 ;; accept
-(define (accept-impl [abi : SyscallAbi]) : (Tuple2 TextFragment ConstFragment)
+(define (accept-impl [abi : SyscallAbi]) : PrimAssemblyFunction
   (prim-syscall #"accept" #x1E #x2b abi
     (varargs join-list
       ;; Argument 1: socket
@@ -436,7 +436,7 @@
       (addq (imm64/s32 16) (r64m-reg (rdx))))))
 
 ;; setsockopt
-(define (setsockopt-impl [abi : SyscallAbi]) : (Tuple2 TextFragment ConstFragment)
+(define (setsockopt-impl [abi : SyscallAbi]) : PrimAssemblyFunction
   (prim-syscall #"setsockopt" #x69 #x36 abi
     (varargs join-list
       ;; Argument 1: socket
@@ -448,7 +448,7 @@
       (addq (imm64/s32 16) (r64m-reg (r10))))))
 
 ;; ioctl
-(define (ioctl-impl [abi : SyscallAbi]) : (Tuple2 TextFragment ConstFragment)
+(define (ioctl-impl [abi : SyscallAbi]) : PrimAssemblyFunction
   (prim-syscall #"ioctl" #x36 #x10 abi
     (varargs join-list
       ;; Make %rdx point at the actual buffer
@@ -457,7 +457,7 @@
 ;; Mach calls
 
 ;; mach_task_self
-(define (mach-task-self-impl) : (Tuple2 TextFragment ConstFragment)
+(define (mach-task-self-impl) : PrimAssemblyFunction
   (prim-assembly-function/panic #"mach_task_self"
     (varargs join-list
       (movq (imm64/s32 #x100001c) (r64m-reg (rax)))
@@ -467,7 +467,7 @@
       (ret))))
 
 ;; mach_thread_self
-(define (mach-thread-self-impl) : (Tuple2 TextFragment ConstFragment)
+(define (mach-thread-self-impl) : PrimAssemblyFunction
   (prim-assembly-function/panic #"mach_thread_self"
     (varargs join-list
       (movq (imm64/s32 #x100001b) (r64m-reg (rax)))
@@ -478,7 +478,7 @@
 
 
 ;; mach_reply_port
-(define (mach-reply-port-impl) : (Tuple2 TextFragment ConstFragment)
+(define (mach-reply-port-impl) : PrimAssemblyFunction
   (prim-assembly-function/panic #"mach_reply_port"
     (varargs join-list
       (movq (imm64/s32 #x100001a) (r64m-reg (rax)))
@@ -489,7 +489,7 @@
 
 
 ;; mach_port_mod_refs
-(define (mach-port-mod-refs-impl) : (Tuple2 TextFragment ConstFragment)
+(define (mach-port-mod-refs-impl) : PrimAssemblyFunction
   (prim-assembly-function/panic #"mach_port_mod_refs"
     (varargs join-list
       ;; Argument 1: task
@@ -504,7 +504,7 @@
       (ret))))
 
 ;; mach_msg
-(define (mach-msg-impl) : (Tuple2 TextFragment ConstFragment)
+(define (mach-msg-impl) : PrimAssemblyFunction
   (prim-assembly-function/panic #"mach_msg"
     (varargs join-list
       (movq (r64mi-mem (mem (rax) 0)) (r64m-reg (rax))) ;; Notify Port
@@ -521,7 +521,7 @@
       (ret))))
 
 ;; and
-(define (and-impl) : (Tuple2 TextFragment ConstFragment)
+(define (and-impl) : PrimAssemblyFunction
   (prim-assembly-function #"and"
     (varargs join-list
       (andq (r64mi-reg (rdi)) (r64m-reg (rsi)))
@@ -529,7 +529,7 @@
       (ret))))
 
 ;; or
-(define (or-impl) : (Tuple2 TextFragment ConstFragment)
+(define (or-impl) : PrimAssemblyFunction
   (prim-assembly-function #"or"
     (varargs join-list
       (orq (rdi) (rsi))
@@ -537,7 +537,7 @@
       (ret))))
 
 ;; not
-(define (not-impl) : (Tuple2 TextFragment ConstFragment)
+(define (not-impl) : PrimAssemblyFunction
   (prim-assembly-function #"not"
     (varargs join-list
       (xorq (imm64/s32 1) (rdi))
@@ -545,7 +545,7 @@
       (ret))))
 
 ;; make-bytes
-(define (make-bytes-impl) : (Tuple2 TextFragment ConstFragment)
+(define (make-bytes-impl) : PrimAssemblyFunction
   (prim-assembly-function #"make_bytes"
     (varargs join-list
       (movq (r64mi-reg (rdi)) (r64m-reg (rax)))
@@ -571,7 +571,7 @@
       (ret))))
 
 ;; void
-(define (void-impl) : (Tuple2 TextFragment ConstFragment)
+(define (void-impl) : PrimAssemblyFunction
   (prim-assembly-function #"void"
     (varargs join-list
       (movq (imm64/s32 0) (r64m-reg (rax)))
@@ -579,7 +579,7 @@
 
 ;; s8
 ;; TODO(endobson) add check that it is in the right range
-(define (s8-impl) : (Tuple2 TextFragment ConstFragment)
+(define (s8-impl) : PrimAssemblyFunction
   (prim-assembly-function #"s8"
     (varargs join-list
       (movq (r64mi-reg (rdi)) (r64m-reg (rax)))
@@ -587,7 +587,7 @@
 
 ;; u8
 ;; TODO(endobson) add check that it is in the right range
-(define (u8-impl) : (Tuple2 TextFragment ConstFragment)
+(define (u8-impl) : PrimAssemblyFunction
   (prim-assembly-function #"u8"
     (varargs join-list
       (movq (r64mi-reg (rdi)) (r64m-reg (rax)))
@@ -595,7 +595,7 @@
 
 ;; s16
 ;; TODO(endobson) add check that it is in the right range
-(define (s16-impl) : (Tuple2 TextFragment ConstFragment)
+(define (s16-impl) : PrimAssemblyFunction
   (prim-assembly-function #"s16"
     (varargs join-list
       (movq (r64mi-reg (rdi)) (r64m-reg (rax)))
@@ -603,7 +603,7 @@
 
 ;; u16
 ;; TODO(endobson) add check that it is in the right range
-(define (u16-impl) : (Tuple2 TextFragment ConstFragment)
+(define (u16-impl) : PrimAssemblyFunction
   (prim-assembly-function #"u16"
     (varargs join-list
       (movq (r64mi-reg (rdi)) (r64m-reg (rax)))
@@ -611,7 +611,7 @@
 
 ;; s32
 ;; TODO(endobson) add check that it is in the right range
-(define (s32-impl) : (Tuple2 TextFragment ConstFragment)
+(define (s32-impl) : PrimAssemblyFunction
   (prim-assembly-function #"s32"
     (varargs join-list
       (movq (r64mi-reg (rdi)) (r64m-reg (rax)))
@@ -619,7 +619,7 @@
 
 ;; u32
 ;; TODO(endobson) add check that it is in the right range
-(define (u32-impl) : (Tuple2 TextFragment ConstFragment)
+(define (u32-impl) : PrimAssemblyFunction
   (prim-assembly-function/panic #"u32"
     (varargs join-list
       (movq (r64mi-reg (rdi)) (r64m-reg (rax)))
@@ -629,7 +629,7 @@
 
 ;; u64
 ;; TODO(endobson) add check that it is in the right range
-(define (u64-impl) : (Tuple2 TextFragment ConstFragment)
+(define (u64-impl) : PrimAssemblyFunction
   (prim-assembly-function/panic #"u64"
     (varargs join-list
       (movq (r64mi-reg (rdi)) (r64m-reg (rax)))
@@ -638,49 +638,49 @@
       (ret))))
 
 ;; u8->s64
-(define (u8->s64-impl) : (Tuple2 TextFragment ConstFragment)
+(define (u8->s64-impl) : PrimAssemblyFunction
   (prim-assembly-function #"u8_s64"
     (varargs join-list
       (movq (r64mi-reg (rdi)) (r64m-reg (rax)))
       (ret))))
 
 ;; s8->s64
-(define (s8->s64-impl) : (Tuple2 TextFragment ConstFragment)
+(define (s8->s64-impl) : PrimAssemblyFunction
   (prim-assembly-function #"s8_s64"
     (varargs join-list
       (movq (r64mi-reg (rdi)) (r64m-reg (rax)))
       (ret))))
 
 ;; s16->s64
-(define (s16->s64-impl) : (Tuple2 TextFragment ConstFragment)
+(define (s16->s64-impl) : PrimAssemblyFunction
   (prim-assembly-function #"s16_s64"
     (varargs join-list
       (movq (r64mi-reg (rdi)) (r64m-reg (rax)))
       (ret))))
 
 ;; u16->s64
-(define (u16->s64-impl) : (Tuple2 TextFragment ConstFragment)
+(define (u16->s64-impl) : PrimAssemblyFunction
   (prim-assembly-function #"u16_s64"
     (varargs join-list
       (movq (r64mi-reg (rdi)) (r64m-reg (rax)))
       (ret))))
 
 ;; s32->s64
-(define (s32->s64-impl) : (Tuple2 TextFragment ConstFragment)
+(define (s32->s64-impl) : PrimAssemblyFunction
   (prim-assembly-function #"s32_s64"
     (varargs join-list
       (movq (r64mi-reg (rdi)) (r64m-reg (rax)))
       (ret))))
 
 ;; u32->s64
-(define (u32->s64-impl) : (Tuple2 TextFragment ConstFragment)
+(define (u32->s64-impl) : PrimAssemblyFunction
   (prim-assembly-function #"u32_s64"
     (varargs join-list
       (movq (r64mi-reg (rdi)) (r64m-reg (rax)))
       (ret))))
 
 ;; u64->s64
-(define (u64->s64-impl) : (Tuple2 TextFragment ConstFragment)
+(define (u64->s64-impl) : PrimAssemblyFunction
   (prim-assembly-function/panic #"u64_s64"
     (varargs join-list
       (movq (r64mi-reg (rdi)) (r64m-reg (rax)))
@@ -691,12 +691,12 @@
 
 ;; u16/le-byte#
 ;; s16/le-byte#
-(define (i16/le-byte0-impl) : (Tuple2 TextFragment ConstFragment)
+(define (i16/le-byte0-impl) : PrimAssemblyFunction
   (prim-assembly-function #"double_le_byte0"
     (varargs join-list
       (movzbq (r8m-reg (dil)) (rax))
       (ret))))
-(define (i16/le-byte1-impl) : (Tuple2 TextFragment ConstFragment)
+(define (i16/le-byte1-impl) : PrimAssemblyFunction
   (prim-assembly-function #"double_le_byte1"
     (varargs join-list
       (shrq/imm (s8 8) (rdi))
@@ -705,24 +705,24 @@
 
 ;; u32/le-byte#
 ;; s32/le-byte#
-(define (i32/le-byte0-impl) : (Tuple2 TextFragment ConstFragment)
+(define (i32/le-byte0-impl) : PrimAssemblyFunction
   (prim-assembly-function #"quad_le_byte0"
     (varargs join-list
       (movzbq (r8m-reg (dil)) (rax))
       (ret))))
-(define (i32/le-byte1-impl) : (Tuple2 TextFragment ConstFragment)
+(define (i32/le-byte1-impl) : PrimAssemblyFunction
   (prim-assembly-function #"quad_le_byte1"
     (varargs join-list
       (shrq/imm (s8 8) (rdi))
       (movzbq (r8m-reg (dil)) (rax))
       (ret))))
-(define (i32/le-byte2-impl) : (Tuple2 TextFragment ConstFragment)
+(define (i32/le-byte2-impl) : PrimAssemblyFunction
   (prim-assembly-function #"quad_le_byte2"
     (varargs join-list
       (shrq/imm (s8 16) (rdi))
       (movzbq (r8m-reg (dil)) (rax))
       (ret))))
-(define (i32/le-byte3-impl) : (Tuple2 TextFragment ConstFragment)
+(define (i32/le-byte3-impl) : PrimAssemblyFunction
   (prim-assembly-function #"quad_le_byte3"
     (varargs join-list
       (shrq/imm (s8 24) (rdi))
@@ -730,7 +730,7 @@
       (ret))))
 
 ;; panic
-(define (panic-impl) : (Tuple2 TextFragment ConstFragment)
+(define (panic-impl) : PrimAssemblyFunction
   (prim-assembly-function #"panic"
     (varargs join-list
       (pushq (r64mi-reg (rbp)))
@@ -739,14 +739,14 @@
       (ud2))))
 
 ;; get-frame-pointer
-(define (get-frame-pointer-impl) : (Tuple2 TextFragment ConstFragment)
+(define (get-frame-pointer-impl) : PrimAssemblyFunction
   (prim-assembly-function #"get_frame_pointer"
     (varargs join-list
       (movq (r64mi-reg (rbp)) (r64m-reg (rax)))
       (ret))))
 
 ;; current-system-abi-int
-(define (current-system-abi-int-impl [abi : SyscallAbi]) : (Tuple2 TextFragment ConstFragment)
+(define (current-system-abi-int-impl [abi : SyscallAbi]) : PrimAssemblyFunction
   (prim-assembly-function #"current_system_abi_int"
     (varargs join-list
       (movq
@@ -758,8 +758,8 @@
       (ret))))
 
 
-(define (prim-function-fragments [abi : SyscallAbi])
-  : (List (Tuple2 TextFragment ConstFragment))
+(define (prim-functions [abi : SyscallAbi])
+  : (List PrimAssemblyFunction)
   (varargs list
     (write-bytes-impl abi)
     (read-bytes-impl abi)
