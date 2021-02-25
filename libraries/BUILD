@@ -558,6 +558,7 @@ yaspl_bootstrap_library(
         "//libraries/data:maybe",
         "//libraries/data:tuples",
         "//libraries/yaspl:intermediate-to-register",
+        "//libraries/yaspl:mangle-names",
         "//libraries/yaspl:math-operations",
         "//libraries/yaspl:top-level-objects",
         "//libraries/yaspl:var",

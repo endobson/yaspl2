@@ -78,12 +78,12 @@ yaspl_bootstrap_library(
     name = "intermediate-to-register",
     srcs = ["intermediate-to-register.yaspl"],
     deps = [
+        ":mangle-names",
         ":math-operations",
         ":top-level-objects",
         ":var",
         "//libraries:intermediate-expression",
         "//libraries:intermediate-language",
-        "//libraries:module-name",
         "//libraries:top-level-name",
         "//libraries:variant-info",
         "//libraries/data:bytes",
@@ -98,6 +98,18 @@ yaspl_bootstrap_library(
         "//libraries/prim-language:register-language",
         "//libraries/prim-language:register-language-builder",
         "//libraries/prim-language:variant-info",
+    ],
+)
+
+yaspl_bootstrap_library(
+    name = "mangle-names",
+    srcs = ["mangle-names.yaspl"],
+    deps = [
+        "//libraries:module-name",
+        "//libraries:top-level-name",
+        "//libraries/data:bytes",
+        "//libraries/data:list",
+        "//libraries/data:maybe",
     ],
 )
 
@@ -219,7 +231,7 @@ yaspl_bootstrap_library(
     srcs = ["x86-64-runtime.yaspl"],
     deps = [
         ":assembly-function",
-        ":intermediate-to-register",
+        ":mangle-names",
         ":x86-64-assembly",
         "//libraries:prim-implementation",
         "//libraries:system-abi",

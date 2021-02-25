@@ -42,7 +42,7 @@ yaspl_library(
         "//libraries/prim-language:block-number",
         "//libraries/prim-language:register-language",
         "//libraries/prim-language:register-language-builder",
-        "//libraries/yaspl:intermediate-to-register",
+        "//libraries/yaspl:mangle-names",
         "//libraries/yaspl:math-operations",
         "//libraries/yaspl:top-level-objects",
         "//libraries/yaspl:var",
