@@ -8,6 +8,7 @@
   (io)
   (join-list)
   (list)
+  (list-multi-dict)
   (maybe)
   (numbers)
   (prim)
@@ -671,39 +672,55 @@
   (match-define data-file-offset 0)
   (match-define data-file-size 0)
 
-  (match-define base-relocs : (List Bytes)
-    (map
-      (lambda ([v : LiftedInt])
-        (match-define (lifted-int offset) v)
-        (bytes/u16-le (u16 (bitwise-ior #xa000 offset))))
-      (sort
-        (filter-map
-          (lambda ([reloc : (Relocation PeRelocationKind)]) : (Maybe LiftedInt)
-            (match-define (relocation type offset _) reloc)
-            (case type
-              [(pe-relocation-kind1)
-               (just (lifted-int offset))]
-              [(pe-relocation-kind4)
-               (nothing)]))
-          rdata-relocations)
-        (lambda ([a : LiftedInt] [b : LiftedInt])
-          (match-define (lifted-int a) a)
-          (match-define (lifted-int b) b)
-          (< a b)))))
+  ;; Figure out the relocations and group them by pages.
+  (match-define type4-base-relocation-offsets
+    (sort
+      (filter-map
+        (lambda ([reloc : (Relocation PeRelocationKind)]) : (Maybe LiftedInt)
+          (match-define (relocation type offset _) reloc)
+          (case type
+            [(pe-relocation-kind1)
+             (just (lifted-int offset))]
+            [(pe-relocation-kind4)
+             (nothing)]))
+        rdata-relocations)
+      (lambda ([a : LiftedInt] [b : LiftedInt])
+        (match-define (lifted-int a) a)
+        (match-define (lifted-int b) b)
+        (< a b))))
 
-  ;; Adjust the base-relocs to be padded to match clang.
-  (match-define base-relocs
-    (if (= (* (quotient (length base-relocs) 2) 2) (length base-relocs))
-        base-relocs
-        (append base-relocs (varargs list #"\x00\x00"))))
+  (match-define grouped-base-relocations : (ListMultiDict LiftedInt LiftedInt)
+    (foldl
+      (lambda ([offset : LiftedInt] [acc : (ListMultiDict LiftedInt LiftedInt)])
+        (match-define (lifted-int offset) offset)
+        (list-multi-dict-add acc
+          (lifted-int (- offset (bitwise-and #xFFF offset)))
+          (lifted-int (bitwise-and #xFFF offset))))
+      type4-base-relocation-offsets
+      (ann (ListMultiDict LiftedInt LiftedInt)
+        (make-list-multi-dict lifted-int-cmp))))
 
-  (match-define reloc-section-contents
-    (bytes-append
-      (append
-        (varargs list
-          (bytes/u32-le (u32 rdata-virt-addr))
-          (bytes/u32-le (u32 (+ 8 (bytes-length (bytes-append base-relocs))))))
-        base-relocs)))
+
+  (match-define base-relocs : (List (List Bytes))
+    (list-multi-dict-fold grouped-base-relocations
+      (lambda ([page-offset : LiftedInt] [relative-offsets : (List LiftedInt)]
+               [acc : (List (List Bytes))])
+        (match-define (lifted-int page-offset) page-offset)
+        (match-define page-relocs
+          (map (lambda ([offset : LiftedInt])
+                 (match-define (lifted-int offset) offset)
+                 (bytes/u16-le (u16 (bitwise-ior #xa000 offset))))
+               relative-offsets))
+        (cons
+          (append
+            (varargs list
+              (bytes/u32-le (u32 (+ rdata-virt-addr page-offset)))
+              (bytes/u32-le (u32 (+ 8 (bytes-length (bytes-append page-relocs))))))
+            page-relocs)
+          acc))
+      (ann (List (List Bytes)) (empty))))
+
+  (match-define reloc-section-contents (bytes-append (append* base-relocs)))
 
   (match-define reloc-virt-addr
                 (round-up (+ data-virt-addr data-virt-size) section-alignment))

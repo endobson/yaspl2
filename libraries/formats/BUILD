@@ -114,6 +114,7 @@ yaspl_bootstrap_library(
         "//libraries/data:join-list",
         "//libraries/data:lifted-primitives",
         "//libraries/data:list",
+        "//libraries/data:list-multi-dict",
         "//libraries/data:maybe",
         "//libraries/data:numbers",
         "//libraries/data:set",
