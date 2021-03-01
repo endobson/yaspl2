@@ -26,15 +26,19 @@ U64 write_serial(U8 v) {
 
 #:define_function
 U64 write_bytes(Bytes bytes) {
-  U64[]* bytes_ptr := as<U64[]*>(bytes);
-  U64 size := bytes_ptr->[1];
-  U64 index := 0;
-  while (index < size) {
-    U64 base := as<U64>(bytes_ptr->&[2]);
-    U64* addr := as<U64*>(base + index);
-    U64 value := (*addr) & #xff;
-    <> write_serial(as<U8>(value));
-    index := index + 1;
+  BytesLayout* bytes_ptr := as<BytesLayout*>(bytes);
+  U8[]* buffer := as<U8[]*>(bytes_ptr->&data);
+  <> write_raw_buffer(buffer, bytes_ptr->length);
+  return 0;
+}
+
+
+#:define_function
+U64 write_raw_buffer(U8[]* buffer, U64 amount) {
+  U64 i := 0;
+  while (i < amount) {
+    <> write_serial(buffer->[i]);
+    i := i + 1;
   }
   return 0;
 }
@@ -56,6 +60,28 @@ U64 write_hex_byte(U8 b) {
   <> write_serial(nibble_to_hex(v & #x0f));
   return 0;
 }
+
+#:define_function
+U64 write_hex_U8(U8 v) {
+  return write_hex_byte(v);
+}
+
+#:define_function
+U64 write_hex_U16(U16 v) {
+  <> write_hex_byte(as<U8>((as<U64>(v) >>  8) & #xff));
+  <> write_hex_byte(as<U8>((as<U64>(v) >>  0) & #xff));
+  return 0;
+}
+
+#:define_function
+U64 write_hex_U32(U32 v) {
+  <> write_hex_byte(as<U8>((as<U64>(v) >> 24) & #xff));
+  <> write_hex_byte(as<U8>((as<U64>(v) >> 16) & #xff));
+  <> write_hex_byte(as<U8>((as<U64>(v) >>  8) & #xff));
+  <> write_hex_byte(as<U8>((as<U64>(v) >>  0) & #xff));
+  return 0;
+}
+
 
 #:define_function
 U64 write_hex_U64(U64 v) {
@@ -244,6 +270,23 @@ U64 efi_writer_add_hex_U8(U8 byte) {
   return 0;
 }
 
+
+#:define_function
+U64 efi_writer_add_hex_U16(U16 v) {
+  <> efi_writer_add_hex_U8(as<U8>((as<U64>(v) >> 8) & #xff));
+  <> efi_writer_add_hex_U8(as<U8>((as<U64>(v) >> 0) & #xff));
+  return 0;
+}
+
+#:define_function
+U64 efi_writer_add_hex_U32(U32 v) {
+  <> efi_writer_add_hex_U8(as<U8>((as<U64>(v) >> 24) & #xff));
+  <> efi_writer_add_hex_U8(as<U8>((as<U64>(v) >> 16) & #xff));
+  <> efi_writer_add_hex_U8(as<U8>((as<U64>(v) >>  8) & #xff));
+  <> efi_writer_add_hex_U8(as<U8>((as<U64>(v) >>  0) & #xff));
+  return 0;
+}
+
 #:define_function
 U64 efi_writer_add_hex_U64(U64 v) {
   <> efi_writer_add_hex_U8(as<U8>((v >> 56) & #xff));
@@ -254,6 +297,25 @@ U64 efi_writer_add_hex_U64(U64 v) {
   <> efi_writer_add_hex_U8(as<U8>((v >> 16) & #xff));
   <> efi_writer_add_hex_U8(as<U8>((v >>  8) & #xff));
   <> efi_writer_add_hex_U8(as<U8>((v >>  0) & #xff));
+  return 0;
+}
+
+#:define_function
+U64 efi_writer_add_bytes(Bytes bytes) {
+  BytesLayout* bytes_ptr := as<BytesLayout*>(bytes);
+  U8[]* buffer := as<U8[]*>(bytes_ptr->&data);
+  U64 length := bytes_ptr->length;
+  U64 i := 0;
+  while (i < length) {
+    <> efi_writer_add_byte(buffer->[i]);
+    i := i + 1;
+  }
+  return 0;
+}
+
+#:define_function
+U64 efi_writer_finish_line() {
+  <> efi_writer_add_bytes(#"\r\n");
   return 0;
 }
 
@@ -273,8 +335,7 @@ U64 exitBootServices(U64 image_handle, EfiSystemTable* st) {
   if (status != 0) {
     <> reset_efi_writer();
     <> efi_writer_add_hex_U64(status);
-    <> efi_writer_add_byte(as<U8>(#x0d));
-    <> efi_writer_add_byte(as<U8>(#x0a));
+    <> efi_writer_finish_line();
     <> terminate_efi_writer();
     <> call_ms2(as<U64>(output->output_string), as<U64>(output), as<U64>(efi_output_buffer));
     return status;
@@ -284,8 +345,7 @@ U64 exitBootServices(U64 image_handle, EfiSystemTable* st) {
   if (status != 0) {
     <> reset_efi_writer();
     <> efi_writer_add_hex_U64(status);
-    <> efi_writer_add_byte(as<U8>(#x0d));
-    <> efi_writer_add_byte(as<U8>(#x0a));
+    <> efi_writer_finish_line();
     <> terminate_efi_writer();
     <> call_ms2(as<U64>(output->output_string), as<U64>(output), as<U64>(efi_output_buffer));
     return status;
@@ -538,6 +598,10 @@ U64 initializeNetwork() {
           as<U16>(net_base_port + device_status_port));
   device_status := as<U64>(inb(as<U16>(net_base_port + device_status_port)));
   if (device_status != (device_acknowledged | device_driver | device_features_ok | device_driver_ok)) {
+    <> write_bytes(#"Device didn't like our queues: ");
+    <> write_hex_U64(device_status);
+    <> write_bytes(#"\r\n");
+
     return 1;
   }
 
