@@ -207,8 +207,18 @@ U64 memset(U8[]* memory, U8 value, U64 size) {
     EfiUnknown*    Exit;
     EfiUnknown*    UnloadImage;
     U64            ExitBootServices;
+}
 
+#:define_struct EfiGuid {
+  U32   data1;
+  U16   data2;
+  U16   data3;
+  U8[8] data4;
+}
 
+#:define_struct EfiConfigurationTable {
+  EfiGuid guid;
+  U64 address;
 }
 
 #:define_struct EfiSystemTable {
@@ -225,6 +235,8 @@ U64 memset(U8[]* memory, U8 value, U64 size) {
   EfiSimpleTextOutputProtocol* console_err;
   EfiRuntimeServices* runtime_services;
   EfiBootServices* boot_services;
+  U64 number_of_table_entries;
+  EfiConfigurationTable[]* configuration_tables;
 }
 
 #:define_struct EfiTextString {}
@@ -297,6 +309,25 @@ U64 efi_writer_add_hex_U64(U64 v) {
   <> efi_writer_add_hex_U8(as<U8>((v >> 16) & #xff));
   <> efi_writer_add_hex_U8(as<U8>((v >>  8) & #xff));
   <> efi_writer_add_hex_U8(as<U8>((v >>  0) & #xff));
+  return 0;
+}
+
+#:define_function
+U64 efi_writer_add_guid(EfiGuid* guid) {
+  <> efi_writer_add_hex_U32(guid->data1);
+  <> efi_writer_add_byte(as<U8>(45));
+  <> efi_writer_add_hex_U16(guid->data2);
+  <> efi_writer_add_byte(as<U8>(45));
+  <> efi_writer_add_hex_U16(guid->data3);
+  <> efi_writer_add_byte(as<U8>(45));
+  <> efi_writer_add_hex_U8((guid->&data4)->[0]);
+  <> efi_writer_add_hex_U8((guid->&data4)->[1]);
+  <> efi_writer_add_hex_U8((guid->&data4)->[2]);
+  <> efi_writer_add_hex_U8((guid->&data4)->[3]);
+  <> efi_writer_add_hex_U8((guid->&data4)->[4]);
+  <> efi_writer_add_hex_U8((guid->&data4)->[5]);
+  <> efi_writer_add_hex_U8((guid->&data4)->[6]);
+  <> efi_writer_add_hex_U8((guid->&data4)->[7]);
   return 0;
 }
 
@@ -527,6 +558,11 @@ U64 initializePic() {
 U64 initializeNetwork() {
   <> write_bytes(#"Network code\r\n");
 
+  // Read the device configuration to find the port.
+  <> find_network_device();
+  // TODO actually use the port that is read out.
+  U64 net_base_port := #x6060;
+
   U64 feature_mac := 5;
   U64 device_features_port := #x00;
   U64 guest_features_port  := #x04;
@@ -540,7 +576,6 @@ U64 initializeNetwork() {
   U64 device_features_ok  := #x08;
   U64 device_driver_ok    := #x04;
 
-  U64 net_base_port := #x6060;
 
 
   // Acknowledge the device.
@@ -737,15 +772,22 @@ Boolean yield(U32 new_old_state) {
 }
 
 #:define_function
-U64 postBootServices() {
+U64 postBootServices(RsdpDescriptor* rsdp_descriptor) {
   // UEFI is now finished.
   // Start initializing sub systems.
+
+  // Clear screen/formatting
+  <> write_bytes(#"\x1bc");
 
   <> disable_apic();
 
   <> initializeIdt();
   <> initializeSerial();
   <> initializePic();
+
+  // Print out machine information from the RSDP.
+  <> examine_rsdp(rsdp_descriptor);
+
   if ((initializeNetwork()) != 0) {
     <> write_bytes(#"Network initialization failed\r\n");
     return 1;
@@ -762,11 +804,17 @@ U64 postBootServices() {
 
 #:define_function
 U64 main(U64 image_handle, EfiSystemTable* st) {
+  // Find the RSDP descriptor which is the root of all the ACPI tables.
+  RsdpDescriptor* rsdp_descriptor := find_rsdp(st);
+  if (as<U64>(rsdp_descriptor) == 0) {
+    return 1;
+  }
 
   U64 s := 0;
   s := exitBootServices(image_handle, st);
   if (s != 0) { return s; }
-  s := postBootServices();
+
+  s := postBootServices(rsdp_descriptor);
   if (s != 0) { return s; }
 
   return 0;
@@ -1215,4 +1263,284 @@ U64 disable_apic() {
   <> write_bytes(#"\r\n");
 
   return 0;
+}
+
+#:define_struct RsdpDescriptor {
+  U8[8] signature;
+  U8 checksum;
+  U8[6] oem_id;
+  U8 revision;
+  U32 rsdt_address;
+  U32 length;
+  U64 xsdt_address;
+  U8 extended_checksum;
+  U8[3] reserved;
+}
+
+#:define_function
+Boolean is_efi_acpi_table_guid(EfiGuid* guid) {
+  return (as<U64>(guid->data1) == #x8868e871) &&
+         (as<U64>(guid->data2) == #xe4f1) &&
+         (as<U64>(guid->data3) == #x11d3) &&
+         (as<U64>((guid->&data4)->[0]) == #xbc) &&
+         (as<U64>((guid->&data4)->[1]) == #x22) &&
+         (as<U64>((guid->&data4)->[2]) == #x00) &&
+         (as<U64>((guid->&data4)->[3]) == #x80) &&
+         (as<U64>((guid->&data4)->[4]) == #xc7) &&
+         (as<U64>((guid->&data4)->[5]) == #x3c) &&
+         (as<U64>((guid->&data4)->[6]) == #x88) &&
+         (as<U64>((guid->&data4)->[7]) == #x81);
+}
+
+#:define_function
+RsdpDescriptor* find_rsdp(EfiSystemTable* st) {
+  EfiSimpleTextOutputProtocol* output := st->console_out;
+
+  U64 i := 0;
+  while (i < st->number_of_table_entries) {
+    EfiConfigurationTable* table := (st->configuration_tables)->&[i];
+
+    if (is_efi_acpi_table_guid(table->&guid)) {
+      <> reset_efi_writer();
+      <> efi_writer_add_bytes(#"Found RSDP");
+      <> efi_writer_finish_line();
+      <> terminate_efi_writer();
+      <> call_ms2(as<U64>(output->output_string), as<U64>(output), as<U64>(efi_output_buffer));
+      return as<RsdpDescriptor*>(table->address);
+    }
+
+    i := i + 1;
+  }
+
+  <> reset_efi_writer();
+  <> efi_writer_add_bytes(#"Did not find RSDP");
+  <> efi_writer_finish_line();
+  <> terminate_efi_writer();
+  <> call_ms2(as<U64>(output->output_string), as<U64>(output), as<U64>(efi_output_buffer));
+
+  return as<RsdpDescriptor*>(0);
+}
+
+#:define_struct AcpiSdtHeader {
+  U8[4] signature;
+  U32 length;
+  U8 revision;
+  U8 checksum;
+  U8[6] oem_id;
+  U8[8] oem_table_id;
+  U32 oem_revision;
+  U32 creator_id;
+  U32 creator_revision;
+}
+
+#:define_struct XSDT {
+  AcpiSdtHeader header;
+  PacketData other_tables;
+}
+
+#:define_struct ConfigSpaceAllocation {
+  U64 base_address;
+  U16 group_number;
+  U8  start_bus_number;
+  U8  end_bus_number;
+  U32 reserved;
+}
+
+
+#:define_struct MCFG {
+  AcpiSdtHeader header;
+  U64 reserved;
+  PacketData config_space_allocations;
+}
+
+
+#:define_struct PciHeader0 {
+  U16 vendor_id;
+  U16 device_id;
+  U16 command;
+  U16 status;
+  U8 revison;
+  U8 prog_if;
+  U8 subclass;
+  U8 class;
+  U8 cache_line_size;
+  U8 latency_timer;
+  U8 header_type;
+  U8 bist;
+  U32[6] base_address;
+  U32 cis_pointer;
+  U16 subsystem_vendor_id;
+  U16 subsystem_id;
+  U32 expansion_rom_base_address;
+  U8 capabilities_pointer;
+  U8[7] reserved;
+  U8 interrupt_line;
+  U8 interrupt_pin;
+  U8 min_grant;
+  U8 max_latency;
+}
+
+#:define_function
+U64 find_network_device() {
+
+  // Try reading config through old api.
+  U64 i := 0;
+  U64 device_num := 32;
+  while (i < 32) {
+    U32 vendor_and_device := read_pci_config(as<U8>(0), as<U8>(i), as<U8>(0), as<U8>(0));
+    <> write_bytes(#"PCI read (");
+    <> write_hex_U8(as<U8>(i));
+    <> write_bytes(#"): ");
+    <> write_hex_U32(vendor_and_device);
+    <> write_bytes(#"\r\n");
+
+    // This is the vendor and device id for a Virtio Network Device
+    if (as<U64>(vendor_and_device) == #x10001af4) {
+      device_num := i;
+    }
+
+    i := i + 1;
+  }
+
+  // Return early if no such device found.
+  if (device_num == 32) {
+    return 0;
+  }
+
+  // Print out the full configuration space of the device.
+  i := 0;
+  while (i < 256) {
+    U32 value := read_pci_config(as<U8>(0), as<U8>(device_num), as<U8>(0), as<U8>(i));
+    <> write_bytes(#"PCI value read (");
+    <> write_hex_U8(as<U8>(i));
+    <> write_bytes(#"): ");
+    <> write_hex_U32(value);
+    <> write_bytes(#"\r\n");
+    i := i + 4;
+  }
+
+  return 0;
+}
+
+
+#:define_function
+U64 examine_rsdp(RsdpDescriptor* rsdp) {
+
+  <> write_bytes(#"RSDP signature (RSD PTR ): ");
+  <> write_raw_buffer(rsdp->&signature, 8);
+  <> write_bytes(#"\r\n");
+
+  XSDT* xsdt := as<XSDT*>(rsdp->xsdt_address);
+
+  <> write_bytes(#"XSDT signature (XSDT): ");
+  <> write_raw_buffer((xsdt->&header)->&signature, 4);
+  <> write_bytes(#"\r\n");
+
+  U64 acpi_sdt_header_size := 36;
+  U64 num_tables := (as<U64>((xsdt->&header)->length) - acpi_sdt_header_size) / 8;
+
+  <> write_bytes(#"Found ");
+  <> write_hex_U64(num_tables);
+  <> write_bytes(#" ACPI Tables\r\n");
+
+  AcpiSdtHeader*[]* other_tables := as<AcpiSdtHeader*[]*>(xsdt->&other_tables);
+
+  U64 i := 0;
+  while (i < num_tables) {
+    AcpiSdtHeader* sdt := other_tables->[i];
+    <> write_bytes(#"Table signature: ");
+    <> write_raw_buffer(sdt->&signature, 4);
+    <> write_bytes(#"\r\n");
+    i := i + 1;
+  }
+
+  // Disabled code that prints the MCFG table.
+  // GCE doesn't have this so we need to go a different way.
+  if (1 == 0) {
+    MCFG* mcfg := as<MCFG*>(other_tables->[3]);
+    <> write_bytes(#"MCFG signature (MCFG): ");
+    <> write_raw_buffer((mcfg->&header)->&signature, 4);
+    <> write_bytes(#"\r\n");
+
+    <> write_bytes(#"MCFG length: ");
+    <> write_hex_U32((mcfg->&header)->length);
+    <> write_bytes(#"\r\n");
+
+    U64 num_mcfg_configs := (as<U64>((mcfg->&header)->length) - acpi_sdt_header_size) / 16;
+
+    <> write_bytes(#"Number of MCFG configs: ");
+    <> write_hex_U32(as<U32>(num_mcfg_configs));
+    <> write_bytes(#"\r\n");
+
+    ConfigSpaceAllocation[]* mcfg_csas :=
+      as<ConfigSpaceAllocation[]*>(mcfg->&config_space_allocations);
+
+    i := 0;
+    while (i < num_mcfg_configs) {
+      ConfigSpaceAllocation* csa := mcfg_csas->&[i];
+      <> write_bytes(#"Config Space Base Address: ");
+      <> write_hex_U64(csa->base_address);
+      <> write_bytes(#"\r\n");
+      <> write_bytes(#"Config Space Group: ");
+      <> write_hex_U16(csa->group_number);
+      <> write_bytes(#"\r\n");
+      <> write_bytes(#"Config Space Start Bus Number: ");
+      <> write_hex_U8(csa->start_bus_number);
+      <> write_bytes(#"\r\n");
+      <> write_bytes(#"Config Space End Bus Number: ");
+      <> write_hex_U8(csa->end_bus_number);
+      <> write_bytes(#"\r\n");
+      i := i + 1;
+    }
+
+    ConfigSpaceAllocation* csa := mcfg_csas->&[0];
+
+    PciHeader0 * device_header := as<PciHeader0*>((csa->base_address) + (0 << 20) + (2 << 15) + (0 << 12));
+
+    <> write_bytes(#"Device Vendor Id: ");
+    <> write_hex_U16(device_header->vendor_id);
+    <> write_bytes(#"\r\n");
+
+    <> write_bytes(#"Device Device Id: ");
+    <> write_hex_U16(device_header->device_id);
+    <> write_bytes(#"\r\n");
+
+    <> write_bytes(#"Base Addresses:");
+    <> write_bytes(#"\r\n");
+    <> write_hex_U32((device_header->&base_address)->[0]);
+    <> write_bytes(#"\r\n");
+    <> write_hex_U32((device_header->&base_address)->[1]);
+    <> write_bytes(#"\r\n");
+    <> write_hex_U32((device_header->&base_address)->[2]);
+    <> write_bytes(#"\r\n");
+    <> write_hex_U32((device_header->&base_address)->[3]);
+    <> write_bytes(#"\r\n");
+    <> write_hex_U32((device_header->&base_address)->[4]);
+    <> write_bytes(#"\r\n");
+    <> write_hex_U32((device_header->&base_address)->[5]);
+    <> write_bytes(#"\r\n");
+
+    <> write_bytes(#"Device Subsystem Vendor Id: ");
+    <> write_hex_U16(device_header->subsystem_vendor_id);
+    <> write_bytes(#"\r\n");
+
+    <> write_bytes(#"Device Subsystem Id: ");
+    <> write_hex_U16(device_header->subsystem_id);
+    <> write_bytes(#"\r\n");
+
+  }
+
+  return 0;
+}
+
+#:define_function
+U32 read_pci_config(U8 bus, U8 device, U8 func, U8 offset) {
+    U64 address := (as<U64>(bus) << 16) | (as<U64>(device) << 11) | (as<U64>(func) << 8) |
+                   as<U64>(offset) | #x80000000;
+
+    // Write out the address
+    <> outd(as<U32>(address), as<U16>(#xCF8));
+    // Read in the data
+    return ind(as<U16>(#xCFC));
+
 }
