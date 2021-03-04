@@ -564,12 +564,12 @@ U64 initializeNetwork() {
   U64 net_base_port := #x6060;
 
   U64 feature_mac := 5;
-  U64 device_features_port := #x00;
-  U64 guest_features_port  := #x04;
-  U64 queue_address_port   := #x08;
-  U64 queue_size_port      := #x0c;
-  U64 queue_select_port    := #x0e;
-  U64 device_status_port   := #x12;
+  U16 device_features_port := as<U16>(net_base_port + #x00);
+  U16 guest_features_port  := as<U16>(net_base_port + #x04);
+  U16 queue_address_port   := as<U16>(net_base_port + #x08);
+  U16 queue_size_port      := as<U16>(net_base_port + #x0c);
+  U16 queue_select_port    := as<U16>(net_base_port + #x0e);
+  U16 device_status_port   := as<U16>(net_base_port + #x12);
 
   U64 device_acknowledged := #x01;
   U64 device_driver       := #x02;
@@ -577,35 +577,41 @@ U64 initializeNetwork() {
   U64 device_driver_ok    := #x04;
 
 
-
   // Acknowledge the device.
-  <> outb(as<U8>(device_acknowledged),
-          as<U16>(net_base_port + device_status_port));
+  <> outb(as<U8>(device_acknowledged), device_status_port);
   // Tell the device that we know how to drive it.
-  <> outb(as<U8>(device_acknowledged | device_driver),
-          as<U16>(net_base_port + device_status_port));
+  <> outb(as<U8>(device_acknowledged | device_driver), device_status_port);
 
-  U64 device_features := as<U64>(ind(as<U16>(net_base_port + device_features_port)));
+  U64 device_features := as<U64>(ind(device_features_port));
+  <> write_bytes(#"Device features: ");
+  <> write_hex_U64(device_features);
+  <> write_bytes(#"\r\n");
   if ((device_features & (1 << feature_mac)) == 0) {
-     return 1;
+    <> write_bytes(#"Device features not as expected.");
+
+    return 1;
   }
 
   U32 guest_features := as<U32>(1 << feature_mac);
-  <> outd(guest_features, as<U16>(net_base_port + guest_features_port));
+  <> outd(guest_features, guest_features_port);
 
   // Tell the device that we are finalized on our feature decisions.
   <> outb(as<U8>(device_acknowledged | device_driver | device_features_ok),
-          as<U16>(net_base_port + device_status_port));
+          device_status_port);
 
-  U64 device_status := as<U64>(inb(as<U16>(net_base_port + device_status_port)));
+  U64 device_status := as<U64>(inb(device_status_port));
   if (device_status != (device_acknowledged | device_driver | device_features_ok)) {
+    <> write_bytes(#"Device did not like our selected features: ");
+    <> write_hex_U64(device_status);
+    <> write_bytes(#"\r\n");
+
     return 1;
   }
 
   U64 queue_num := 0;
   while (queue_num < 2) {
-    <> outw(as<U16>(queue_num), as<U16>(net_base_port + queue_select_port));
-    U64 queue_size := as<U64>(inw(as<U16>(net_base_port + queue_size_port)));
+    <> outw(as<U16>(queue_num), queue_select_port);
+    U64 queue_size := as<U64>(inw(queue_size_port));
     if (queue_size != #x100) {
       return 1;
     }
@@ -615,23 +621,23 @@ U64 initializeNetwork() {
 
   U64 net_queue_size := (256 * 16) + (4096) + 6 + (256 * 8);
 
-  <> memset(as<U8[]*>(net_send_queue), as<U8>(0), net_queue_size);
   <> memset(as<U8[]*>(net_recv_queue), as<U8>(0), net_queue_size);
+  <> memset(as<U8[]*>(net_send_queue), as<U8>(0), net_queue_size);
 
+  U64 recv_queue_addr := as<U64>(net_recv_queue);
+  U64 send_queue_addr := as<U64>(net_send_queue);
 
   // Tell the device about our queues
-  <> outw(as<U16>(0), as<U16>(net_base_port + queue_select_port));
-  <> outd(as<U32>(as<U64>(net_recv_queue) >> 12),
-             as<U16>(net_base_port + queue_address_port));
+  <> outw(as<U16>(0), queue_select_port);
+  <> outd(as<U32>(recv_queue_addr >> 12), queue_address_port);
 
-  <> outw(as<U16>(1), as<U16>(net_base_port + queue_select_port));
-  <> outd(as<U32>(as<U64>(net_send_queue) >> 12),
-             as<U16>(net_base_port + queue_address_port));
+  <> outw(as<U16>(1), queue_select_port);
+  <> outd(as<U32>(send_queue_addr >> 12), queue_address_port);
 
   // Tell the device that we are ready!
   <> outb(as<U8>(device_acknowledged | device_driver | device_features_ok | device_driver_ok),
-          as<U16>(net_base_port + device_status_port));
-  device_status := as<U64>(inb(as<U16>(net_base_port + device_status_port)));
+          device_status_port);
+  device_status := as<U64>(inb(device_status_port));
   if (device_status != (device_acknowledged | device_driver | device_features_ok | device_driver_ok)) {
     <> write_bytes(#"Device didn't like our queues: ");
     <> write_hex_U64(device_status);
@@ -902,9 +908,9 @@ U64 main(U64 image_handle, EfiSystemTable* st) {
 U64 sendUdpPacket(U16 dest_port) {
   <> write_bytes(#"Sending Yaspl UDP Packet\r\n");
 
-  U64 net_base_port     := #x6060;
-  U64 isr_status_port   := #x13;
-  U64 queue_notify_port := #x10;
+  U64 net_base_port := #x6060;
+  U16 isr_status_port   := as<U16>(net_base_port + #x13);
+  U16 queue_notify_port := as<U16>(net_base_port + #x10);
 
   U64 index := as<U64>((net_send_queue->&available)->index);
 
@@ -993,14 +999,14 @@ U64 sendUdpPacket(U16 dest_port) {
   *(net_send_queue->&available)->&index <- as<U16>(as<U64>((net_send_queue->&available)->index) + 1);
 
   // Tell the device that queue 1 (send) has a new buffer.
-  <> outw(as<U16>(1), as<U16>(net_base_port + queue_notify_port));
+  <> outw(as<U16>(1), queue_notify_port);
 
 
   <> disable_interrupts();
   Boolean msg_recieved := 1 == 0;
   while (!msg_recieved) {
     // Read the interrupt status register to clear the interrupt state.
-    <> inb(as<U16>(net_base_port + isr_status_port));
+    <> inb(isr_status_port);
     msg_recieved := as<U64>((net_send_queue->&used)->index) == ((index + 1) & #xffff);
     if (!msg_recieved) {
       <> yield(as<U32>(1)); // Blocked
@@ -1019,8 +1025,8 @@ U64 sendArpPacket() {
   <> write_bytes(#"Sending Yaspl Arp Packet\r\n");
 
   U64 net_base_port     := #x6060;
-  U64 isr_status_port   := #x13;
-  U64 queue_notify_port := #x10;
+  U16 isr_status_port   := as<U16>(net_base_port + #x13);
+  U16 queue_notify_port := as<U16>(net_base_port + #x10);
 
   U64 index := as<U64>((net_send_queue->&available)->index);
 
@@ -1102,13 +1108,13 @@ U64 sendArpPacket() {
   *(net_send_queue->&available)->&index <- as<U16>(as<U64>((net_send_queue->&available)->index) + 1);
 
   // Tell the device that queue 1 (send) has a new buffer.
-  <> outw(as<U16>(1), as<U16>(net_base_port + queue_notify_port));
+  <> outw(as<U16>(1), queue_notify_port);
 
   <> disable_interrupts();
   Boolean msg_recieved := 1 == 0;
   while (!msg_recieved) {
     // Read the interrupt status register to clear the interrupt state.
-    <> inb(as<U16>(net_base_port + isr_status_port));
+    <> inb(isr_status_port);
     msg_recieved := as<U64>((net_send_queue->&used)->index) == ((index + 1) & #xffff);
     if (!msg_recieved) {
       <> yield(as<U32>(1)); // Blocked
@@ -1128,11 +1134,10 @@ U16 be_u16_to_le(BigEndianU16* be) {
 
 #:define_function
 U64 waitNetworkInterrupt() {
+  U64 net_base_port := #x6060;
+  U16 isr_status_port    := as<U16>(net_base_port + #x13);
+  U16 queue_notify_port  := as<U16>(net_base_port + #x10);
 
-  U64 net_base_port      := #x6060;
-  U64 device_status_port := #x12;
-  U64 isr_status_port    := #x13;
-  U64 queue_notify_port  := #x10;
 
 
   U64 index := as<U64>((net_recv_queue->&available)->index);
@@ -1148,13 +1153,13 @@ U64 waitNetworkInterrupt() {
   *(net_recv_queue->&available)->&index <- as<U16>(as<U64>((net_recv_queue->&available)->index) + 1);
 
   // Tell the device that queue 0 (recv) has a new buffer.
-  <> outw(as<U16>(0), as<U16>(net_base_port + queue_notify_port));
+  <> outw(as<U16>(0), queue_notify_port);
 
   <> disable_interrupts();
   Boolean msg_recieved := 1 == 0;
   while (!msg_recieved) {
     // Read the interrupt status register to clear the interrupt state.
-    <> inb(as<U16>(net_base_port + isr_status_port));
+    <> inb(isr_status_port);
     msg_recieved := as<U64>((net_recv_queue->&used)->index) == ((index + 1) & #xffff);
     if (!msg_recieved) {
       <> yield(as<U32>(1)); // Blocked
