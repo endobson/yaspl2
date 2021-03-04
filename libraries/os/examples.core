@@ -1166,7 +1166,7 @@ U64 waitNetworkInterrupt() {
   U64 ring_i := index % 256;
   U64 buffer_i := as<U64>((((net_recv_queue->&used)->&ring)->&[ring_i])->index);
   if (buffer_i != ring_i) {
-    <> panic();
+    <> panic_msg(#"Buffer doesn't match ring");
   }
   U64 remaining_packet_length := as<U64>((((net_recv_queue->&used)->&ring)->&[ring_i])->length);
   U8[]* raw_buffer := as<U8[]*>(((net_recv_queue->&buffers)->&[buffer_i])->address);
@@ -1176,13 +1176,13 @@ U64 waitNetworkInterrupt() {
 
 
   if (remaining_packet_length < virtio_net_header_size) {
-    <> panic();
+    <> panic_msg(#"Packet length shorter than virtio net header size");
   }
   VirtioNetHeader* virtio_header := as<VirtioNetHeader*>(raw_buffer);
   remaining_packet_length := remaining_packet_length - virtio_net_header_size;
 
   if (remaining_packet_length < ethernet_header_size) {
-    <> panic();
+    <> panic_msg(#"Packet shorter than ethernet header");
   }
   EthernetHeader* ethernet_header := as<EthernetHeader*>(virtio_header->&data);
   remaining_packet_length := remaining_packet_length - ethernet_header_size;
@@ -1191,7 +1191,7 @@ U64 waitNetworkInterrupt() {
       (as<U64>((ethernet_header->&ethertype)->byte1) == #x06)) {
     U64 arp_packet_size := 28;
     if (remaining_packet_length < arp_packet_size) {
-      <> panic();
+      <> panic_msg(#"Packet shorter than arp packet size");
     }
     ArpPacket* arp_packet := as<ArpPacket*>(ethernet_header->&data);
     remaining_packet_length := remaining_packet_length - arp_packet_size;
@@ -1201,16 +1201,16 @@ U64 waitNetworkInterrupt() {
     }
 
     if (as<U64>(be_u16_to_le(arp_packet->&hardware_type)) != 1) {
-      <> panic();
+      <> panic_msg(#"Arp Packet has bad hardware type");
     }
     if (as<U64>(be_u16_to_le(arp_packet->&protocol_type)) != #x0800) {
-      <> panic();
+      <> panic_msg(#"Arp Packet has bad protocol type");
     }
     if (as<U64>(arp_packet->hardware_length) != 6) {
-      <> panic();
+      <> panic_msg(#"Arp Packet has bad hardware length");
     }
     if (as<U64>(arp_packet->protocol_length) != 4) {
-      <> panic();
+      <> panic_msg(#"Arp Packet has bad protocol length");
     }
 
 
@@ -1553,6 +1553,14 @@ U32 read_pci_config(U8 bus, U8 device, U8 func, U8 offset) {
     // Read in the data
     return ind(as<U16>(#xCFC));
 
+}
+
+#:define_function
+U64 panic_msg(Bytes msg) {
+  <> write_bytes(#"\r\nPANIC: ");
+  <> write_bytes(msg);
+  <> write_bytes(#"\r\n");
+  <> panic();
 }
 
 #:define_function
