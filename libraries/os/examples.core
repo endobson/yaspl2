@@ -559,17 +559,20 @@ U64 initializeNetwork() {
   <> write_bytes(#"Network code\r\n");
 
   // Read the device configuration to find the port.
-  <> find_network_device();
-  // TODO actually use the port that is read out.
-  U64 net_base_port := #x6060;
+  *net_base_port <- find_network_device();
+  if (as<U64>(*net_base_port) == 0) {
+    <> write_bytes(#"Couldn't find base port.");
+
+    return 1;
+  }
 
   U64 feature_mac := 5;
-  U16 device_features_port := as<U16>(net_base_port + #x00);
-  U16 guest_features_port  := as<U16>(net_base_port + #x04);
-  U16 queue_address_port   := as<U16>(net_base_port + #x08);
-  U16 queue_size_port      := as<U16>(net_base_port + #x0c);
-  U16 queue_select_port    := as<U16>(net_base_port + #x0e);
-  U16 device_status_port   := as<U16>(net_base_port + #x12);
+  U16 device_features_port := as<U16>(as<U64>(*net_base_port) + #x00);
+  U16 guest_features_port  := as<U16>(as<U64>(*net_base_port) + #x04);
+  U16 queue_address_port   := as<U16>(as<U64>(*net_base_port) + #x08);
+  U16 queue_size_port      := as<U16>(as<U64>(*net_base_port) + #x0c);
+  U16 queue_select_port    := as<U16>(as<U64>(*net_base_port) + #x0e);
+  U16 device_status_port   := as<U16>(as<U64>(*net_base_port) + #x12);
 
   U64 device_acknowledged := #x01;
   U64 device_driver       := #x02;
@@ -903,14 +906,14 @@ U64 main(U64 image_handle, EfiSystemTable* st) {
 
 #:define_global #:alignment_bits 12 VirtioBuffer[256] net_send_buffers
 #:define_global #:alignment_bits 12 VirtioBuffer[256] net_recv_buffers
+#:define_global U16    net_base_port
 
 #:define_function
 U64 sendUdpPacket(U16 dest_port) {
   <> write_bytes(#"Sending Yaspl UDP Packet\r\n");
 
-  U64 net_base_port := #x6060;
-  U16 isr_status_port   := as<U16>(net_base_port + #x13);
-  U16 queue_notify_port := as<U16>(net_base_port + #x10);
+  U16 isr_status_port    := as<U16>(as<U64>(*net_base_port) + #x13);
+  U16 queue_notify_port := as<U16>(as<U64>(*net_base_port) + #x10);
 
   U64 index := as<U64>((net_send_queue->&available)->index);
 
@@ -1024,13 +1027,12 @@ U64 sendUdpPacket(U16 dest_port) {
 U64 sendArpPacket() {
   <> write_bytes(#"Sending Yaspl Arp Packet\r\n");
 
-  U64 net_base_port     := #x6060;
-  U16 isr_status_port   := as<U16>(net_base_port + #x13);
-  U16 queue_notify_port := as<U16>(net_base_port + #x10);
 
   U64 index := as<U64>((net_send_queue->&available)->index);
 
   U64 i := index % 256;
+  U16 isr_status_port    := as<U16>(as<U64>(*net_base_port) + #x13);
+  U16 queue_notify_port := as<U16>(as<U64>(*net_base_port) + #x10);
 
 
 
@@ -1134,10 +1136,8 @@ U16 be_u16_to_le(BigEndianU16* be) {
 
 #:define_function
 U64 waitNetworkInterrupt() {
-  U64 net_base_port := #x6060;
-  U16 isr_status_port    := as<U16>(net_base_port + #x13);
-  U16 queue_notify_port  := as<U16>(net_base_port + #x10);
-
+  U16 isr_status_port    := as<U16>(as<U64>(*net_base_port) + #x13);
+  U16 queue_notify_port  := as<U16>(as<U64>(*net_base_port) + #x10);
 
 
   U64 index := as<U64>((net_recv_queue->&available)->index);
@@ -1396,7 +1396,7 @@ RsdpDescriptor* find_rsdp(EfiSystemTable* st) {
 }
 
 #:define_function
-U64 find_network_device() {
+U16 find_network_device() {
 
   // Try reading config through old api.
   U64 i := 0;
@@ -1419,7 +1419,7 @@ U64 find_network_device() {
 
   // Return early if no such device found.
   if (device_num == 32) {
-    return 0;
+    return as<U16>(0);
   }
 
   // Print out the full configuration space of the device.
@@ -1434,7 +1434,14 @@ U64 find_network_device() {
     i := i + 4;
   }
 
-  return 0;
+  U32 bar1_value := read_pci_config(as<U8>(0), as<U8>(device_num), as<U8>(0), as<U8>(#x10));
+  <> write_bytes(#"Bar1 value: ");
+  <> write_hex_U32(bar1_value);
+  <> write_bytes(#"\r\n");
+
+
+  // TODO validate that this is actually in the U16 range
+  return as<U16>(as<U64>(bar1_value) - 1);
 }
 
 
