@@ -515,7 +515,7 @@ U64 initializePic() {
   return 0;
 }
 
-#:define_struct VirtioQueue256BufferInfo {
+#:define_struct VirtioQueueBufferInfo {
   U64 address;
   U32 length;
   U16 flags;
@@ -529,7 +529,15 @@ U64 initializePic() {
   U16 event_index;
 }
 
-#:define_struct VirtioQueue256UsedRingInfo {
+
+#:define_struct VirtioQueue4096AvailableInfo {
+  U16 flags;
+  U16 index;
+  U16[4096] ring;
+  U16 event_index;
+}
+
+#:define_struct VirtioQueueUsedRingInfo {
   U32 index;
   U32 length;
 }
@@ -537,15 +545,30 @@ U64 initializePic() {
 #:define_struct VirtioQueue256UsedInfo {
   U16 flags;
   U16 index;
-  VirtioQueue256UsedRingInfo[256] ring;
+  VirtioQueueUsedRingInfo[256] ring;
+  U16 avail_event;
+}
+
+
+#:define_struct VirtioQueue4096UsedInfo {
+  U16 flags;
+  U16 index;
+  VirtioQueueUsedRingInfo[4096] ring;
   U16 avail_event;
 }
 
 #:define_struct VirtioQueue256 {
-  VirtioQueue256BufferInfo[256] buffers;
+  VirtioQueueBufferInfo[256] buffers;
   VirtioQueue256AvailableInfo available;
   U8[3578] padding;
   VirtioQueue256UsedInfo used;
+}
+
+#:define_struct VirtioQueue4096 {
+  VirtioQueueBufferInfo[4096] buffers;
+  VirtioQueue4096AvailableInfo available;
+  U8[4090] padding;
+  VirtioQueue4096UsedInfo used;
 }
 
 
@@ -611,24 +634,57 @@ U64 initializeNetwork() {
     return 1;
   }
 
+
+
+  U64 queue_size1 := 0;
+  U64 queue_size2 := 0;
+
   U64 queue_num := 0;
   while (queue_num < 2) {
     <> outw(as<U16>(queue_num), queue_select_port);
     U64 queue_size := as<U64>(inw(queue_size_port));
-    if (queue_size != #x100) {
+    if ((queue_size != #x1000) && (queue_size != #x100)) {
+      <> write_bytes(#"Queue size is not 256 or 4096: ");
+      <> write_hex_U64(queue_size);
+      <> write_bytes(#"\r\n");
+
       return 1;
+    }
+
+    if (queue_num == 0) {
+      queue_size1 := queue_size;
+    } else if (queue_num == 1) {
+      queue_size2 := queue_size;
     }
 
     queue_num := queue_num + 1;
   }
 
-  U64 net_queue_size := (256 * 16) + (4096) + 6 + (256 * 8);
+  if (queue_size1 != queue_size2) {
+    <> write_bytes(#"Queue sizes need to match");
+    return 1;
+  }
 
-  <> memset(as<U8[]*>(net_recv_queue), as<U8>(0), net_queue_size);
-  <> memset(as<U8[]*>(net_send_queue), as<U8>(0), net_queue_size);
+  U64 queue_size := queue_size1;
+  Boolean use_large_queues := (queue_size == #x1000);
 
-  U64 recv_queue_addr := as<U64>(net_recv_queue);
-  U64 send_queue_addr := as<U64>(net_send_queue);
+  U64 net_queue_byte_size := (256 * 16) + (4096) + 6 + (256 * 8);
+  if (use_large_queues) {
+    net_queue_byte_size := (4096 * 16) + (4096 * 3) + 6 + (4096 * 8);
+  }
+
+  U8[]* raw_recv_queue := as<U8[]*>(net_recv_queue_small);
+  U8[]* raw_send_queue := as<U8[]*>(net_send_queue_small);
+  if (use_large_queues) {
+    raw_recv_queue := as<U8[]*>(net_recv_queue_large);
+    raw_send_queue := as<U8[]*>(net_send_queue_large);
+  }
+
+  <> memset(raw_recv_queue, as<U8>(0), net_queue_byte_size);
+  <> memset(raw_send_queue, as<U8>(0), net_queue_byte_size);
+
+  U64 recv_queue_addr := as<U64>(raw_recv_queue);
+  U64 send_queue_addr := as<U64>(raw_send_queue);
 
   // Tell the device about our queues
   <> outw(as<U16>(0), queue_select_port);
@@ -649,6 +705,28 @@ U64 initializeNetwork() {
     return 1;
   }
 
+  *net_queue_size <- as<U16>(queue_size);
+  if (use_large_queues) {
+    *net_send_available_index <- (net_send_queue_large->&available)->&index;
+    *net_send_available_ring  <- (net_send_queue_large->&available)->&ring;
+    *net_send_buffer_infos    <- (net_send_queue_large->&buffers);
+    *net_send_used_index      <- (net_send_queue_large->&used)->&index;
+    *net_recv_available_index <- (net_recv_queue_large->&available)->&index;
+    *net_recv_available_ring  <- (net_recv_queue_large->&available)->&ring;
+    *net_recv_buffer_infos    <- (net_recv_queue_large->&buffers);
+    *net_recv_used_index      <- (net_recv_queue_large->&used)->&index;
+    *net_recv_used_ring       <- (net_recv_queue_large->&used)->&ring;
+  } else {
+    *net_send_available_index <- (net_send_queue_small->&available)->&index;
+    *net_send_available_ring  <- (net_send_queue_small->&available)->&ring;
+    *net_send_buffer_infos    <- (net_send_queue_small->&buffers);
+    *net_send_used_index      <- (net_send_queue_small->&used)->&index;
+    *net_recv_available_index <- (net_recv_queue_small->&available)->&index;
+    *net_recv_available_ring  <- (net_recv_queue_small->&available)->&ring;
+    *net_recv_buffer_infos    <- (net_recv_queue_small->&buffers);
+    *net_recv_used_index      <- (net_recv_queue_small->&used)->&index;
+    *net_recv_used_ring       <- (net_recv_queue_small->&used)->&ring;
+  }
   <> write_bytes(#"Network code done\r\n");
   return 0;
 }
@@ -901,12 +979,26 @@ U64 main(U64 image_handle, EfiSystemTable* st) {
   PacketData data;
 }
 
-#:define_global #:alignment_bits 12 VirtioQueue256 net_send_queue
-#:define_global #:alignment_bits 12 VirtioQueue256 net_recv_queue
+#:define_global #:alignment_bits 12 VirtioQueue256 net_send_queue_small
+#:define_global #:alignment_bits 12 VirtioQueue256 net_recv_queue_small
 
-#:define_global #:alignment_bits 12 VirtioBuffer[256] net_send_buffers
-#:define_global #:alignment_bits 12 VirtioBuffer[256] net_recv_buffers
+#:define_global #:alignment_bits 12 VirtioQueue4096 net_send_queue_large
+#:define_global #:alignment_bits 12 VirtioQueue4096 net_recv_queue_large
+
+#:define_global #:alignment_bits 12 VirtioBuffer[4096] net_send_buffers
+#:define_global #:alignment_bits 12 VirtioBuffer[4096] net_recv_buffers
+
 #:define_global U16    net_base_port
+#:define_global U16    net_queue_size
+#:define_global U16*   net_send_available_index
+#:define_global U16[]* net_send_available_ring
+#:define_global VirtioQueueBufferInfo[]* net_send_buffer_infos
+#:define_global U16*   net_send_used_index
+#:define_global U16*   net_recv_available_index
+#:define_global U16[]* net_recv_available_ring
+#:define_global VirtioQueueBufferInfo[]* net_recv_buffer_infos
+#:define_global U16*   net_recv_used_index
+#:define_global VirtioQueueUsedRingInfo[]* net_recv_used_ring
 
 #:define_function
 U64 sendUdpPacket(U16 dest_port) {
@@ -915,9 +1007,9 @@ U64 sendUdpPacket(U16 dest_port) {
   U16 isr_status_port    := as<U16>(as<U64>(*net_base_port) + #x13);
   U16 queue_notify_port := as<U16>(as<U64>(*net_base_port) + #x10);
 
-  U64 index := as<U64>((net_send_queue->&available)->index);
+  U64 index := as<U64>(**net_send_available_index);
 
-  U64 i := index % 256;
+  U64 i := index % as<U64>(*net_queue_size);
   VirtioNetHeader* virtio_header := as<VirtioNetHeader*>(net_send_buffers->&[i]);
 
   U64 j := 0;
@@ -991,15 +1083,16 @@ U64 sendUdpPacket(U16 dest_port) {
   U64 ethernet_header_size := 14;
   U64 virtio_net_header_size := 10;
 
-  *((net_send_queue->&buffers)->&[i])->&address <- as<U64>(net_send_buffers->&[i]);
-  *((net_send_queue->&buffers)->&[i])->&length <-
+
+  *((*net_send_buffer_infos)->&[i])->&address <- as<U64>(net_send_buffers->&[i]);
+  *((*net_send_buffer_infos)->&[i])->&length <-
     as<U32>(response_length + udp_header_size + ip_header_size + ethernet_header_size +
             virtio_net_header_size);
-  *((net_send_queue->&buffers)->&[i])->&flags <- as<U16>(0);
-  *((net_send_queue->&buffers)->&[i])->&next <- as<U16>(0);
+  *((*net_send_buffer_infos)->&[i])->&flags <- as<U16>(0);
+  *((*net_send_buffer_infos)->&[i])->&next <- as<U16>(0);
 
-  *((net_send_queue->&available)->&ring)->&[i] <- as<U16>(i);
-  *(net_send_queue->&available)->&index <- as<U16>(as<U64>((net_send_queue->&available)->index) + 1);
+  *(*net_send_available_ring)->&[i] <- as<U16>(i);
+  *(*net_send_available_index) <- as<U16>(as<U64>(**net_send_available_index) + 1);
 
   // Tell the device that queue 1 (send) has a new buffer.
   <> outw(as<U16>(1), queue_notify_port);
@@ -1010,7 +1103,7 @@ U64 sendUdpPacket(U16 dest_port) {
   while (!msg_recieved) {
     // Read the interrupt status register to clear the interrupt state.
     <> inb(isr_status_port);
-    msg_recieved := as<U64>((net_send_queue->&used)->index) == ((index + 1) & #xffff);
+    msg_recieved := as<U64>(**net_send_used_index) == ((index + 1) & #xffff);
     if (!msg_recieved) {
       <> yield(as<U32>(1)); // Blocked
     }
@@ -1027,13 +1120,11 @@ U64 sendUdpPacket(U16 dest_port) {
 U64 sendArpPacket() {
   <> write_bytes(#"Sending Yaspl Arp Packet\r\n");
 
-
-  U64 index := as<U64>((net_send_queue->&available)->index);
-
-  U64 i := index % 256;
   U16 isr_status_port    := as<U16>(as<U64>(*net_base_port) + #x13);
   U16 queue_notify_port := as<U16>(as<U64>(*net_base_port) + #x10);
 
+  U64 index := as<U64>(**net_send_available_index);
+  U64 i := index % as<U64>(*net_queue_size);
 
 
   VirtioNetHeader* virtio_header := as<VirtioNetHeader*>(net_send_buffers->&[i]);
@@ -1100,14 +1191,14 @@ U64 sendArpPacket() {
   U64 ethernet_header_size := 14;
   U64 virtio_net_header_size := 10;
 
-  *((net_send_queue->&buffers)->&[i])->&address <- as<U64>(net_send_buffers->&[i]);
-  *((net_send_queue->&buffers)->&[i])->&length <-
+  *((*net_send_buffer_infos)->&[i])->&address <- as<U64>(net_send_buffers->&[i]);
+  *((*net_send_buffer_infos)->&[i])->&length <-
     as<U32>(arp_packet_size + ethernet_header_size + virtio_net_header_size);
-  *((net_send_queue->&buffers)->&[i])->&flags <- as<U16>(0);
-  *((net_send_queue->&buffers)->&[i])->&next <- as<U16>(0);
+  *((*net_send_buffer_infos)->&[i])->&flags <- as<U16>(0);
+  *((*net_send_buffer_infos)->&[i])->&next <- as<U16>(0);
 
-  *((net_send_queue->&available)->&ring)->&[i] <- as<U16>(i);
-  *(net_send_queue->&available)->&index <- as<U16>(as<U64>((net_send_queue->&available)->index) + 1);
+  *(*net_send_available_ring)->&[i] <- as<U16>(i);
+  *(*net_send_available_index) <- as<U16>(as<U64>(**net_send_available_index) + 1);
 
   // Tell the device that queue 1 (send) has a new buffer.
   <> outw(as<U16>(1), queue_notify_port);
@@ -1117,7 +1208,7 @@ U64 sendArpPacket() {
   while (!msg_recieved) {
     // Read the interrupt status register to clear the interrupt state.
     <> inb(isr_status_port);
-    msg_recieved := as<U64>((net_send_queue->&used)->index) == ((index + 1) & #xffff);
+    msg_recieved := as<U64>(**net_send_used_index) == ((index + 1) & #xffff);
     if (!msg_recieved) {
       <> yield(as<U32>(1)); // Blocked
     }
@@ -1139,18 +1230,17 @@ U64 waitNetworkInterrupt() {
   U16 isr_status_port    := as<U16>(as<U64>(*net_base_port) + #x13);
   U16 queue_notify_port  := as<U16>(as<U64>(*net_base_port) + #x10);
 
+  U64 index := as<U64>(**net_recv_available_index);
 
-  U64 index := as<U64>((net_recv_queue->&available)->index);
+  U64 i := index % as<U64>(*net_queue_size);
 
-  U64 i := index % 256;
+  *((*net_recv_buffer_infos)->&[i])->&address <- as<U64>(net_recv_buffers->&[i]);
+  *((*net_recv_buffer_infos)->&[i])->&length  <- as<U32>(4096);
+  *((*net_recv_buffer_infos)->&[i])->&flags   <- as<U16>(2); // Device writable
+  *((*net_recv_buffer_infos)->&[i])->&next    <- as<U16>(0);
 
-  *((net_recv_queue->&buffers)->&[i])->&address <- as<U64>(net_recv_buffers->&[i]);
-  *((net_recv_queue->&buffers)->&[i])->&length  <- as<U32>(4096);
-  *((net_recv_queue->&buffers)->&[i])->&flags   <- as<U16>(2); // Device writable
-  *((net_recv_queue->&buffers)->&[i])->&next    <- as<U16>(0);
-
-  *((net_recv_queue->&available)->&ring)->&[i] <- as<U16>(i);
-  *(net_recv_queue->&available)->&index <- as<U16>(as<U64>((net_recv_queue->&available)->index) + 1);
+  *(*net_recv_available_ring)->&[i] <- as<U16>(i);
+  *(*net_recv_available_index) <- as<U16>(as<U64>(**net_recv_available_index) + 1);
 
   // Tell the device that queue 0 (recv) has a new buffer.
   <> outw(as<U16>(0), queue_notify_port);
@@ -1160,7 +1250,7 @@ U64 waitNetworkInterrupt() {
   while (!msg_recieved) {
     // Read the interrupt status register to clear the interrupt state.
     <> inb(isr_status_port);
-    msg_recieved := as<U64>((net_recv_queue->&used)->index) == ((index + 1) & #xffff);
+    msg_recieved := as<U64>(**net_recv_used_index) == ((index + 1) & #xffff);
     if (!msg_recieved) {
       <> yield(as<U32>(1)); // Blocked
     }
@@ -1168,13 +1258,13 @@ U64 waitNetworkInterrupt() {
   <> enable_interrupts();
 
 
-  U64 ring_i := index % 256;
-  U64 buffer_i := as<U64>((((net_recv_queue->&used)->&ring)->&[ring_i])->index);
+  U64 ring_i := index % as<U64>(*net_queue_size);
+  U64 buffer_i := as<U64>(((*net_recv_used_ring)->&[ring_i])->index);
   if (buffer_i != ring_i) {
     <> panic_msg(#"Buffer doesn't match ring");
   }
-  U64 remaining_packet_length := as<U64>((((net_recv_queue->&used)->&ring)->&[ring_i])->length);
-  U8[]* raw_buffer := as<U8[]*>(((net_recv_queue->&buffers)->&[buffer_i])->address);
+  U64 remaining_packet_length := as<U64>(((*net_recv_used_ring)->&[ring_i])->length);
+  U8[]* raw_buffer := as<U8[]*>(((*net_recv_buffer_infos)->&[buffer_i])->address);
 
   U64 virtio_net_header_size := 10;
   U64 ethernet_header_size := 14;
