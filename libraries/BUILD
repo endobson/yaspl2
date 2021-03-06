@@ -784,7 +784,6 @@ yaspl_bootstrap_library(
     deps = [
         ":intermediate-language",
         ":module-signature",
-        ":types",
         "//libraries/data:bytes",
         "//libraries/data:dict",
         "//libraries/data:list",

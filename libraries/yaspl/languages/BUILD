@@ -59,7 +59,6 @@ yaspl_bootstrap_library(
         "//libraries:module-name",
         "//libraries:module-signature",
         "//libraries:top-level-name",
-        "//libraries:types",
         "//libraries/data:dict",
         "//libraries/data:list",
         "//libraries/data:source-location",

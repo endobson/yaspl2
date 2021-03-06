@@ -62,7 +62,6 @@ yaspl_bootstrap_library(
         "//libraries:module-name",
         "//libraries:module-signature",
         "//libraries:top-level-name",
-        "//libraries:types",
         "//libraries/data:bytes",
         "//libraries/data:dict",
         "//libraries/data:either",
@@ -106,6 +105,7 @@ yaspl_bootstrap_library(
     srcs = ["resolve-types.yaspl"],
     deps = [
         "//libraries:module-name",
+        "//libraries:module-signature",
         "//libraries:types",
         "//libraries/data:bytes",
         "//libraries/data:dict",
