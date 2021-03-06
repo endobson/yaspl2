@@ -128,15 +128,15 @@ racket_test(
 core_library(
     name = "examples",
     srcs = ["examples.core"],
-    deps = [":serial"],
+    deps = [":write_serial"],
     signatures = [
       "msabi-runtime.sig",
     ],
 )
 
 core_library(
-    name = "serial",
-    srcs = ["serial.core"],
+    name = "write_serial",
+    srcs = ["write_serial.core"],
     signatures = ["msabi-runtime.sig"],
 )
 
