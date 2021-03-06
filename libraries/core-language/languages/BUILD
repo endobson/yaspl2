@@ -55,6 +55,7 @@ yaspl_library(
     name = "resolved-types-language",
     srcs = ["resolved-types-language.yaspl"],
     deps = [
+        ":resolved-imports-language",
         "//libraries:module-name",
         "//libraries:top-level-name",
         "//libraries:types",

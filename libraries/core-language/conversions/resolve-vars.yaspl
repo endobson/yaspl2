@@ -4,6 +4,7 @@
   (core-language languages resolved-vars-language)
   {(core-language languages type-checked-language)
     {#:types
+      [Export tc:Export]
       [Expression tc:Expression]
       [FunctionDefinition tc:FunctionDefinition]
       [GlobalInfo tc:GlobalInfo]
@@ -25,6 +26,7 @@
       [define-local-variable-statement tc:define-local-variable-statement]
       [deref-expr tc:deref-expr]
       [effect-statement tc:effect-statement]
+      [export-value tc:export-value]
       [function-definition tc:function-definition]
       [global-info tc:global-info]
       [if-statement tc:if-statement]
@@ -78,7 +80,7 @@
     (global/external [v : Bytes])))
 
 (define (resolve-vars [mod : tc:Module]) : Module
-  (match-define (tc:module mod-name imports global-data functions) mod)
+  (match-define (tc:module mod-name imports exports global-data functions) mod)
 
   (match-define named-functions : (Dict Bytes NamedFunction)
     (dict-add-all
@@ -134,11 +136,18 @@
         (resolve-vars/function f initial-env))))
 
   (match-define exports : (Dict Bytes Export)
-    (dict-value-map
-      named-functions
-      (lambda ([f : NamedFunction])
-        (match-define (named-function _ closure params return-type _) f)
-        (export closure (fun-type (empty) (map tc:parameter-type params) return-type)))))
+    (dict-add-all
+      (make-dict bytes-cmp)
+      (map
+        (lambda ([ex : tc:Export]) : (Tuple2 Bytes Export)
+          (match-define (tc:export-value name) ex)
+          (case (dict-ref named-functions name)
+            [(nothing)
+             (panic (bytes-append (varargs list #"Nothing to export for: " name)))]
+            [(just (named-function _ closure params return-type _))
+             (tuple2 name (export closure
+                                  (fun-type (empty) (map tc:parameter-type params) return-type))) ]))
+        exports)))
 
 
   (match-define global-data : (List GlobalDefinition)
