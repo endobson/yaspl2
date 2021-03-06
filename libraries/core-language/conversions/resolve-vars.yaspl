@@ -26,6 +26,7 @@
       [define-local-variable-statement tc:define-local-variable-statement]
       [deref-expr tc:deref-expr]
       [effect-statement tc:effect-statement]
+      [export-type tc:export-type]
       [export-value tc:export-value]
       [function-definition tc:function-definition]
       [global-info tc:global-info]
@@ -135,18 +136,36 @@
       (lambda ([_ : Bytes] [f : NamedFunction])
         (resolve-vars/function f initial-env))))
 
-  (match-define exports : (Dict Bytes Export)
+  (match-define value-exports : (Dict Bytes ValueExport)
     (dict-add-all
       (make-dict bytes-cmp)
-      (map
-        (lambda ([ex : tc:Export]) : (Tuple2 Bytes Export)
-          (match-define (tc:export-value name) ex)
-          (case (dict-ref named-functions name)
-            [(nothing)
-             (panic (bytes-append (varargs list #"Nothing to export for: " name)))]
-            [(just (named-function _ closure params return-type _))
-             (tuple2 name (export closure
-                                  (fun-type (empty) (map tc:parameter-type params) return-type))) ]))
+      (filter-map
+        (lambda ([ex : tc:Export]) : (Maybe (Tuple2 Bytes ValueExport))
+          (case ex
+            [(tc:export-value name)
+             (case (dict-ref named-functions name)
+               [(nothing)
+                (panic (bytes-append (varargs list #"Nothing to export for: " name)))]
+               [(just (named-function _ closure params return-type _))
+                (just (tuple2 name
+                              (value-export
+                                closure
+                                (fun-type (empty) (map tc:parameter-type params)
+                                          return-type))))])]
+            [(tc:export-type _ _)
+             (nothing)]))
+        exports)))
+
+  (match-define type-exports : (Dict Bytes Type)
+    (dict-add-all
+      (make-dict bytes-cmp)
+      (filter-map
+        (lambda ([ex : tc:Export]) : (Maybe (Tuple2 Bytes Type))
+          (case ex
+            [(tc:export-type name type)
+             (just (tuple2 name type))]
+            [(tc:export-value _)
+             (nothing)]))
         exports)))
 
 
@@ -157,7 +176,7 @@
         (match-define (tc:global-info _type alignment size) g)
         (global-definition (top-level-name mod-name name) alignment size))))
 
-  (module mod-name exports global-data functions))
+  (module mod-name value-exports type-exports global-data functions))
 
 (define (resolve-vars/function [f : NamedFunction] [env : Environment])
   : FunctionDefinition
