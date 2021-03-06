@@ -11,15 +11,19 @@ def _lib_impl(ctx):
 
   toolchain = ctx.toolchains["//libraries/core-language:core_language_toolchain"]
 
+  dep_signatures = [dep[yaspl_provider].signature for dep in ctx.attr.deps]
+
   args = ctx.actions.args()
   args.add(toolchain.platform)
   args.add(output_object.path)
   args.add(output_signature.path)
   args.add(src_file.path)
   args.add_all(ctx.files.signatures)
+  args.add_all(dep_signatures)
+
 
   ctx.actions.run(
-    inputs = ctx.files.srcs + ctx.files.signatures,
+    inputs = ctx.files.srcs + ctx.files.signatures + dep_signatures,
     outputs = [output_object, output_signature],
     executable = ctx.executable._compiler,
     arguments = [args],
@@ -39,7 +43,10 @@ def _lib_impl(ctx):
     ),
     yaspl_provider(
       signature = output_signature,
-      transitive_objects = depset([output_object]),
+      transitive_objects = depset(
+        direct = [output_object],
+        transitive = [dep[yaspl_provider].transitive_objects for dep in ctx.attr.deps],
+      ),
       module_name_file = output_module_name
     )
   ]
@@ -51,11 +58,14 @@ core_library = rule(
     "srcs": attr.label_list(
       allow_files=[".core"],
       mandatory=True,
-      allow_empty=True
+      allow_empty=False,
+    ),
+    "deps": attr.label_list(
+      providers = [yaspl_provider],
     ),
     "signatures": attr.label_list(
       allow_files=[".sig"],
-      allow_empty=True
+      allow_empty=True,
     ),
     "_compiler": attr.label(
       default=Label("//libraries/core-language:compiler"),

@@ -13,12 +13,6 @@ racket_library(
     ],
 )
 
-core_library(
-    name = "examples",
-    srcs = ["examples.core"],
-    signatures = ["msabi-runtime.sig"],
-)
-
 racket_library(
     name = "fat32",
     srcs = ["fat32.rkt"],
@@ -88,6 +82,65 @@ racket_binary(
     ],
 )
 
+racket_library(
+    name = "inflate",
+    srcs = ["inflate.rkt"],
+    deps = [
+        ":util",
+    ],
+)
+
+racket_library(
+    name = "compress-disk-main",
+    srcs = ["compress-disk-main.rkt"],
+    deps = [
+        ":util",
+    ],
+)
+
+racket_binary(
+    name = "compress-disk",
+    main_module = "compress-disk-main.rkt",
+    deps = [
+        ":compress-disk-main",
+    ],
+)
+
+racket_library(
+    name = "compression-test",
+    srcs = ["compression-test.rkt"],
+    deps = [
+        ":inflate",
+    ],
+)
+
+racket_test(
+    name = "compression-test_test",
+    testonly = 0,
+    main_module = "compression-test.rkt",
+    deps = [
+        ":compression-test",
+    ],
+)
+
+# Actual OS Code
+
+core_library(
+    name = "examples",
+    srcs = ["examples.core"],
+    deps = [":serial"],
+    signatures = [
+      "msabi-runtime.sig",
+    ],
+)
+
+core_library(
+    name = "serial",
+    srcs = ["serial.core"],
+    signatures = ["msabi-runtime.sig"],
+)
+
+
 yaspl_library(
     name = "msabi",
     srcs = ["msabi.yaspl"],
@@ -149,46 +202,6 @@ yaspl_link(
     ],
 )
 
-racket_library(
-    name = "inflate",
-    srcs = ["inflate.rkt"],
-    deps = [
-        ":util",
-    ],
-)
-
-racket_library(
-    name = "compress-disk-main",
-    srcs = ["compress-disk-main.rkt"],
-    deps = [
-        ":util",
-    ],
-)
-
-racket_binary(
-    name = "compress-disk",
-    main_module = "compress-disk-main.rkt",
-    deps = [
-        ":compress-disk-main",
-    ],
-)
-
-racket_library(
-    name = "compression-test",
-    srcs = ["compression-test.rkt"],
-    deps = [
-        ":inflate",
-    ],
-)
-
-racket_test(
-    name = "compression-test_test",
-    testonly = 0,
-    main_module = "compression-test.rkt",
-    deps = [
-        ":compression-test",
-    ],
-)
 
 test_suite(
     name = "package_tests",
