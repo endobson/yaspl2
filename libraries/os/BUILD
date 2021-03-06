@@ -1,6 +1,6 @@
 load("@minimal_racket//:racket.bzl", "racket_binary", "racket_library", "racket_test")
 load("//libraries/core-language:core-language.bzl", "core_library")
-load("//libraries:yaspl.bzl", "yaspl_binary", "yaspl_library")
+load("//libraries:yaspl.bzl", "yaspl_binary", "yaspl_library", "yaspl_link")
 
 package(
     default_visibility = ["//visibility:public"],
@@ -138,17 +138,15 @@ genrule(
     tools = [":gen-msabi"],
 )
 
-genrule(
-    name = "gen-kernel",
-    srcs = [
-        ":examples",
+yaspl_link(
+    name = "kernel",
+    objects = [
         ":msabi-runtime.o",
     ],
-    outs = ["kernel.efi"],
-    cmd = "$(location //libraries:linker) $(YASPL_PLATFORM) $@ " +
-          "$(RULEDIR)/examples.o $(RULEDIR)/msabi-runtime.o",
-    toolchains = ["//libraries/yaspl:make_variables"],
-    tools = ["//libraries:linker"],
+    output = "kernel.efi",
+    deps = [
+        ":examples",
+    ],
 )
 
 racket_library(

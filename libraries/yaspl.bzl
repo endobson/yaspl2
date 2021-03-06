@@ -127,6 +127,34 @@ def _bin_impl(ctx):
     ),
   ]
 
+def _link_impl(ctx):
+  toolchain = ctx.toolchains["//libraries/yaspl:yaspl_toolchain"]
+
+  input_objects = depset(
+    direct = [obj for obj in ctx.files.objects],
+    transitive = [dep[yaspl_provider].transitive_objects for dep in ctx.attr.deps],
+  )
+
+  args = ctx.actions.args()
+  args.add(toolchain.platform)
+  args.add(ctx.outputs.output)
+  args.add_all(input_objects)
+
+  ctx.actions.run(
+    inputs = input_objects,
+    tools = [ctx.executable._linker],
+    outputs = [ctx.outputs.output],
+    mnemonic = "YasplLink",
+    executable = ctx.executable._linker,
+    arguments = [args],
+  )
+  return [
+    DefaultInfo(
+      files = depset([ctx.outputs.output])
+    ),
+  ]
+
+
 _yaspl_src_file_extensions = [".yaspl"]
 
 _bootstrap_library_compiler = attr.label(
@@ -201,6 +229,21 @@ yaspl_srcs = rule(
       providers = [yaspl_src_provider],
     )
   },
+)
+
+yaspl_link = rule(
+  implementation = _link_impl,
+  attrs = {
+    "output": attr.output(),
+    "deps": attr.label_list(
+      providers = [yaspl_provider],
+    ),
+    "objects": attr.label_list(
+      allow_files = [".o"],
+    ),
+    "_linker": _bootstrap_linker,
+  },
+  toolchains = ["//libraries/yaspl:yaspl_toolchain"],
 )
 
 def _yaspl_toolchain_impl(ctx):
