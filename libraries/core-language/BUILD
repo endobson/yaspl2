@@ -1,6 +1,7 @@
 load(
     "//libraries:yaspl.bzl",
     "yaspl_binary",
+    "yaspl_bootstrap_library",
     "yaspl_library",
     "yaspl_test",
 )
@@ -188,7 +189,7 @@ yaspl_library(
     ],
 )
 
-yaspl_library(
+yaspl_bootstrap_library(
     name = "struct-info",
     srcs = ["struct-info.yaspl"],
     deps = [

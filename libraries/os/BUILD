@@ -128,10 +128,10 @@ racket_test(
 core_library(
     name = "examples",
     srcs = ["examples.core"],
-    deps = [":write_serial"],
     signatures = [
-      "msabi-runtime.sig",
+        "msabi-runtime.sig",
     ],
+    deps = [":write_serial"],
 )
 
 core_library(
@@ -139,7 +139,6 @@ core_library(
     srcs = ["write_serial.core"],
     signatures = ["msabi-runtime.sig"],
 )
-
 
 yaspl_library(
     name = "msabi",
@@ -201,7 +200,6 @@ yaspl_link(
         ":examples",
     ],
 )
-
 
 test_suite(
     name = "package_tests",

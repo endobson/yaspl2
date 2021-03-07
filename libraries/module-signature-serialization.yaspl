@@ -1,6 +1,7 @@
 #:module (module-signature-serialization)
 #:import {
   (bytes)
+  (core-language struct-info)
   (data lifted-primitives)
   (data source-location)
   (dict)
@@ -14,6 +15,7 @@
   (sexp-parser)
   (sexp-printer)
   (top-level-name)
+  (tuples)
   (types)
   (variant-info)
 }
@@ -45,9 +47,13 @@
                                             (variant-destruction-info->sexp info)))]))))
            (node/p (dict-map type-bindings
                              (lambda ([name : Bytes] [sig : TypeSignature])
-                               (match-define (type-signature type) sig)
-                               (node/p (varargs list (bytes-sexp/p name)
-                                                     (type->sexp type))))))
+                               (match-define (type-signature type struct-info) sig)
+                               (node/p (varargs list
+                                         (bytes-sexp/p name)
+                                         (type->sexp type)
+                                         (case struct-info
+                                           [(nothing) (boolean-sexp/p #f)]
+                                           [(just info) (struct-info->sexp info)]))))))
            (node/p (dict-map static-bindings
                              (lambda ([name : Bytes] [sig : StaticSignature])
                                (case sig
@@ -122,6 +128,22 @@
   (match-define (lifted-int v) l)
   (number-sexp/p v))
 
+(define (struct-info->sexp [info : StructInfo]) : Sexp/P
+  (match-define (struct-info (struct-destruction-info fields) size) info)
+  (node/p
+    (varargs list
+      (node/p
+        (dict-map
+          fields
+          (lambda ([name : Bytes] [s : StructField])
+            (match-define (struct-field offset type) s)
+            (node/p
+              (varargs list
+                (bytes-sexp/p name)
+                (number-sexp/p offset)
+                (type->sexp type))))))
+      (number-sexp/p size))))
+
 (define (sexp->trivial-closure [s : Sexp]) : (Either Bytes (Maybe TopLevelName))
   (case s
     [(boolean-sexp _ _) (right (nothing))]
@@ -155,14 +177,39 @@
   : (Either Bytes (Dict Bytes TypeSignature))
   (case type-exports
     [(empty) (right acc)]
-    [(cons (node (cons (bytes-sexp k _) (cons type (empty))) _) type-exports)
+    [(cons (node (cons (bytes-sexp k _) (cons type (cons struct-info (empty)))) _) type-exports)
      (case (sexp->type type)
        [(just type)
-        (type-exports->dict type-exports (dict-add acc k (type-signature type)))]
+        (case (sexp->maybe-struct-info struct-info)
+          [(right maybe-struct-info)
+           (type-exports->dict type-exports (dict-add acc k (type-signature type maybe-struct-info)))]
+          [(left v)
+           (left v)])]
        [(nothing)
         (left #"Bad type-exports")])]
     [_
      (left #"Bad type-exports")]))
+
+(define (sexp->maybe-struct-info [sexp : Sexp]) : (Either Bytes (Maybe StructInfo))
+  (case sexp
+    [(boolean-sexp _ _) (right (nothing))]
+    [(node (cons (node fields _) (cons (number-sexp size _) (empty))) _)
+     (case (extract-rights (map sexp->struct-field-entry fields))
+       [(left v) (left v)]
+       [(right entries)
+        (match-define fields : (Dict Bytes StructField)
+          (dict-add-all (make-dict bytes-cmp) entries))
+        (right (just (struct-info (struct-destruction-info fields) size)))])]
+    [_ (left #"Bad struct info")]))
+
+(define (sexp->struct-field-entry [sexp : Sexp]) : (Either Bytes (Tuple2 Bytes StructField))
+  (case sexp
+    [(node (cons (bytes-sexp name _) (cons (number-sexp offset _) (cons type (empty)))) _)
+     (case (sexp->type type)
+       [(nothing) (left #"Bad struct field entry")]
+       [(just type)
+        (right (tuple2 name (struct-field offset type)))])]
+    [_ (left #"Bad struct field entry")]))
 
 (define (parse-type-var-sexp [s : Sexp]) : (Either Bytes Bytes)
   (case s

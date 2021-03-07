@@ -26,6 +26,7 @@ yaspl_library(
     deps = [
         ":resolved-vars-language",
         "//libraries:module-name",
+        "//libraries:module-signature",
         "//libraries:top-level-name",
         "//libraries:types",
         "//libraries/core-language:sized-types",
@@ -71,6 +72,7 @@ yaspl_library(
     srcs = ["resolved-vars-language.yaspl"],
     deps = [
         "//libraries:module-name",
+        "//libraries:module-signature",
         "//libraries:top-level-name",
         "//libraries:types",
         "//libraries/core-language:sized-types",
@@ -100,6 +102,7 @@ yaspl_library(
     deps = [
         ":processed-structs-language",
         "//libraries:module-name",
+        "//libraries:module-signature",
         "//libraries:types",
         "//libraries/core-language:sized-types",
         "//libraries/core-language:struct-info",

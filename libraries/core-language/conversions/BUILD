@@ -110,6 +110,7 @@ yaspl_library(
     srcs = ["resolve-vars.yaspl"],
     deps = [
         "//libraries:module-name",
+        "//libraries:module-signature",
         "//libraries:top-level-name",
         "//libraries:types",
         "//libraries/core-language/languages:resolved-vars-language",
@@ -127,6 +128,7 @@ yaspl_library(
     name = "type-check",
     srcs = ["type-check.yaspl"],
     deps = [
+        "//libraries:module-signature",
         "//libraries:prim-types",
         "//libraries:sexp-printer",
         "//libraries:types",

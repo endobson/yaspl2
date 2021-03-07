@@ -485,6 +485,7 @@ yaspl_bootstrap_library(
         ":top-level-name",
         ":types",
         ":variant-info",
+        "//libraries/core-language:struct-info",
         "//libraries/data:dict",
         "//libraries/data:list",
         "//libraries/data:maybe",
@@ -502,6 +503,7 @@ yaspl_bootstrap_library(
         ":top-level-name",
         ":types",
         ":variant-info",
+        "//libraries/core-language:struct-info",
         "//libraries/data:bytes",
         "//libraries/data:dict",
         "//libraries/data:either",
@@ -509,6 +511,7 @@ yaspl_bootstrap_library(
         "//libraries/data:list",
         "//libraries/data:maybe",
         "//libraries/data:source-location",
+        "//libraries/data:tuples",
         "//libraries/formats:sexp",
     ],
 )
@@ -525,6 +528,7 @@ yaspl_test(
         ":types",
         ":variant-info",
         ":yunit",
+        "//libraries/core-language:struct-info",
         "//libraries/data:bytes",
         "//libraries/data:dict",
         "//libraries/data:either",
@@ -787,6 +791,7 @@ yaspl_bootstrap_library(
         "//libraries/data:bytes",
         "//libraries/data:dict",
         "//libraries/data:list",
+        "//libraries/data:maybe",
     ],
 )
 
