@@ -48,39 +48,59 @@
     [(right sigs)
 
 
-     (match-define imports (resolve-imports/imports definitions sigs))
+     (match-define (tuple2 value-imports type-imports)
+       (resolve-imports/imports definitions sigs))
      (match-define exports (split-imports/exports definitions))
      (match-define functions (split-imports/functions definitions))
      (match-define structs (split-imports/structs definitions))
      (match-define globals (split-imports/globals definitions))
 
-     (right (module mod-name imports exports structs globals functions))]))
+     (right (module mod-name value-imports type-imports exports structs globals functions))]))
 
 (define (resolve-imports/imports
           [definitions : (List s:Definition)]
           [sigs : (IndexedSet ModuleSignature ModName)])
-  : (Dict Bytes Import)
-  (dict-add-all
-    (make-dict bytes-cmp)
-    (append*
-      (map
-        (lambda ([def : s:Definition]) : (List (Tuple2 Bytes Import))
+  : (Tuple2 (Dict Bytes Import) (Dict Bytes TypeSignature))
+
+  (tuple2
+    (dict-add-all
+      (make-dict bytes-cmp)
+      (append*
+        (map
+          (lambda ([def : s:Definition]) : (List (Tuple2 Bytes Import))
+            (case def
+              [(s:external-definition name ty)
+               (varargs list (tuple2 name (import-external name ty)))]
+              [(s:global-definition _ _ _) (empty)]
+              [(s:import-module mod-name)
+               (case (indexed-set-ref sigs mod-name)
+                 [(nothing) (panic #"Bad mod name")]
+                 [(just (module-signature _ values _ _ _ _))
+                  (dict-map
+                    values
+                    (lambda ([v : Bytes] [sig : ValueSignature])
+                      (tuple2 v (import-value sig))))])]
+              [(s:struct-definition _ _) (empty)]
+              [(s:export-value-definition _) (empty)]
+              [(s:export-type-definition _) (empty)]
+              [(s:function-definition _ _ _ _) (empty)]))
+          definitions)))
+    (merge-dicts*
+      (make-dict bytes-cmp)
+      (filter-map
+        (lambda ([def : s:Definition]) : (Maybe (Dict Bytes TypeSignature))
           (case def
-            [(s:external-definition name ty)
-             (varargs list (tuple2 name (import-external name ty)))]
-            [(s:global-definition _ _ _) (empty)]
+            [(s:external-definition _ _) (nothing)]
+            [(s:global-definition _ _ _) (nothing)]
             [(s:import-module mod-name)
              (case (indexed-set-ref sigs mod-name)
                [(nothing) (panic #"Bad mod name")]
-               [(just (module-signature _ values _ _ _ _))
-                (dict-map
-                  values
-                  (lambda ([v : Bytes] [sig : ValueSignature])
-                    (tuple2 v (import-value sig))))])]
-            [(s:struct-definition _ _) (empty)]
-            [(s:export-value-definition _) (empty)]
-            [(s:export-type-definition _) (empty)]
-            [(s:function-definition _ _ _ _) (empty)]))
+               [(just (module-signature _ _ _ types _ _))
+                (just types)])]
+            [(s:struct-definition _ _) (nothing)]
+            [(s:export-value-definition _) (nothing)]
+            [(s:export-type-definition _) (nothing)]
+            [(s:function-definition _ _ _ _) (nothing)]))
         definitions))))
 
 

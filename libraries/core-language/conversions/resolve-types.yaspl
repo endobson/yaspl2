@@ -53,6 +53,11 @@
     }
   }
   (core-language languages resolved-types-language)
+  {(core-language struct-info)
+    {#:types
+      StructInfo
+    }
+  }
   (dict)
   (either)
   (list)
@@ -73,7 +78,7 @@
       [types : (Dict Bytes Type)])))
 
 (define (resolve-types [mod : ri:Module]) : (Either Bytes Module)
-  (match-define (ri:module mod-name imports exports structs globals functions) mod)
+  (match-define (ri:module mod-name value-imports type-imports exports structs globals functions) mod)
 
   (match-define struct-types : (Dict Bytes Type)
     (dict-add-all
@@ -84,21 +89,46 @@
           (tuple2 name (abstract-type mod-name name (empty) (memory-kind))))
         structs)))
 
-  (match-define env : Environment
-    (environment
-      (dict-add-all
-        struct-types
-        (varargs list
-          (tuple2 #"U8" (u8-type))
-          (tuple2 #"U16" (u16-type))
-          (tuple2 #"U32" (u32-type))
-          (tuple2 #"U64" (u64-type))
-          (tuple2 #"Boolean" (boolean-type))
-          (tuple2 #"Bytes" (bytes-type))))))
+  (match-define types
+    (merge-dicts
+      (dict-value-map
+        type-imports
+        (lambda ([sig : TypeSignature])
+          (match-define (type-signature t _) sig)
+          t))
+      struct-types))
 
-  (case (resolve-types/imports imports env)
+  ;; TODO fix this hack.
+  (match-define types
+    (dict-add-all
+      types
+      (varargs list
+        (tuple2 #"U8" (u8-type))
+        (tuple2 #"U16" (u16-type))
+        (tuple2 #"U32" (u32-type))
+        (tuple2 #"U64" (u64-type))
+        (tuple2 #"Boolean" (boolean-type))
+        (tuple2 #"Bytes" (bytes-type)))))
+
+
+  (match-define struct-imports : (Dict Type StructInfo)
+    (dict-add-all
+      (make-dict type-cmp)
+      (dict-values
+        (dict-filter-map
+          type-imports
+          (lambda ([_name : Bytes] [sig : TypeSignature]) : (Maybe (Tuple2 Type StructInfo))
+            (match-define (type-signature t struct-info) sig)
+            (case struct-info
+              [(nothing) (nothing)]
+              [(just struct-info) (just (tuple2 t struct-info))]))))))
+
+  (match-define env : Environment
+    (environment types))
+
+  (case (resolve-types/imports value-imports env)
     [(left v) (left v)]
-    [(right imports)
+    [(right value-imports)
      (case (map/failure/env resolve-types/export exports env)
        [(left v) (left v)]
        [(right exports)
@@ -111,7 +141,7 @@
               (case (map/failure/env resolve-types/function functions env)
                 [(left v) (left v)]
                 [(right functions)
-                 (right (module mod-name imports exports structs globals functions))])])])])]))
+                 (right (module mod-name value-imports struct-imports exports structs globals functions))])])])])]))
 
 (define (resolve-types/imports [is : (Dict Bytes ri:Import)] [env : Environment])
   : (Either Bytes (Dict Bytes Import))

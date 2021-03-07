@@ -94,6 +94,7 @@ yaspl_library(
         "//libraries:module-signature",
         "//libraries:prim-types",
         "//libraries:types",
+        "//libraries/core-language:struct-info",
         "//libraries/core-language/languages:resolved-imports-language",
         "//libraries/core-language/languages:resolved-types-language",
         "//libraries/data:bytes",
