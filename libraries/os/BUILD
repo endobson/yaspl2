@@ -131,6 +131,18 @@ core_library(
     signatures = [
         "msabi-runtime.sig",
     ],
+    deps = [
+        ":scheduler",
+        ":write_serial",
+    ],
+)
+
+core_library(
+    name = "scheduler",
+    srcs = ["scheduler.core"],
+    signatures = [
+        "msabi-runtime.sig",
+    ],
     deps = [":write_serial"],
 )
 
@@ -154,7 +166,6 @@ yaspl_library(
         "//libraries/data:dict",
         "//libraries/data:join-list",
         "//libraries/data:list",
-        "//libraries/data:maybe",
         "//libraries/data:tuples",
         "//libraries/yaspl:assembly-function",
         "//libraries/yaspl:x86-64-assembly",
