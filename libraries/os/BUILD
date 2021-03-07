@@ -126,6 +126,18 @@ racket_test(
 # Actual OS Code
 
 core_library(
+    name = "efi",
+    srcs = ["efi.core"],
+    signatures = [
+        "msabi-runtime.sig",
+    ],
+    deps = [
+        ":write_serial",
+    ],
+)
+
+
+core_library(
     name = "examples",
     srcs = ["examples.core"],
     signatures = [
@@ -133,6 +145,7 @@ core_library(
     ],
     deps = [
         ":scheduler",
+        ":efi",
         ":read_serial",
         ":write_serial",
     ],
