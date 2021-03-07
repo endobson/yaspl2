@@ -133,7 +133,19 @@ core_library(
     ],
     deps = [
         ":scheduler",
+        ":read_serial",
         ":write_serial",
+    ],
+)
+
+core_library(
+    name = "read_serial",
+    srcs = ["read_serial.core"],
+    signatures = [
+        "msabi-runtime.sig",
+    ],
+    deps = [
+        ":scheduler",
     ],
 )
 
