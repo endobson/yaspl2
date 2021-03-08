@@ -667,25 +667,12 @@ U64 sendUdpPacket(U16 dest_port) {
 
   U64 i := index % as<U64>(*net_queue_size);
   VirtioNetHeader* virtio_header := as<VirtioNetHeader*>(net_send_buffers->&[i]);
-
-  U64 j := 0;
-  while (j < 10) {
-    *(virtio_header->&header)->&[i] <- as<U8>(0);
-    j := j + 1;
-  }
+  <> memset(virtio_header->&header, as<U8>(0), 10);
 
   EthernetHeader* ethernet_header := as<EthernetHeader*>(virtio_header->&data);
-  *((ethernet_header->&destination_mac)->&octets)->&[0] <- as<U8>(#x52);
-  *((ethernet_header->&destination_mac)->&octets)->&[1] <- as<U8>(#x55);
-  *((ethernet_header->&destination_mac)->&octets)->&[2] <- as<U8>(#x0a);
-  *((ethernet_header->&destination_mac)->&octets)->&[3] <- as<U8>(#x00);
-  *((ethernet_header->&destination_mac)->&octets)->&[4] <- as<U8>(#x02);
-  *((ethernet_header->&destination_mac)->&octets)->&[5] <- as<U8>(#x02);
-
+  <> copy_mac_address(gateway_mac_address, ethernet_header->&destination_mac);
   <> copy_mac_address(net_mac_address, ethernet_header->&source_mac);
-
-  *(ethernet_header->&ethertype)->&byte0 <- as<U8>(#x08);
-  *(ethernet_header->&ethertype)->&byte1 <- as<U8>(#x00);
+  <> le_to_be_u16(as<U16>(#x0800), ethernet_header->&ethertype);
 
   Bytes response := #"abcdefghijklmnop\n";
   U64 response_length := 17;
@@ -697,32 +684,21 @@ U64 sendUdpPacket(U16 dest_port) {
   U64 udp_header_size := 8;
   U64 ip_header_size := 20;
   U64 total_length := ip_header_size + udp_header_size + response_length;
-  *(ip_header->&total_length)->&byte0 <- as<U8>((total_length >> 8) & #xff);
-  *(ip_header->&total_length)->&byte1 <- as<U8>((total_length >> 0) & #xff);
-  *(ip_header->&flags_fragment_offset)->&byte0 <- as<U8>(0);
-  *(ip_header->&flags_fragment_offset)->&byte1 <- as<U8>(0);
+  <> le_to_be_u16(as<U16>(total_length), ip_header->&total_length);
+  <> le_to_be_u16(as<U16>(0), ip_header->&flags_fragment_offset);
   *ip_header->&time_to_live <- as<U8>(64);
   *ip_header->&protocol <- as<U8>(17); // UDP
-  *(ip_header->&header_checksum)->&byte0 <- as<U8>(#x62);
-  *(ip_header->&header_checksum)->&byte1 <- as<U8>(#xb0);
+  <> le_to_be_u16(as<U16>(#x62b0), ip_header->&header_checksum);
   <> copy_ip_address(net_ip_address, ip_header->&source_ip);
-  *((ip_header->&destination_ip)->&octets)->&[0] <- as<U8>(10);
-  *((ip_header->&destination_ip)->&octets)->&[1] <- as<U8>(0);
-  *((ip_header->&destination_ip)->&octets)->&[2] <- as<U8>(2);
-  *((ip_header->&destination_ip)->&octets)->&[3] <- as<U8>(2);
+  <> copy_ip_address(gateway_ip_address, ip_header->&destination_ip);
 
   UdpHeader* udp_header := as<UdpHeader*>(ip_header->&data);
-  *(udp_header->&source_port)->&byte0 <- as<U8>(0);
-  *(udp_header->&source_port)->&byte1 <- as<U8>(7);
-  *(udp_header->&destination_port)->&byte0 <- as<U8>((as<U64>(dest_port) >> 8) & #xff);
-  *(udp_header->&destination_port)->&byte1 <- as<U8>((as<U64>(dest_port) >> 0) & #xff);
-  U64 udp_packet_length := udp_header_size + response_length;
-  *(udp_header->&length)->&byte0 <- as<U8>((udp_packet_length >> 8) & #xff);
-  *(udp_header->&length)->&byte1 <- as<U8>((udp_packet_length >> 0) & #xff);
-  *(udp_header->&checksum)->&byte0 <- as<U8>(0);
-  *(udp_header->&checksum)->&byte1 <- as<U8>(0);
+  <> le_to_be_u16(as<U16>(#x0007), udp_header->&source_port);
+  <> le_to_be_u16(as<U16>(dest_port), udp_header->&destination_port);
+  <> le_to_be_u16(as<U16>(udp_header_size + response_length), udp_header->&length);
+  <> le_to_be_u16(as<U16>(0), udp_header->&checksum);
 
-  j := 0;
+  U64 j := 0;
   while (j < response_length) {
     *as<U8[]*>(udp_header->&data)->&[j] <- (as<U8[]*>(response_raw->&data))->[j];
     j := j + 1;
@@ -730,12 +706,13 @@ U64 sendUdpPacket(U16 dest_port) {
 
   U64 ethernet_header_size := 14;
   U64 virtio_net_header_size := 10;
+  U64 length :=
+    (response_length + udp_header_size + ip_header_size + ethernet_header_size +
+     virtio_net_header_size);
 
 
   *((*net_send_buffer_infos)->&[i])->&address <- as<U64>(net_send_buffers->&[i]);
-  *((*net_send_buffer_infos)->&[i])->&length <-
-    as<U32>(response_length + udp_header_size + ip_header_size + ethernet_header_size +
-            virtio_net_header_size);
+  *((*net_send_buffer_infos)->&[i])->&length <- as<U32>(length);
   *((*net_send_buffer_infos)->&[i])->&flags <- as<U16>(0);
   *((*net_send_buffer_infos)->&[i])->&next <- as<U16>(0);
 
@@ -744,7 +721,6 @@ U64 sendUdpPacket(U16 dest_port) {
 
   // Tell the device that queue 1 (send) has a new buffer.
   <> outw(as<U16>(1), queue_notify_port);
-
 
   <> disable_interrupts();
   Boolean msg_recieved := 1 == 0;
@@ -758,11 +734,8 @@ U64 sendUdpPacket(U16 dest_port) {
   }
   <> enable_interrupts();
 
-
-
   return 0;
 }
-
 
 #:define_function
 U64 sendArpPacket() {
@@ -776,55 +749,31 @@ U64 sendArpPacket() {
 
 
   VirtioNetHeader* virtio_header := as<VirtioNetHeader*>(net_send_buffers->&[i]);
-
-  U64 j := 0;
-  while (j < 10) {
-    *(virtio_header->&header)->&[i] <- as<U8>(0);
-    j := j + 1;
-  }
+  <> memset(virtio_header->&header, as<U8>(0), 10);
 
   EthernetHeader* ethernet_header := as<EthernetHeader*>(virtio_header->&data);
-  *((ethernet_header->&destination_mac)->&octets)->&[0] <- as<U8>(#x52);
-  *((ethernet_header->&destination_mac)->&octets)->&[1] <- as<U8>(#x55);
-  *((ethernet_header->&destination_mac)->&octets)->&[2] <- as<U8>(#x0a);
-  *((ethernet_header->&destination_mac)->&octets)->&[3] <- as<U8>(#x00);
-  *((ethernet_header->&destination_mac)->&octets)->&[4] <- as<U8>(#x02);
-  *((ethernet_header->&destination_mac)->&octets)->&[5] <- as<U8>(#x02);
-
+  <> copy_mac_address(gateway_mac_address, ethernet_header->&destination_mac);
   <> copy_mac_address(net_mac_address, ethernet_header->&source_mac);
-
-  *(ethernet_header->&ethertype)->&byte0 <- as<U8>(#x08);
-  *(ethernet_header->&ethertype)->&byte1 <- as<U8>(#x06);
+  <> le_to_be_u16(as<U16>(#x0806), ethernet_header->&ethertype);
 
   ArpPacket* arp_packet := as<ArpPacket*>(ethernet_header->&data);
 
-  *(arp_packet->&hardware_type)->&byte0 <- as<U8>(#x00);
-  *(arp_packet->&hardware_type)->&byte1 <- as<U8>(#x01);
-  *(arp_packet->&protocol_type)->&byte0 <- as<U8>(#x08);
-  *(arp_packet->&protocol_type)->&byte1 <- as<U8>(#x00);
+  <> le_to_be_u16(as<U16>(#x0001), arp_packet->&hardware_type);
+  <> le_to_be_u16(as<U16>(#x0800), arp_packet->&protocol_type);
   *arp_packet->&hardware_length <- as<U8>(6);
   *arp_packet->&protocol_length <- as<U8>(4);
-  *(arp_packet->&operation_type)->&byte0 <- as<U8>(#x00);
-  *(arp_packet->&operation_type)->&byte1 <- as<U8>(#x02);
+  <> le_to_be_u16(as<U16>(#x0001), arp_packet->&operation_type);
 
   <> copy_mac_address(net_mac_address, arp_packet->&sender_hardware_address);
   <> copy_ip_address(net_ip_address, arp_packet->&sender_protocol_address);
 
-  *((arp_packet->&target_hardware_address)->&octets)->&[0] <- as<U8>(#x52);
-  *((arp_packet->&target_hardware_address)->&octets)->&[1] <- as<U8>(#x55);
-  *((arp_packet->&target_hardware_address)->&octets)->&[2] <- as<U8>(#x0a);
-  *((arp_packet->&target_hardware_address)->&octets)->&[3] <- as<U8>(#x00);
-  *((arp_packet->&target_hardware_address)->&octets)->&[4] <- as<U8>(#x02);
-  *((arp_packet->&target_hardware_address)->&octets)->&[5] <- as<U8>(#x02);
-  *((arp_packet->&target_protocol_address)->&octets)->&[0] <- as<U8>(#x0a);
-  *((arp_packet->&target_protocol_address)->&octets)->&[1] <- as<U8>(#x00);
-  *((arp_packet->&target_protocol_address)->&octets)->&[2] <- as<U8>(#x02);
-  *((arp_packet->&target_protocol_address)->&octets)->&[3] <- as<U8>(#x02);
-
+  <> copy_mac_address(zero_mac_address, arp_packet->&target_hardware_address);
+  <> copy_ip_address(gateway_ip_address, arp_packet->&target_protocol_address);
 
   U64 arp_packet_size := 28;
   U64 ethernet_header_size := 14;
   U64 virtio_net_header_size := 10;
+  U64 length := (arp_packet_size + ethernet_header_size + virtio_net_header_size);
 
   *((*net_send_buffer_infos)->&[i])->&address <- as<U64>(net_send_buffers->&[i]);
   *((*net_send_buffer_infos)->&[i])->&length <-
@@ -859,6 +808,14 @@ U16 be_u16_to_le(BigEndianU16* be) {
   return as<U16>((as<U64>(be->byte0) << 8) |
                  (as<U64>(be->byte1) << 0));
 }
+
+#:define_function
+U64 le_to_be_u16(U16 le, BigEndianU16* be) {
+  *be->&byte0 <- as<U8>((as<U64>(le) >> 8) & #xff);
+  *be->&byte1 <- as<U8>((as<U64>(le) >> 0) & #xff);
+  return 0;
+}
+
 
 #:define_function
 U64 waitNetworkInterrupt() {
@@ -926,9 +883,8 @@ U64 waitNetworkInterrupt() {
     ArpPacket* arp_packet := as<ArpPacket*>(ethernet_header->&data);
     remaining_packet_length := remaining_packet_length - arp_packet_size;
 
-    if (remaining_packet_length != 0) {
-      <> panic();
-    }
+    // Remaining packet length may still be positive because some implementations send long ARP
+    // packets.
 
     if (as<U64>(be_u16_to_le(arp_packet->&hardware_type)) != 1) {
       <> panic_msg(#"Arp Packet has bad hardware type");
@@ -943,8 +899,11 @@ U64 waitNetworkInterrupt() {
       <> panic_msg(#"Arp Packet has bad protocol length");
     }
 
+    if ((as<U64>((arp_packet->&operation_type)->byte0) == 0) &&
+        (as<U64>((arp_packet->&operation_type)->byte1) == 1)) {
+      <> sendArpPacket();
+    }
 
-    <> sendArpPacket();
   } else if ((as<U64>((ethernet_header->&ethertype)->byte0) == #x08) &&
              (as<U64>((ethernet_header->&ethertype)->byte1) == #x00)) {
     <> write_bytes(#"IPv4 packet\r\n");
@@ -1271,7 +1230,7 @@ U64 write_mac_address(MacAddress* addr) {
   <> write_bytes(#":");
   <> write_hex_byte((addr->&octets)->[5]);
   return 0;
-} 
+}
 
 #:define_function
 U64 copy_ip_address(IpAddress* src, IpAddress* dest) {
