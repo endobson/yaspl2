@@ -262,6 +262,13 @@ U64 initializeNetwork() {
   U16 queue_select_port    := as<U16>(as<U64>(*net_base_port) + #x0e);
   U16 device_status_port   := as<U16>(as<U64>(*net_base_port) + #x12);
 
+  U16 mac1_port   := as<U16>(as<U64>(*net_base_port) + #x14);
+  U16 mac2_port   := as<U16>(as<U64>(*net_base_port) + #x15);
+  U16 mac3_port   := as<U16>(as<U64>(*net_base_port) + #x16);
+  U16 mac4_port   := as<U16>(as<U64>(*net_base_port) + #x17);
+  U16 mac5_port   := as<U16>(as<U64>(*net_base_port) + #x18);
+  U16 mac6_port   := as<U16>(as<U64>(*net_base_port) + #x19);
+
   U64 device_acknowledged := #x01;
   U64 device_driver       := #x02;
   U64 device_features_ok  := #x08;
@@ -392,6 +399,37 @@ U64 initializeNetwork() {
     *net_recv_used_index      <- (net_recv_queue_small->&used)->&index;
     *net_recv_used_ring       <- (net_recv_queue_small->&used)->&ring;
   }
+
+  *((net_mac_address->&octets)->&[0]) <- inb(mac1_port);
+  *((net_mac_address->&octets)->&[1]) <- inb(mac2_port);
+  *((net_mac_address->&octets)->&[2]) <- inb(mac3_port);
+  *((net_mac_address->&octets)->&[3]) <- inb(mac4_port);
+  *((net_mac_address->&octets)->&[4]) <- inb(mac5_port);
+  *((net_mac_address->&octets)->&[5]) <- inb(mac6_port);
+
+  <> write_bytes(#"MAC address: ");
+  <> write_mac_address(net_mac_address);
+  <> write_bytes(#"\r\n");
+
+  if ((as<U64>((net_mac_address->&octets)->[0]) == #x52) &&
+      (as<U64>((net_mac_address->&octets)->[1]) == #x54)) {
+    // QEMU case
+    *((net_ip_address->&octets)->&[0]) <- as<U8>(10);
+    *((net_ip_address->&octets)->&[1]) <- as<U8>(0);
+    *((net_ip_address->&octets)->&[2]) <- as<U8>(2);
+    *((net_ip_address->&octets)->&[3]) <- as<U8>(15);
+  } else {
+    // GCE case
+    *((net_ip_address->&octets)->&[0]) <- (net_mac_address->&octets)->[2];
+    *((net_ip_address->&octets)->&[1]) <- (net_mac_address->&octets)->[3];
+    *((net_ip_address->&octets)->&[2]) <- (net_mac_address->&octets)->[4];
+    *((net_ip_address->&octets)->&[3]) <- (net_mac_address->&octets)->[5];
+  }
+
+  <> write_bytes(#"IP address: ");
+  <> write_ip_address(net_ip_address);
+  <> write_bytes(#"\r\n");
+
   <> write_bytes(#"Network code done\r\n");
   return 0;
 }
@@ -535,6 +573,8 @@ U64 main(U64 image_handle, EfiSystemTable* st) {
 #:define_global #:alignment_bits 12 VirtioBuffer[4096] net_send_buffers
 #:define_global #:alignment_bits 12 VirtioBuffer[4096] net_recv_buffers
 
+#:define_global MacAddress net_mac_address
+#:define_global IpAddress  net_ip_address
 #:define_global U16    net_base_port
 #:define_global U16    net_queue_size
 #:define_global U16*   net_send_available_index
@@ -573,12 +613,7 @@ U64 sendUdpPacket(U16 dest_port) {
   *((ethernet_header->&destination_mac)->&octets)->&[4] <- as<U8>(#x02);
   *((ethernet_header->&destination_mac)->&octets)->&[5] <- as<U8>(#x02);
 
-  *((ethernet_header->&source_mac)->&octets)->&[0] <- as<U8>(#x52);
-  *((ethernet_header->&source_mac)->&octets)->&[1] <- as<U8>(#x54);
-  *((ethernet_header->&source_mac)->&octets)->&[2] <- as<U8>(#x00);
-  *((ethernet_header->&source_mac)->&octets)->&[3] <- as<U8>(#x12);
-  *((ethernet_header->&source_mac)->&octets)->&[4] <- as<U8>(#x34);
-  *((ethernet_header->&source_mac)->&octets)->&[5] <- as<U8>(#x56);
+  <> copy_mac_address(net_mac_address, ethernet_header->&source_mac);
 
   *(ethernet_header->&ethertype)->&byte0 <- as<U8>(#x08);
   *(ethernet_header->&ethertype)->&byte1 <- as<U8>(#x00);
@@ -601,10 +636,7 @@ U64 sendUdpPacket(U16 dest_port) {
   *ip_header->&protocol <- as<U8>(17); // UDP
   *(ip_header->&header_checksum)->&byte0 <- as<U8>(#x62);
   *(ip_header->&header_checksum)->&byte1 <- as<U8>(#xb0);
-  *((ip_header->&source_ip)->&octets)->&[0] <- as<U8>(10);
-  *((ip_header->&source_ip)->&octets)->&[1] <- as<U8>(0);
-  *((ip_header->&source_ip)->&octets)->&[2] <- as<U8>(2);
-  *((ip_header->&source_ip)->&octets)->&[3] <- as<U8>(15);
+  <> copy_ip_address(net_ip_address, ip_header->&source_ip);
   *((ip_header->&destination_ip)->&octets)->&[0] <- as<U8>(10);
   *((ip_header->&destination_ip)->&octets)->&[1] <- as<U8>(0);
   *((ip_header->&destination_ip)->&octets)->&[2] <- as<U8>(2);
@@ -690,12 +722,7 @@ U64 sendArpPacket() {
   *((ethernet_header->&destination_mac)->&octets)->&[4] <- as<U8>(#x02);
   *((ethernet_header->&destination_mac)->&octets)->&[5] <- as<U8>(#x02);
 
-  *((ethernet_header->&source_mac)->&octets)->&[0] <- as<U8>(#x52);
-  *((ethernet_header->&source_mac)->&octets)->&[1] <- as<U8>(#x54);
-  *((ethernet_header->&source_mac)->&octets)->&[2] <- as<U8>(#x00);
-  *((ethernet_header->&source_mac)->&octets)->&[3] <- as<U8>(#x12);
-  *((ethernet_header->&source_mac)->&octets)->&[4] <- as<U8>(#x34);
-  *((ethernet_header->&source_mac)->&octets)->&[5] <- as<U8>(#x56);
+  <> copy_mac_address(net_mac_address, ethernet_header->&source_mac);
 
   *(ethernet_header->&ethertype)->&byte0 <- as<U8>(#x08);
   *(ethernet_header->&ethertype)->&byte1 <- as<U8>(#x06);
@@ -710,17 +737,9 @@ U64 sendArpPacket() {
   *arp_packet->&protocol_length <- as<U8>(4);
   *(arp_packet->&operation_type)->&byte0 <- as<U8>(#x00);
   *(arp_packet->&operation_type)->&byte1 <- as<U8>(#x02);
-  *((arp_packet->&sender_hardware_address)->&octets)->&[0] <- as<U8>(#x52);
-  *((arp_packet->&sender_hardware_address)->&octets)->&[1] <- as<U8>(#x54);
-  *((arp_packet->&sender_hardware_address)->&octets)->&[2] <- as<U8>(#x00);
-  *((arp_packet->&sender_hardware_address)->&octets)->&[3] <- as<U8>(#x12);
-  *((arp_packet->&sender_hardware_address)->&octets)->&[4] <- as<U8>(#x34);
-  *((arp_packet->&sender_hardware_address)->&octets)->&[5] <- as<U8>(#x56);
 
-  *((arp_packet->&sender_protocol_address)->&octets)->&[0] <- as<U8>(#x0a);
-  *((arp_packet->&sender_protocol_address)->&octets)->&[1] <- as<U8>(#x00);
-  *((arp_packet->&sender_protocol_address)->&octets)->&[2] <- as<U8>(#x02);
-  *((arp_packet->&sender_protocol_address)->&octets)->&[3] <- as<U8>(#x0f);
+  <> copy_mac_address(net_mac_address, arp_packet->&sender_hardware_address);
+  <> copy_ip_address(net_ip_address, arp_packet->&sender_protocol_address);
 
   *((arp_packet->&target_hardware_address)->&octets)->&[0] <- as<U8>(#x52);
   *((arp_packet->&target_hardware_address)->&octets)->&[1] <- as<U8>(#x55);
@@ -1183,8 +1202,27 @@ U64 write_mac_address(MacAddress* addr) {
   <> write_bytes(#":");
   <> write_hex_byte((addr->&octets)->[5]);
   return 0;
+} 
+
+#:define_function
+U64 copy_ip_address(IpAddress* src, IpAddress* dest) {
+  *(dest->&octets)->&[0] <- (src->&octets)->[0];
+  *(dest->&octets)->&[1] <- (src->&octets)->[1];
+  *(dest->&octets)->&[2] <- (src->&octets)->[2];
+  *(dest->&octets)->&[3] <- (src->&octets)->[3];
+  return 0;
 }
 
+#:define_function
+U64 copy_mac_address(MacAddress* src, MacAddress* dest) {
+  *(dest->&octets)->&[0] <- (src->&octets)->[0];
+  *(dest->&octets)->&[1] <- (src->&octets)->[1];
+  *(dest->&octets)->&[2] <- (src->&octets)->[2];
+  *(dest->&octets)->&[3] <- (src->&octets)->[3];
+  *(dest->&octets)->&[4] <- (src->&octets)->[4];
+  *(dest->&octets)->&[5] <- (src->&octets)->[5];
+  return 0;
+}
 
 #:define_function
 U64 printArpPacket(ArpPacket* arp) {
