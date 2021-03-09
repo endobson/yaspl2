@@ -44,12 +44,12 @@ prim_binary = rule(
     "_compiler": attr.label(
       default=Label("//libraries/prim-language:prim-language-compiler"),
       executable=True,
-      cfg="host",
+      cfg="exec",
     ),
     "_linker": attr.label(
       default=Label("//libraries:linker"),
       executable=True,
-      cfg="host",
+      cfg="exec",
     ),
   }
 )
@@ -92,13 +92,13 @@ prim_library = rule(
       default=Label("//prebuilt:prim_language_library_compiler"),
       executable=True,
       allow_files=True,
-      cfg="host",
+      cfg="exec",
     ),
     "_linker": attr.label(
       default=Label("//prebuilt:linker"),
       executable=True,
       allow_files=True,
-      cfg="host",
+      cfg="exec",
     ),
   }
 )

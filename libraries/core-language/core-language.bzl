@@ -71,7 +71,7 @@ core_library = rule(
       default=Label("//libraries/core-language:compiler"),
       executable=True,
       allow_files=True,
-      cfg="host",
+      cfg="exec",
     ),
   }
 )

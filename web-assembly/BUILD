@@ -9,7 +9,7 @@ genrule(
     name = "test_gen_wasm",
     outs = ["test.wasm"],
     cmd = "$(location :web-assembly-test) > $@",
-    tools = [":web-assembly-test"],
+    exec_tools = [":web-assembly-test"],
 )
 
 wasm_demo_page(

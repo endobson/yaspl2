@@ -161,21 +161,21 @@ _bootstrap_library_compiler = attr.label(
   default=Label("//prebuilt:library_compiler"),
   executable=True,
   allow_files=True,
-  cfg="host",
+  cfg="exec",
 )
 
 _bootstrap_main_stub = attr.label(
   default=Label("//prebuilt:main_stub"),
   executable=True,
   allow_files=True,
-  cfg="host",
+  cfg="exec",
 )
 
 _bootstrap_linker = attr.label(
   default=Label("//prebuilt:linker"),
   executable=True,
   allow_files=True,
-  cfg="host",
+  cfg="exec",
 )
 
 _yaspl_runtime_objects = attr.label(
