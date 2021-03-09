@@ -19,6 +19,9 @@ U64 serialTaskStart() {
     <> write_hex_byte(v);
     <> write_bytes(#"\r\n");
     *serial_counter <- as<U8>(as<U64>(*serial_counter) + 1);
+
+    // Send an arp request packet for testing
+    <> sendArpRequestPacket();
   }
 }
 
@@ -657,13 +660,7 @@ U64 main(U64 image_handle, EfiSystemTable* st) {
 U64 sendUdpPacket(U16 dest_port) {
   <> write_bytes(#"Sending Yaspl UDP Packet\r\n");
 
-  U16 isr_status_port    := as<U16>(as<U64>(*net_base_port) + #x13);
-  U16 queue_notify_port := as<U16>(as<U64>(*net_base_port) + #x10);
-
-  U64 index := as<U64>(**net_send_available_index);
-
-  U64 i := index % as<U64>(*net_queue_size);
-  VirtioNetHeader* virtio_header := as<VirtioNetHeader*>(net_send_buffers->&[i]);
+  VirtioNetHeader* virtio_header := get_send_network_packet_buffer();
   <> memset(virtio_header->&header, as<U8>(0), 10);
 
   EthernetHeader* ethernet_header := as<EthernetHeader*>(virtio_header->&data);
@@ -706,7 +703,63 @@ U64 sendUdpPacket(U16 dest_port) {
   U64 length :=
     (response_length + udp_header_size + ip_header_size + ethernet_header_size +
      virtio_net_header_size);
+  <> send_network_packet(length);
 
+  return 0;
+}
+
+#:define_function
+U64 sendArpReplyPacket() {
+  <> write_bytes(#"Sending Yaspl Arp Reply Packet\r\n");
+
+  VirtioNetHeader* virtio_header := get_send_network_packet_buffer();
+  <> memset(virtio_header->&header, as<U8>(0), 10);
+
+  EthernetHeader* ethernet_header := as<EthernetHeader*>(virtio_header->&data);
+  <> copy_mac_address(gateway_mac_address, ethernet_header->&destination_mac);
+  <> copy_mac_address(net_mac_address, ethernet_header->&source_mac);
+  <> le_to_be_u16(as<U16>(#x0806), ethernet_header->&ethertype);
+
+  ArpPacket* arp_packet := as<ArpPacket*>(ethernet_header->&data);
+
+  <> le_to_be_u16(as<U16>(#x0001), arp_packet->&hardware_type);
+  <> le_to_be_u16(as<U16>(#x0800), arp_packet->&protocol_type);
+  *arp_packet->&hardware_length <- as<U8>(6);
+  *arp_packet->&protocol_length <- as<U8>(4);
+  <> le_to_be_u16(as<U16>(#x0002), arp_packet->&operation_type);
+
+  <> copy_mac_address(net_mac_address, arp_packet->&sender_hardware_address);
+  <> copy_ip_address(net_ip_address, arp_packet->&sender_protocol_address);
+
+  <> copy_mac_address(gateway_mac_address, arp_packet->&target_hardware_address);
+  <> copy_ip_address(gateway_ip_address, arp_packet->&target_protocol_address);
+
+  U64 arp_packet_size := 28;
+  U64 ethernet_header_size := 14;
+  U64 virtio_net_header_size := 10;
+  U64 length := (arp_packet_size + ethernet_header_size + virtio_net_header_size);
+  <> send_network_packet(length);
+
+  <> write_bytes(#"Done sending Yaspl Arp Reply Packet\r\n");
+  return 0;
+}
+
+#:define_function
+VirtioNetHeader* get_send_network_packet_buffer() {
+  U64 index := as<U64>(**net_send_available_index);
+  U64 buffer_index := index % as<U64>(*net_queue_size);
+
+  return as<VirtioNetHeader*>(net_send_buffers->&[buffer_index]);
+}
+
+
+#:define_function
+U64 send_network_packet(U64 length) {
+  U16 queue_notify_port := as<U16>(as<U64>(*net_base_port) + #x10);
+  U16 isr_status_port   := as<U16>(as<U64>(*net_base_port) + #x13);
+
+  U64 index := as<U64>(**net_send_available_index);
+  U64 i := index % as<U64>(*net_queue_size);
 
   *((*net_send_buffer_infos)->&[i])->&address <- as<U64>(net_send_buffers->&[i]);
   *((*net_send_buffer_infos)->&[i])->&length <- as<U32>(length);
@@ -735,17 +788,10 @@ U64 sendUdpPacket(U16 dest_port) {
 }
 
 #:define_function
-U64 sendArpPacket() {
-  <> write_bytes(#"Sending Yaspl Arp Packet\r\n");
+U64 sendArpRequestPacket() {
+  <> write_bytes(#"Sending Yaspl Arp Request Packet\r\n");
 
-  U16 isr_status_port    := as<U16>(as<U64>(*net_base_port) + #x13);
-  U16 queue_notify_port := as<U16>(as<U64>(*net_base_port) + #x10);
-
-  U64 index := as<U64>(**net_send_available_index);
-  U64 i := index % as<U64>(*net_queue_size);
-
-
-  VirtioNetHeader* virtio_header := as<VirtioNetHeader*>(net_send_buffers->&[i]);
+  VirtioNetHeader* virtio_header := get_send_network_packet_buffer();
   <> memset(virtio_header->&header, as<U8>(0), 10);
 
   EthernetHeader* ethernet_header := as<EthernetHeader*>(virtio_header->&data);
@@ -771,32 +817,26 @@ U64 sendArpPacket() {
   U64 ethernet_header_size := 14;
   U64 virtio_net_header_size := 10;
   U64 length := (arp_packet_size + ethernet_header_size + virtio_net_header_size);
+  <> send_network_packet(length);
 
-  *((*net_send_buffer_infos)->&[i])->&address <- as<U64>(net_send_buffers->&[i]);
-  *((*net_send_buffer_infos)->&[i])->&length <-
-    as<U32>(arp_packet_size + ethernet_header_size + virtio_net_header_size);
-  *((*net_send_buffer_infos)->&[i])->&flags <- as<U16>(0);
-  *((*net_send_buffer_infos)->&[i])->&next <- as<U16>(0);
+  <> write_bytes(#"Sent Arp request:\r\n");
+  <> printArpPacket(arp_packet);
 
-  *(*net_send_available_ring)->&[i] <- as<U16>(i);
-  *(*net_send_available_index) <- as<U16>(as<U64>(**net_send_available_index) + 1);
-
-  // Tell the device that queue 1 (send) has a new buffer.
-  <> outw(as<U16>(1), queue_notify_port);
-
-  <> disable_interrupts();
-  Boolean msg_recieved := 1 == 0;
-  while (!msg_recieved) {
-    // Read the interrupt status register to clear the interrupt state.
-    <> inb(isr_status_port);
-    msg_recieved := as<U64>(**net_send_used_index) == ((index + 1) & #xffff);
-    if (!msg_recieved) {
-      <> yield(as<U32>(1)); // Blocked
+  <> write_bytes(#"Raw packet:\r\n");
+  U64 j := 0;
+  while (j < (arp_packet_size + ethernet_header_size)) {
+    U8[]* data := as<U8[]*>(ethernet_header);
+    <> write_hex_U8(data->[j]);
+    <> write_hex_U8(data->[j+1]);
+    <> write_bytes(#" ");
+    j := j + 2;
+    if ((j % 16) == 0) {
+      <> write_bytes(#"\r\n");
     }
   }
-  <> enable_interrupts();
+  <> write_bytes(#"\r\n");
 
-  <> write_bytes(#"Done sending Yaspl Arp Packet\r\n");
+  <> write_bytes(#"Done sending Yaspl Arp Request Packet\r\n");
   return 0;
 }
 
@@ -873,6 +913,7 @@ U64 waitNetworkInterrupt() {
 
   if ((as<U64>((ethernet_header->&ethertype)->byte0) == #x08) &&
       (as<U64>((ethernet_header->&ethertype)->byte1) == #x06)) {
+    <> write_bytes(#"Got ARP packet\r\n");
     U64 arp_packet_size := 28;
     if (remaining_packet_length < arp_packet_size) {
       <> panic_msg(#"Packet shorter than arp packet size");
@@ -898,9 +939,14 @@ U64 waitNetworkInterrupt() {
 
     if ((as<U64>((arp_packet->&operation_type)->byte0) == 0) &&
         (as<U64>((arp_packet->&operation_type)->byte1) == 1)) {
-      <> sendArpPacket();
+      // <> printArpRequestPacket(arp_packet);
+      <> sendArpReplyPacket();
+    } else if ((as<U64>((arp_packet->&operation_type)->byte0) == 0) &&
+               (as<U64>((arp_packet->&operation_type)->byte1) == 2)) {
+      <> printArpReplyPacket(arp_packet);
+    } else {
+      <> panic_msg(#"Unknown operation");
     }
-
   } else if ((as<U64>((ethernet_header->&ethertype)->byte0) == #x08) &&
              (as<U64>((ethernet_header->&ethertype)->byte1) == #x00)) {
     <> write_bytes(#"IPv4 packet\r\n");
@@ -1252,6 +1298,23 @@ U64 copy_mac_address(MacAddress* src, MacAddress* dest) {
   *(dest->&octets)->&[3] <- (src->&octets)->[3];
   *(dest->&octets)->&[4] <- (src->&octets)->[4];
   *(dest->&octets)->&[5] <- (src->&octets)->[5];
+  return 0;
+}
+
+
+#:define_function
+U64 printArpReplyPacket(ArpPacket* arp) {
+  <> write_bytes(#"Got Arp Response:\r\n");
+  <> printArpPacket(arp);
+
+  return 0;
+}
+
+#:define_function
+U64 printArpRequestPacket(ArpPacket* arp) {
+  <> write_bytes(#"Got Arp Request:\r\n");
+  <> printArpPacket(arp);
+
   return 0;
 }
 
