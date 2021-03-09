@@ -657,7 +657,7 @@ U64 main(U64 image_handle, EfiSystemTable* st) {
 #:define_global MacAddress broadcast_mac_address
 
 #:define_function
-U64 sendUdpPacket(U16 dest_port) {
+U64 sendUdpPacket(IpAddress* dest_ip_address, U16 dest_port) {
   <> write_bytes(#"Sending Yaspl UDP Packet\r\n");
 
   VirtioNetHeader* virtio_header := get_send_network_packet_buffer();
@@ -669,7 +669,7 @@ U64 sendUdpPacket(U16 dest_port) {
   <> le_to_be_u16(as<U16>(#x0800), ethernet_header->&ethertype);
 
   Bytes response := #"abcdefghijklmnop\n";
-  U64 response_length := 17;
+  U64 response_length := 15;
   BytesLayout* response_raw := as<BytesLayout*>(response);
 
   IpHeader* ip_header := as<IpHeader*>(ethernet_header->&data);
@@ -684,7 +684,9 @@ U64 sendUdpPacket(U16 dest_port) {
   *ip_header->&protocol <- as<U8>(17); // UDP
   <> le_to_be_u16(as<U16>(#x62b0), ip_header->&header_checksum);
   <> copy_ip_address(net_ip_address, ip_header->&source_ip);
-  <> copy_ip_address(gateway_ip_address, ip_header->&destination_ip);
+  <> copy_ip_address(dest_ip_address, ip_header->&destination_ip);
+
+  <> fill_ip_header_checksum(ip_header);
 
   UdpHeader* udp_header := as<UdpHeader*>(ip_header->&data);
   <> le_to_be_u16(as<U16>(#x0007), udp_header->&source_port);
@@ -705,6 +707,22 @@ U64 sendUdpPacket(U16 dest_port) {
      virtio_net_header_size);
   <> send_network_packet(length);
 
+  return 0;
+}
+
+#:define_function
+U64 fill_ip_header_checksum(IpHeader* ip_header) {
+  <> le_to_be_u16(as<U16>(#x0000), ip_header->&header_checksum);
+  BigEndianU16[]* u16_view := as<BigEndianU16[]*>(ip_header);
+  U64 sum := 0;
+  U64 i := 0;
+  while (i < 10) {
+    sum := sum + as<U64>(be_u16_to_le(u16_view->&[i]));
+    i := i + 1;
+  }
+  U64 shifted_sum := (sum & #xffff) + ((sum & #xff0000) >> 16);
+  U64 complemented_sum := #xffff - shifted_sum;
+  <> le_to_be_u16(as<U16>(complemented_sum), ip_header->&header_checksum);
   return 0;
 }
 
@@ -985,7 +1003,7 @@ U64 waitNetworkInterrupt() {
     <> write_ip_address(ip_header->&destination_ip);
     <> write_bytes(#"\r\n");
 
-    <> sendUdpPacket(be_u16_to_le(udp_header->&source_port));
+    <> sendUdpPacket(ip_header->&source_ip, be_u16_to_le(udp_header->&source_port));
   } else {
     <> write_bytes(#"Unknown packet type\r\n");
   }
