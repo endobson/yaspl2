@@ -8,6 +8,7 @@
 (export
   (#:types Module Instruction)
   (#:values module function-type i32 function export function-export
+            import function-import
             module->binary-bytes
             const-i32-inst add-i32-inst))
 (types
@@ -15,6 +16,7 @@
     (module
       [types : (List Type)]
       [funcs : (List Function)]
+      [imports : (List Import)]
       [exports : (List Export)]))
   (define-type Type
     (function-type [inputs : (List ValueType)] [outputs : (List ValueType)]))
@@ -29,6 +31,11 @@
   (define-type Instruction
     (const-i32-inst [v : Int])
     (add-i32-inst))
+  (define-type Import
+    (import [module-name : Bytes] [name : Bytes] [desc : ImportDescription]))
+  (define-type ImportDescription
+    (function-import [index : Int]))
+
   (define-type Export
     (export [name : Bytes] [desc : ExportDescription]))
   (define-type ExportDescription
@@ -36,12 +43,13 @@
 
 
 (define (module->binary-bytes [mod : Module]) : Bytes
-  (match-define (module types funcs exports) mod)
+  (match-define (module types funcs imports exports) mod)
   (bytes-append
     (jl->list
       (varargs append-jl*
         (single-jl #"\x00asm\x01\x00\x00\x00")
         (types->binary-bytes types)
+        (imports->binary-bytes imports)
         (functions->binary-bytes/types funcs)
         (exports->binary-bytes exports)
         (functions->binary-bytes/code funcs)))))
@@ -52,6 +60,8 @@
   (encode-section 3 functions function->binary-bytes/type))
 (define (functions->binary-bytes/code [functions : (List Function)]) : (JoinList Bytes)
   (encode-section 10 functions function->binary-bytes/code))
+(define (imports->binary-bytes [imports : (List Import)]) : (JoinList Bytes)
+  (encode-section 2 imports import->binary-bytes))
 (define (exports->binary-bytes [exports : (List Export)]) : (JoinList Bytes)
   (encode-section 7 exports export->binary-bytes))
 
@@ -101,6 +111,18 @@
   (snoc-jl
     (concat-map-jl/list instruction->binary-bytes i)
     #"\x0B"))
+
+(define (import->binary-bytes [e : Import]) : (JoinList Bytes)
+  (case e
+    [(import mod name desc)
+     (varargs append-jl*
+       (unsigned-leb128 (bytes-length mod))
+       (single-jl mod)
+       (unsigned-leb128 (bytes-length name))
+       (single-jl name)
+       (case desc
+         [(function-import i)
+          (cons-jl #"\x00" (unsigned-leb128 i))]))]))
 
 
 (define (export->binary-bytes [e : Export]) : (JoinList Bytes)
