@@ -10,6 +10,7 @@ ALL_PACKAGES = [
     "//libraries/core-language",
     "//libraries/core-language/examples",
     "//libraries/data",
+    "//libraries/database",
     "//libraries/os",
     "//libraries/prim-language",
     "//libraries/prim-language/examples",
