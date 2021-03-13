@@ -36,7 +36,11 @@
     (memory-kind)
     (fun-kind [args : (List Kind)] [result : Kind]))
   (define-type Type
-    (fun-type [type-vars : (List Bytes)] [args : (List Type)] [result : Type])
+    (fun-type
+      [type-vars : (List Bytes)]
+      [constraints : (List Type)]
+      [args : (List Type)]
+      [result : Type])
     (var-type [v : Bytes])
     (abstract-type [module-name : ModName] [name : Bytes] [args : (List Type)] [kind : Kind])
     (type-constructor [module-name : ModName] [name : Bytes] [args : (List Kind)])))
@@ -111,11 +115,13 @@
              #f)
          #f)]
     [(tuple2
-       (fun-type type-vars1 args1 result1)
-       (fun-type type-vars2 args2 result2))
+       (fun-type type-vars1 constraints1 args1 result1)
+       (fun-type type-vars2 constraints2 args2 result2))
      (if (type=? result1 result2)
          (if ((list=? bytes=?) type-vars1 type-vars2)
-             ((list=? type=?) args1 args2)
+             (if ((list=? type=?) args1 args2)
+                 ((list=? type=?) constraints1 constraints2)
+                 #f)
              #f)
          #f)]
     [(tuple2
@@ -155,18 +161,21 @@
     [(tuple2 _ (abstract-type _ _ _ _))
      (greater-than)]
     [(tuple2
-       (fun-type type-vars1 args1 result1)
-       (fun-type type-vars2 args2 result2))
+       (fun-type type-vars1 constraints1 args1 result1)
+       (fun-type type-vars2 constraints2 args2 result2))
      (case ((list-cmp bytes-cmp) type-vars1 type-vars2)
        [(equal-to)
-        (case ((list-cmp type-cmp) args1 args2)
+        (case ((list-cmp type-cmp) constraints1 constraints2)
           [(equal-to)
-           (type-cmp result1 result2)]
+           (case ((list-cmp type-cmp) args1 args2)
+             [(equal-to)
+              (type-cmp result1 result2)]
+             [res res])]
           [res res])]
        [res res])]
-    [(tuple2 (fun-type _ _ _) _)
+    [(tuple2 (fun-type _ _ _ _) _)
      (less-than)]
-    [(tuple2 _ (fun-type _ _ _))
+    [(tuple2 _ (fun-type _ _ _ _))
      (greater-than)]
     [(tuple2
        (type-constructor mod1 name1 args1)
@@ -191,10 +200,11 @@
                          (cons (bytes-sexp/p name)
                                (cons (kind->sexp kind)
                                      (map type->sexp args))))))]
-    [(fun-type type-vars args result)
+    [(fun-type type-vars constraints args result)
      (node/p (cons (symbol-sexp/p #"fun")
                    (cons (node/p (map bytes-sexp/p type-vars))
-                         (append (map type->sexp args) (cons (type->sexp result) (empty))))))]
+                         (cons (node/p (map type->sexp constraints))
+                               (append (map type->sexp args) (cons (type->sexp result) (empty)))))))]
     [(type-constructor mod name args)
      (node/p (cons (symbol-sexp/p #"tcon")
                    (cons (mod-name->sexp mod)
@@ -210,15 +220,18 @@
   (case sexp
     [(node (cons (symbol-sexp #"var" _) (cons (bytes-sexp v _) (empty))) _)
      (just (var-type v))]
-    [(node (cons (symbol-sexp #"fun" _) (cons (node type-vars _) types)) _)
+    [(node (cons (symbol-sexp #"fun" _) (cons (node type-vars _) (cons (node constraints _) types))) _)
      (case (extract-justs (reverse (map sexp->type types)))
        [(nothing) (nothing)]
        [(just (empty)) (nothing)]
        [(just (cons result rev-arg-types))
-        (case (extract-justs (map extract-type-var type-vars))
+        (case (extract-justs (map sexp->type constraints))
           [(nothing) (nothing)]
-          [(just type-vars)
-           (just (fun-type type-vars (reverse rev-arg-types) result))])])]
+          [(just constraints)
+           (case (extract-justs (map extract-type-var type-vars))
+             [(nothing) (nothing)]
+             [(just type-vars)
+              (just (fun-type type-vars constraints (reverse rev-arg-types) result))])])])]
     [(node (cons (symbol-sexp #"abstract" _)
                  (cons mod
                        (cons (bytes-sexp name _)
@@ -294,14 +307,18 @@
      (symbol-sexp/p name)]
     [(abstract-type _mod name args _kind)
      (node/p (cons (symbol-sexp/p name) (map type->print-sexp args)))]
-    [(fun-type type-vars args result)
+    [(fun-type type-vars constraints args result)
      (node/p (append
                (case type-vars
                  [(empty) (empty)]
                  [type-vars (varargs list (node/p (map symbol-sexp/p type-vars)))])
-               (append (map type->print-sexp args)
-                       (cons (symbol-sexp/p #"->")
-                             (cons (type->print-sexp result) (empty))))))]
+               (append
+                 (case constraints
+                   [(empty) (empty)]
+                   [constraints (varargs list (node/p (map type->print-sexp constraints)))])
+                 (append (map type->print-sexp args)
+                         (cons (symbol-sexp/p #"->")
+                               (cons (type->print-sexp result) (empty)))))))]
     [(type-constructor mod name args)
      (node/p (cons (symbol-sexp/p #"tcon")
                    (cons (mod-name->sexp mod)
@@ -312,7 +329,7 @@
   (case type
     [(var-type _) (star-kind)]
     [(abstract-type _ _ _ kind) kind]
-    [(fun-type _ _ _) (star-kind)]
+    [(fun-type _ _ _ _) (star-kind)]
     [(type-constructor _ _ args)
      (fun-kind args (star-kind))]))
 
@@ -329,14 +346,17 @@
                       args) kind)]
     [(type-constructor mod-name name kinds)
      (type-constructor mod-name name kinds)]
-    [(fun-type (empty) arg-types result-type)
+    [(fun-type (empty) constraint-types arg-types result-type)
      (fun-type
        (empty)
+       (map
+         (lambda ([constraint : Type]) (substitute-types constraint subst))
+         constraint-types)
        (map
          (lambda ([arg : Type]) (substitute-types arg subst))
          arg-types)
        (substitute-types result-type subst))]
-    [(fun-type _ _ _)
+    [(fun-type _ _ _ _)
      (panic #"Substitute doesn't work on polymorphic functions.")]))
 
 ;; Checks that all the `vars` are free in `t`.
@@ -349,12 +369,16 @@
        (lambda ([t : Type]) (check-fresh t vars))
        args)]
     [(type-constructor _mod-name _name _kinds) #t]
-    [(fun-type (empty) arg-types result-type)
+    [(fun-type (empty) constraint-types arg-types result-type)
      (and (check-fresh result-type vars)
-          (andmap
-            (lambda ([t : Type]) (check-fresh t vars))
-            arg-types))]
-    [(fun-type _ _ _)
+          (and
+            (andmap
+              (lambda ([t : Type]) (check-fresh t vars))
+              constraint-types)
+            (andmap
+              (lambda ([t : Type]) (check-fresh t vars))
+              arg-types)))]
+    [(fun-type _ _ _ _)
      (panic/boolean #"Substitute doesn't work on polymorphic functions.")]))
 
 

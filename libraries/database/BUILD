@@ -10,7 +10,6 @@ yaspl_library(
     deps = [
         "//libraries/data:dict",
         "//libraries/data:list",
-        "//libraries/data:maybe",
     ],
 )
 
@@ -23,7 +22,6 @@ yaspl_test(
         "//libraries/data:bytes",
         "//libraries/data:dict",
         "//libraries/data:list",
-        "//libraries/data:maybe",
     ],
 )
 
