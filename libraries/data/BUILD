@@ -81,6 +81,16 @@ yaspl_test(
     ],
 )
 
+yaspl_test(
+    name = "comparable-test",
+    srcs = ["comparable-test.yaspl"],
+    deps = [
+        ":list",
+        ":maybe",
+        "//libraries:yunit",
+    ],
+)
+
 yaspl_bootstrap_library(
     name = "dict",
     srcs = ["dict.yaspl"],

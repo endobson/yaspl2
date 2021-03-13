@@ -201,13 +201,18 @@
     [_ (left (source-parse-error #"Not a valid export" (sexp-source-span sexp)))]))
 
 
-(define (parse-types/top [sexp : Sexp]) : (Either SourceParseError (List TypeDefinition))
+(define (parse-types/top [sexp : Sexp])
+  : (Either SourceParseError (Tuple2 (List TypeDefinition) (List TypeClassDefinition)))
   (case sexp
     [(node (cons (symbol-sexp #"types" _) type-definitions) _)
-     (map/failure parse-type-definition type-definitions)]
+     (case (map/failure parse-type-definition type-definitions)
+       [(left v) (left v)]
+       [(right defs)
+        (right (partition-eithers defs))])]
     [_ (left (source-parse-error #"Bad types" (sexp-source-span sexp)))]))
 
-(define (parse-type-definition [sexp : Sexp]) : (Either SourceParseError TypeDefinition)
+(define (parse-type-definition [sexp : Sexp])
+  : (Either SourceParseError (Either TypeDefinition TypeClassDefinition))
   (case sexp
     [(node (cons (symbol-sexp #"define-type" _) (cons type-name/vars variants)) _)
      (case (extract-type-name type-name/vars)
@@ -219,9 +224,24 @@
            (case (map/failure parse-variant variants)
              [(left v) (left v)]
              [(right variants)
-              (right (type-definition type-name type-vars variants))])])])]
-    [_ (left (source-parse-error #"Bad type definition: expecting (define-type ...)"
-                                 (sexp-source-span sexp)))]))
+              (right (left (type-definition type-name type-vars variants)))])])])]
+    [(node (cons (symbol-sexp #"define-type-class" _)
+                 (cons (node (cons (symbol-sexp name name-src)
+                                   (cons (symbol-sexp var var-src)
+                                         (empty)))
+                             _)
+                       methods)) _)
+     (case (map/failure parse-type-class-method methods)
+       [(left v) (left v)]
+       [(right methods)
+        (right (right (type-class-definition
+                        (identifier name name-src)
+                        (identifier var var-src)
+                        methods)))])]
+
+    [_ (left (source-parse-error
+               #"Bad type definition: expecting (define-type ...) or (define-type-class ...)"
+               (sexp-source-span sexp)))]))
 
 (define (parse-variant [sexp : Sexp]) : (Either SourceParseError VariantDefinition)
   (case sexp
@@ -269,6 +289,18 @@
   (case sexp
     [(symbol-sexp bytes _) (right bytes)]
     [_ (left (source-parse-error #"Not a valid type variable" (sexp-source-span sexp)))]))
+
+(define (parse-type-class-method [sexp : Sexp]) : (Either SourceParseError TypeClassMethod)
+  (case sexp
+    [(bracket-node
+       (cons (symbol-sexp method-name method-src) (cons (symbol-sexp #":" _) (cons type (empty))))
+       _)
+     (case (parse-pre-type type)
+       [(left v) (left v)]
+       [(right type)
+        (right (type-class-method (identifier method-name method-src) type))])]
+    [_ (left (source-parse-error #"Bad type-class method" (sexp-source-span sexp)))]))
+
 
 
 (define (parse-pre-type [sexp : Sexp]) : (Either SourceParseError PreType)
@@ -706,12 +738,13 @@
              [(right exports)
               (case (parse-types/top types)
                 [(left v) (left v)]
-                [(right types)
+                [(right (tuple2 types type-classes))
                  (case (map/failure parse-toplevel-definition definitions)
                    [(left v) (left v)]
                    [(right defs)
                     (match-define (tuple2 fun-defs static-defs) (partition-eithers defs))
-                    (right (module module-name imports exports types fun-defs static-defs))])])])])])]
+                    (right (module module-name imports exports types type-classes
+                                   fun-defs static-defs))])])])])])]
     [_ (left (source-parse-error #"Bad module forms" all-src))]))
 
 (define (parse-module-name [forms : (SourceSpanAnnotated (List Sexp))])
