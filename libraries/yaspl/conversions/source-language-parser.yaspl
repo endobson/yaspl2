@@ -302,6 +302,23 @@
     [_ (left (source-parse-error #"Bad type-class method" (sexp-source-span sexp)))]))
 
 
+(define (parse-function-type-bindings [sexps : (List Sexp)])
+  : (Either SourceParseError (Tuple2 (List Bytes) (List PreType)))
+  (case sexps
+    [(empty) (right (tuple2 (empty) (empty)))]
+    [(cons (symbol-sexp name _) rest)
+     (case (parse-function-type-bindings rest)
+       [(left v) (left v)]
+       [(right (tuple2 types constraints))
+        (right (tuple2 (cons name types) constraints))])]
+    [(cons (keyword-sexp #"constraints" _) constraints)
+     (case (map/failure parse-pre-type constraints)
+       [(left v) (left v)]
+       [(right constraints)
+        (right (tuple2 (empty) constraints))])]
+    [(cons s _)
+     (left (source-parse-error #"Bad function type-bindings" (sexp-source-span s)))]))
+
 
 (define (parse-pre-type [sexp : Sexp]) : (Either SourceParseError PreType)
   (case sexp
@@ -395,10 +412,10 @@
 
 (define (parse-function-definition [parts : (List Sexp)] [src : SourceSpan])
   : (Either SourceParseError FunctionDefinition)
-  (match-define (tuple2 type-vars parts) : (Tuple2 (List Sexp) (List Sexp))
+  (match-define (tuple2 types parts) : (Tuple2 (List Sexp) (List Sexp))
     (case parts
-      [(cons (bracket-node type-vars _) parts)
-       (tuple2 type-vars parts)]
+      [(cons (bracket-node types _) parts)
+       (tuple2 types parts)]
       [parts
        (tuple2 (empty) parts)]))
   (case parts
@@ -408,7 +425,7 @@
         (left (source-parse-error #"Invalid function definition: empty name and args."
                                   name+args-src))]
        [(cons (symbol-sexp function-name name-src) args)
-        (parse-function-definition* function-name name-src type-vars args parts src)]
+        (parse-function-definition* function-name name-src types args parts src)]
        [(cons name _args)
         (left (source-parse-error #"Invalid function definition: name is not a symbol"
                                   (sexp-source-span name)))])]
@@ -455,13 +472,13 @@
 (define (parse-function-definition*
           [function-name : Bytes]
           [name-src : SourceSpan]
-          [type-vars : (List Sexp)]
+          [types : (List Sexp)]
           [args : (List Sexp)]
           [parts : (List Sexp)]
           [full-src : SourceSpan]) : (Either SourceParseError FunctionDefinition)
-  (case (map/failure parse-type-var-symbol type-vars)
+  (case (parse-function-type-bindings types)
     [(left v) (left v)]
-    [(right type-vars)
+    [(right (tuple2 type-vars constraints))
      (case (map/failure parse-arg args)
        [(left v) (left v)]
        [(right parsed-args)
@@ -477,6 +494,7 @@
                    (function-definition
                      (identifier function-name name-src)
                      type-vars
+                     constraints
                      parsed-args
                      result-type
                      body))])])]
