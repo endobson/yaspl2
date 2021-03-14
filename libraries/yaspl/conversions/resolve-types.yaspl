@@ -25,12 +25,14 @@
       [Pattern ri:Pattern]
       [PreType ri:PreType]
       [StaticDefinition ri:StaticDefinition]
+      [TypeClassDefinition ri:TypeClassDefinition]
       [TypeDefinition ri:TypeDefinition]
       [VariantDefinition ri:VariantDefinition]
       [VariantField ri:VariantField]
     }
     {#:values
       [pre-type-source-span ri:pre-type-source-span]
+      [type-class-definition-name* ri:type-class-definition-name*]
       [type-definition-name* ri:type-definition-name*]
     }
     {#:patterns
@@ -61,6 +63,7 @@
       [match-def ri:match-def]
       [module ri:module]
       [type-app-pre-type ri:type-app-pre-type]
+      [type-class-definition ri:type-class-definition]
       [type-definition ri:type-definition]
       [var-expr ri:var-expr]
       [var-pre-type ri:var-pre-type]
@@ -89,13 +92,15 @@
   (define-type LocalTypeResolutionError
     (unbound-type-variable [id : Identifier])
     (non-value-kind [t : Type] [source : SourceSpan])
+    (non-constraint-kind [t : Type] [source : SourceSpan])
     (type-constructor-bad-arg-kind [source : SourceSpan])
     (type-constructor-bad-number-of-args [source : SourceSpan])
     (type-constructor-bad-constructor [t : Type] [source : SourceSpan])))
 
 (define (resolve-types [mod : ri:Module]) : (Either TypeResolutionError Module)
   (match-define ctx (init-context mod))
-  (match-define (ri:module (source-span-annotated name _) imports exports types definitions statics) mod)
+  (match-define (ri:module (source-span-annotated name _) imports exports types _type-classes
+                           definitions statics) mod)
   (match-define error
     (lambda ([v : LocalTypeResolutionError]) : (Either TypeResolutionError Module)
       (left (type-resolution-error name v))))
@@ -113,7 +118,7 @@
            (right (module name imports exports types definitions statics))])])]))
 
 (define (init-context [mod : ri:Module]) : Context
-  (match-define (ri:module (source-span-annotated mod-name _) imports _ type-defs _ _) mod)
+  (match-define (ri:module (source-span-annotated mod-name _) imports _ type-defs type-classes _ _) mod)
   (match-define (ri:imports imported-type-sigs _ _ _ _) imports)
   (match-define imported-types
     (dict-value-map
@@ -122,22 +127,23 @@
         (match-define (type-signature t _) sig)
         t)))
   (context
-    (type-definitions->types mod-name type-defs imported-types)))
+    (merge-dicts
+      (type-classes->types mod-name type-classes)
+      (merge-dicts
+        (type-definitions->types mod-name type-defs)
+        imported-types))))
 
 (define (type-definitions->types
           [mod-name : ModName]
-          [defs : (List ri:TypeDefinition)]
-          [acc : (Dict Bytes Type)]) : (Dict Bytes Type)
-  (case defs
-    [(empty) acc]
-    [(cons def defs)
-     (type-definitions->types
-       mod-name
-       defs
-       (dict-add
-         acc
-         (ri:type-definition-name* def)
-         (type-definition->type mod-name def)))]))
+          [defs : (List ri:TypeDefinition)]) : (Dict Bytes Type)
+  (foldl
+    (lambda ([def : ri:TypeDefinition] [acc : (Dict Bytes Type)])
+      (dict-add acc
+        (ri:type-definition-name* def)
+        (type-definition->type mod-name def)))
+    defs
+    (ann (Dict Bytes Type)
+         (make-dict bytes-cmp))))
 
 (define (type-definition->type [mod-name : ModName] [def : ri:TypeDefinition]) : Type
   (case def
@@ -146,6 +152,24 @@
     [(ri:type-definition (identifier name _) (just vars) _)
      (type-constructor mod-name name (map (lambda ([_v : Bytes]) (star-kind)) vars)
                        (star-kind))]))
+
+(define (type-classes->types
+          [mod-name : ModName]
+          [defs : (List ri:TypeClassDefinition)]) : (Dict Bytes Type)
+  (foldl
+    (lambda ([def : ri:TypeClassDefinition] [acc : (Dict Bytes Type)])
+      (dict-add acc
+        (ri:type-class-definition-name* def)
+        (type-class-definition->type mod-name def)))
+    defs
+    (ann (Dict Bytes Type)
+         (make-dict bytes-cmp))))
+
+(define (type-class-definition->type [mod-name : ModName] [def : ri:TypeClassDefinition]) : Type
+  (case def
+    [(ri:type-class-definition (identifier name _) _var _methods)
+     (type-constructor mod-name name (cons (star-kind) (empty)) (constraint-kind))]))
+
 
 (define (resolve-types/exports [e : ri:Exports] [ctx : Context])
   : Exports
@@ -246,19 +270,22 @@
 (define (resolve-types/function [def : ri:FunctionDefinition] [ctx : Context])
   : (Either LocalTypeResolutionError FunctionDefinition)
   (match-define
-    (ri:function-definition (identifier name _) type-vars _constraints args return-type body)
+    (ri:function-definition (identifier name _) type-vars constraints args return-type body)
     def)
   (match-define ctx (context-add-var-types ctx type-vars))
-  (case (resolve-types/args args ctx)
+  (case (map/failure/env pre-type->constraint-type constraints ctx)
     [(left v) (left v)]
-    [(right args)
-     (case (pre-type->value-type return-type ctx)
+    [(right constraints)
+     (case (resolve-types/args args ctx)
        [(left v) (left v)]
-       [(right return-type)
-        (case (resolve-types/block body ctx)
+       [(right args)
+        (case (pre-type->value-type return-type ctx)
           [(left v) (left v)]
-          [(right body)
-           (right (function-definition name type-vars args return-type body))])])]))
+          [(right return-type)
+           (case (resolve-types/block body ctx)
+             [(left v) (left v)]
+             [(right body)
+              (right (function-definition name type-vars constraints args return-type body))])])])]))
 
 (define (resolve-types/args [args : (List ri:FunctionArg)] [ctx : Context])
   : (Either LocalTypeResolutionError (List FunctionArg))
@@ -529,6 +556,17 @@
        [(prim-kind _)
         (right type)])]))
 
+(define (pre-type->constraint-type [pre-type : ri:PreType] [ctx : Context])
+  : (Either LocalTypeResolutionError Type)
+  (case (pre-type->type pre-type ctx)
+    [(left v) (left v)]
+    [(right type)
+     (case (type->kind type)
+       [(constraint-kind)
+        (right type)]
+       [_
+        (left (non-constraint-kind type (ri:pre-type-source-span pre-type)))])]))
+
 (define (type-resolution-error->bytes [v : TypeResolutionError]) : Bytes
   (match-define (type-resolution-error mod-name error) v)
   (match-define msg
@@ -541,6 +579,12 @@
        (bytes-append (varargs list
          (source-span->start-location-bytes src)
          #": Type's kind must correspond to a value, got: "
+         (print-type type)
+         #"\n"))]
+      [(non-constraint-kind type src)
+       (bytes-append (varargs list
+         (source-span->start-location-bytes src)
+         #": Type's kind must correspond to a constraint got: "
          (print-type type)
          #"\n"))]
       [(type-constructor-bad-arg-kind src)
