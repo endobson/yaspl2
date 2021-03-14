@@ -43,7 +43,8 @@
       [result : Type])
     (var-type [v : Bytes])
     (abstract-type [module-name : ModName] [name : Bytes] [args : (List Type)] [kind : Kind])
-    (type-constructor [module-name : ModName] [name : Bytes] [args : (List Kind)])))
+    (type-constructor [module-name : ModName] [name : Bytes] [args : (List Kind)]
+                      [kind : Kind])))
 
 (define (type-size=? [s1 : TypeSize] [s2 : TypeSize]) : Boolean
   (case (tuple2 s1 s2)
@@ -125,11 +126,13 @@
              #f)
          #f)]
     [(tuple2
-       (type-constructor mod1 name1 args1)
-       (type-constructor mod2 name2 args2))
+       (type-constructor mod1 name1 args1 kind1)
+       (type-constructor mod2 name2 args2 kind2))
      (if (mod-name=? mod1 mod2)
          (if (bytes=? name1 name2)
-             ((list=? kind=?) args1 args2)
+             (if ((list=? kind=?) args1 args2)
+                 (kind=? kind1 kind2)
+                 #f)
              #f)
          #f)]
     [_ #f]))
@@ -178,13 +181,16 @@
     [(tuple2 _ (fun-type _ _ _ _))
      (greater-than)]
     [(tuple2
-       (type-constructor mod1 name1 args1)
-       (type-constructor mod2 name2 args2))
+       (type-constructor mod1 name1 args1 kind1)
+       (type-constructor mod2 name2 args2 kind2))
      (case (mod-name-cmp mod1 mod2)
        [(equal-to)
         (case (bytes-cmp name1 name2)
           [(equal-to)
-           ((list-cmp kind-cmp) args1 args2)]
+           (case ((list-cmp kind-cmp) args1 args2)
+             [(equal-to)
+              (kind-cmp kind1 kind2)]
+             [res res])]
           [res res])]
        [res res])]))
 
@@ -205,11 +211,12 @@
                    (cons (node/p (map bytes-sexp/p type-vars))
                          (cons (node/p (map type->sexp constraints))
                                (append (map type->sexp args) (cons (type->sexp result) (empty)))))))]
-    [(type-constructor mod name args)
+    [(type-constructor mod name args kind)
      (node/p (cons (symbol-sexp/p #"tcon")
                    (cons (mod-name->sexp mod)
                          (cons (bytes-sexp/p name)
-                               (map kind->sexp args)))))]))
+                               (append (map kind->sexp args)
+                                       (cons (kind->sexp kind) (empty)))))))]))
 
 (define (extract-type-var [sexp : Sexp]) : (Maybe Bytes)
   (case sexp
@@ -252,13 +259,14 @@
                        (cons (bytes-sexp name _)
                              kinds)))
            _)
-     (case (extract-justs (map sexp->kind kinds))
+     (case (extract-justs (reverse-map sexp->kind kinds))
        [(nothing) (nothing)]
-       [(just kinds)
+       [(just (empty)) (nothing)]
+       [(just (cons kind rev-arg-kinds))
         (case (sexp->mod-name mod)
           [(nothing) (nothing)]
           [(just mod)
-           (just (type-constructor mod name kinds))])])]
+           (just (type-constructor mod name (reverse rev-arg-kinds) kind))])])]
     [_ (nothing)]))
 
 (define (serialize-kind [kind : Kind]) : Bytes
@@ -319,19 +327,20 @@
                  (append (map type->print-sexp args)
                          (cons (symbol-sexp/p #"->")
                                (cons (type->print-sexp result) (empty)))))))]
-    [(type-constructor mod name args)
+    [(type-constructor mod name args kind)
      (node/p (cons (symbol-sexp/p #"tcon")
                    (cons (mod-name->sexp mod)
                          (cons (symbol-sexp/p name)
-                               (map kind->sexp args)))))]))
+                               (append (map kind->sexp args)
+                                       (cons (kind->sexp kind) (empty)))))))]))
 
 (define (type->kind [type : Type]) : Kind
   (case type
     [(var-type _) (star-kind)]
     [(abstract-type _ _ _ kind) kind]
     [(fun-type _ _ _ _) (star-kind)]
-    [(type-constructor _ _ args)
-     (fun-kind args (star-kind))]))
+    [(type-constructor _ _ args kind)
+     (fun-kind args kind)]))
 
 (define (substitute-types [t : Type] [subst : (Dict Bytes Type)]) : Type
   (case t
@@ -344,8 +353,8 @@
                     (map
                       (lambda ([arg : Type]) (substitute-types arg subst))
                       args) kind)]
-    [(type-constructor mod-name name kinds)
-     (type-constructor mod-name name kinds)]
+    [(type-constructor mod-name name kinds kind)
+     (type-constructor mod-name name kinds kind)]
     [(fun-type (empty) constraint-types arg-types result-type)
      (fun-type
        (empty)
@@ -368,7 +377,7 @@
      (andmap
        (lambda ([t : Type]) (check-fresh t vars))
        args)]
-    [(type-constructor _mod-name _name _kinds) #t]
+    [(type-constructor _mod-name _name _kinds _kind) #t]
     [(fun-type (empty) constraint-types arg-types result-type)
      (and (check-fresh result-type vars)
           (and
