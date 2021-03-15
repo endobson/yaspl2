@@ -19,7 +19,7 @@
 (types)
 
 (define (free-variables-by-function-definition [mod : Module]) : (Dict Bytes (Set Bytes))
-  (match-define (module _ _ _ (definitions _ _ functions _)) mod)
+  (match-define (module _ _ _ (definitions _ _ _ functions _)) mod)
   (foldl
     (lambda ([def : FunctionDefinition] [acc : (Dict Bytes (Set Bytes))])
       (dict-add
@@ -33,8 +33,9 @@
 
 (define (free-variables/module [mod : Module]) : (List Identifier)
   (match-define env (make-set bytes-cmp))
-  (match-define (module _ _ _ (definitions _ _ functions _)) mod)
-  (free-variables/function-definitions functions env (empty)))
+  (match-define (module _ _ _ (definitions _ _ instances functions _)) mod)
+  (free-variables/instances instances env
+    (free-variables/function-definitions functions env (empty))))
 
 (define (free-variables/function-definition
           [def : FunctionDefinition]
@@ -53,6 +54,32 @@
     [(cons def defs)
      (free-variables/function-definitions
        defs env (free-variables/function-definition def env acc))]))
+
+(define (free-variables/instances
+          [defs : (List TypeClassInstance)]
+          [env : (Set Bytes)]
+          [acc : (List Identifier)]) : (List Identifier)
+  (case defs
+    [(empty) acc]
+    [(cons (type-class-instance _class _type methods) defs)
+     (free-variables/instances defs env
+       (free-variables/instance-methods methods env acc))]))
+
+(define (free-variables/instance-methods
+          [methods : (List TypeClassInstanceMethod)]
+          [env : (Set Bytes)]
+          [acc : (List Identifier)]) : (List Identifier)
+  (case methods
+    [(empty) acc]
+    [(cons (type-class-instance-method _name impl) methods)
+     (match-define (identifier v _) impl)
+     (free-variables/instance-methods
+       methods env
+       (if (set-member? env v)
+           acc
+           (cons impl acc)))]))
+
+
 
 (define (free-variables/block [block : Block] [env : (Set Bytes)] [acc : (List Identifier)])
   : (List Identifier)
@@ -155,10 +182,11 @@
 (define (free-types/module [mod : Module])
   : (List Identifier)
   (match-define env (make-set bytes-cmp))
-  (match-define (module _ _ _ (definitions types type-classes functions _)) mod)
+  (match-define (module _ _ _ (definitions types type-classes instances functions _)) mod)
   (free-types/type-class-definitions type-classes env
-    (free-types/type-definitions types env
-      (free-types/function-definitions functions env (empty)))))
+    (free-types/type-class-instances instances env
+      (free-types/type-definitions types env
+        (free-types/function-definitions functions env (empty))))))
 
 (define (free-types/function-definitions
           [defs : (List FunctionDefinition)]
@@ -232,6 +260,19 @@
      (free-types/type-class-methods methods env
        (free-types/type type env acc))]))
 
+(define (free-types/type-class-instances
+          [defs : (List TypeClassInstance)]
+          [env : (Set Bytes)]
+          [acc : (List Identifier)]) : (List Identifier)
+  (case defs
+    [(empty) acc]
+    [(cons (type-class-instance _name type-name _methods) defs)
+     (match-define (identifier type-var _) type-name)
+     (free-types/type-class-instances
+       defs env
+       (if (set-member? env type-var)
+           acc
+           (cons type-name acc)))]))
 
 
 (define (free-types/expr [expr : Expression] [env : (Set Bytes)] [acc : (List Identifier)])
@@ -330,7 +371,7 @@
 
 (define (free-patterns/module [mod : Module]) : (List Identifier)
   (match-define env (make-set bytes-cmp))
-  (match-define (module _ _ _ (definitions _ _ functions _)) mod)
+  (match-define (module _ _ _ (definitions _ _ _ functions _)) mod)
   (free-patterns/function-definitions functions env (empty)))
 
 (define (free-patterns/function-definitions
@@ -460,7 +501,7 @@
 
 (define (free-statics/module [mod : Module]) : (List Identifier)
   (match-define env (make-set bytes-cmp))
-  (match-define (module _ _ _ (definitions _ _ functions _)) mod)
+  (match-define (module _ _ _ (definitions _ _ _ functions _)) mod)
   (free-statics/function-definitions functions env (empty)))
 
 (define (free-statics/function-definition
