@@ -85,6 +85,7 @@ yaspl_test(
     name = "comparable-test",
     srcs = ["comparable-test.yaspl"],
     deps = [
+        ":bytes",
         ":list",
         ":maybe",
         "//libraries:yunit",

@@ -17,7 +17,11 @@
   (#:patterns source-parse-error))
 (types
   (define-type SourceParseError
-    (source-parse-error [v : Bytes] [source : SourceSpan])))
+    (source-parse-error [v : Bytes] [source : SourceSpan]))
+  (define-type TopLevelDefinition
+    (top-level/function [d : FunctionDefinition])
+    (top-level/static [d : StaticDefinition])
+    (top-level/instance [d : TypeClassInstance])))
 
 (define [a] (right/source-parse-error [v : a]) : (Either SourceParseError a)
   (right v))
@@ -390,18 +394,22 @@
     [_ (left (source-parse-error #"Not a valid Type" (sexp-source-span sexp)))]))
 
 (define (parse-toplevel-definition [sexp : Sexp])
-  : (Either SourceParseError (Either FunctionDefinition StaticDefinition))
+  : (Either SourceParseError TopLevelDefinition)
   (case sexp
     [(node parts parts-src)
      (case parts
        [(cons (symbol-sexp #"define" _) parts)
         (case (parse-function-definition parts parts-src)
           [(left v) (left v)]
-          [(right v) (right (left v))])]
+          [(right v) (right (top-level/function v))])]
        [(cons (symbol-sexp #"define/varargs" _) parts)
         (case (parse-vararg-definition parts parts-src)
           [(left v) (left v)]
-          [(right v) (right (right v))])]
+          [(right v) (right (top-level/static v))])]
+       [(cons (symbol-sexp #"define-type-class-instance" _) parts)
+        (case (parse-type-class-instance-definition parts parts-src)
+          [(left v) (left v)]
+          [(right v) (right (top-level/instance v))])]
        [(empty)
         (left (source-parse-error #"Invalid toplevel definition: no parts" parts-src))]
        [(cons bad-define _)
@@ -500,6 +508,36 @@
                      body))])])]
           [_
            (left (source-parse-error #"Couldn't parse result type" full-src))])])]))
+
+(define (parse-type-class-instance-definition [parts : (List Sexp)] [src : SourceSpan])
+  : (Either SourceParseError TypeClassInstance)
+  (case parts
+    [(cons (node (cons (symbol-sexp class class-src) (cons (symbol-sexp type type-src) (empty)))
+                 _)
+           methods)
+     (right (type-class-instance (identifier class class-src) (identifier type type-src)))]
+    [_
+     (left (source-parse-error #"Invalid instance definition: unparseable class"
+                               src))]))
+
+(define (partition-top-level [v : (List TopLevelDefinition)]) :
+  (Tuple3 (List FunctionDefinition) (List StaticDefinition) (List TypeClassInstance))
+  (partition-top-level* v (empty) (empty) (empty)))
+
+(define (partition-top-level* [l : (List TopLevelDefinition)]
+                              [functions : (List FunctionDefinition)]
+                              [statics : (List StaticDefinition)]
+                              [instances : (List TypeClassInstance)]) :
+  (Tuple3 (List FunctionDefinition) (List StaticDefinition) (List TypeClassInstance))
+  (case l
+    [(empty) (tuple3 (reverse functions) (reverse statics) (reverse instances))]
+    [(cons (top-level/function f) l)
+     (partition-top-level* l (cons f functions) statics instances)]
+    [(cons (top-level/static s) l)
+     (partition-top-level* l functions (cons s statics) instances)]
+    [(cons (top-level/instance i) l)
+     (partition-top-level* l functions statics (cons i instances))]))
+
 
 (define (parse-arg [sexp : Sexp]) : (Either SourceParseError FunctionArg)
   (case sexp
@@ -760,7 +798,7 @@
                  (case (map/failure parse-toplevel-definition defs)
                    [(left v) (left v)]
                    [(right defs)
-                    (match-define (tuple2 fun-defs static-defs) (partition-eithers defs))
+                    (match-define (tuple3 fun-defs static-defs instances) (partition-top-level defs))
                     (right (module module-name imports exports
                                    (definitions types type-classes fun-defs static-defs)))])])])])])]
     [_ (left (source-parse-error #"Bad module forms" all-src))]))
