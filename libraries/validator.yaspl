@@ -109,7 +109,7 @@
           [pattern-env : (Set Bytes)]
           [static-env : (Set Bytes)])
   : (List ModuleError)
-  (match-define (module _ _ (exports types values patterns statics) _ _ _ _) mod)
+  (match-define (module _ _ (exports types values patterns statics) _) mod)
   (match-define check-exports
     (lambda ([exports : (List Export)] [env : (Set Bytes)])
       (filter-map
@@ -134,7 +134,7 @@
 
 (define (validate-module/duplicate-exports [mod : Module])
   : (List ModuleError)
-  (match-define (module _ _ (exports types values patterns statics) _ _ _ _) mod)
+  (match-define (module _ _ (exports types values patterns statics) _) mod)
   (match-define check-exports
     (lambda ([exports : (List Export)])
       (match-define (bindings-state dupes _)
@@ -159,6 +159,7 @@
           [value-env : (Set Bytes)]
           [pattern-env : (Set Bytes)]
           [static-env : (Set Bytes)]) : (List ModuleError)
+  (match-define (module _ _ _ (definitions types _ _ functions _)) mod)
   (let ([validate-function-definition/free-variables
           (lambda ([def : FunctionDefinition]) : (Maybe ModuleError)
             (case (tuple2
@@ -175,7 +176,7 @@
                        (function-definition-name* def)
                        (free-variables types values patterns statics)))]))])
     (append
-      (let ([free-types (free-types/type-definitions (module-types mod) type-env (empty))])
+      (let ([free-types (free-types/type-definitions types type-env (empty))])
         (case free-types
           [(empty) (empty)]
           [types
@@ -185,7 +186,7 @@
                (free-variables types (empty) (empty) (empty))))]))
       (filter-map
         validate-function-definition/free-variables
-        (module-definitions mod)))))
+        functions))))
 
 (define (add-bindings [bindings : (List Identifier)] [state : BindingsState])
   : BindingsState
@@ -204,7 +205,7 @@
 
 (define (module-type-environment [mod : Module]) : BindingsState
   (case mod
-    [(module _ (imports imported-types _ _ _ _) _ types type-classes _ _)
+    [(module _ (imports imported-types _ _ _ _) _ (definitions types type-classes _ _ _))
      (add-bindings (map type-class-definition-name type-classes)
        (add-bindings (map type-definition-name types)
          (initial-bindings-state
@@ -212,7 +213,7 @@
 
 (define (module-value-environment [mod : Module]) : BindingsState
   (case mod
-    [(module _ (imports _ imported-values _ _ _) _ types _type-classes definitions _)
+    [(module _ (imports _ imported-values _ _ _) _ (definitions types _type-classes _ definitions _))
      ;; TODO add bindings for type classes
      (add-bindings (types->constructor-names types)
        (add-bindings (types->accessor-names types)
@@ -222,14 +223,14 @@
 
 (define (module-pattern-environment [mod : Module]) : BindingsState
   (case mod
-    [(module _ (imports _ _ imported-patterns _ _) _ types _ _ _)
+    [(module _ (imports _ _ imported-patterns _ _) _ (definitions types _ _ _ _))
      (add-bindings (types->constructor-names types)
        (initial-bindings-state
          (dict-keys imported-patterns)))]))
 
 (define (module-static-environment [mod : Module]) : BindingsState
   (case mod
-    [(module _ (imports _ _ _ imported-statics _) _ _ _ _ statics)
+    [(module _ (imports _ _ _ imported-statics _) _ (definitions _ _ _ _ statics))
      (match-define static-definition-name
        (lambda ([s : StaticDefinition])
          (case s
@@ -269,9 +270,10 @@
       types)))
 
 (define (validate-module/unique-bindings [mod : Module]) : (List ModuleError)
+  (match-define (module _ _ _ (definitions _ _ _ functions _)) mod)
   (filter-map
     check-unique-bindings/function-definition
-    (module-definitions mod)))
+    functions))
 
 (define (check-unique-bindings/function-definition [def : FunctionDefinition]) : (Maybe ModuleError)
   (case def
