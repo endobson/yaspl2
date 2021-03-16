@@ -26,6 +26,7 @@
       [PreType ri:PreType]
       [StaticDefinition ri:StaticDefinition]
       [TypeClassDefinition ri:TypeClassDefinition]
+      [TypeClassMethod ri:TypeClassMethod]
       [TypeDefinition ri:TypeDefinition]
       [VariantDefinition ri:VariantDefinition]
       [VariantField ri:VariantField]
@@ -65,6 +66,7 @@
       [module ri:module]
       [type-app-pre-type ri:type-app-pre-type]
       [type-class-definition ri:type-class-definition]
+      [type-class-method ri:type-class-method]
       [type-definition ri:type-definition]
       [var-expr ri:var-expr]
       [var-pre-type ri:var-pre-type]
@@ -94,6 +96,7 @@
     (unbound-type-variable [id : Identifier])
     (non-value-kind [t : Type] [source : SourceSpan])
     (non-constraint-kind [t : Type] [source : SourceSpan])
+    (non-function-type [t : Type] [source : SourceSpan])
     (type-constructor-bad-arg-kind [source : SourceSpan])
     (type-constructor-bad-number-of-args [source : SourceSpan])
     (type-constructor-bad-constructor [t : Type] [source : SourceSpan])))
@@ -101,22 +104,26 @@
 (define (resolve-types [mod : ri:Module]) : (Either TypeResolutionError Module)
   (match-define ctx (init-context mod))
   (match-define (ri:module (source-span-annotated name _) imports exports
-                           (ri:definitions types _type-classes _instances functions statics)) mod)
+                           (ri:definitions types type-classes instances functions statics)) mod)
   (match-define error
     (lambda ([v : LocalTypeResolutionError]) : (Either TypeResolutionError Module)
       (left (type-resolution-error name v))))
   (case (resolve-types/type-defs types ctx)
     [(left v) (error v)]
     [(right types)
-     (case (resolve-types/functions functions ctx)
+     (case (resolve-types/type-classes type-classes ctx)
        [(left v) (error v)]
-       [(right functions)
-        (case (resolve-types/statics statics ctx)
+       [(right type-classes)
+        (case (resolve-types/functions functions ctx)
           [(left v) (error v)]
-          [(right statics)
-           (match-define imports (resolve-types/imports imports))
-           (match-define exports (resolve-types/exports exports ctx))
-           (right (module name imports exports (definitions types functions statics)))])])]))
+          [(right functions)
+           (case (resolve-types/statics statics ctx)
+             [(left v) (error v)]
+             [(right statics)
+              (match-define imports (resolve-types/imports imports))
+              (match-define exports (resolve-types/exports exports ctx))
+              (right (module name imports exports
+                             (definitions types type-classes instances functions statics)))])])])]))
 
 (define (init-context [mod : ri:Module]) : Context
   (match-define (ri:module (source-span-annotated mod-name _) imports _
@@ -263,6 +270,26 @@
     [(left v) (left v)]
     [(right type)
      (right (variant-field name type))]))
+
+(define (resolve-types/type-classes [defs : (List ri:TypeClassDefinition)] [ctx : Context])
+  : (Either LocalTypeResolutionError (List TypeClassDefinition))
+  (map/failure/env resolve-types/type-class defs ctx))
+
+(define (resolve-types/type-class [def : ri:TypeClassDefinition] [ctx : Context])
+  : (Either LocalTypeResolutionError TypeClassDefinition)
+  (match-define (ri:type-class-definition class type methods) def)
+  (case (map/failure/env resolve-types/type-class-method methods ctx)
+    [(left v) (left v)]
+    [(right methods)
+     (right (type-class-definition class type methods))]))
+
+(define (resolve-types/type-class-method [method : ri:TypeClassMethod] [ctx : Context])
+  : (Either LocalTypeResolutionError TypeClassMethod)
+  (match-define (ri:type-class-method name type) method)
+  (case (pre-type->function-type type ctx)
+    [(left v) (left v)]
+    [(right type)
+     (right (type-class-method name type))]))
 
 
 (define (resolve-types/functions [defs : (List ri:FunctionDefinition)] [ctx : Context])
@@ -569,6 +596,16 @@
        [_
         (left (non-constraint-kind type (ri:pre-type-source-span pre-type)))])]))
 
+(define (pre-type->function-type [pre-type : ri:PreType] [ctx : Context])
+  : (Either LocalTypeResolutionError Type)
+  (case (pre-type->type pre-type ctx)
+    [(left v) (left v)]
+    [(right type)
+     (case type
+       [(fun-type _ _ _ _) (right type)]
+       [_
+        (left (non-function-type type (ri:pre-type-source-span pre-type)))])]))
+
 (define (type-resolution-error->bytes [v : TypeResolutionError]) : Bytes
   (match-define (type-resolution-error mod-name error) v)
   (match-define msg
@@ -587,6 +624,12 @@
        (bytes-append (varargs list
          (source-span->start-location-bytes src)
          #": Type's kind must correspond to a constraint got: "
+         (print-type type)
+         #"\n"))]
+      [(non-function-type type src)
+       (bytes-append (varargs list
+         (source-span->start-location-bytes src)
+         #": Type must correspond to a function got: "
          (print-type type)
          #"\n"))]
       [(type-constructor-bad-arg-kind src)
