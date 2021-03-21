@@ -4,6 +4,7 @@ package(
 
 ALL_PACKAGES = [
     "//examples",
+    "//examples/snake",
     "//libraries",
     "//libraries/algorithms",
     "//libraries/code-http-server",

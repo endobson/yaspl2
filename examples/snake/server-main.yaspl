@@ -1,0 +1,74 @@
+#:module (examples snake server-main)
+#:import {
+  (bytes)
+  (data lifted-primitives)
+  (http-server)
+  (io)
+  (ip)
+  (list)
+  (maybe)
+  (numbers)
+  (prim)
+  (protocols http http-response)
+  (protocols http http-responses)
+  (tcp)
+  (tuples)
+}
+(export
+  (#:values main))
+(types)
+
+(define (fetchable-handler [request : HttpRequest] [count : Int]) : HttpResponse
+  (case request
+    [(http-request _resource _headers)
+     (text-ok-response
+       (bytes-append (build-list count (lambda ([_i : Int]) #"X"))))]))
+
+(define (constant-handler [content : Bytes]) : (HttpRequest -> HttpResponse)
+  (lambda ([request : HttpRequest])
+    (case request
+      [(http-request _resource _headers)
+       (raw-html-ok-response content)])))
+
+(define (redirecting-request-handler [root-file-content : Bytes]) :
+  (HttpRequest LiftedInt -> (Tuple2 HttpResponse LiftedInt))
+  (lambda ([request : HttpRequest] [state : LiftedInt])
+    (match-define (http-request path _headers) request)
+    (match-define (lifted-int count) state)
+    (tuple2
+      (cond
+        [(bytes=? path #"/")
+         ((constant-handler root-file-content) request)]
+        [(bytes=? path #"/fetch")
+         (fetchable-handler request count)]
+        [else
+         (not-found)])
+      (lifted-int (+ 1 count)))))
+
+(define (main [args : Bytes] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Int
+  (case (args->list args)
+    [(cons _ (cons ip-bytes (cons port-bytes (cons root-file (empty)))))
+     (case (bytes->ipv4-address ip-bytes)
+       [(just ip-addr)
+        (case (decimal-bytes->integer port-bytes)
+          [(just (lifted-int port))
+           (let ([address (tcp-address ip-addr port)])
+             (match-define root-file-content (call-with-input-file root-file read-all-bytes))
+             (begin
+               (run-http-server/state address
+                 (redirecting-request-handler root-file-content)
+                 (lifted-int 0))
+               (write-line #"Server unexpectedly exited" stderr)
+               1))]
+          [(nothing)
+           (begin
+             (write-line #"Unparsable port number" stderr)
+             1)])]
+       [(nothing)
+        (begin
+          (write-line #"Unparsable ip address" stderr)
+          1)])]
+    [_
+     (begin
+       (write-line #"Wrong number of arguments" stderr)
+       1)]))

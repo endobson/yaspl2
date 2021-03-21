@@ -206,10 +206,12 @@ yaspl_library(
         ":buffered-port",
         ":io",
         ":tcp",
+        "//libraries/data:lifted-primitives",
         "//libraries/data:list",
         "//libraries/data:maybe",
         "//libraries/data:numbers",
         "//libraries/data:regexp",
+        "//libraries/data:tuples",
         "//libraries/protocols/http:http-response",
     ],
 )

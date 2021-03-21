@@ -1,6 +1,7 @@
 #:module (http-server)
 #:import {
   (buffered-port)
+  (data lifted-primitives)
   (io)
   (list)
   (maybe)
@@ -9,10 +10,11 @@
   (protocols http http-response)
   (regexp)
   (tcp)
+  (tuples)
 }
 (export
   (#:types HttpRequest HttpRequestHeader)
-  (#:values run-http-server http-request http-request-header)
+  (#:values run-http-server run-http-server/state http-request http-request-header)
   (#:patterns http-request http-request-header))
 (types
   (define-type HttpRequest
@@ -77,15 +79,19 @@
        (write-all-bytes #"\r\n" out)
        (write-all-bytes body out))]))
 
-(define (read-loop [buffered-port : BufferedPort] [lines : (List Bytes)] [sock : Socket]
-                   [request-handler : (HttpRequest -> HttpResponse)]) : Void
+(define [s] (read-loop/state
+              [buffered-port : BufferedPort] [lines : (List Bytes)] [sock : Socket]
+              [request-handler : (HttpRequest s -> (Tuple2 HttpResponse s))]
+              [state : s]) : s
   (case (read-crlf-line buffered-port)
     [(line-result bytes eof buffered-port)
      (cond
        [(= (bytes-length bytes) 0)
         (case (reverse lines)
           [(empty)
-           (close-output-port sock)]
+           (begin
+             (close-output-port sock)
+             state)]
           [(cons request-line header-lines)
            (let ([request
                   (http-request
@@ -98,25 +104,41 @@
                           [(just request-header) request-header]
                           [(nothing) (panic #"Unparseable header")]))
                       header-lines))])
+             (match-define (tuple2 response state) (request-handler request state))
              (begin
-               (write-http-response (request-handler request) sock)
-               (close-output-port sock)))])]
+               (write-http-response response sock)
+               (close-output-port sock)
+               state))])]
        [eof
-        (close-output-port sock)]
+        (begin
+          (close-output-port sock)
+          state)]
        [else
-        (read-loop buffered-port (cons bytes lines) sock request-handler)])]))
+        (read-loop/state buffered-port (cons bytes lines) sock request-handler state)])]))
 
-(define (accept-loop [sock : Socket] [request-handler : (HttpRequest -> HttpResponse)]) : Void
+(define [s] (accept-loop/state
+              [sock : Socket]
+              [request-handler : (HttpRequest s -> (Tuple2 HttpResponse s))]
+              [state : s]) : Void
   (case (tcp-socket-accept sock)
     [(accepted-socket new-sock _new-sock-addr)
-     (begin
-       (read-loop (make-buffered-port new-sock) (empty) new-sock request-handler)
-       (accept-loop sock request-handler))]))
+     (match-define state
+       (read-loop/state (make-buffered-port new-sock) (empty) new-sock request-handler state))
+     (accept-loop/state sock request-handler state)]))
 
 (define (run-http-server [address : TcpAddress] [request-handler : (HttpRequest -> HttpResponse)]) : Void
+  (match-define full-handler
+    (lambda ([req : HttpRequest] [s : LiftedVoid])
+      (tuple2 (request-handler req) s)))
+  (run-http-server/state address full-handler (lifted-void)))
+
+(define [s] (run-http-server/state
+              [address : TcpAddress]
+              [request-handler : (HttpRequest s -> (Tuple2 HttpResponse s))]
+              [initial-state : s]) : Void
   (let ([sock (socket 2 1 0)])
      (begin
        (tcp-socket-set-reuse-address sock #t)
        (tcp-socket-bind sock address)
        (listen sock 5)
-       (accept-loop sock request-handler))))
+       (accept-loop/state sock request-handler initial-state))))
