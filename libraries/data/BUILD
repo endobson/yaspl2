@@ -88,6 +88,7 @@ yaspl_test(
         ":bytes",
         ":list",
         ":maybe",
+        ":ordering",
         "//libraries:yunit",
     ],
 )
