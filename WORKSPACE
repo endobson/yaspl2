@@ -42,9 +42,9 @@ register_toolchains(
 
 http_archive(
     name = "io_bazel_rules_docker",
-    sha256 = "c15ef66698f5d2122a3e875c327d9ecd34a231a9dc4753b9500e70518464cc21",
-    strip_prefix = "rules_docker-7da0de3d094aae5601c45ae0855b64fb2771cd72",
-    urls = ["https://github.com/bazelbuild/rules_docker/archive/7da0de3d094aae5601c45ae0855b64fb2771cd72.tar.gz"],
+    sha256 = "59536e6ae64359b716ba9c46c39183403b01eabfbd57578e84398b4829ca499a",
+    strip_prefix = "rules_docker-0.22.0",
+    urls = ["https://github.com/bazelbuild/rules_docker/releases/download/v0.22.0/rules_docker-v0.22.0.tar.gz"],
 )
 
 load("@io_bazel_rules_docker//repositories:repositories.bzl",
