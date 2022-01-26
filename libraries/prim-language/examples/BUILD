@@ -92,55 +92,6 @@ binary_test(
 )
 
 prim_binary(
-    name = "hello-world",
-    srcs = ["hello-world.prim"],
-)
-
-binary_test(
-    name = "hello-world_test",
-    testonly = 0,
-    binary = ":hello-world",
-    exit_code = 6,
-    output = "Hello",
-)
-
-prim_binary(
-    name = "pointers1",
-    srcs = ["pointers1.prim"],
-)
-
-binary_test(
-    name = "pointers1_test",
-    testonly = 0,
-    binary = ":pointers1",
-    exit_code = 4,
-)
-
-prim_binary(
-    name = "pointers2",
-    srcs = ["pointers2.prim"],
-)
-
-binary_test(
-    name = "pointers2_test",
-    testonly = 0,
-    binary = ":pointers2",
-    exit_code = 3,
-)
-
-prim_binary(
-    name = "pointers3",
-    srcs = ["pointers3.prim"],
-)
-
-binary_test(
-    name = "pointers3_test",
-    testonly = 0,
-    binary = ":pointers3",
-    exit_code = 0,
-)
-
-prim_binary(
     name = "spill",
     srcs = ["spill.prim"],
 )
