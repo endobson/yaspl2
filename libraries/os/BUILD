@@ -136,7 +136,6 @@ core_library(
     ],
 )
 
-
 core_library(
     name = "examples",
     srcs = ["examples.core"],
@@ -144,9 +143,9 @@ core_library(
         "msabi-runtime.sig",
     ],
     deps = [
-        ":scheduler",
         ":efi",
         ":read_serial",
+        ":scheduler",
         ":write_serial",
     ],
 )
@@ -223,8 +222,8 @@ genrule(
     ],
     cmd = "$(location :gen-msabi) $(YASPL_PLATFORM) " +
           "$(location :msabi-runtime.o) $(location :msabi-runtime.sig)",
-    toolchains = ["//libraries/yaspl:make_variables"],
     exec_tools = [":gen-msabi"],
+    toolchains = ["//libraries/yaspl:make_variables"],
 )
 
 yaspl_link(
