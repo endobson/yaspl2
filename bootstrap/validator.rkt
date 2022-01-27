@@ -34,6 +34,9 @@
          (recur pattern acc))]))
   (recur p empty))
 
+(define (check-duplicate-bindings binders)
+  (check-duplicates (filter (lambda (s) (not (string-prefix? (symbol->string s) "_"))) binders)))
+
 
 ;; TODO make this work over types and not conflate type bindings and value bindings
 ;; TODO also support patterns
@@ -79,8 +82,9 @@
          (match clause
            [(case-clause& pattern (block& defs expr))
             (define binders (pattern-binding-variables pattern))
-            (when (check-duplicates binders)
-              (raise-user-error 'ensure-no-free-variables "Duplicate binder in ~a" binders))
+            (when (check-duplicate-bindings binders)
+              (raise-user-error 'ensure-no-free-variables 
+                "Duplicate binder in ~a: ~a" (module&-name module) binders))
             (recur/block (set-union env (list->set binders)) defs expr)]))]))
   (define (recur/block env defs body)
     (match defs
@@ -88,8 +92,9 @@
       [(cons (match-def& pattern type expr) defs)
        ((recur/env env) expr)
        (define binders (pattern-binding-variables pattern))
-       (when (check-duplicates binders)
-         (raise-user-error 'ensure-no-free-variables "Duplicate binder in ~a" binders))
+       (when (check-duplicate-bindings binders)
+         (raise-user-error 'ensure-no-free-variables
+            "Duplicate binder in ~a: ~a" (module&-name module) binders))
        (recur/block (set-union env (list->set binders)) defs body)]))
 
   (match module

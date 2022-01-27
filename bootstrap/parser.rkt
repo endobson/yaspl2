@@ -6,6 +6,7 @@
   racket/match
   racket/list
   racket/set
+  racket/string
   (only-in racket/contract/base and/c))
 (provide
   parse-module)
@@ -200,7 +201,9 @@
 (define (parse-pattern sexp)
   (match sexp
     [(? bytes? bytes) (bytes-pattern& (bytes->immutable-bytes bytes))]
-    ['_ (ignore-pattern&)]
+    [(? (lambda (s) (and (symbol? s) (string-prefix? (symbol->string s) "_"))))
+     (ignore-pattern&)]
+    [(? symbol? v) (variable-pattern& v)]
     [(? symbol? v) (variable-pattern& v)]
     [(? integer? v) (byte-pattern& v)]
     [(list (? symbol? name) patterns ...)
