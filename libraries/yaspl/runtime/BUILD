@@ -21,6 +21,11 @@ core_library(
     srcs = ["fill-stack.core"],
 )
 
+core_library(
+    name = "initialize-heap",
+    srcs = ["initialize-heap.core"],
+)
+
 yaspl_test(
     name = "fill-stack-test",
     size = "small",
@@ -63,6 +68,7 @@ filegroup(
 filegroup(
     name = "runtime-sources",
     srcs = [
+        ":initialize-heap.core",
         ":read-memory.prim",
         ":variant-descriptor.prim",
     ],

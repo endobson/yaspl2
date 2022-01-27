@@ -22,9 +22,10 @@
   (define source-files
     (for/list ([file (in-list (file->bytes-lines file-list-file))])
       file))
-  (define prim-files
+  (define low-level-files
     (list
-      (path->bytes (build-path src-root "libraries/yaspl/runtime/read-memory.prim"))))
+      (path->bytes (build-path src-root "libraries/yaspl/runtime/read-memory.prim"))
+      (path->bytes (build-path src-root "libraries/yaspl/runtime/initialize-heap.core"))))
 
   (define-values (modules signatures) (load-modules compiler-files))
 
@@ -36,7 +37,7 @@
 
 
   (let ([result (run-program modules signatures (module-name& '(compiler-main)) 'main #:stdin #""
-                             #:args `(,@args ,main-function ,@source-files ,@prim-files))])
+                             #:args `(,@args ,main-function ,@source-files ,@low-level-files))])
     (write-bytes (program-result-stdout result) (current-output-port))
     (write-bytes (program-result-stderr result) (current-error-port))
     (when (program-result-error-info result)

@@ -2,7 +2,6 @@ load(
     "//libraries:yaspl.bzl",
     "yaspl_binary",
     "yaspl_bootstrap_library",
-    "yaspl_library",
     "yaspl_test",
 )
 load(":core-language.bzl", "core_language_toolchain")
@@ -26,7 +25,7 @@ yaspl_binary(
     ],
 )
 
-yaspl_library(
+yaspl_bootstrap_library(
     name = "compiler-lib",
     srcs = ["compiler.yaspl"],
     deps = [
@@ -64,7 +63,7 @@ yaspl_binary(
     ],
 )
 
-yaspl_library(
+yaspl_bootstrap_library(
     name = "core-parser",
     srcs = ["core-parser.yaspl"],
     deps = [
@@ -100,7 +99,7 @@ yaspl_test(
     ],
 )
 
-yaspl_library(
+yaspl_bootstrap_library(
     name = "lexer",
     srcs = ["lexer.yaspl"],
     deps = [
@@ -130,7 +129,7 @@ yaspl_test(
     ],
 )
 
-yaspl_library(
+yaspl_bootstrap_library(
     name = "lr-parser",
     srcs = ["lr-parser.yaspl"],
     deps = [
@@ -172,7 +171,7 @@ yaspl_test(
     ],
 )
 
-yaspl_library(
+yaspl_bootstrap_library(
     name = "sized-types",
     srcs = ["sized-types.yaspl"],
     deps = [
@@ -182,7 +181,7 @@ yaspl_library(
     ],
 )
 
-yaspl_library(
+yaspl_bootstrap_library(
     name = "source-to-register",
     srcs = ["source-to-register.yaspl"],
     deps = [

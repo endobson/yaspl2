@@ -2,6 +2,7 @@
 #:import {
   (bytes)
   (compiler)
+  (core-language compiler)
   (either)
   (io)
   (linker)
@@ -39,6 +40,15 @@
             (left file)
             (right file)))
       module-files)))
+
+(define (split-low-level-files [files : (List Bytes)]) : (Tuple2 (List Bytes) (List Bytes))
+  (partition-eithers
+    (map
+      (lambda ([file : Bytes]) : (Either Bytes Bytes)
+        (if (ends-with? file #".prim")
+            (left file)
+            (right file)))
+      files)))
 
 (define (compile-prim-files [prim-files : (List Bytes)] [abi : SystemAbi])
   : (Either Bytes AssemblyFragments)
@@ -81,30 +91,34 @@
   (case (parse-args input)
     [(left v) (just v)]
     [(right (args abi object-file-name binary-file-name module-name module-files))
-     (match-define (tuple2 yaspl-files prim-files) (split-module-files module-files))
+     (match-define (tuple2 yaspl-files low-level-files) (split-module-files module-files))
+     (match-define (tuple2 prim-files core-files) (split-low-level-files low-level-files))
      (case (parse-module-files yaspl-files)
        [(left v) (just (parser-error->bytes v))]
        [(right modules)
         (case (compile-modules modules)
           [(left v) (just (module-compilation-error->bytes v))]
-          [(right code)
+          [(right yaspl-tlos)
            (case (compile-prim-files prim-files abi)
              [(left v) (just v)]
              [(right prim-fragments)
-              (let ([assembly
-                      (append-fragments
-                        prim-fragments
-                        (append-fragments
-                          (yaspl-runtime
-                            (top-level-name (mod-name (varargs list module-name)) #"main_closure")
-                            abi)
-                          (convert-objects code)))])
-                (begin
-                  (write-library-object-file
-                    assembly
-                    abi
-                    object-file-name)
-                  (link-files (varargs list object-file-name) abi binary-file-name)))])])])]))
+              (case (compile-module-files core-files (empty))
+                [(left v) (just v)]
+                [(right core-tlos)
+                 (let ([assembly
+                         (append-fragments
+                           prim-fragments
+                           (append-fragments
+                             (yaspl-runtime
+                               (top-level-name (mod-name (varargs list module-name)) #"main_closure")
+                               abi)
+                             (convert-objects (append core-tlos yaspl-tlos))))])
+                   (begin
+                     (write-library-object-file
+                       assembly
+                       abi
+                       object-file-name)
+                     (link-files (varargs list object-file-name) abi binary-file-name)))])])])])]))
 
 (define (main [args : Bytes] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Int
   (case (run (args->list args))

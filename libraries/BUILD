@@ -21,6 +21,7 @@ yaspl_bootstrap_binary(
         ":module-name",
         ":system-abi",
         ":top-level-name",
+        "//libraries/core-language:compiler-lib",
         "//libraries/data:bytes",
         "//libraries/data:either",
         "//libraries/data:list",

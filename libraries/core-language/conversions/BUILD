@@ -1,13 +1,13 @@
 load(
     "//libraries:yaspl.bzl",
-    "yaspl_library",
+    "yaspl_bootstrap_library",
 )
 
 package(
     default_visibility = ["//visibility:public"],
 )
 
-yaspl_library(
+yaspl_bootstrap_library(
     name = "lift-values",
     srcs = ["lift-values.yaspl"],
     deps = [
@@ -22,7 +22,7 @@ yaspl_library(
     ],
 )
 
-yaspl_library(
+yaspl_bootstrap_library(
     name = "lower-to-register",
     srcs = ["lower-to-register.yaspl"],
     deps = [
@@ -49,7 +49,7 @@ yaspl_library(
     ],
 )
 
-yaspl_library(
+yaspl_bootstrap_library(
     name = "process-structs",
     srcs = ["process-structs.yaspl"],
     deps = [
@@ -69,7 +69,7 @@ yaspl_library(
     ],
 )
 
-yaspl_library(
+yaspl_bootstrap_library(
     name = "resolve-imports",
     srcs = ["resolve-imports.yaspl"],
     deps = [
@@ -87,7 +87,7 @@ yaspl_library(
     ],
 )
 
-yaspl_library(
+yaspl_bootstrap_library(
     name = "resolve-types",
     srcs = ["resolve-types.yaspl"],
     deps = [
@@ -106,7 +106,7 @@ yaspl_library(
     ],
 )
 
-yaspl_library(
+yaspl_bootstrap_library(
     name = "resolve-vars",
     srcs = ["resolve-vars.yaspl"],
     deps = [
@@ -125,7 +125,7 @@ yaspl_library(
     ],
 )
 
-yaspl_library(
+yaspl_bootstrap_library(
     name = "type-check",
     srcs = ["type-check.yaspl"],
     deps = [
