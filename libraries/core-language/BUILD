@@ -13,7 +13,7 @@ package(
 
 yaspl_binary(
     name = "compiler",
-    srcs = ["compiler.yaspl"],
+    srcs = ["compiler-main.yaspl"],
     deps = [
         ":core-parser",
         ":lexer",
