@@ -1,0 +1,61 @@
+#:module (core-language compiler)
+#:import {
+  (core-language core-parser)
+  (core-language lexer)
+  (core-language lr-parser)
+  (core-language source-to-register)
+  (either)
+  (io)
+  (list)
+  (module-signature)
+  (prim)
+  (yaspl parser)
+  (yaspl top-level-objects)
+}
+(export
+  (#:values compile-module-files compile-module-file))
+(types)
+
+
+(define (compile-module-files [module-files : (List Bytes)] [sig-files : (List Bytes)])
+  : (Either Bytes (List TopLevelObject))
+  (case (parse-signature-files sig-files)
+    [(left v) (left v)]
+    [(right sigs)
+     (compile-module-files* module-files sigs (empty))]))
+
+(define (compile-module-file [module-file : Bytes] [sig-files : (List Bytes)])
+  : (Either Bytes CompiledModule)
+  (case (parse-signature-files sig-files)
+    [(left v) (left v)]
+    [(right sigs)
+     (compile-module-file* module-file sigs)]))
+
+
+(define (compile-module-files* [module-files : (List Bytes)] [sigs : (List ModuleSignature)]
+                               [acc : (List TopLevelObject)])
+  : (Either Bytes (List TopLevelObject))
+  (case module-files
+    [(empty) (right acc)]
+    [(cons module-file module-files)
+     (case (compile-module-file* module-file sigs)
+       [(left v) (left v)]
+       [(right (compiled-module tlos sig))
+        (compile-module-files* module-files (cons sig sigs) (append tlos acc))])]))
+
+(define (compile-module-file* [module-file : Bytes] [sigs : (List ModuleSignature)])
+  : (Either Bytes CompiledModule)
+  (match-define input-contents (sourced-bytes-from-file module-file))
+  (match-define lexer (make-core-lexer input-contents))
+  (case (make-module-parser)
+    [(left v) (left v)]
+    [(right parser)
+     (case (lex-all lexer)
+       [(left v) (left v)]
+       [(right _)
+        (case (run-parser parser lexer)
+          [(left v) (left v)]
+          [(right (form/module m))
+           (compile-module m sigs)]
+          [(right _)
+           (left #"Parser didn't produce a module form")])])]))

@@ -15,10 +15,7 @@ yaspl_binary(
     name = "compiler",
     srcs = ["compiler-main.yaspl"],
     deps = [
-        ":core-parser",
-        ":lexer",
-        ":lr-parser",
-        ":source-to-register",
+        ":compiler-lib",
         "//libraries:io",
         "//libraries:machine-code-writer",
         "//libraries:system-abi",
@@ -26,7 +23,23 @@ yaspl_binary(
         "//libraries/data:either",
         "//libraries/data:list",
         "//libraries/data:maybe",
+    ],
+)
+
+yaspl_library(
+    name = "compiler-lib",
+    srcs = ["compiler.yaspl"],
+    deps = [
+        ":core-parser",
+        ":lexer",
+        ":lr-parser",
+        ":source-to-register",
+        "//libraries:io",
+        "//libraries:module-signature",
+        "//libraries/data:either",
+        "//libraries/data:list",
         "//libraries/yaspl:parser",
+        "//libraries/yaspl:top-level-objects",
     ],
 )
 
