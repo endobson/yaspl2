@@ -83,6 +83,7 @@ racket_library(
     data = [
         "//libraries:compiler_library_files",
         "//libraries/yaspl/runtime:runtime-sources",
+        "//libraries/yaspl/runtime:runtime-sources.list",
     ],
     deps = [
         ":compiler",

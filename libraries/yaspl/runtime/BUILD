@@ -1,6 +1,7 @@
 load("//libraries/prim-language:prim-language.bzl", "prim_library")
 load("//libraries/core-language:core-language.bzl", "core_library")
 load("//libraries:yaspl.bzl", "yaspl_test")
+load(":filegroup_list.bzl", "filegroup_list")
 
 package(
     default_visibility = ["//visibility:public"],
@@ -75,6 +76,11 @@ filegroup(
     visibility = [
         "//bootstrap:__pkg__",
     ],
+)
+
+filegroup_list(
+    name = "runtime-sources.list",
+    dep = "runtime-sources",
 )
 
 test_suite(
