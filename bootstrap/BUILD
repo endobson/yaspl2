@@ -144,3 +144,8 @@ bootstrap_binary(
     name = "bootstrap_prim_language_library_compiler",
     source_files = "//libraries/prim-language:prim-language-library-compiler_library_files",
 )
+
+bootstrap_binary(
+    name = "bootstrap_core_language_compiler",
+    source_files = "//libraries/core-language:compiler_library_files",
+)

@@ -1,6 +1,7 @@
 load(
     "//libraries:yaspl.bzl",
     "yaspl_binary",
+    "yaspl_bootstrap_binary",
     "yaspl_bootstrap_library",
     "yaspl_test",
 )
@@ -10,7 +11,7 @@ package(
     default_visibility = ["//visibility:public"],
 )
 
-yaspl_binary(
+yaspl_bootstrap_binary(
     name = "compiler",
     srcs = ["compiler-main.yaspl"],
     deps = [

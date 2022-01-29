@@ -1,6 +1,7 @@
 load("@minimal_racket//:racket.bzl", "racket_binary", "racket_library")
 
 # Macros to reduce boilerplate on similar rules in bootstrapping
+# TODO(endobson) support specifying module name
 def bootstrap_binary(name, source_files):
   bootstrapper = "//bootstrap:bootstrapper"
   object_name = name + ".o"
