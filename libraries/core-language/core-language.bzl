@@ -68,7 +68,7 @@ core_library = rule(
       allow_empty=True,
     ),
     "_compiler": attr.label(
-      default=Label("//libraries/core-language:compiler"),
+      default=Label("//prebuilt:core_language_compiler"),
       executable=True,
       allow_files=True,
       cfg="exec",

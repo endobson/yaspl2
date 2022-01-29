@@ -2,6 +2,7 @@ load("//libraries/prim-language:prim-language.bzl", "prim_library")
 load("//libraries/core-language:core-language.bzl", "core_library")
 load("//libraries:yaspl.bzl", "yaspl_test")
 load(":filegroup_list.bzl", "filegroup_list")
+load(":runtime.bzl", "runtime_objects")
 
 package(
     default_visibility = ["//visibility:public"],
@@ -58,9 +59,10 @@ yaspl_test(
     ],
 )
 
-filegroup(
+runtime_objects(
     name = "runtime",
-    srcs = [
+    deps = [
+        ":initialize-heap",
         ":read-memory",
         ":variant-descriptor",
     ],
