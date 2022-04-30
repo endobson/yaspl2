@@ -36,6 +36,7 @@ yaspl_bootstrap_library(
         ":source-to-register",
         "//libraries:io",
         "//libraries:module-signature",
+        "//libraries:prim-implementation",
         "//libraries/data:either",
         "//libraries/data:list",
         "//libraries/yaspl:parser",
