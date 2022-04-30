@@ -93,6 +93,7 @@ yaspl_test(
         ":lexer",
         ":lr-parser",
         ":source-to-register",
+        "//libraries:prim-implementation",
         "//libraries:yunit",
         "//libraries/data:either",
         "//libraries/data:list",
