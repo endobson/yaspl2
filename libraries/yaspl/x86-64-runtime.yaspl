@@ -54,74 +54,27 @@
       #"start_break"
       (varargs append-jl*
         (named-block #"start_break_0"
-          (varargs append-jl*
-            (varargs join-list
-              ;; Allocate Heap (Call mmap)
-              ;; No fixed address desired
-              (movq (imm64/s32 0) (r64m-reg (rdi)))
-              ;; We want a large heap but cannot load more than an 32 bits
-              ;; currently so do a multiplication
+          (varargs join-list
+            ;; Allocate Heap (Call mmap)
+            (call #"yprim_mmap_anon")
 
-              ;; On osx this is 8k * 1MiB = 8GiB
-              ;; On linux this is 2k * 1MiB = 2GiB
-              ;; 2^20 = 1MiB
-              (movq (imm64/s32 #x200000) (r64m-reg (rsi)))
-              (case abi
-                [(osx-syscall-abi)
-                 (movq (imm64/s32 #x2000) (r64m-reg (rax)))] ;; 2^13 = 8k
-                [(linux-syscall-abi)
-                 (movq (imm64/s32 #x800) (r64m-reg (rax)))]) ;; 2^11 = 2k
-              (imulq (rax) (rsi))
-              ;; 0x1 = PROT_READ
-              ;; 0x2 = PROT_WRITE
-              ;; 0x4 = PROT_EXEC
-              (movq (imm64/s32 #x7) (r64m-reg (rdx)))
-              (case abi
-                [(osx-syscall-abi)
-                 ;; 0x0002 = MAP_PRIVATE
-                 ;; 0x1000 = MAP_ANON
-                 (movq (imm64/s32 #x1002) (r64m-reg (r10)))]
-                [(linux-syscall-abi)
-                 ;; 0x0002 = MAP_PRIVATE
-                 ;; 0x0020 = MAP_ANON
-                 (movq (imm64/s32 #x0022) (r64m-reg (r10)))])
-              ;; FD = -1 for no FD
-              (movq (imm64/s32 (- 0 1)) (r64m-reg (r8)))
-              ;; offset which is ignored because of MAP_ANON
-              (movq (imm64/s32 0) (r64m-reg (r9)))
-              (case abi
-                [(osx-syscall-abi)
-                 ;; 0xC5 is mmap, plus 0x2000000 because xnu
-                 (movq (imm64/s32 #x20000C5) (r64m-reg (rax)))]
-                [(linux-syscall-abi)
-                 ;; 0x09 is mmap
-                 (movq (imm64/s32 #x09) (r64m-reg (rax)))])
-              (syscall))
-            (case abi
-              [(osx-syscall-abi)
-               (single-jl (jb #"yprim_start_panic"))]
-              [(linux-syscall-abi)
-               (varargs join-list
-                 (cmpq (imm64/s32 0) (r64m-reg (rax)))
-                 (jl #"yprim_start_panic"))])
-            (varargs join-list
-              ;; Save heap to %r15 which is our bump pointer
-              (movq (r64mi-reg (rax)) (r64m-reg (r15)))
-              ;; Save initial value to r14 for setting up the thread control block later.
-              (movq (r64mi-reg (rax)) (r64m-reg (r14)))
+            ;; Save heap to %r15 which is our bump pointer
+            (movq (r64mi-reg (rax)) (r64m-reg (r15)))
+            ;; Save initial value to r14 for setting up the thread control block later.
+            (movq (r64mi-reg (rax)) (r64m-reg (r14)))
 
-              ;; Ignore number of args as we want to reuse code for environment.
-              (addq (imm64/s32 8) (r64m-reg (rsp)))
-              ;; Clear direction for all the scans that will be done.
-              (cld)
+            ;; Ignore number of args as we want to reuse code for environment.
+            (addq (imm64/s32 8) (r64m-reg (rsp)))
+            ;; Clear direction for all the scans that will be done.
+            (cld)
 
-              ;; Save start of args stack point in rbp so that we can iterate over the args
-              ;; multiple times.
-              (movq (r64mi-reg (rsp)) (r64m-reg (rbp)))
+            ;; Save start of args stack point in rbp so that we can iterate over the args
+            ;; multiple times.
+            (movq (r64mi-reg (rsp)) (r64m-reg (rbp)))
 
-              ;; Initialize r8 (our accumuulator) to zero.
-              (movq (imm64/s32 0) (r64m-reg (r8)))
-              (jmp #"start_count_args_size_test"))))
+            ;; Initialize r8 (our accumuulator) to zero.
+            (movq (imm64/s32 0) (r64m-reg (r8)))
+            (jmp #"start_count_args_size_test")))
 
         ;; This loop will compute the size of the args including the null bytes.
         ;; r8 is the accumulator of the sizes.
@@ -757,6 +710,45 @@
         (r64m-reg (rax)))
       (ret))))
 
+;; mmap-anon
+(define (mmap-anon-impl [abi : SyscallAbi]) : PrimAssemblyFunction
+  (prim-syscall #"mmap_anon" #xC5 #x09 abi
+    (varargs join-list
+      ;; No fixed address desired
+      (movq (imm64/s32 0) (r64m-reg (rdi)))
+
+      ;; TODO take the amount of pages as an argument.
+
+      ;; On osx this is 8k * 1MiB = 8GiB
+      ;; On linux this is 2k * 1MiB = 2GiB
+      ;; 2^20 = 1MiB
+      (movq (imm64/s32 #x200000) (r64m-reg (rsi)))
+      (case abi
+        [(osx-syscall-abi)
+         (movq (imm64/s32 #x2000) (r64m-reg (rax)))] ;; 2^13 = 8k
+        [(linux-syscall-abi)
+         (movq (imm64/s32 #x800) (r64m-reg (rax)))]) ;; 2^11 = 2k
+      (imulq (rax) (rsi))
+
+      ;; 0x1 = PROT_READ
+      ;; 0x2 = PROT_WRITE
+      ;; 0x4 = PROT_EXEC
+      (movq (imm64/s32 #x7) (r64m-reg (rdx)))
+
+      (case abi
+        [(osx-syscall-abi)
+         ;; 0x0002 = MAP_PRIVATE
+         ;; 0x1000 = MAP_ANON
+         (movq (imm64/s32 #x1002) (r64m-reg (r10)))]
+        [(linux-syscall-abi)
+         ;; 0x0002 = MAP_PRIVATE
+         ;; 0x0020 = MAP_ANON
+         (movq (imm64/s32 #x0022) (r64m-reg (r10)))])
+      ;; FD = -1 for no FD
+      (movq (imm64/s32 (- 0 1)) (r64m-reg (r8)))
+      ;; offset which is ignored because of MAP_ANON
+      (movq (imm64/s32 0) (r64m-reg (r9))))))
+
 
 (define (prim-functions [abi : SyscallAbi])
   : (List PrimAssemblyFunction)
@@ -779,6 +771,7 @@
     (accept-impl abi)
     (setsockopt-impl abi)
     (ioctl-impl abi)
+    (mmap-anon-impl abi)
 
     (mach-task-self-impl)
     (mach-thread-self-impl)
