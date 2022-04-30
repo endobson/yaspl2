@@ -46,62 +46,60 @@
        (bytes-append (varargs list #"Duplicate signature for module: "
                               (mod-name->bytes (module-signature-name sig)))))]
     [(right sigs)
+     (case (resolve-imports/imports definitions sigs)
+       [(left v)
+        (left v)]
+       [(right (tuple2 value-imports type-imports))
+        (match-define exports (split-imports/exports definitions))
+        (match-define functions (split-imports/functions definitions))
+        (match-define structs (split-imports/structs definitions))
+        (match-define globals (split-imports/globals definitions))
 
-
-     (match-define (tuple2 value-imports type-imports)
-       (resolve-imports/imports definitions sigs))
-     (match-define exports (split-imports/exports definitions))
-     (match-define functions (split-imports/functions definitions))
-     (match-define structs (split-imports/structs definitions))
-     (match-define globals (split-imports/globals definitions))
-
-     (right (module mod-name value-imports type-imports exports structs globals functions))]))
+        (right (module mod-name value-imports type-imports exports structs globals functions))])]))
 
 (define (resolve-imports/imports
           [definitions : (List s:Definition)]
           [sigs : (IndexedSet ModuleSignature ModName)])
-  : (Tuple2 (Dict Bytes Import) (Dict Bytes TypeSignature))
+  : (Either Bytes (Tuple2 (Dict Bytes Import) (Dict Bytes TypeSignature)))
+  (case (map/failure/env resolve-imports/definition definitions sigs)
+    [(left v) (left v)]
+    [(right tuples)
+     (match-define (tuple2 values types) (unzip tuples))
+     (right
+       (tuple2
+         (merge-dicts* (make-dict bytes-cmp) values)
+         (merge-dicts* (make-dict bytes-cmp) types)))]))
 
-  (tuple2
-    (dict-add-all
-      (make-dict bytes-cmp)
-      (append*
-        (map
-          (lambda ([def : s:Definition]) : (List (Tuple2 Bytes Import))
-            (case def
-              [(s:external-definition name ty)
-               (varargs list (tuple2 name (import-external name ty)))]
-              [(s:global-definition _ _ _) (empty)]
-              [(s:import-module mod-name)
-               (case (indexed-set-ref sigs mod-name)
-                 [(nothing) (panic #"Bad mod name")]
-                 [(just (module-signature _ values _ _ _ _))
-                  (dict-map
-                    values
-                    (lambda ([v : Bytes] [sig : ValueSignature])
-                      (tuple2 v (import-value sig))))])]
-              [(s:struct-definition _ _) (empty)]
-              [(s:export-value-definition _) (empty)]
-              [(s:export-type-definition _) (empty)]
-              [(s:function-definition _ _ _ _) (empty)]))
-          definitions)))
-    (merge-dicts*
-      (make-dict bytes-cmp)
-      (filter-map
-        (lambda ([def : s:Definition]) : (Maybe (Dict Bytes TypeSignature))
-          (case def
-            [(s:external-definition _ _) (nothing)]
-            [(s:global-definition _ _ _) (nothing)]
-            [(s:import-module mod-name)
-             (case (indexed-set-ref sigs mod-name)
-               [(nothing) (panic #"Bad mod name")]
-               [(just (module-signature _ _ _ types _ _))
-                (just types)])]
-            [(s:struct-definition _ _) (nothing)]
-            [(s:export-value-definition _) (nothing)]
-            [(s:export-type-definition _) (nothing)]
-            [(s:function-definition _ _ _ _) (nothing)]))
-        definitions))))
+(define (resolve-imports/definition
+          [definition : s:Definition]
+          [sigs : (IndexedSet ModuleSignature ModName)])
+  : (Either Bytes (Tuple2 (Dict Bytes Import) (Dict Bytes TypeSignature)))
+  (case definition
+    [(s:external-definition name ty)
+     (right (tuple2
+               (dict-add (make-dict bytes-cmp) name (import-external name ty))
+               (make-dict bytes-cmp)))]
+    [(s:import-module mod-name)
+     (case (indexed-set-ref sigs mod-name)
+       [(nothing)
+        (left (bytes-append (varargs list #"Unknown module name in import: "
+                                          (mod-name->bytes mod-name))))]
+       [(just (module-signature _ values _ types _ _))
+        (right
+          (tuple2
+            (dict-value-map values import-value)
+            types))])]
+    [(s:global-definition _ _ _)
+     (right (tuple2 (make-dict bytes-cmp) (make-dict bytes-cmp)))]
+    [(s:struct-definition _ _)
+     (right (tuple2 (make-dict bytes-cmp) (make-dict bytes-cmp)))]
+    [(s:export-value-definition _)
+     (right (tuple2 (make-dict bytes-cmp) (make-dict bytes-cmp)))]
+    [(s:export-type-definition _)
+     (right (tuple2 (make-dict bytes-cmp) (make-dict bytes-cmp)))]
+    [(s:function-definition _ _ _ _)
+     (right (tuple2 (make-dict bytes-cmp) (make-dict bytes-cmp)))]))
+
 
 
 (define (split-imports/exports [definitions : (List s:Definition)]) : (List Export)
