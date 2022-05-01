@@ -190,6 +190,7 @@ yaspl_library(
         "//libraries/data:dict",
         "//libraries/data:join-list",
         "//libraries/data:list",
+        "//libraries/data:maybe",
         "//libraries/data:tuples",
         "//libraries/yaspl:assembly-function",
         "//libraries/yaspl:x86-64-assembly",
