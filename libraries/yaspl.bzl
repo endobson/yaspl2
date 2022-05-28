@@ -123,7 +123,8 @@ def _bin_impl(ctx):
   )
   return [
     DefaultInfo(
-      files = depset([ctx.outputs.executable])
+      files = depset([ctx.outputs.executable]),
+      runfiles = ctx.runfiles(transitive_files = depset(transitive = [d.files for d in ctx.attr.data]))
     ),
   ]
 
@@ -210,6 +211,7 @@ def _yaspl_binary_rule(test):
       "deps": attr.label_list(
         providers = [yaspl_provider],
       ),
+      "data": attr.label_list(allow_files=True),
       "_main_stub": _bootstrap_main_stub,
       "_linker": _bootstrap_linker,
       "_runtime_objects": _yaspl_runtime_objects,
@@ -274,7 +276,7 @@ yaspl_make_variables = rule(
   toolchains = ["//libraries/yaspl:yaspl_toolchain"],
 )
 
-def yaspl_test(name, srcs=[], deps=[], size="medium", tags = []):
+def yaspl_test(name, srcs=[], deps=[], size="medium", tags=[], data=[]):
   yaspl_library(
     # TODO make this testonly once aspects work better
     name = name + "_lib",
@@ -289,6 +291,7 @@ def yaspl_test(name, srcs=[], deps=[], size="medium", tags = []):
     size = size,
     # TODO make this testonly once aspects work better
     testonly = 0,
+    data = data,
     tags = tags,
   )
 

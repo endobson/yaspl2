@@ -120,6 +120,28 @@ yaspl_library(
     ],
 )
 
+filegroup(
+    name = "buffered-port-test-data",
+    srcs = glob(["test-data/buffered-port-test/*"]),
+)
+
+yaspl_test(
+    name = "buffered-port-test",
+    size = "small",
+    srcs = ["buffered-port-test.yaspl"],
+    data = [
+        ":buffered-port-test-data",
+    ],
+    deps = [
+        ":buffered-port",
+        ":io",
+        ":yunit",
+        "//libraries/data:bytes",
+        "//libraries/data:list",
+        "//libraries/data:maybe",
+    ],
+)
+
 yaspl_bootstrap_library(
     name = "byte-escapes",
     srcs = ["byte-escapes.yaspl"],
