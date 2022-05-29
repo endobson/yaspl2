@@ -1,8 +1,8 @@
 #:module (buffered-port)
 #:import {
   (bytes)
+  (data lifted-primitives)
   (maybe)
-  (panic)
   (prim)
 }
 (export
@@ -11,71 +11,113 @@
   (#:patterns line-result))
 (types
   (define-type BufferedPort
-    (buffered-port [buffer : Bytes] [pos : Int] [limit : Int] [port : InputPort]))
-  ;; line does not have associated line terminator
+    (buffered-port
+      [buffer1 : Bytes] [pos1 : Int] [limit1 : Int]
+      [buffer2 : Bytes]
+      [port : InputPort]))
+
+  ;; The line does not have the associated line terminator
+  ;; If the port is unset, there is no more input to read
   (define-type LineResult
-    (line-result [line : Bytes] [eof : Boolean] [port : BufferedPort]))
-  (define-type CharacterSearchResult
-    (character-search-result [position : Int] [found : Boolean])))
+    (line-result [line : Bytes] [port : (Maybe BufferedPort)])))
 
 
 (define (make-buffered-port [port : InputPort]) : BufferedPort
   (make-buffered-port* port 4096))
 
 (define (make-buffered-port* [port : InputPort] [buffer-size : Int]) : BufferedPort
-  (buffered-port (make-bytes buffer-size) 0 0 port))
+  (buffered-port (make-bytes buffer-size) 0 0 (make-bytes buffer-size) port))
 
 
 (define (read-crlf-line [bport : BufferedPort]) : LineResult
-  (read-crlf-line/loop bport (make-bytes 512) 0 #f))
+  (read-crlf-line/loop bport (make-bytes 512) 0))
 
-;; Assumptions:
-;; prev-cr => acc-pos > 0
-(define (read-crlf-line/loop [bport : BufferedPort] [acc : Bytes] [acc-pos : Int] [prev-cr : Boolean]) : LineResult
-  (case bport
-    [(buffered-port buffer pos limit port)
-     (cond
-       [(= pos limit)
-        (case (refill-buffer buffer port)
-          [(nothing)
-           (let ([actual-pos (if prev-cr (- acc-pos 1) acc-pos)])
-             (line-result
-               (subbytes acc 0 actual-pos)
-               #t
-               (buffered-port buffer 0 0 port)))]
-          [(just bport)
-           (read-crlf-line/loop bport acc acc-pos prev-cr)])]
-       [(and prev-cr (= (u8->s64 (bytes-ref buffer pos)) 10)) ;; 10 is newline
-        (line-result
-          (subbytes acc 0 (- acc-pos 1))
-          #f
-          (buffered-port buffer (+ 1 pos) limit port))]
-       [else
-        (case (find-cr buffer pos limit)
-          [(character-search-result new-pos found-cr)
-           (let ([new-acc-pos (+ acc-pos (- new-pos pos))])
-             (begin
-               (if (>= new-acc-pos (bytes-length acc))
-                   (panic/void #"read-crlf-line: Need to implement growing buffer.")
-                   (void))
-               (bytes-copy! buffer pos new-pos acc acc-pos)
-               (read-crlf-line/loop
-                 (buffered-port buffer new-pos limit port)
-                 acc
-                 new-acc-pos
-                 found-cr)))])])]))
+;; Rough outline of algorithm:
+;;
+;; Try to read line:
+;; Q: Does main buffer contain start of termination sequence?
+;; No:
+;;   1. Copy main buffer to output.
+;;   2. Read more input into buffer.
+;;   3. If no more input to read, return EOF.
+;; Yes:
+;;   Q: Would termination sequence would go past buffer?
+;;   No:
+;;     Q: Is there the termination sequence there?
+;;     Yes: Copy part of buffer to output, and return.
+;;     No: Copy part of buffer to output and continue.
+;;   Yes:
+;;     1. Read enough input into secondary buffer for full termination sequence
+;;     2. If no more input, return EOF
+;;     3. Q: Is the rest of the termination sequence there?
+;;        Yes: Copy part of buffer to output, and return
+;;        No: Copy part of buffer to output and continue
 
-(define (refill-buffer [buffer : Bytes] [port : InputPort]) : (Maybe BufferedPort)
-  (let ([num-bytes (read-bytes buffer port 0 (bytes-length buffer))])
+
+(define (read-crlf-line/loop [bport : BufferedPort] [output : Bytes] [output-pos : Int])
+  : LineResult
+  (match-define (buffered-port b1 s1 l1 b2 input) bport)
+  (case (find-cr b1 s1 l1)
+    [(nothing)
+     (match-define new-pos (+ output-pos (- l1 s1)))
+     (begin
+       (bytes-copy! b1 s1 l1 output output-pos)
+       (case (refill-buffered-port bport)
+         [(nothing)
+          (line-result (subbytes output 0 new-pos) (nothing))]
+         [(just bport)
+          (read-crlf-line/loop bport output new-pos)]))]
+    [(just (lifted-int p))
+     (if (< (+ p 1) l1)
+         (case (u8->s64 (bytes-ref b1 (+ p 1)))
+           [10
+            (match-define new-output-pos (+ output-pos (- p s1)))
+            (begin
+              (bytes-copy! b1 s1 p output output-pos)
+              (line-result (subbytes output 0 new-output-pos)
+                (just (buffered-port b1 (+ p 2) l1 b2 input))))]
+           [_
+            (match-define s2 (+ p 1))
+            (match-define new-output-pos (+ output-pos (- s2 s1)))
+            (begin
+              (bytes-copy! b1 s1 s2 output output-pos)
+              (read-crlf-line/loop
+                (buffered-port b1 s2 l1 b2 input) output new-output-pos))])
+         (case (read-bytes b2 input 0 (bytes-length b2))
+           [0
+            (match-define new-pos (+ output-pos (- l1 s1)))
+            (begin
+              (bytes-copy! b1 s1 l1 output output-pos)
+              (line-result (subbytes output 0 new-pos) (nothing)))]
+           [num-bytes
+            (case (u8->s64 (bytes-ref b2 0))
+              [10
+               (match-define new-output-pos (+ output-pos (- p s1)))
+               (begin
+                 (bytes-copy! b1 s1 p output output-pos)
+                 (line-result (subbytes output 0 new-output-pos)
+                   (just (buffered-port b2 1 num-bytes b1 input))))]
+              [_
+               (match-define new-output-pos (+ output-pos (- l1 s1)))
+               (begin
+                 (bytes-copy! b1 s1 l1 output output-pos)
+                 (read-crlf-line/loop
+                   (buffered-port b2 0 num-bytes b1 input)
+                   output new-output-pos))])]))]))
+
+
+(define (refill-buffered-port [bport : BufferedPort]) : (Maybe BufferedPort)
+  (match-define (buffered-port b _ _ b2 input) bport)
+  (let ([num-bytes (read-bytes b input 0 (bytes-length b))])
     (if (= num-bytes 0)
         (nothing)
-        (just (buffered-port buffer 0 num-bytes port)))))
+        (just (buffered-port b 0 num-bytes b2 input)))))
 
-(define (find-cr [buffer : Bytes] [pos : Int] [limit : Int]) : CharacterSearchResult
+(define (find-cr [buffer : Bytes] [pos : Int] [limit : Int]) : (Maybe LiftedInt)
   (cond
     [(= pos limit)
-     (character-search-result limit #f)]
+     (nothing)]
     [(= (u8->s64 (bytes-ref buffer pos)) 13) ;; 13 is carriage-return
-     (character-search-result (+ 1 pos) #t)]
+     (just (lifted-int pos))]
     [else
      (find-cr buffer (+ 1 pos) limit)]))

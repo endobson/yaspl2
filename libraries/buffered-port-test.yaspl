@@ -13,31 +13,37 @@
 (types)
 
 (define (read-crlf-lines [bp : BufferedPort]) : (List Bytes)
-  (match-define (line-result l eof bp) (read-crlf-line bp))
-  (if eof
-      (if (= (bytes-length l) 0)
-          (empty)
-          (cons l (empty)))
-      (cons l (read-crlf-lines bp))))
+  (case (read-crlf-line bp)
+    [(line-result l (nothing))
+     (if (= (bytes-length l) 0)
+         (empty)
+         (cons l (empty)))]
+    [(line-result l (just bp))
+     (cons l (read-crlf-lines bp))]))
 
-(define (test-case-from-file [name : Bytes] [expected-lines : (List Bytes)]) : TestCase
+(define (test-cases-from-file [name : Bytes] [expected-lines : (List Bytes)]) : (List TestCase)
   (match-define test-from-file
-    (lambda () : (Maybe FailedAssertion)
-      (call-with-input-file
-        (bytes-append (varargs list #"libraries/test-data/buffered-port-test/" name))
-        (lambda ([input : InputPort])
-          (match-define lines (read-crlf-lines (make-buffered-port* input 1)))
-          ((expect-equal (eq/list (eq/bytes)))
-            lines
-            expected-lines)))))
-  (test-case name test-from-file))
+    (lambda ([buffer-size : Int])
+      (lambda () : (Maybe FailedAssertion)
+        (call-with-input-file
+          (bytes-append (varargs list #"libraries/test-data/buffered-port-test/" name))
+          (lambda ([input : InputPort])
+            (match-define lines (read-crlf-lines (make-buffered-port* input buffer-size)))
+            ((expect-equal (eq/list (eq/bytes)))
+              lines
+              expected-lines))))))
+  (varargs list
+    (test-case name (test-from-file 1))
+    (test-case name (test-from-file 2))))
 
 
 (define (main [args : Bytes] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]): Int
   (yunit/main stderr
-    (varargs list
-      (test-case-from-file #"empty-file" (empty))
-      (test-case-from-file #"empty-line" (varargs list #""))
-      (test-case-from-file #"one-line" (varargs list #"abc"))
-      (test-case-from-file #"two-lines" (varargs list #"abc" #"def"))
+    (append*
+      (varargs list
+        (test-cases-from-file #"empty-file" (empty))
+        (test-cases-from-file #"empty-line" (varargs list #""))
+        (test-cases-from-file #"one-line" (varargs list #"abc"))
+        (test-cases-from-file #"two-lines" (varargs list #"abc" #"def"))
+        (test-cases-from-file #"three-crs" (varargs list #"\r\r\r")))
       )))

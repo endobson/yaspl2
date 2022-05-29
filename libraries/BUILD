@@ -114,8 +114,8 @@ yaspl_library(
     name = "buffered-port",
     srcs = ["buffered-port.yaspl"],
     deps = [
-        ":panic",
         "//libraries/data:bytes",
+        "//libraries/data:lifted-primitives",
         "//libraries/data:maybe",
     ],
 )

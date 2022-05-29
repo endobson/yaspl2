@@ -83,38 +83,37 @@
               [buffered-port : BufferedPort] [lines : (List Bytes)] [sock : Socket]
               [request-handler : (HttpRequest s -> (Tuple2 HttpResponse s))]
               [state : s]) : s
-  (case (read-crlf-line buffered-port)
-    [(line-result bytes eof buffered-port)
-     (cond
-       [(= (bytes-length bytes) 0)
-        (case (reverse lines)
-          [(empty)
+  (match-define (line-result bytes buffered-port) (read-crlf-line buffered-port))
+  (if (= (bytes-length bytes) 0)
+      (case (reverse lines)
+        [(empty)
+         (begin
+           (close-output-port sock)
+           state)]
+        [(cons request-line header-lines)
+         (let ([request
+                (http-request
+                  (case (parse-request-line request-line)
+                    [(just resource) resource]
+                    [(nothing) (panic #"Unparseable resource")])
+                  (map
+                    (lambda ([header-line : Bytes]) : HttpRequestHeader
+                      (case (parse-request-header header-line)
+                        [(just request-header) request-header]
+                        [(nothing) (panic #"Unparseable header")]))
+                    header-lines))])
+           (match-define (tuple2 response state) (request-handler request state))
            (begin
+             (write-http-response response sock)
              (close-output-port sock)
-             state)]
-          [(cons request-line header-lines)
-           (let ([request
-                  (http-request
-                    (case (parse-request-line request-line)
-                      [(just resource) resource]
-                      [(nothing) (panic #"Unparseable resource")])
-                    (map
-                      (lambda ([header-line : Bytes]) : HttpRequestHeader
-                        (case (parse-request-header header-line)
-                          [(just request-header) request-header]
-                          [(nothing) (panic #"Unparseable header")]))
-                      header-lines))])
-             (match-define (tuple2 response state) (request-handler request state))
+             state))])
+          (case buffered-port
+            [(nothing)
              (begin
-               (write-http-response response sock)
                (close-output-port sock)
-               state))])]
-       [eof
-        (begin
-          (close-output-port sock)
-          state)]
-       [else
-        (read-loop/state buffered-port (cons bytes lines) sock request-handler state)])]))
+               state)]
+            [(just buffered-port)
+             (read-loop/state buffered-port (cons bytes lines) sock request-handler state)])))
 
 (define [s] (accept-loop/state
               [sock : Socket]
