@@ -21,8 +21,19 @@
     [(line-result l (just bp))
      (cons l (read-crlf-lines bp))]))
 
-(define (test-cases-from-file [name : Bytes] [expected-lines : (List Bytes)]) : (List TestCase)
-  (match-define test-from-file
+(define (read-lf-lines [bp : BufferedPort]) : (List Bytes)
+  (case (read-lf-line bp)
+    [(line-result l (nothing))
+     (if (= (bytes-length l) 0)
+         (empty)
+         (cons l (empty)))]
+    [(line-result l (just bp))
+     (cons l (read-lf-lines bp))]))
+
+(define (test-cases-from-file [name : Bytes] [full-contents : Bytes]
+                              [expected-crlf-lines : (List Bytes)]
+                              [expected-lf-lines : (List Bytes)]) : (List TestCase)
+  (match-define test-from-file/crlf
     (lambda ([buffer-size : Int])
       (lambda () : (Maybe FailedAssertion)
         (call-with-input-file
@@ -31,19 +42,60 @@
             (match-define lines (read-crlf-lines (make-buffered-port* input buffer-size)))
             ((expect-equal (eq/list (eq/bytes)))
               lines
-              expected-lines))))))
+              expected-crlf-lines))))))
+
+  (match-define test-from-file/lf
+    (lambda ([buffer-size : Int])
+      (lambda () : (Maybe FailedAssertion)
+        (call-with-input-file
+          (bytes-append (varargs list #"libraries/test-data/buffered-port-test/" name))
+          (lambda ([input : InputPort])
+            (match-define lines (read-lf-lines (make-buffered-port* input buffer-size)))
+            ((expect-equal (eq/list (eq/bytes)))
+              lines
+              expected-lf-lines))))))
+
+
+  (match-define test-full-contents
+    (lambda () : (Maybe FailedAssertion)
+      (call-with-input-file
+        (bytes-append (varargs list #"libraries/test-data/buffered-port-test/" name))
+        (lambda ([input : InputPort])
+          (expect-equal/bytes
+            (read-all-bytes input)
+            full-contents)))))
+
   (varargs list
-    (test-case name (test-from-file 1))
-    (test-case name (test-from-file 2))))
+    (test-case name test-full-contents)
+    (test-case name (test-from-file/crlf 1))
+    (test-case name (test-from-file/crlf 2))
+    (test-case name (test-from-file/lf 1))
+    (test-case name (test-from-file/lf 2))
+    ))
 
 
 (define (main [args : Bytes] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]): Int
   (yunit/main stderr
     (append*
       (varargs list
-        (test-cases-from-file #"empty-file" (empty))
-        (test-cases-from-file #"empty-line" (varargs list #""))
-        (test-cases-from-file #"one-line" (varargs list #"abc"))
-        (test-cases-from-file #"two-lines" (varargs list #"abc" #"def"))
-        (test-cases-from-file #"three-crs" (varargs list #"\r\r\r")))
+        (test-cases-from-file #"empty-file"
+          #""
+          (empty)
+          (empty))
+        (test-cases-from-file #"empty-line"
+          #"\r\n"
+          (varargs list #"")
+          (varargs list #"\r"))
+        (test-cases-from-file #"one-line"
+          #"abc\r\n"
+          (varargs list #"abc")
+          (varargs list #"abc\r"))
+        (test-cases-from-file #"two-lines"
+          #"abc\r\ndef\r\n"
+          (varargs list #"abc" #"def")
+          (varargs list #"abc\r" #"def\r"))
+        (test-cases-from-file #"three-crs"
+          #"\r\r\r"
+          (varargs list #"\r\r\r")
+          (varargs list #"\r\r\r")))
       )))

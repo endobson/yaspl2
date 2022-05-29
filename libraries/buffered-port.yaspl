@@ -7,7 +7,7 @@
 }
 (export
   (#:types BufferedPort)
-  (#:values make-buffered-port make-buffered-port* read-crlf-line)
+  (#:values make-buffered-port make-buffered-port* read-crlf-line read-lf-line)
   (#:patterns line-result))
 (types
   (define-type BufferedPort
@@ -31,6 +31,9 @@
 
 (define (read-crlf-line [bport : BufferedPort]) : LineResult
   (read-crlf-line/loop bport (make-bytes 512) 0))
+
+(define (read-lf-line [bport : BufferedPort]) : LineResult
+  (read-lf-line/loop bport (make-bytes 512) 0))
 
 ;; Rough outline of algorithm:
 ;;
@@ -105,6 +108,27 @@
                    (buffered-port b2 0 num-bytes b1 input)
                    output new-output-pos))])]))]))
 
+(define (read-lf-line/loop [bport : BufferedPort] [output : Bytes] [output-pos : Int])
+  : LineResult
+  (match-define (buffered-port b1 s1 l1 b2 input) bport)
+  (case (find-lf b1 s1 l1)
+    [(nothing)
+     (match-define new-pos (+ output-pos (- l1 s1)))
+     (begin
+       (bytes-copy! b1 s1 l1 output output-pos)
+       (case (refill-buffered-port bport)
+         [(nothing)
+          (line-result (subbytes output 0 new-pos) (nothing))]
+         [(just bport)
+          (read-lf-line/loop bport output new-pos)]))]
+    [(just (lifted-int p))
+     (match-define new-output-pos (+ output-pos (- p s1)))
+     (begin
+       (bytes-copy! b1 s1 p output output-pos)
+       (line-result (subbytes output 0 new-output-pos)
+         (just (buffered-port b1 (+ p 1) l1 b2 input))))]))
+
+
 
 (define (refill-buffered-port [bport : BufferedPort]) : (Maybe BufferedPort)
   (match-define (buffered-port b _ _ b2 input) bport)
@@ -113,11 +137,16 @@
         (nothing)
         (just (buffered-port b 0 num-bytes b2 input)))))
 
-(define (find-cr [buffer : Bytes] [pos : Int] [limit : Int]) : (Maybe LiftedInt)
+(define (find-char [buffer : Bytes] [pos : Int] [limit : Int] [char : U8]) : (Maybe LiftedInt)
   (cond
     [(= pos limit)
      (nothing)]
-    [(= (u8->s64 (bytes-ref buffer pos)) 13) ;; 13 is carriage-return
+    [(= (u8->s64 (bytes-ref buffer pos)) (u8->s64 char))
      (just (lifted-int pos))]
     [else
-     (find-cr buffer (+ 1 pos) limit)]))
+     (find-char buffer (+ 1 pos) limit char)]))
+
+(define (find-cr [buffer : Bytes] [pos : Int] [limit : Int]) : (Maybe LiftedInt)
+  (find-char buffer pos limit (u8 13)))
+(define (find-lf [buffer : Bytes] [pos : Int] [limit : Int]) : (Maybe LiftedInt)
+  (find-char buffer pos limit (u8 10)))
