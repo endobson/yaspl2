@@ -1,0 +1,260 @@
+#:module (http-client)
+#:import {
+  (buffered-port)
+  (bytes)
+  (data lifted-primitives)
+  (either)
+  (io)
+  (ip)
+  (list)
+  (maybe)
+  (numbers)
+  (prim)
+  (regexp)
+  (tcp)
+  (tuples)
+}
+(export
+  (#:types)
+  (#:values make-http-get-request make-fixed-request main)
+  (#:patterns http-response))
+(types
+  (define-type HttpResponse
+    (http-response
+      [status-line : StatusLine]
+      [headers : ResponseHeaders]
+      [body : Bytes]))
+  (define-type StatusLine
+    (status-line
+      [code : Int]
+      [phrase : Bytes]))
+  (define-type ResponseHeaders
+    (response-headers
+      [content-length : Int]
+      [unparsed-headers : (List (Tuple2 Bytes Bytes))])))
+
+
+(define (make-http-get-request [address : TcpAddress] [host : Bytes]
+                               [resource : Bytes]
+                               [headers : (List (Tuple2 Bytes Bytes))])
+  : (Either Bytes HttpResponse)
+  (match-define socket (make-tcp-socket))
+  (begin
+    (tcp-socket-connect socket address)
+    (write-all-bytes (bytes-append (varargs list #"GET " resource #" HTTP/1.1\r\n")) socket)
+    (write-all-bytes (bytes-append (varargs list #"Host: " host #"\r\n")) socket)
+    (write-all-bytes (bytes-append (varargs list #"Connection: close\r\n")) socket)
+    (send-headers headers socket)
+    (write-all-bytes #"\r\n" socket)
+    ;; TODO turn shutdown back on once Cloud run is less broken
+    ;(shutdown socket 1)
+    (let ([port (make-buffered-port socket)])
+      (match-define resp (parse-http-response port))
+      (begin
+        (close-input-port socket)
+        resp))))
+
+
+(define (make-fixed-request [address : TcpAddress]) : Bytes
+  (match-define socket (make-tcp-socket))
+  (match-define request
+    (bytes-append
+      (varargs list
+        #"GET /computeMetadata/v1/instance/service-accounts/default/token HTTP/1.1\r\n"
+        #"Host: metadata.google.internal\r\n"
+        #"Connection: close\r\n"
+        #"Metadata-Flavor: Google\r\n"
+        #"\r\n")))
+  (begin
+    (tcp-socket-connect socket address)
+    (write-all-bytes request socket)
+    ;(shutdown socket 1) ;; TODO (double check this on linux)
+    (let ([response (read-all-bytes socket)])
+      (begin
+        (close-input-port socket)
+        (bytes-append (varargs list request #"\n\n-==----==-\n\n" response))))))
+
+(define (parse-http-response-header-lines [port : BufferedPort])
+  : (Either Bytes (Tuple2 (List Bytes) BufferedPort))
+  (case (read-crlf-line port)
+    [(line-result _ (nothing))
+     (left #"HTTP response ended early")]
+    [(line-result #"" (just port))
+     (right (tuple2 (empty) port))]
+    [(line-result header-line (just port))
+     (case (parse-http-response-header-lines port)
+       [(left v) (left v)]
+       [(right (tuple2 headers port))
+        (right (tuple2 (cons header-line headers) port))])]))
+
+;; tokens are one or more of the following character:
+;;
+;; "!" / "#" / "$" / "%" / "&" / "'" / "*" / "+" / "-" / "." /
+;; "^" / "_" / "`" / "|" / "~" / DIGIT / ALPHA
+(define (tchar-regexp) : Regexp
+  (bitmask-regexp
+      #"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00\x01\x01\x01\x01\x01\x00\x00\x01\x01\x00\x01\x01\x00\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x00\x00\x00\x00\x00\x00\x00\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x00\x00\x00\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x00\x01\x00\x01\x00"))
+
+;; visible characters
+(define (vchar-regexp) : Regexp
+  (bitmask-regexp
+      #"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x00"))
+
+;; OWS (optional white space)
+(define (ows-regexp) : Regexp
+  (rep-regexp (alt-regexp (lit-regexp (u8 #x20)) (lit-regexp (u8 #x09)))))
+
+(define (token-regexp) : Regexp
+  (rep+-regexp (tchar-regexp)))
+
+(define (multi-vchar-space-regexp) : Regexp
+  (rep-regexp
+    (varargs alt-regexp* (vchar-regexp) (lit-regexp (u8 #x20)) (lit-regexp (u8 #x09)))))
+
+(define (field-value-regexp) : Regexp
+  (seq-regexp
+    (vchar-regexp)
+    (opt-regexp
+      (seq-regexp
+        (multi-vchar-space-regexp)
+        (vchar-regexp)))))
+
+(define (header-line-regexp) : Regexp
+  (varargs seq-regexp*
+    (group-regexp (token-regexp))
+    (lit-regexp (u8 #x3a)) ; colon
+    (ows-regexp)
+    (group-regexp (field-value-regexp))
+    (ows-regexp)))
+
+
+(define (parse-header-line [bytes : Bytes]) : (Either Bytes (Tuple2 Bytes Bytes))
+  (case (regexp-match (header-line-regexp) bytes)
+    [(nothing) (left (bytes-append (varargs list #"Unparseable Header: " bytes)))]
+    [(just (cons _ (cons name (cons value (empty)))))
+     (right (tuple2 name value))]
+    [(just _) (left (bytes-append (varargs list #"Regexp returned wrong number of groups")))]))
+
+
+;; TODO handle transfer encoding
+(define (parse-http-response [port : BufferedPort]) :
+  (Either Bytes HttpResponse)
+  (case (parse-http-response-header-lines port)
+    [(left v) (left v)]
+    [(right (tuple2 (empty) _))
+     (left #"No status line")]
+    [(right (tuple2 (cons status-line header-lines) port))
+     (case (parse-status-line status-line)
+       [(left v) (left v)]
+       [(right status-line)
+        (case (map/failure parse-header-line header-lines)
+          [(left v) (left v)]
+          [(right headers)
+           (case (extract-content-length-header headers)
+             [(left v) (left v)]
+             [(right (tuple2 (lifted-int len) headers))
+              (case (read-buffered-bytes port len)
+                [(line-result body _)
+                 (match-define final-headers
+                   (response-headers len headers))
+                 (right (http-response status-line final-headers body))])])])])]))
+
+
+;; TODO make this case insensitive
+(define (extract-header-values [to-find : Bytes] [headers : (List (Tuple2 Bytes Bytes))])
+  : (Tuple2 (List Bytes) (List (Tuple2 Bytes Bytes)))
+  (case headers
+    [(empty) (tuple2 (empty) (empty))]
+    [(cons header headers)
+     (match-define (tuple2 name value) header)
+     (match-define (tuple2 rec-values rec-headers) (extract-header-values to-find headers))
+     (if (bytes=? to-find name)
+         (tuple2 (cons value rec-values) rec-headers)
+         (tuple2 rec-values (cons header rec-headers)))]))
+
+(define (extract-header-value [to-find : Bytes] [headers : (List (Tuple2 Bytes Bytes))])
+  : (Either Bytes (Tuple2 Bytes (List (Tuple2 Bytes Bytes))))
+  (case (extract-header-values to-find headers)
+    [(tuple2 (empty) _)
+     (left (bytes-append (varargs list #"No value for header: " to-find)))]
+    [(tuple2 (cons _ (cons _ _)) _)
+     (left (bytes-append (varargs list #"Too many values for header: " to-find)))]
+    [(tuple2 (cons value (empty)) headers)
+     (right (tuple2 value headers))]))
+
+
+(define (extract-content-length-header [headers : (List (Tuple2 Bytes Bytes))])
+  : (Either Bytes (Tuple2 LiftedInt (List (Tuple2 Bytes Bytes))))
+  (case (extract-header-value #"Content-Length" headers)
+    [(left v) (left v)]
+    [(right (tuple2 len-bytes headers))
+     (case (decimal-bytes->integer len-bytes)
+       [(nothing) (left #"Content Length doesn't parse as an integer")]
+       [(just len) (right (tuple2 len headers))])]))
+
+(define (parse-status-line [line : Bytes])
+  : (Either Bytes StatusLine)
+  (match-define status-regexp
+    (varargs seq-regexp*
+      (const-regexp #"HTTP/1.1 ")
+      (group-regexp
+        (varargs seq-regexp*
+          (digit-regexp)
+          (digit-regexp)
+          (digit-regexp)))
+      (const-regexp #" ")
+      (group-regexp (multi-vchar-space-regexp))))
+
+  (case (regexp-match status-regexp line)
+    [(nothing) (left (bytes-append (varargs list #"Unparseable status-line: " line)))]
+    [(just (cons _ (cons code (cons reason (empty)))))
+     (case (decimal-bytes->integer code)
+       [(nothing) (left #"Couldn't parse status code number")]
+       [(just (lifted-int code))
+        (right (status-line code reason))])]
+    [(just _) (left (bytes-append (varargs list #"Regexp returned wrong number of groups")))]))
+
+
+(define (send-headers [headers : (List (Tuple2 Bytes Bytes))]
+                      [socket : Socket]) : Void
+  (case headers
+    [(empty) (void)]
+    [(cons (tuple2 name value) headers)
+     (begin
+       (write-all-bytes (bytes-append (varargs list name #": " value #"\r\n")) socket)
+       (send-headers headers socket))]))
+
+
+(define (main [args : Bytes] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Int
+  (case (args->list args)
+    [(cons _ (cons ip-bytes (cons port-bytes (empty))))
+     (case (bytes->ipv4-address ip-bytes)
+       [(just ip-addr)
+        (case (decimal-bytes->integer port-bytes)
+          [(just (lifted-int port))
+           (case (make-http-get-request
+                   (tcp-address ip-addr port)
+                   #"google.com"
+                   #"/"
+                   (empty))
+             [(left v)
+              (begin
+                (write-line #"Failed to make http request:" stderr)
+                (write-line v stderr)
+                1)]
+             [(right (http-response _ _ body))
+              (begin
+                (write-all-bytes body stdout)
+                0)])]
+          [(nothing)
+           (begin
+             (write-line #"Unparsable port number" stderr)
+             1)])]
+       [(nothing)
+        (begin
+          (write-line #"Unparsable ip address" stderr)
+          1)])]
+    [_
+     (begin
+       (write-line #"Wrong number of arguments" stderr)
+       1)]))

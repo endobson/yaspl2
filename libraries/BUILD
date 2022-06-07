@@ -1,5 +1,6 @@
 load(
     ":yaspl.bzl",
+    "yaspl_binary",
     "yaspl_bootstrap_binary",
     "yaspl_bootstrap_library",
     "yaspl_library",
@@ -236,6 +237,25 @@ yaspl_library(
         "//libraries/data:regexp",
         "//libraries/data:tuples",
         "//libraries/protocols/http:http-response",
+    ],
+)
+
+yaspl_binary(
+    name = "http-client",
+    srcs = ["http-client.yaspl"],
+    deps = [
+        ":buffered-port",
+        ":io",
+        ":ip",
+        ":tcp",
+        "//libraries/data:bytes",
+        "//libraries/data:either",
+        "//libraries/data:lifted-primitives",
+        "//libraries/data:list",
+        "//libraries/data:maybe",
+        "//libraries/data:numbers",
+        "//libraries/data:regexp",
+        "//libraries/data:tuples",
     ],
 )
 
@@ -1128,6 +1148,7 @@ filegroup(
     name = "package_binaries",
     srcs = [
         ":compiler",
+        ":http-client",
         ":library-compiler",
         ":linker",
         ":main-stub",

@@ -5,6 +5,15 @@
   (either)
   (formats html)
   (formats xml)
+  {(http-client)
+    {#:values
+      make-fixed-request
+      make-http-get-request
+    }
+    {#:patterns
+      [http-response c:http-response]
+    }
+  }
   (http-server)
   (io)
   (ip)
@@ -22,16 +31,47 @@
   (#:values main))
 (types)
 
+(define (get-auth-token [path : Bytes]) : Bytes
+  (case
+    (make-http-get-request
+      (tcp-address (ipv4-address (u8 169) (u8 254) (u8 169) (u8 254)) 80)
+      #"metadata.google.internal"
+      path
+      (varargs list
+        (tuple2 #"Metadata-Flavor" #"Google")))
+    [(left v) v]
+    [(right (c:http-response _ _ body))
+     body]))
+
+
+
+(define (serve-proxy-response [path : Bytes]) : HttpResponse
+  (xhtml-ok-response
+    (html
+      (head (empty))
+      (body
+        (varargs list
+          (text-node/escape
+            (single-jl (get-auth-token path))))))))
+
+(define (serve-token-response) : HttpResponse
+  (xhtml-ok-response
+    (html
+      (head (empty))
+      (body
+        (varargs list
+          (text-node/escape
+            (single-jl
+              (make-fixed-request (tcp-address (ipv4-address (u8 169) (u8 254) (u8 169) (u8 254)) 80)))))))))
+
+
 (define (make-request-handler) : (HttpRequest -> HttpResponse)
   (lambda ([request : HttpRequest])
     (case request
       [(http-request path _headers)
-       (xhtml-ok-response
-         (html
-           (head (empty))
-           (body
-             (varargs list
-               (text-node/escape (single-jl #"Hello world!"))))))])))
+       (if (bytes=? path #"/token")
+           (serve-token-response)
+           (serve-proxy-response path))])))
 
 
 (define (main [args : Bytes] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Int

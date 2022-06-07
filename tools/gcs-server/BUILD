@@ -13,6 +13,7 @@ yaspl_binary(
     name = "gcs-server",
     srcs = ["gcs-server-main.yaspl"],
     deps = [
+        "//libraries:http-client_mainlib",
         "//libraries:http-server",
         "//libraries:io",
         "//libraries:ip",
