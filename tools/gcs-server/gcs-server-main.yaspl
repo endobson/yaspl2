@@ -1,0 +1,83 @@
+#:module (tools gcs-server gcs-server-main)
+#:import {
+  (bytes)
+  (data lifted-primitives)
+  (either)
+  (formats html)
+  (formats xml)
+  (http-server)
+  (io)
+  (ip)
+  (join-list)
+  (list)
+  (maybe)
+  (numbers)
+  (prim)
+  (protocols http http-response)
+  (protocols http http-responses)
+  (tcp)
+  (tuples)
+}
+(export
+  (#:values main))
+(types)
+
+(define (make-request-handler) : (HttpRequest -> HttpResponse)
+  (lambda ([request : HttpRequest])
+    (case request
+      [(http-request path _headers)
+       (xhtml-ok-response
+         (html
+           (head (empty))
+           (body
+             (varargs list
+               (text-node/escape (single-jl #"Hello world!"))))))])))
+
+
+(define (main [args : Bytes] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Int
+  (case (args->list args)
+    [(empty)
+     (begin
+       (write-line #"No executable specified???" stderr)
+       1)]
+    [(cons _ (empty))
+     (begin
+       (write-line #"No ip address supplied." stderr)
+       1)]
+    [(cons _ (cons _ (empty)))
+     (begin
+       (write-line #"No port supplied" stderr)
+       1)]
+    [(cons _ (cons _ (cons _ (empty))))
+     (begin
+       (write-line #"No auth mechanism supplied" stderr)
+       1)]
+    [(cons _ (cons _ (cons _ (cons _ (cons _ _)))))
+     (begin
+       (write-line #"Too many arguments supplied" stderr)
+       1)]
+    [(cons _ (cons ip-addr (cons port (cons auth-mechanism (empty)))))
+     (case (bytes->ipv4-address ip-addr)
+       [(just ip-addr)
+        (case (decimal-bytes->integer port)
+          [(just (lifted-int port))
+           (match-define address (tcp-address ip-addr port))
+           (case auth-mechanism
+             [#"instance"
+              (begin
+                (run-http-server address (make-request-handler))
+                (write-line #"Http server stopped running." stderr)
+                1)]
+             [_
+              (begin
+                (write-line (bytes-append (varargs list #"Unknown auth mechanism: " auth-mechanism))
+                            stderr)
+                1)])]
+          [(nothing)
+           (begin
+             (write-line #"Unparsable port number" stderr)
+             1)])]
+       [(nothing)
+        (begin
+          (write-line #"Unparsable ip address" stderr)
+          1)])]))
