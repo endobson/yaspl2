@@ -7,7 +7,8 @@
 }
 (export
   (#:types BufferedPort)
-  (#:values make-buffered-port make-buffered-port* read-crlf-line read-lf-line)
+  (#:values make-buffered-port make-buffered-port* read-crlf-line read-lf-line
+            read-buffered-bytes)
   (#:patterns line-result))
 (types
   (define-type BufferedPort
@@ -34,6 +35,7 @@
 
 (define (read-lf-line [bport : BufferedPort]) : LineResult
   (read-lf-line/loop bport (make-bytes 512) 0))
+
 
 ;; Rough outline of algorithm:
 ;;
@@ -128,6 +130,30 @@
        (line-result (subbytes output 0 new-output-pos)
          (just (buffered-port b1 (+ p 1) l1 b2 input))))]))
 
+
+(define (read-buffered-bytes [bport : BufferedPort] [amount : Int]) : LineResult
+  (read-buffered-bytes/loop bport (make-bytes amount) 0))
+
+
+(define (read-buffered-bytes/loop
+          [bport : BufferedPort] [output : Bytes] [output-pos : Int]) : LineResult
+  (match-define (buffered-port b1 s1 l1 b2 input) bport)
+  (match-define read-amount (- (bytes-length output) output-pos))
+  (match-define buffered-amount (- l1 s1))
+  (cond
+    [(<= read-amount buffered-amount)
+     (begin
+       (bytes-copy! b1 s1 l1 output output-pos)
+       (line-result output (just (buffered-port b1 (+ s1 read-amount) l1 b2 input))))]
+    [else
+     (match-define new-pos (+ output-pos buffered-amount))
+     (begin
+       (bytes-copy! b1 s1 l1 output output-pos)
+       (case (refill-buffered-port bport)
+         [(nothing)
+          (line-result (subbytes output 0 new-pos) (nothing))]
+         [(just bport)
+          (read-buffered-bytes/loop bport output new-pos)]))]))
 
 
 (define (refill-buffered-port [bport : BufferedPort]) : (Maybe BufferedPort)
