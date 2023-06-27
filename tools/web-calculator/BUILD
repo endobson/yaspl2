@@ -1,23 +1,53 @@
-load("//libraries:yaspl.bzl", "yaspl_binary")
+load("//libraries:yaspl.bzl", "yaspl_binary", "yaspl_library")
 load(
     "@io_bazel_rules_docker//container:container.bzl",
     "container_image",
     "container_push",
 )
+load("//rules:yaspl-embed-file.bzl", "yaspl_embed_file")
 
 package(
     default_visibility = ["//visibility:public"],
+)
+
+yaspl_library(
+    name = "client-code",
+    srcs = ["client-code.yaspl"],
+    deps = [
+        ":web-calculator-embed",
+        "//libraries:http-server",
+        "//libraries:io",
+        "//libraries:ip",
+        "//libraries:tcp",
+        "//libraries/data:bytes",
+        "//libraries/data:dict",
+        "//libraries/data:either",
+        "//libraries/data:join-list",
+        "//libraries/data:lifted-primitives",
+        "//libraries/data:list",
+        "//libraries/data:maybe",
+        "//libraries/data:numbers",
+        "//libraries/data:tuples",
+        "//libraries/formats:html",
+        "//libraries/formats:web-assembly",
+        "//libraries/formats:xml",
+        "//libraries/protocols/http:http-response",
+        "//libraries/protocols/http:http-responses",
+    ],
 )
 
 yaspl_binary(
     name = "web-calculator",
     srcs = ["web-calculator-main.yaspl"],
     deps = [
+        ":client-code",
+        ":web-calculator-embed",
         "//libraries:http-server",
         "//libraries:io",
         "//libraries:ip",
         "//libraries:tcp",
         "//libraries/data:bytes",
+        "//libraries/data:either",
         "//libraries/data:join-list",
         "//libraries/data:lifted-primitives",
         "//libraries/data:list",
@@ -25,9 +55,16 @@ yaspl_binary(
         "//libraries/data:numbers",
         "//libraries/formats:html",
         "//libraries/formats:web-assembly",
+        "//libraries/formats:xml",
         "//libraries/protocols/http:http-response",
         "//libraries/protocols/http:http-responses",
     ],
+)
+
+yaspl_embed_file(
+    name = "web-calculator-embed",
+    srcs = ["web-calculator.js"],
+    module_name = "tools web-calculator embed",
 )
 
 yaspl_binary(

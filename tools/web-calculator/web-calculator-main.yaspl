@@ -1,9 +1,11 @@
 #:module (tools web-calculator web-calculator-main)
 #:import {
   (bytes)
+  (either)
   (data lifted-primitives)
   (formats html)
   (formats web-assembly)
+  (formats xml)
   (http-server)
   (io)
   (ip)
@@ -15,6 +17,12 @@
   (protocols http http-response)
   (protocols http http-responses)
   (tcp)
+  (tools web-calculator client-code)
+  {(tools web-calculator embed)
+    {#:values
+      [value js-contents]
+    }
+  }
 }
 (export
   (#:values main))
@@ -63,7 +71,7 @@
        (if (bytes=? path #"/")
            (serve-index-response)
            (if (bytes=? path #"/calc.wasm")
-               (serve-wasm-response)
+               (serve-wasm-response2)
                (not-found)))])))
 
 (define (wasm-ok-response [mod : Module]) : HttpResponse
@@ -74,44 +82,48 @@
     (html
       (head
         (varargs list
-          (script/javascript (script-body))))
+          (script/javascript (single-jl (js-contents)))))
       (body
         (varargs list
           (form
             (varargs list
-              (input/text)
+              (element-node #"input" 
+                (varargs list 
+                  (attribute/escape #"type" (single-jl #"text"))
+                  (attribute/escape #"name" (single-jl #"input"))
+                  (attribute/escape #"autofocus" (single-jl #""))) 
+                (empty))
               (input/submit))))))))
 
-(define (script-body) : (JoinList Bytes)
-  (list->jl
-    (interleave
-      (varargs list
-        #"window.addEventListener(\"DOMContentLoaded\", () => {"
-        #"  document.getElementById(\"form\").addEventListener(\"submit\", e => {"
-        #"    e.preventDefault()"
-        #"    fetch(\"calc.wasm\", {cache: \"no-cache\"})"
-        #"    .then(response => WebAssembly.instantiateStreaming(response))"
-        #"    .then(res => {"
-        #"        let mod = res.module"
-        #"        let instance = res.instance"
-        #"        let result = instance.exports.calc()"
-        #"        let div = document.createElement(\"div\")"
-        #"        div.appendChild(new Text(\"Result: \" + result))"
-        #"        document.body.appendChild(div)"
-        #"    }).catch(error => {"
-        #"      document.body.appendChild(new Text(error))"
-        #"    })"
-        #"  })"
-        #"})")
-      #"\n")))
+(define (serve-wasm-response2) : HttpResponse
+  (match-define client-source (client-source-code))
+  (case (convert-module client-source)
+    [(left v) (internal-server-error v)]
+    [(right v) (wasm-ok-response v)]))
 
 
 (define (serve-wasm-response) : HttpResponse
   (wasm-ok-response
     (module
       (varargs list
+        (function-type (empty) (varargs list (i32)))
+        (function-type (varargs list (i32) (i32)) (varargs list (i32)))
+        (function-type (empty) (empty))
         (function-type (empty) (varargs list (i32))))
       (varargs list
-        (function 0 (empty) (varargs list (const-i32-inst 100))))
-      (empty)
-      (varargs list (export #"calc" (function-export 0))))))
+        (import #"host" #"log" (function-import 2))
+        (import #"host" #"getChar" (function-import 3)))
+      (varargs list
+        (function 0 (empty) (varargs list (const-i32-inst 100)))
+        (function 1 (empty) 
+          (varargs list 
+            (call-inst 0) 
+            (global-get-inst 0)
+            (call-inst 1)
+            (global-set-inst 0)
+            )))
+      (varargs list
+        (global (global-type #t (i32)) (varargs list (const-i32-inst 0))))
+      (varargs list 
+        (export #"calc" (function-export 2))
+        (export #"add" (function-export 3))))))

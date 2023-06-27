@@ -1,0 +1,60 @@
+#:module (rules embedder-main)
+#:import {
+  (byte-escapes)
+  (bytes)
+  (either)
+  (io)
+  (list)
+  (prim)
+  (tools command-line)
+}
+(export
+  (#:values main))
+(types
+  (define-type Args
+    (args
+      [module-name : Bytes]
+      [input-file-path : Bytes]
+      [output-file-path : Bytes]))
+  (define-type Contents
+     (contents
+       [module-name : Bytes]
+       [value : Bytes])))
+
+(define (parse-args [input-args : (List Bytes)]) : (Either Bytes Args)
+  (case input-args
+    [(empty)
+     (left #"No binary!?")]
+    [(cons _ (empty))
+     (left #"No module name provided.")]
+    [(cons _ (cons _ (empty)))
+     (left #"No input file path provided.")]
+    [(cons _ (cons _ (cons _ (empty))))
+     (left #"No output file path provided.")]
+    [(cons _ (cons _ (cons _ (cons _ (cons _ _)))))
+     (left #"Too many arguments provided")]
+    [(cons _ (cons module-name (cons input-file-path (cons output-file-path (empty)))))
+     (right (args module-name input-file-path output-file-path))]))
+
+(define (run [args : Args] [stdin : InputPort]) : (Either Bytes Contents)
+  (match-define (args mod-name input-file-path _) args)
+  (match-define input-file-contents (call-with-input-file input-file-path read-all-bytes))
+  (right (contents mod-name input-file-contents)))
+
+(define (get-output [args : Args]) : OutputLocation
+  (match-define (args _ _ output) args)
+  (output-to-file output))
+
+(define (print-output [c : Contents] [output : OutputPort]) : Void
+  (match-define (contents mod-name value) c)
+  (begin
+    (write-line (bytes-append (varargs list #"#:module (" mod-name #")")) output)
+    (write-line #"#:import { (prim) }" output)
+    (write-line #"(export (#:values value))" output)
+    (write-line #"(types)" output)
+    (write-line #"" output)
+    (write-line (bytes-append (varargs list #"(define (value) : Bytes #\"" (hex-escape-bytes value) #"\")")) output)))
+
+(define (main [args : Bytes] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Int
+  (run-command-line-tool args stdin stdout stderr
+    (command-line-tool parse-args run get-output print-output)))

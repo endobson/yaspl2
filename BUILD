@@ -22,6 +22,7 @@ ALL_PACKAGES = [
     "//libraries/yaspl/interpreter",
     "//libraries/yaspl/languages",
     "//libraries/yaspl/runtime",
+    "//rules",
     "//tools",
     "//tools/doc-server",
     "//tools/gcs-server",

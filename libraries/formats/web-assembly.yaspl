@@ -6,17 +6,23 @@
   (prim)
 }
 (export
-  (#:types Module Instruction)
+  (#:types Module Type Import Instruction Global Function)
   (#:values module function-type i32 function export function-export
             import function-import
+            global global-type
             module->binary-bytes
-            const-i32-inst add-i32-inst))
+            const-i32-inst add-i32-inst 
+            local-get-inst 
+            global-get-inst global-set-inst 
+            call-inst))
 (types
   (define-type Module
     (module
       [types : (List Type)]
-      [funcs : (List Function)]
       [imports : (List Import)]
+      ;; TODO order this like the generated sections
+      [funcs : (List Function)]
+      [globals : (List Global)]
       [exports : (List Export)]))
   (define-type Type
     (function-type [inputs : (List ValueType)] [outputs : (List ValueType)]))
@@ -25,16 +31,29 @@
     (i64)
     (f32)
     (f64))
+
+  (define-type Import
+    (import [module-name : Bytes] [name : Bytes] [desc : ImportDescription]))
+  (define-type ImportDescription
+    (function-import [index : Int]))
+
   (define-type Function
     (function [type-index : Int] [locals : (List ValueType)]
               [expr : (List Instruction)]))
   (define-type Instruction
     (const-i32-inst [v : Int])
-    (add-i32-inst))
-  (define-type Import
-    (import [module-name : Bytes] [name : Bytes] [desc : ImportDescription]))
-  (define-type ImportDescription
-    (function-import [index : Int]))
+    (add-i32-inst)
+    (local-get-inst [idx : Int])
+    (local-set-inst [idx : Int])
+    (local-tee-inst [idx : Int])
+    (global-get-inst [idx : Int])
+    (global-set-inst [idx : Int])
+    (call-inst [idx : Int]))
+
+  (define-type Global
+    (global [ty : GlobalType] [init : (List Instruction)]))
+  (define-type GlobalType
+    (global-type [mutable : Boolean] [ty : ValueType]))
 
   (define-type Export
     (export [name : Bytes] [desc : ExportDescription]))
@@ -43,7 +62,7 @@
 
 
 (define (module->binary-bytes [mod : Module]) : Bytes
-  (match-define (module types funcs imports exports) mod)
+  (match-define (module types imports funcs globals exports) mod)
   (bytes-append
     (jl->list
       (varargs append-jl*
@@ -51,6 +70,7 @@
         (types->binary-bytes types)
         (imports->binary-bytes imports)
         (functions->binary-bytes/types funcs)
+        (globals->binary-bytes globals)
         (exports->binary-bytes exports)
         (functions->binary-bytes/code funcs)))))
 
@@ -62,6 +82,8 @@
   (encode-section 10 functions function->binary-bytes/code))
 (define (imports->binary-bytes [imports : (List Import)]) : (JoinList Bytes)
   (encode-section 2 imports import->binary-bytes))
+(define (globals->binary-bytes [exports : (List Global)]) : (JoinList Bytes)
+  (encode-section 6 exports global->binary-bytes))
 (define (exports->binary-bytes [exports : (List Export)]) : (JoinList Bytes)
   (encode-section 7 exports export->binary-bytes))
 
@@ -104,7 +126,19 @@
     [(const-i32-inst v)
      (cons-jl #"\x41" (signed-leb128 v))]
     [(add-i32-inst)
-     (single-jl #"\x6A")]))
+     (single-jl #"\x6A")]
+    [(local-get-inst idx)
+     (cons-jl #"\x20" (unsigned-leb128 idx))]
+    [(local-set-inst idx)
+     (cons-jl #"\x21" (unsigned-leb128 idx))]
+    [(local-tee-inst idx)
+     (cons-jl #"\x22" (unsigned-leb128 idx))]
+    [(global-get-inst idx)
+     (cons-jl #"\x23" (unsigned-leb128 idx))]
+    [(global-set-inst idx)
+     (cons-jl #"\x24" (unsigned-leb128 idx))]
+    [(call-inst idx)
+     (cons-jl #"\x10" (unsigned-leb128 idx))]))
 
 ;; Terminates the instruction with 0x0B (end) as is usually needed
 (define (instructions->binary-bytes [i : (List Instruction)]) : (JoinList Bytes)
@@ -123,6 +157,15 @@
        (case desc
          [(function-import i)
           (cons-jl #"\x00" (unsigned-leb128 i))]))]))
+
+
+(define (global->binary-bytes [g : Global]) : (JoinList Bytes)
+  (case g
+    [(global (global-type mutable ty) init)
+     (varargs append-jl*
+       (value-type->binary-bytes ty)
+       (single-jl (if mutable #"\x01" #"\x00"))
+       (instructions->binary-bytes init))]))
 
 
 (define (export->binary-bytes [e : Export]) : (JoinList Bytes)

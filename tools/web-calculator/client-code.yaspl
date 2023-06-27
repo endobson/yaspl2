@@ -1,0 +1,213 @@
+#:module (tools web-calculator client-code)
+#:import {
+  (bytes)
+  (dict)
+  (either)
+  (data lifted-primitives)
+  (tuples)
+  (formats html)
+  {(formats web-assembly)
+   {#:types
+     [Module w:Module]
+     [Function w:Function]
+     [Global w:Global]
+     [Type w:Type]
+     [Import w:Import]
+     [Instruction w:Instruction]
+   }
+   {#:values
+     [module w:module]
+     [global w:global]
+     [global-type w:global-type]
+     [function-type w:function-type]
+     [function w:function]
+     [function-export w:function-export]
+     [i32 w:i32]
+     [export w:export]
+     [const-i32-inst w:const-i32-inst]
+     [add-i32-inst w:add-i32-inst]
+     [global-set-inst w:global-set-inst]
+     [global-get-inst w:global-get-inst]
+     [call-inst w:call-inst]
+     [import w:import]
+     [function-import w:function-import]
+   }
+  }
+  (formats xml)
+  (http-server)
+  (io)
+  (ip)
+  (join-list)
+  (list)
+  (maybe)
+  (numbers)
+  (prim)
+  (protocols http http-response)
+  (protocols http http-responses)
+  (tcp)
+}
+(export
+  (#:values client-source-code convert-module))
+(types
+  (define-type Module
+    (module
+      [host-functions : (List HostFunction)]
+      [globals : (List Global)]
+      [functions : (List Function)]
+      ))
+  (define-type HostFunction
+    (host-function [name : Bytes]))
+  (define-type Global
+    (global [name : Bytes] [inital-value : Int]))
+  (define-type Function
+    (function [name : Bytes] [body : Expression]))
+  (define-type Expression
+    (set-global!-expr [name : Bytes] [val : Expression])
+    (get-global-expr [name : Bytes])
+    (call-function [name : Bytes])
+    (bin-op-expr [op : BinOp] [l : Expression] [r : Expression])
+    (seq-expr [es : (List Expression)]))
+  (define-type BinOp
+    (plus-bin-op))
+  )
+
+(define (client-source-code) : Module
+  (module
+    (varargs list
+      (host-function #"get-input-size"))
+    (varargs list
+      (global #"accumulator" 0))
+    (varargs list
+      (function #"handle-event"
+        (seq-expr
+          (varargs list
+            (set-global!-expr #"accumulator" 
+              (bin-op-expr (plus-bin-op) 
+                (call-function #"get-input-size")
+                (get-global-expr #"accumulator")))
+            (get-global-expr #"accumulator")))))))
+
+
+(define (convert-module [m : Module]) : (Either Bytes w:Module)
+  (match-define (module host-functions globals functions) m)
+  (match-define function-types
+    (append
+      (map host-function->type host-functions)
+      (map function->type functions)))
+  (match-define imports
+    (map/indexed host-function->import host-functions))
+  (match-define wasm-globals
+    (map convert-global globals))
+
+  (match-define global-env : (Dict Bytes LiftedInt)
+    (dict-add-all (make-dict bytes-cmp)
+      (map/indexed
+        (lambda ([(global name _) : Global] [i : Int])
+          (tuple2 name (lifted-int i)))
+        globals)))
+
+  (match-define function-env : (Dict Bytes LiftedInt)
+    (dict-add-all (make-dict bytes-cmp)
+      (map/indexed
+        (lambda ([name : Bytes] [i : Int])
+          (tuple2 name (lifted-int i)))
+        (append 
+          (map host-function-name host-functions)
+          (map function-name functions)))))
+
+
+  (match-define wasm-functions
+    (map/indexed
+      (lambda ([f : Function] [i : Int])
+        (convert-function f (+ i (length host-functions)) 
+                          global-env function-env))
+      functions))
+
+  (match-define exports
+    (map/indexed
+      (lambda ([f : Function] [i : Int])
+        (match-define (function name _) f)
+        (w:export name (w:function-export (+ i (length host-functions)))))
+      functions))
+
+
+  (case (extract-rights wasm-functions)
+    [(left v) (left v)]
+    [(right wasm-functions)
+     (right (w:module function-types imports wasm-functions wasm-globals exports))]))
+
+(define (host-function->type [f : HostFunction]) : w:Type
+  (w:function-type (empty) (varargs list (w:i32))))
+
+(define (host-function->import [f : HostFunction] [index : Int]) : w:Import
+  (match-define (host-function name) f)
+  (match-define (host-function name) f)
+  (w:import #"host" name (w:function-import index)))
+
+(define (convert-global [g : Global]) : w:Global
+  (match-define (global _ init) g)
+  (w:global (w:global-type #t (w:i32)) (varargs list (w:const-i32-inst init))))
+
+
+(define (function->type [f : Function]) : w:Type
+  (w:function-type (empty) (varargs list (w:i32))))
+
+(define (convert-expression 
+          [e : Expression] 
+          [global-env : (Dict Bytes LiftedInt)]
+          [function-env : (Dict Bytes LiftedInt)]) 
+  : (Either Bytes (JoinList w:Instruction))
+  (case e
+    [(set-global!-expr name e)
+     (case (dict-ref global-env name)
+       [(nothing) (left #"Unbound global")]
+       [(just (lifted-int idx))
+        (case (convert-expression e global-env function-env)
+          [(left v) (left v)]
+          [(right is)
+           (right (snoc-jl is (w:global-set-inst idx)))])])]
+    [(get-global-expr name)
+     (case (dict-ref global-env name)
+       [(nothing) (left #"Unbound global")]
+       [(just (lifted-int idx))
+        (right (single-jl (w:global-get-inst idx)))])]
+    [(call-function name)
+     (case (dict-ref function-env name)
+       [(nothing) (left #"Unbound function")]
+       [(just (lifted-int idx))
+        (right (single-jl (w:call-inst idx)))])]
+    [(bin-op-expr (plus-bin-op) l r) 
+     (case (convert-expression l global-env function-env)
+       [(left v) (left v)]
+       [(right l)
+        (case (convert-expression r global-env function-env)
+          [(left v) (left v)]
+          [(right r)
+           (right (snoc-jl (append-jl l r) (w:add-i32-inst)))])])]
+    [(seq-expr es) 
+     (convert-expressions es global-env function-env)]))
+
+(define (convert-expressions
+          [es : (List Expression)] 
+          [global-env : (Dict Bytes LiftedInt)]
+          [function-env : (Dict Bytes LiftedInt)]) 
+  : (Either Bytes (JoinList w:Instruction))
+  (case es
+    [(empty) (right (empty-jl))]
+    [(cons e es)
+     (case (convert-expression e global-env function-env)
+       [(left v) (left v)]
+       [(right e-insts)
+        (case (convert-expressions es global-env function-env)
+          [(left v) (left v)]
+          [(right es-insts)
+           (right (append-jl e-insts es-insts))])])]))
+
+(define (convert-function 
+          [f : Function] [index : Int] 
+          [global-env : (Dict Bytes LiftedInt)]
+          [function-env : (Dict Bytes LiftedInt)]) : (Either Bytes w:Function)
+  (match-define (function name body) f)
+  (case (convert-expression body global-env function-env)
+    [(left v) (left v)]
+    [(right insts) (right (w:function index (empty) (jl->list insts)))]))
