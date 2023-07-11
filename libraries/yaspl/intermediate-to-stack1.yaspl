@@ -1,0 +1,228 @@
+#:module (yaspl intermediate-to-stack1)
+#:import {
+  (block-number)
+  (bytes)
+  (either)
+  (join-list)
+  (data indexed-set)
+  (data lifted-primitives)
+  (dict)
+  (intermediate-expression)
+  (intermediate-language)
+  (list)
+  (maybe)
+  (numbers)
+  (prim)
+  {(prim-language variant-info)
+    {#:values
+      [variant-info r:variant-info]
+    }
+  }
+  {(intermediate-stack-expression)
+   {#:types
+     [FunctionDefinition is:FunctionDefinition]
+     [Module is:Module]
+     [Expression is:Expression]
+     [VariantCaseClause is:VariantCaseClause]
+     [DefaultCaseClause is:DefaultCaseClause]
+     [BytesCaseClause is:BytesCaseClause]
+     [IntCaseClause is:IntCaseClause]
+   }
+   {#:values
+     [module is:module]
+     [int-literal is:int-literal]
+     [function-definition is:function-definition]
+     [call-closure-expr is:call-closure-expr]
+     [boolean-literal is:boolean-literal]
+     [local-var-expr is:local-var-expr]
+     [global-var-expr is:global-var-expr]
+     [if-expr is:if-expr]
+     [begin-expr is:begin-expr]
+     [create-closure-expr is:create-closure-expr]
+     [call-function-expr is:call-function-expr]
+     [let-expr is:let-expr]
+     [variant-case-expr is:variant-case-expr]
+     [int-case-expr is:int-case-expr]
+     [bytes-case-expr is:bytes-case-expr]
+     [bytes-length-expr is:bytes-length-expr]
+     [bytes-ref-expr is:bytes-ref-expr]
+     [bytes-set!-expr is:bytes-set!-expr]
+     [prim-numeric-bin-op is:prim-numeric-bin-op]
+     [prim-comparison-bin-op is:prim-comparison-bin-op]
+     [prim-logical-bin-op is:prim-logical-bin-op]
+     [prim-logical-unary-op is:prim-logical-unary-op]
+     [make-variant-expr is:make-variant-expr]
+     [variant-field-ref-expr is:variant-field-ref-expr]
+     [no-op-cast-op is:no-op-cast-op]
+     [halt-expr is:halt-expr]
+     [join-point-expr is:join-point-expr]
+     [join-expr is:join-expr]
+     [variant-case-clause is:variant-case-clause]
+     [int-case-clause is:int-case-clause]
+     [bytes-case-clause is:bytes-case-clause]
+     [default-case-clause is:default-case-clause]
+   }
+  }
+  (top-level-name)
+  (tuples)
+  (variant-info)
+  (yaspl mangle-names)
+  (yaspl math-operations)
+  (yaspl top-level-objects)
+  (yaspl var)
+}
+(export
+  (#:values intermediate->is))
+(types
+  (define-type State
+    (state
+      [next-var : VarNumber])))
+
+(define (intermediate->is [m : Module]) : (Either Bytes is:Module)
+  (match-define (module name _imports _exports funcs constants _static-info) m)
+
+  (right (is:module name (map convert-function funcs) constants)))
+
+(define (convert-function [f : FunctionDefinition]) : is:FunctionDefinition
+  (match-define (function-definition name type args free-vars next-var body) f)
+  (match-define s (state next-var))
+  (match-define (tuple2 body (state next-var)) (convert-expr body s))
+  (is:function-definition name type args free-vars next-var body))
+
+
+(define (convert-expr [e : Expression] [s : State]) : (Tuple2 is:Expression State)
+  (case e
+    [(call-closure-expr tail op args)
+     (match-define (tuple2 op s) (convert-expr op s))
+     (match-define (tuple2 args s) (convert-exprs args s))
+     (match-define (tuple2 op-var s) (fresh-var #"fun" s))
+     (tuple2 (is:let-expr op-var op (is:call-closure-expr tail op-var args)) s)]
+    ;; Boring cases
+    [(int-literal v)
+     (tuple2 (is:int-literal v) s)]
+    [(boolean-literal v)
+     (tuple2 (is:boolean-literal v) s)]
+    [(local-var-expr v)
+     (tuple2 (is:local-var-expr v) s)]
+    [(global-var-expr v)
+     (tuple2 (is:global-var-expr v) s)]
+    [(if-expr cond true false)
+     (match-define (tuple2 cond s) (convert-expr cond s))
+     (match-define (tuple2 true s) (convert-expr true s))
+     (match-define (tuple2 false s) (convert-expr false s))
+     (tuple2 (is:if-expr cond true false) s)]
+    [(begin-expr exprs last-expr)
+     (match-define (tuple2 exprs s) (convert-exprs exprs s))
+     (match-define (tuple2 last-expr s) (convert-expr last-expr s))
+     (tuple2 (is:begin-expr exprs last-expr) s)]
+    [(create-closure-expr fun-name args)
+     (match-define (tuple2 args s) (convert-exprs args s))
+     (tuple2 (is:create-closure-expr fun-name args) s)]
+    [(call-function-expr tail-position fun-name args)
+     (match-define (tuple2 args s) (convert-exprs args s))
+     (tuple2 (is:call-function-expr tail-position fun-name args) s)]
+    [(let-expr name expr body)
+     (match-define (tuple2 expr s) (convert-expr expr s))
+     (match-define (tuple2 body s) (convert-expr body s))
+     (tuple2 (is:let-expr name expr body) s)]
+    [(variant-case-expr expr clauses default)
+     (match-define (tuple2 expr s) (convert-expr expr s))
+     (match-define (tuple2 clauses s) (map/state convert-variant-case-clause clauses s))
+     (match-define (tuple2 default s) (convert-maybe-default-case-clause default s))
+     (tuple2 (is:variant-case-expr expr clauses default) s)]
+    [(int-case-expr expr clause default)
+     (match-define (tuple2 expr s) (convert-expr expr s))
+     (match-define (tuple2 clause s) (convert-int-case-clause clause s))
+     (match-define (tuple2 default s) (convert-default-case-clause default s))
+     (tuple2 (is:int-case-expr expr clause default) s)]
+    [(bytes-case-expr expr clause default)
+     (match-define (tuple2 expr s) (convert-expr expr s))
+     (match-define (tuple2 clause s) (convert-bytes-case-clause clause s))
+     (match-define (tuple2 default s) (convert-default-case-clause default s))
+     (tuple2 (is:bytes-case-expr expr clause default) s)]
+    [(bytes-length-expr bytes)
+     (match-define (tuple2 bytes s) (convert-expr bytes s))
+     (tuple2 (is:bytes-length-expr bytes) s)]
+    [(bytes-ref-expr bytes offset)
+     (match-define (tuple2 bytes s) (convert-expr bytes s))
+     (match-define (tuple2 offset s) (convert-expr offset s))
+     (tuple2 (is:bytes-ref-expr bytes offset) s)]
+    [(bytes-set!-expr bytes offset value)
+     (match-define (tuple2 bytes s) (convert-expr bytes s))
+     (match-define (tuple2 offset s) (convert-expr offset s))
+     (match-define (tuple2 value s) (convert-expr value s))
+     (tuple2 (is:bytes-set!-expr bytes offset value) s)]
+    [(prim-numeric-bin-op op left right)
+     (match-define (tuple2 left s) (convert-expr left s))
+     (match-define (tuple2 right s) (convert-expr right s))
+     (tuple2 (is:prim-numeric-bin-op op left right) s)]
+    [(prim-comparison-bin-op op left right)
+     (match-define (tuple2 left s) (convert-expr left s))
+     (match-define (tuple2 right s) (convert-expr right s))
+     (tuple2 (is:prim-comparison-bin-op op left right) s)]
+    [(prim-logical-bin-op op left right)
+     (match-define (tuple2 left s) (convert-expr left s))
+     (match-define (tuple2 right s) (convert-expr right s))
+     (tuple2 (is:prim-logical-bin-op op left right) s)]
+    [(prim-logical-unary-op op expr)
+     (match-define (tuple2 expr s) (convert-expr expr s))
+     (tuple2 (is:prim-logical-unary-op op expr) s)]
+    [(make-variant-expr info fields)
+     (match-define (tuple2 fields s) (convert-exprs fields s))
+     (tuple2 (is:make-variant-expr info fields) s)]
+    [(variant-field-ref-expr expr index info)
+     (match-define (tuple2 expr s) (convert-expr expr s))
+     (tuple2 (is:variant-field-ref-expr expr index info) s)]
+    [(no-op-cast-op src-type dest-type v)
+     (match-define (tuple2 v s) (convert-expr v s))
+     (tuple2 (is:no-op-cast-op src-type dest-type v)  s)]
+    [(halt-expr)
+     (tuple2 (is:halt-expr) s)]
+    [(join-point-expr join-var result-type join-expr body)
+     (match-define (tuple2 join-expr s) (convert-expr join-expr s))
+     (match-define (tuple2 body s) (convert-expr body s))
+     (tuple2 (is:join-point-expr join-var result-type join-expr body) s)]
+    [(join-expr join-var)
+     (tuple2 (is:join-expr join-var) s)]))
+
+
+(define (convert-exprs [es : (List Expression)] [s : State]) : (Tuple2 (List is:Expression) State)
+  (map/state convert-expr es s))
+
+(define (convert-variant-case-clause [c : VariantCaseClause] [s : State])
+  : (Tuple2 is:VariantCaseClause State)
+  (match-define (variant-case-clause info fields expr) c)
+  (match-define (tuple2 expr s) (convert-expr expr s))
+  (tuple2 (is:variant-case-clause info fields expr) s))
+
+(define (convert-default-case-clause [c : DefaultCaseClause] [s : State])
+  : (Tuple2 is:DefaultCaseClause State)
+  (match-define (default-case-clause expr) c)
+  (match-define (tuple2 expr s) (convert-expr expr s))
+  (tuple2 (is:default-case-clause expr) s))
+
+(define (convert-maybe-default-case-clause [mc : (Maybe DefaultCaseClause)] [s : State])
+  : (Tuple2 (Maybe is:DefaultCaseClause) State)
+  (case mc
+    [(nothing) (tuple2 (nothing) s)]
+    [(just v)
+     (match-define (tuple2 v s) (convert-default-case-clause v s))
+     (tuple2 (just v) s)]))
+
+(define (convert-bytes-case-clause [c : BytesCaseClause] [s : State])
+  : (Tuple2 is:BytesCaseClause State)
+  (match-define (bytes-case-clause name expr) c)
+  (match-define (tuple2 expr s) (convert-expr expr s))
+  (tuple2 (is:bytes-case-clause name expr) s))
+
+(define (convert-int-case-clause [c : IntCaseClause] [s : State])
+  : (Tuple2 is:IntCaseClause State)
+  (match-define (int-case-clause v expr) c)
+  (match-define (tuple2 expr s) (convert-expr expr s))
+  (tuple2 (is:int-case-clause v expr) s))
+
+
+(define (fresh-var [base-name : Bytes] [s : State]) : (Tuple2 Var State)
+  (case s
+    [(state next-var)
+     (tuple2 (var base-name next-var) (state (next-var-number next-var)))]))

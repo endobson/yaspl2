@@ -1,0 +1,159 @@
+#:module (wasm-compiler-main)
+#:import {
+  (bytes)
+  (dict)
+  (data source-location)
+  (compiler)
+  (either)
+  {(formats web-assembly)
+  {#:values
+    [module->binary-bytes w:module->binary-bytes]
+}}
+
+  (io)
+  (linker)
+  (list)
+  (machine-code-writer)
+  (maybe)
+  (module-name)
+  (prim)
+  (prim-implementation)
+  (yaspl intermediate-to-stack)
+  (yaspl intermediate-to-stack1)
+  (prim-language stack-to-wasm)
+  (prim-language-compiler)
+  (data indexed-set)
+  (system-abi)
+  (sexp-parser)
+  (top-level-name)
+  (tuples)
+  (x86-64-runtime)
+  (yaspl frontend errors)
+  (module-signature)
+  (yaspl parser)
+  (yaspl top-level-objects-to-x86-64)
+  (yaspl x86-64-assembly)
+  (yaspl optimize-intermediate)
+  {(yaspl languages source-language)
+    {#:types
+      Module
+    }
+  }
+  {(intermediate-language)
+    {#:types
+      [Module i:Module]
+    }
+  }
+  {(source-to-intermediate-language)
+    {#:values
+      source->intermediate
+    }
+  }
+  {(stack-language)
+    {#:values
+      module
+    }
+    {#:patterns
+      module
+    }
+  }
+  (yaspl conversions resolve-imports)
+  (yaspl conversions resolve-types)
+  (validator)
+}
+(export
+  (#:values main))
+(types
+  (define-type Args
+    (args 
+      [module-name : Bytes]
+      [module-file-name : Bytes])))
+
+(define (parse-args [input : (List Bytes)]) : (Either Bytes Args)
+  (case input
+    [(empty)
+     (left #"No executable specified???")]
+    [(cons _ (empty))
+     (left #"No module name specified.")]
+    [(cons _ (cons _ (empty)))
+     (left #"No module path specified.")]
+    [(cons _ (cons module-name (cons module-path (empty))))
+     (right (args module-name module-path))]
+    [(cons _ (cons _ (cons _ _)))
+     (left #"Too many arguments.")]))
+
+
+(define (compile-module*
+          [mod : Module]
+          [sigs : (IndexedSet ModuleSignature ModName)])
+  : (Either ModuleCompilationError i:Module)
+  (case (resolve-imports mod sigs)
+    [(left v)
+     (left (mce-import-resolution-errors v))]
+    [(right res-mod)
+     (case (validate-module res-mod sigs)
+       [(just v)
+        (left (mce-module-errors v))]
+       [(nothing)
+        (case (resolve-types res-mod)
+          [(left v) (left (mce-type-resolution-error v))]
+          [(right res-mod)
+           (case (source->intermediate res-mod)
+             [(left v) (left (mce-type-check-errors v))]
+             [(right intermediate)
+              (right (optimize-intermediate-module intermediate))])])])]))
+
+
+
+(define (run [input : (List Bytes)]) : (Either Bytes Bytes)
+  (case (parse-args input)
+    [(left v) (left v)]
+    [(right (args module-name module-path))
+     (case (parse-module-file module-path)
+       [(left v) (left (parser-error->bytes v))]
+       [(right mod)
+        (match-define sigs
+          (indexed-set-add
+            (make-indexed-set module-signature-name mod-name-cmp)
+            (prim-signature)))
+        (case (compile-module* mod sigs)
+          [(left v) (left (module-compilation-error->bytes v))]
+          [(right imod)
+           (case (intermediate->is imod)
+             [(left v) (left v)]
+             [(right is-mod)
+               (case (intermediate->is (prim-implementation-module))
+                 [(left v) (left v)]
+                 [(right prim-is-mod)
+                  (case (intermediate->stack is-mod)
+                    [(left v) (left v)]
+                    [(right smod)
+                     (case (intermediate->stack prim-is-mod)
+                       [(left v) (left v)]
+                       [(right prim-smod)
+                        (case (parse-single-sexp (sourced-bytes (unnamed-source) module-name))
+                          [(left (sexp-error v _)) (left v)]
+                          [(right mod-sexp)
+                           (case (sexp->mod-name mod-sexp)
+                             [(nothing) (left #"Bad mod name")]
+                             [(just mod-name)
+                              (match-define exports : (Dict TopLevelName Bytes)
+                                (dict-add
+                                  (make-dict top-level-name-cmp)
+                                  (top-level-name mod-name #"main") #"main"))
+                              (case (stack->wasm (varargs list prim-smod smod) exports)
+                                [(left v) (left v)]
+                                [(right wmod)
+                                 (match-define binary-wasm (w:module->binary-bytes wmod))
+                                 (right binary-wasm)])])])])])])])])])]))
+
+(define (main [args : Bytes] [stdin : InputPort] [stdout : OutputPort] [stderr : OutputPort]) : Int
+  (case (run (args->list args))
+    [(left v)
+     (begin
+       (write-line v stderr)
+       1)]
+    [(right v)
+     (begin
+       (write-all-bytes v stdout)
+       0)]))

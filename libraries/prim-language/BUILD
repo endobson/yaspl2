@@ -177,6 +177,56 @@ yaspl_bootstrap_library(
     ],
 )
 
+yaspl_library(
+    name = "stack-to-wasm",
+    srcs = ["stack-to-wasm.yaspl"],
+    deps = [
+        ":block-number",
+        ":lowered-register-language",
+        ":prim-language-compiler_lib",
+        ":register-language",
+        ":register-language-used-vars",
+        ":simplify-register-language",
+        ":stack-language",
+        ":variant-info",
+        "//libraries:compiler_lib",
+        "//libraries:io",
+        "//libraries:linker_lib",
+        "//libraries:machine-code-writer",
+        "//libraries:module-name",
+        "//libraries:module-signature",
+        "//libraries:panic",
+        "//libraries:prim-implementation",
+        "//libraries:system-abi",
+        "//libraries:top-level-name",
+        "//libraries:types",
+        "//libraries:validator",
+        "//libraries/data:bytes",
+        "//libraries/data:dict",
+        "//libraries/data:either",
+        "//libraries/data:indexed-set",
+        "//libraries/data:join-list",
+        "//libraries/data:lifted-primitives",
+        "//libraries/data:list",
+        "//libraries/data:maybe",
+        "//libraries/data:numbers",
+        "//libraries/data:ordering",
+        "//libraries/data:set",
+        "//libraries/data:tuples",
+        "//libraries/formats:web-assembly",
+        "//libraries/yaspl:intermediate-to-stack",
+        "//libraries/yaspl:math-operations",
+        "//libraries/yaspl:parser",
+        "//libraries/yaspl:top-level-objects-to-x86-64",
+        "//libraries/yaspl:var",
+        "//libraries/yaspl:x86-64-assembly",
+        "//libraries/yaspl:x86-64-runtime",
+        "//libraries/yaspl/conversions:resolve-imports",
+        "//libraries/yaspl/conversions:resolve-types",
+        "//libraries/yaspl/frontend:errors",
+    ],
+)
+
 yaspl_test(
     name = "lower-x86-64-test",
     srcs = ["lower-x86-64-test.yaspl"],
@@ -558,5 +608,40 @@ filegroup(
     srcs = [
         ":prim-language-compiler",
         ":prim-language-library-compiler",
+        ":stack-language",
+    ],
+)
+
+yaspl_library(
+    name = "stack-language",
+    srcs = ["stack-language.yaspl"],
+    deps = [
+        ":block-number",
+        ":variant-info",
+        "//libraries:top-level-name",
+        "//libraries:types",
+        "//libraries/data:dict",
+        "//libraries/data:indexed-set",
+        "//libraries/data:join-list",
+        "//libraries/data:list",
+        "//libraries/data:maybe",
+        "//libraries/yaspl:math-operations",
+        "//libraries/yaspl:var",
+    ],
+)
+
+yaspl_library(
+    name = "structured-language",
+    srcs = ["structured-language.yaspl"],
+    deps = [
+        ":block-number",
+        ":variant-info",
+        "//libraries:top-level-name",
+        "//libraries/data:indexed-set",
+        "//libraries/data:join-list",
+        "//libraries/data:list",
+        "//libraries/data:maybe",
+        "//libraries/yaspl:math-operations",
+        "//libraries/yaspl:var",
     ],
 )

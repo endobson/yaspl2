@@ -148,7 +148,9 @@ yaspl_library(
     deps = [
         "//libraries/data:bytes",
         "//libraries/data:join-list",
+        "//libraries/data:lifted-primitives",
         "//libraries/data:list",
+        "//libraries/data:maybe",
     ],
 )
 

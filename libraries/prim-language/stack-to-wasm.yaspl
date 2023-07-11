@@ -1,0 +1,370 @@
+#:module (prim-language stack-to-wasm)
+#:import {
+  (bytes)
+  (compiler)
+  (either)
+  (io)
+  (linker)
+  (dict)
+  (data lifted-primitives)
+  (numbers)
+  (join-list)
+  (list)
+  (machine-code-writer)
+  (maybe)
+  (module-name)
+  (prim)
+  (prim-implementation)
+  (yaspl intermediate-to-stack)
+  (prim-language-compiler)
+  (data indexed-set)
+  (system-abi)
+  (top-level-name)
+  (tuples)
+  (yaspl frontend errors)
+  (module-signature)
+  (yaspl parser)
+  (yaspl math-operations)
+  (validator)
+  (types)
+  (panic)
+  (stack-language)
+  {(formats web-assembly)
+   {#:types
+     [Module w:Module]
+     [Memory w:Memory]
+     [Instruction w:Instruction]
+     [Function w:Function]
+     [Type w:Type]
+     [Data w:Data]
+    }
+   {#:values
+     [module w:module]
+     [memory w:memory]
+     [table w:table]
+     [table-get-inst w:table-get-inst]
+     [active-elem w:active-elem]
+     [limits w:limits]
+     [i32 w:i32]
+     [i64 w:i64]
+     [function-export w:function-export]
+     [ref-func-inst w:ref-func-inst]
+     [export w:export]
+     [element w:element]
+     [rt-func-ref w:rt-func-ref]
+     [global w:global]
+     [global-type w:global-type]
+     [function-type w:function-type]
+     [function-type-inputs w:function-type-inputs]
+     [const-i64-inst w:const-i64-inst]
+     [i32-wrap-i64-inst w:i32-wrap-i64-inst]
+     [i64-extend-s32-inst w:i64-extend-s32-inst]
+     [i32-load-inst w:i32-load-inst]
+     [i64-eq-inst w:i64-eq-inst]
+     [i64-ne-inst w:i64-ne-inst]
+     [s64-lt-inst w:s64-lt-inst]
+     [s64-le-inst w:s64-le-inst]
+     [s64-gt-inst w:s64-gt-inst]
+     [s64-ge-inst w:s64-ge-inst]
+     [i64-eqz-inst w:i64-eqz-inst]
+     [i64-and-inst w:i64-and-inst]
+     [i64-ior-inst w:i64-ior-inst]
+     [i64-add-inst w:i64-add-inst]
+     [i64-sub-inst w:i64-sub-inst]
+     [i64-mul-inst w:i64-mul-inst]
+     [s64-div-inst w:s64-div-inst]
+     [s64-rem-inst w:s64-rem-inst]
+     [i64-shl-inst w:i64-shl-inst]
+     [u64-shr-inst w:u64-shr-inst]
+
+     [drop-inst w:drop-inst]
+     [block-inst w:block-inst]
+     [if-inst w:if-inst]
+     [branch-inst w:branch-inst]
+     [unreachable-inst w:unreachable-inst]
+     [local-get-inst w:local-get-inst]
+     [local-set-inst w:local-set-inst]
+     [global-get-inst w:global-get-inst]
+     [block-value-type w:block-value-type]
+     [call-inst w:call-inst]
+     [call-indirect-inst w:call-indirect-inst]
+     [function w:function]
+     [active-data w:active-data]
+   }
+  }
+  
+}
+(export
+  (#:values stack->wasm))
+(types
+  (define-type Environment
+    (environment
+      [globals : (Dict TopLevelName LiftedInt)]
+      [funcs : (Dict TopLevelName LiftedInt)]
+      [sized-func-types : (Dict LiftedInt LiftedInt)])))
+
+;; TODO pass memory and i64 values around differently
+
+
+(define (env-global-ref [env : Environment] [g : TopLevelName]) : Int
+  (case (dict-ref (environment-globals env) g)
+    [(nothing) 
+     (panic/int (bytes-append (varargs list #"stack->wasm global: " (top-level-name-local-name g))))]
+    [(just (lifted-int v)) v]))
+
+(define (env-function-ref [env : Environment] [f : TopLevelName]) : Int
+  (case (dict-ref (environment-funcs env) f)
+    [(nothing) 
+     (panic/int (bytes-append (varargs list #"stack->wasm func: " (top-level-name-local-name f))))]
+    [(just (lifted-int v)) v]))
+
+
+(define (env-sized-function-ref [env : Environment] [i : Int]) : Int
+  (case (dict-ref (environment-sized-func-types env) (lifted-int i))
+    [(nothing) 
+     (panic/int #"stack->wasm sized-func")]
+    [(just (lifted-int v)) v]))
+
+(define (merge-modules [ms : (List Module)])
+  : (Tuple2 (Dict TopLevelName TopLevelObject) (List FunctionDefinition))
+  (tuple2
+    (merge-dicts* (make-dict top-level-name-cmp) (map module-objects ms))
+    (append* (map module-functions ms))))
+
+
+(define (stack->wasm [ms : (List Module)] [exports : (Dict TopLevelName Bytes)]) : (Either Bytes w:Module)
+  (match-define (tuple2 constants funcs) (merge-modules ms))
+
+  (match-define function-indexes : (Dict TopLevelName LiftedInt)
+    (dict-add-all
+      (make-dict top-level-name-cmp)
+      (map/indexed (lambda ([f : FunctionDefinition] [i : Int])
+                     (tuple2 (function-definition-name f) (lifted-int i)))
+                   funcs)))
+
+  (case (constants->data-section constants function-indexes)
+    [(left v) (left v)]
+    [(right (tuple2 memory (tuple3 globals data global-indexes)))
+     (match-define func-types (map function->type funcs))
+     ;; These are the types for functions with a specific number of arguments
+     (match-define sized-func-types
+       (build-list 10 
+         (lambda ([i : Int])
+           (w:function-type 
+             (build-list i (lambda ([j : Int]) (w:i64))) 
+             (varargs list (w:i64))))))
+     (match-define sized-func-dict : (Dict LiftedInt LiftedInt)
+       (dict-add-all
+         (make-dict lifted-int-cmp)
+         (map/indexed
+           (lambda ([t : w:Type] [i : Int])
+             (tuple2 (lifted-int (length (w:function-type-inputs t))) 
+                     (lifted-int (+ i (length func-types)))))
+           sized-func-types)))
+
+     (match-define func-indexes : (Dict TopLevelName LiftedInt)
+       (dict-add-all
+         (make-dict top-level-name-cmp)
+         (map/indexed 
+           (lambda ([f : FunctionDefinition] [i : Int])
+             (tuple2 (function-definition-name f) (lifted-int i)))
+           funcs)))
+
+
+     (match-define env (environment global-indexes func-indexes sized-func-dict))
+
+
+
+     (match-define wasm-funcs 
+       (map/indexed (lambda ([f : FunctionDefinition] [i : Int])
+                      (convert-function f i env)) funcs))
+
+
+     (match-define wasm-globals
+       (map 
+         (lambda ([(tuple2 _name (lifted-int offset)) : (Tuple2 TopLevelName LiftedInt)])
+           (w:global (w:global-type #f (w:i64)) (varargs list (w:const-i64-inst offset))))
+         globals))
+
+
+     (match-define wasm-exports
+       (dict-map exports
+         (lambda ([name : TopLevelName] [val : Bytes])
+           (case (dict-ref/panic function-indexes name)
+             [(lifted-int index)
+              (w:export val (w:function-export index))]))))
+
+     (match-define table-size (length funcs))
+     (match-define table
+       (w:table (w:limits table-size (just (lifted-int table-size)))
+                (w:rt-func-ref)))
+     (match-define wasm-elements
+       (varargs list
+         (w:element
+           (w:rt-func-ref) 
+           (build-list table-size 
+              (lambda ([i : Int]) (varargs list (w:ref-func-inst i))))
+           (w:active-elem 0 0))))
+
+     (right
+       (w:module
+         (append func-types sized-func-types)
+         (empty) wasm-funcs (varargs list table) (varargs list memory)
+         wasm-globals wasm-exports wasm-elements
+         data))]))
+
+
+(define (function->type [f : FunctionDefinition]) : w:Type
+  (match-define (function-definition _name num-args _body) f)
+  (w:function-type (build-list num-args (lambda ([_ : Int]) (w:i64)))
+                   (varargs list (w:i64))))
+
+(define (convert-function [f : FunctionDefinition] [ty-index : Int] [env : Environment]) : w:Function
+  (match-define (function-definition _name num-args body) f)
+  (w:function 
+    ty-index 
+    (build-list (+ 1 num-args)
+      (lambda ([_ : Int]) (w:i64)))
+    (jl->list (convert-instructions body env))))
+
+(define (convert-instruction [i : Instruction] [env : Environment]) : (JoinList w:Instruction)
+  (case i
+    [(int-literal v) (single-jl (w:const-i64-inst v))]
+    [(drop-inst) (single-jl (w:drop-inst))]
+    [(read-local-inst v) (single-jl (w:local-get-inst v))]
+    [(write-local-inst v) (single-jl (w:local-set-inst v))]
+    [(read-global-inst v) (single-jl (w:global-get-inst (env-global-ref env v)))]
+    [(if-inst t f) 
+     (match-define t (convert-instructions t env))
+     (match-define f (convert-instructions f env))
+     (varargs join-list
+       (w:i32-wrap-i64-inst)
+       (w:if-inst (w:block-value-type (just (w:i64))) (jl->list t) (jl->list f)))]
+    [(block-inst ty insts) 
+     (match-define winsts
+       (concat-map-jl
+         (lambda ([i : Instruction]) (convert-instruction i env)) insts))
+     (match-define block-ty 
+       (w:block-value-type 
+         (case ty
+           [(nothing) (nothing)]
+           [(just ty)
+            (case (type->kind ty)
+              ;; TODO make pointers be 32 bits
+              [(star-kind) (just (w:i64))] 
+              [(prim-kind _) (just (w:i64))]
+              [_ (panic #"Unsupported kind")])])))
+     (single-jl (w:block-inst block-ty (jl->list winsts)))]
+    [(break-inst index) 
+     (single-jl (w:branch-inst index))]
+    [(halt-inst)
+     (single-jl (w:unreachable-inst))]
+    [(closure-call-inst num-args)
+     (varargs join-list
+       (w:i32-wrap-i64-inst)
+       (w:i32-load-inst 8 2)
+       (w:call-indirect-inst 0 (env-sized-function-ref env num-args)))]
+    [(function-call-inst name _num-args)
+     (single-jl 
+       (w:call-inst (env-function-ref env name)))]
+    [(bin-op-inst (comparison-bin-op (less-than-op)))
+     (varargs join-list (w:s64-lt-inst) (w:i64-extend-s32-inst))]
+    [(bin-op-inst (comparison-bin-op (less-than-or-equal-op)))
+     (varargs join-list (w:s64-le-inst) (w:i64-extend-s32-inst))]
+    [(bin-op-inst (comparison-bin-op (greater-than-op)))
+     (varargs join-list (w:s64-gt-inst) (w:i64-extend-s32-inst))]
+    [(bin-op-inst (comparison-bin-op (greater-than-or-equal-op)))
+     (varargs join-list (w:s64-ge-inst) (w:i64-extend-s32-inst))]
+    [(bin-op-inst (comparison-bin-op (equal-op)))
+     (varargs join-list (w:i64-eq-inst) (w:i64-extend-s32-inst))]
+    [(bin-op-inst (comparison-bin-op (not-equal-op)))
+     (varargs join-list (w:i64-ne-inst) (w:i64-extend-s32-inst))]
+    [(bin-op-inst (logical-bin-op (and-op)))
+     (single-jl (w:i64-and-inst))]
+    [(bin-op-inst (logical-bin-op (ior-op)))
+     (single-jl (w:i64-ior-inst))]
+    [(bin-op-inst (numeric-bin-op (add-op)))
+     (single-jl (w:i64-add-inst))]
+    [(bin-op-inst (numeric-bin-op (sub-op)))
+     (single-jl (w:i64-sub-inst))]
+    [(bin-op-inst (numeric-bin-op (mult-op)))
+     (single-jl (w:i64-mul-inst))]
+    [(bin-op-inst (numeric-bin-op (quotient-op)))
+     (single-jl (w:s64-div-inst))]
+    [(bin-op-inst (numeric-bin-op (remainder-op)))
+     (single-jl (w:s64-rem-inst))]
+    [(bin-op-inst (numeric-bin-op (bitwise-and-op)))
+     (single-jl (w:i64-and-inst))]
+    [(bin-op-inst (numeric-bin-op (bitwise-ior-op)))
+     (single-jl (w:i64-ior-inst))]
+    [(bin-op-inst (numeric-bin-op (logical-shift-left-op)))
+     (single-jl (w:i64-shl-inst))]
+    [(bin-op-inst (numeric-bin-op (logical-shift-right-op)))
+     (single-jl (w:u64-shr-inst))]
+    [(unary-op-inst (not-op))
+     (varargs join-list (w:i64-eqz-inst) (w:i64-extend-s32-inst))]
+    ))
+
+
+(define (convert-instructions [is : (JoinList Instruction)] [env : Environment]) : (JoinList w:Instruction)
+  (concat-map-jl
+    (lambda ([i : Instruction]) (convert-instruction i env))
+    is))
+
+(define (constants->data-section 
+          [consts : (Dict TopLevelName TopLevelObject)]
+          [function-indexes : (Dict TopLevelName LiftedInt)])
+  : (Either Bytes (Tuple2 w:Memory 
+                          (Tuple3
+                            (List (Tuple2 TopLevelName LiftedInt))
+                            (List w:Data)
+                            (Dict TopLevelName LiftedInt))))
+  (match-define consts-list
+    (dict-map consts (lambda ([name : TopLevelName] [obj : TopLevelObject]) (tuple2 name obj))))
+
+  (match-define (tuple3 (lifted-int num-consts) (lifted-int size)
+                        (tuple3 globals data-secs indexes))
+    (dict-fold consts
+      (lambda ([name : TopLevelName] [obj : TopLevelObject] 
+               [acc : (Tuple3 LiftedInt LiftedInt 
+                              (Tuple3
+                                (JoinList (Tuple2 TopLevelName LiftedInt))
+                                (JoinList w:Data)
+                                (Dict TopLevelName LiftedInt)))])
+        (match-define (tuple3 (lifted-int idx) (lifted-int cur-offset) 
+                              (tuple3 offsets data-secs idxs)) acc)
+
+        (match-define (tuple2 (lifted-int size) new-data-secs)
+          : (Tuple2 LiftedInt (JoinList w:Data))
+          (case obj
+            ;; descriptor address (8) + function-index (8)
+            [(trivial-closure-tlo fun-name)
+             (match-define (lifted-int fun-index) (dict-ref/panic function-indexes fun-name))
+             (tuple2 (lifted-int 16) 
+                     (varargs join-list (w:active-data (bytes/u64-le (u64 fun-index)) 
+                                                       (+ cur-offset 8))))]
+            [_
+             (tuple2 (lifted-int 0) (empty-jl))]))
+
+
+
+        (tuple3 (lifted-int (+ idx 1)) (lifted-int (+ cur-offset size))
+                (tuple3
+                  (snoc-jl offsets (tuple2 name (lifted-int cur-offset)))
+                  (append-jl data-secs new-data-secs)
+                  (dict-add idxs name (lifted-int idx)))))
+      (ann
+        (Tuple3 LiftedInt LiftedInt 
+                (Tuple3
+                  (JoinList (Tuple2 TopLevelName LiftedInt))
+                  (JoinList w:Data)
+                  (Dict TopLevelName LiftedInt)))
+        (tuple3 (lifted-int 0) (lifted-int 0) 
+                (tuple3 (empty-jl) (empty-jl) (make-dict top-level-name-cmp))))))
+
+  (match-define pages (quotient (round-up size #x10000) #x10000))
+
+  (right (tuple2 (w:memory (w:limits pages (nothing))) 
+                 (tuple3 (jl->list globals) (jl->list data-secs) indexes))))
+
+

@@ -54,6 +54,50 @@ yaspl_bootstrap_binary(
 )
 
 yaspl_bootstrap_binary(
+    name = "wasm-compiler",
+    srcs = ["wasm-compiler-main.yaspl"],
+    deps = [
+        ":compiler_lib",
+        ":intermediate-language",
+        ":io",
+        ":linker_lib",
+        ":machine-code-writer",
+        ":module-name",
+        ":module-signature",
+        ":prim-implementation",
+        ":sexp-parser",
+        ":source-to-intermediate-language",
+        ":system-abi",
+        ":top-level-name",
+        ":validator",
+        "//libraries/core-language:compiler-lib",
+        "//libraries/data:bytes",
+        "//libraries/data:dict",
+        "//libraries/data:either",
+        "//libraries/data:indexed-set",
+        "//libraries/data:list",
+        "//libraries/data:maybe",
+        "//libraries/data:source-location",
+        "//libraries/data:tuples",
+        "//libraries/formats:web-assembly",
+        "//libraries/prim-language:prim-language-compiler_lib",
+        "//libraries/prim-language:stack-language",
+        "//libraries/prim-language:stack-to-wasm",
+        "//libraries/yaspl:intermediate-to-stack",
+        "//libraries/yaspl:intermediate-to-stack1",
+        "//libraries/yaspl:optimize-intermediate",
+        "//libraries/yaspl:parser",
+        "//libraries/yaspl:top-level-objects-to-x86-64",
+        "//libraries/yaspl:x86-64-assembly",
+        "//libraries/yaspl:x86-64-runtime",
+        "//libraries/yaspl/conversions:resolve-imports",
+        "//libraries/yaspl/conversions:resolve-types",
+        "//libraries/yaspl/frontend:errors",
+        "//libraries/yaspl/languages:source-language",
+    ],
+)
+
+yaspl_bootstrap_binary(
     name = "linker",
     srcs = ["linker-main.yaspl"],
     deps = [
@@ -276,6 +320,22 @@ yaspl_bootstrap_library(
         ":types",
         "//libraries/data:dict",
         "//libraries/data:list",
+        "//libraries/yaspl:var",
+    ],
+)
+
+yaspl_bootstrap_library(
+    name = "intermediate-stack-expression",
+    srcs = ["intermediate-stack-expression.yaspl"],
+    deps = [
+        ":intermediate-language",
+        ":module-name",
+        ":top-level-name",
+        ":types",
+        ":variant-info",
+        "//libraries/data:list",
+        "//libraries/data:maybe",
+        "//libraries/yaspl:math-operations",
         "//libraries/yaspl:var",
     ],
 )
@@ -1131,5 +1191,6 @@ filegroup(
         ":library-compiler",
         ":linker",
         ":main-stub",
+        ":wasm-compiler",
     ],
 )

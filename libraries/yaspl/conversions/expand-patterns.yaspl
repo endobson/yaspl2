@@ -38,6 +38,7 @@
   (prim)
   (set)
   (tuples)
+  (types)
   (variant-info)
   (yaspl var)
 }
@@ -88,7 +89,7 @@
 (define (expand-patterns/expression [expr : ev:Expression] [state : State])
   : (Tuple2 Expression State)
   (case expr
-    [(ev:case-expr expr clauses)
+    [(ev:case-expr expr ty clauses)
      (match-define (tuple2 expr state) (expand-patterns/expression expr state))
      (match-define (tuple2 expr-var state) (fresh-var #"case-val" state))
      (match-define (tuple2 pattern-rows state) (case-clauses->pattern-rows clauses state))
@@ -98,8 +99,9 @@
          (varargs list expr-var)
          pattern-rows
          fail-var
+         ty
          state))
-     (tuple2 (join-point-expr fail-var (halt-expr) (let-expr expr-var expr body)) state)]
+     (tuple2 (join-point-expr fail-var ty (halt-expr) (let-expr expr-var expr body)) state)]
     ;; Recur structurally
     [(ev:int-literal v)
      (tuple2 (int-literal v) state)]
@@ -155,6 +157,7 @@
           [vars : (List Var)]
           [rows : (List PatternRow)]
           [fail-var : Var]
+          [result-type : Type]
           [state : State])
   : (Tuple2 Expression State)
   (case rows
@@ -171,35 +174,35 @@
 
      (case (split-matrix top-row other-rows)
        [(abstraction-matrix rows)
-        (expand-patterns/abstraction-matrix first-var other-vars rows fail-var state)]
+        (expand-patterns/abstraction-matrix first-var other-vars rows fail-var result-type state)]
        [(variable-matrix rows)
-        (expand-patterns/variable-matrix first-var other-vars rows fail-var state)]
+        (expand-patterns/variable-matrix first-var other-vars rows fail-var result-type state)]
        [(abstraction-split-matrix top-rows bottom-rows)
         (match-define (tuple2 inner-fail state) (fresh-var #"fail" state))
         (match-define (tuple2 top-cases state)
-          (expand-patterns/abstraction-matrix first-var other-vars top-rows inner-fail state))
+          (expand-patterns/abstraction-matrix first-var other-vars top-rows inner-fail result-type state))
         (match-define (tuple2 bottom-cases state)
-          (expand-patterns/matrix vars bottom-rows fail-var state))
+          (expand-patterns/matrix vars bottom-rows fail-var result-type state))
         (tuple2
-          (join-point-expr inner-fail bottom-cases top-cases)
+          (join-point-expr inner-fail result-type bottom-cases top-cases)
           state)]
        [(variable-split-matrix top-rows bottom-rows)
         (match-define (tuple2 inner-fail state) (fresh-var #"fail" state))
         (match-define (tuple2 top-cases state)
-          (expand-patterns/variable-matrix first-var other-vars top-rows inner-fail state))
+          (expand-patterns/variable-matrix first-var other-vars top-rows inner-fail result-type state))
         (match-define (tuple2 bottom-cases state)
-          (expand-patterns/matrix vars bottom-rows fail-var state))
+          (expand-patterns/matrix vars bottom-rows fail-var result-type state))
         (tuple2
-          (join-point-expr inner-fail bottom-cases top-cases)
+          (join-point-expr inner-fail result-type bottom-cases top-cases)
           state)]
        [(int-split-matrix val top-row bottom-rows)
         (match-define (tuple2 inner-fail state) (fresh-var #"fail" state))
         (match-define (tuple2 top-case state)
-          (expand-patterns/matrix other-vars (varargs list top-row) inner-fail state))
+          (expand-patterns/matrix other-vars (varargs list top-row) inner-fail result-type state))
         (match-define (tuple2 bottom-cases state)
-          (expand-patterns/matrix vars bottom-rows fail-var state))
+          (expand-patterns/matrix vars bottom-rows fail-var result-type state))
         (tuple2
-          (join-point-expr inner-fail
+          (join-point-expr inner-fail result-type
             bottom-cases
             (int-case-expr (local-var-expr first-var)
               (int-case-clause val top-case)
@@ -208,11 +211,11 @@
        [(bytes-split-matrix val top-row bottom-rows)
         (match-define (tuple2 inner-fail state) (fresh-var #"fail" state))
         (match-define (tuple2 top-case state)
-          (expand-patterns/matrix other-vars (varargs list top-row) inner-fail state))
+          (expand-patterns/matrix other-vars (varargs list top-row) inner-fail result-type state))
         (match-define (tuple2 bottom-cases state)
-          (expand-patterns/matrix vars bottom-rows fail-var state))
+          (expand-patterns/matrix vars bottom-rows fail-var result-type state))
         (tuple2
-          (join-point-expr inner-fail
+          (join-point-expr inner-fail result-type
             bottom-cases
             (bytes-case-expr (local-var-expr first-var)
               (bytes-case-clause val top-case)
@@ -224,11 +227,12 @@
           [other-vars : (List Var)]
           [rows : (List (Tuple2 VariantDestructionInfo PatternRow))]
           [fail-var : Var]
+          [result-type : Type]
           [state : State])
   : (Tuple2 Expression State)
   (match-define grouped-rows (group-rows rows))
   (match-define (tuple2 clauses state)
-    (all-grouped-rows->variant-case-clauses other-vars fail-var grouped-rows state))
+    (all-grouped-rows->variant-case-clauses other-vars fail-var grouped-rows result-type state))
   (match-define all-variants-covered
     (all-variants-covered? (map (lambda ([t : (Tuple2 VariantDestructionInfo (List PatternRow))])
                                   (case t [(tuple2 info _) info])) grouped-rows)))
@@ -246,6 +250,7 @@
           [other-vars : (List Var)]
           [rows : (List (Tuple2 Var PatternRow))]
           [fail-var : Var]
+          [result-type : Type]
           [state : State])
   : (Tuple2 Expression State)
   (expand-patterns/matrix
@@ -257,6 +262,7 @@
            (pattern-row pats (let-expr inner-var (local-var-expr first-var) succ))]))
       rows)
     fail-var
+    result-type
     state))
 
 (define (split-matrix [top-row : PatternRow] [rows : (List PatternRow)])
@@ -337,6 +343,7 @@
           [vars : (List Var)]
           [fail-var : Var]
           [grouped-rows : (List (Tuple2 VariantDestructionInfo (List PatternRow)))]
+          [result-type : Type]
           [state : State])
   : (Tuple2 (List VariantCaseClause) State)
   (map/state
@@ -347,7 +354,7 @@
         (match-define (variant-destruction-info _ _ field-indices) info)
         (match-define (tuple2 field-vars state) (fresh-field-vars (length field-indices) state))
         (match-define (tuple2 expr state)
-          (expand-patterns/matrix (append field-vars vars) rows fail-var state))
+          (expand-patterns/matrix (append field-vars vars) rows fail-var result-type state))
         (tuple2 (variant-case-clause info field-vars expr) state)]))
     grouped-rows
     state))

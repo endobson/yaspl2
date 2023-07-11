@@ -32,6 +32,7 @@ yaspl_bootstrap_library(
     srcs = ["expand-patterns.yaspl"],
     deps = [
         "//libraries:panic",
+        "//libraries:types",
         "//libraries:variant-info",
         "//libraries/data:dict",
         "//libraries/data:lifted-primitives",
@@ -125,6 +126,7 @@ yaspl_bootstrap_library(
     deps = [
         "//libraries:module-name",
         "//libraries:module-signature",
+        "//libraries:prim-types",
         "//libraries:top-level-name",
         "//libraries:type-checked-language",
         "//libraries:types",

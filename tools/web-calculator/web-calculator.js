@@ -1,10 +1,7 @@
 window.addEventListener("DOMContentLoaded", () => {
-  let store = {
-    input: ""
-  }
   let imports = {
     host: {
-      "get-input-size": () => { return store.input.length; }
+      "length": (arg) => { return arg.length; }
     }
   }
   fetch("calc.wasm", {cache: "no-cache"})
@@ -19,9 +16,7 @@ window.addEventListener("DOMContentLoaded", () => {
       let input = fd.get('input')
       e.target.reset()
 
-      store.input = input
-
-      let result = instance.exports['handle-event']()
+      let result = instance.exports['handle-event'](input)
 
       let div = document.createElement("div")
       div.appendChild(new Text("Result: " + result))

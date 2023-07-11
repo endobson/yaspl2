@@ -1,0 +1,991 @@
+#:module (yaspl intermediate-to-stack)
+#:import {
+  (block-number)
+  (bytes)
+  (either)
+  (join-list)
+  (data indexed-set)
+  (data lifted-primitives)
+  (dict)
+  (intermediate-stack-expression)
+  (list)
+  (maybe)
+  (numbers)
+  (prim)
+  (panic)
+  {(prim-language variant-info)
+    {#:values
+      [variant-info r:variant-info]
+    }
+  }
+  {(stack-language)
+   {#:types
+     [FunctionDefinition s:FunctionDefinition]
+     [TopLevelObject s:TopLevelObject]
+     [Instruction s:Instruction]
+     [Module s:Module]
+   }
+   {#:values
+     [int-literal s:int-literal]
+     [function-definition s:function-definition]
+     [block-inst s:block-inst]
+     [break-inst s:break-inst]
+     [drop-inst s:drop-inst]
+     [if-inst s:if-inst]
+     [bin-op-inst s:bin-op-inst]
+     [unary-op-inst s:unary-op-inst]
+     [read-local-inst s:read-local-inst]
+     [write-local-inst s:write-local-inst]
+     [read-global-inst s:read-global-inst]
+     [closure-call-inst s:closure-call-inst]
+     [function-call-inst s:function-call-inst]
+     [halt-inst s:halt-inst]
+     [module s:module]
+     [trivial-closure-tlo s:trivial-closure-tlo ]
+     [bytes-tlo s:bytes-tlo]
+     [variant-descriptor-tlo s:variant-descriptor-tlo]
+     [trivial-variant-tlo s:trivial-variant-tlo]
+   }
+  }
+  (top-level-name)
+  (tuples)
+  (variant-info)
+  (yaspl mangle-names)
+  (yaspl math-operations)
+  (yaspl top-level-objects)
+  (yaspl var)
+}
+(export
+  (#:values intermediate->stack))
+(types
+  (define-type Environment
+    (environment
+      [vars : (Dict Var LiftedInt)]
+      [stack-depth : Int]
+      [escape-depths : (Dict Var LiftedInt)]
+      [block-indexes : (Dict Var LiftedInt)])))
+
+
+(define (intermediate->stack [mod : Module]) 
+  : (Either Bytes s:Module)
+  (match-define (module _name funcs constants) mod)
+
+  ;; TODO Still need to handle constants
+  (case (extract-rights (map convert-function funcs))
+    [(left v) (left v)]
+    [(right functions) 
+     (case (extract-rights (map convert-constant constants))
+      [(left v) (left v)]
+      [(right constants) 
+       (right (s:module (dict-add-all (make-dict top-level-name-cmp) constants) functions))])]))
+
+(define (env-ref [env : Environment] [name : Var]) : (Either Bytes LiftedInt)
+  (case (dict-ref (environment-vars env) name)
+    [(just idx) (right idx)]
+    [(nothing)
+     (left (bytes-append
+             (varargs list #"Unbound local variable when converting to stack: " (var->bytes name))))]))
+
+
+
+(define (env-set [env : Environment] [name : Var] [v : LiftedInt]) : Environment
+  (case env
+    [(environment vars stack-depth escape-depths block-indexes)
+     (environment (dict-set vars name v) stack-depth escape-depths block-indexes)]))
+
+(define (env-add-escape [env : Environment] [name : Var]) : Environment
+  (case env
+    [(environment vars stack-depth escape-depths block-indexes)
+     (environment vars stack-depth
+                  (dict-add escape-depths name (lifted-int stack-depth))
+                  (dict-add block-indexes name (lifted-int 0)))]))
+
+(define (env-add-stack-arg [env : Environment]) : Environment
+  (case env
+    [(environment vars stack-depth escape-depths block-indexes)
+     (environment vars (+ stack-depth 1) escape-depths block-indexes)]))
+
+
+(define (env-increment-block-indexes [env : Environment]) : Environment
+  (case env
+    [(environment vars stack-depth escape-depths block-indexes)
+     (environment vars stack-depth escape-depths
+                  (dict-value-map 
+                    block-indexes
+                    (lambda ([(lifted-int v) : LiftedInt]) (lifted-int (+ 1 v)))))]))
+
+(define (get-stack-difference [env : Environment] [name : Var]) : Int
+  (case env
+    [(environment _ stack-depth escape-depths _)
+     (case (dict-ref escape-depths name)
+       [(just (lifted-int depth))
+        (- stack-depth depth)]
+       [(nothing)
+        (panic/int (bytes-append (varargs list #"get-stack-difference: " (var->bytes name))))])]))
+
+(define (get-block-index [env : Environment] [name : Var]) : Int
+  (case env
+    [(environment _ _ _ block-indexes)
+     (case (dict-ref block-indexes name)
+       [(just (lifted-int index)) index]
+       [(nothing)
+        (panic/int (bytes-append (varargs list #"get-block-index: " (var->bytes name))))])]))
+
+
+(define (convert-function [f : FunctionDefinition]) 
+  : (Either Bytes s:FunctionDefinition)
+  (match-define (function-definition name _ arg-names free-vars next-var body) f)
+  (match-define initial-vars : (Dict Var LiftedInt)
+    (dict-add-all
+      (dict-add-all 
+        (dict-add-all 
+          (make-dict var-cmp)
+          (map/indexed (lambda ([v : Var] [idx : Int]) (tuple2 v (lifted-int (+ idx 1)))) arg-names))
+        (map/indexed (lambda ([v : Var] [idx : Int]) 
+                       (tuple2 v (lifted-int (+ (+ (length arg-names) 1) idx))))
+                     free-vars))
+        (map/indexed 
+          (lambda ([v : Var] [idx : Int]) 
+            (tuple2 v (lifted-int (+ idx (+ (length arg-names) (+ (length free-vars) 1))))))
+          (jl->list (collect-local-vars/expr body)))))
+
+
+  (match-define initial-env : Environment 
+    (environment 
+      initial-vars 
+      0
+      (make-dict var-cmp)
+      (make-dict var-cmp)))
+  (case (convert-expr body initial-env)
+    [(left v) (left v)]
+    [(right insts)
+     (right (s:function-definition name (+ 1 (length arg-names)) insts))]))
+
+
+;; Collects the set of bound local variables in an expression.
+;; Due to binding variables being unique we don't need to deduplicate.
+(define (collect-local-vars/expr [e : Expression]) : (JoinList Var)
+  (case e
+    [(let-expr name expr body)
+     (cons-jl
+       name
+       (append-jl
+         (collect-local-vars/expr expr)
+         (collect-local-vars/expr body)))]
+    [(variant-case-expr expr cases default)
+     (varargs append-jl*
+       (collect-local-vars/expr expr)
+       (concat-map-jl/list collect-local-vars/variant-case cases)
+       (collect-local-vars/maybe-default-case default))]
+    [(int-case-expr expr case default)
+     (varargs append-jl*
+       (collect-local-vars/expr expr)
+       (collect-local-vars/int-case case)
+       (collect-local-vars/default-case default))]
+    [(bytes-case-expr expr case default)
+     (varargs append-jl*
+       (collect-local-vars/expr expr)
+       (collect-local-vars/bytes-case case)
+       (collect-local-vars/default-case default))]
+    [(int-literal _) (empty-jl)]
+    [(boolean-literal _) (empty-jl)]
+    [(local-var-expr _) (empty-jl)]
+    [(global-var-expr _) (empty-jl)]
+    [(if-expr c t f)
+     (varargs append-jl*
+       (collect-local-vars/expr c)
+       (collect-local-vars/expr t)
+       (collect-local-vars/expr f))]
+    [(begin-expr exprs last-expr)
+     (append-jl
+       (collect-local-vars/exprs exprs)
+       (collect-local-vars/expr last-expr))]
+    [(create-closure-expr _fun-name exprs)
+     (collect-local-vars/exprs exprs)]
+    [(call-closure-expr _tail _op exprs)
+     (collect-local-vars/exprs exprs)]
+    [(call-function-expr _tail _name exprs)
+     (collect-local-vars/exprs exprs)]
+    [(bytes-length-expr b)
+     (collect-local-vars/expr b)]
+    [(bytes-ref-expr b i)
+     (append-jl
+       (collect-local-vars/expr b)
+       (collect-local-vars/expr i))]
+    [(bytes-set!-expr b i v)
+     (varargs append-jl*
+       (collect-local-vars/expr b)
+       (collect-local-vars/expr i)
+       (collect-local-vars/expr v))]
+    [(prim-numeric-bin-op _op left right)
+     (append-jl
+       (collect-local-vars/expr left)
+       (collect-local-vars/expr right))]
+    [(prim-comparison-bin-op _op left right)
+     (append-jl
+       (collect-local-vars/expr left)
+       (collect-local-vars/expr right))]
+    [(prim-logical-bin-op _op left right)
+     (append-jl
+       (collect-local-vars/expr left)
+       (collect-local-vars/expr right))]
+    [(prim-logical-unary-op _op expr)
+     (collect-local-vars/expr expr)]
+    [(make-variant-expr _info fields)
+     (collect-local-vars/exprs fields)]
+    [(variant-field-ref-expr expr _index _info)
+     (collect-local-vars/expr expr)]
+    [(no-op-cast-op _src _dest expr)
+     (collect-local-vars/expr expr)]
+    [(halt-expr)
+     (empty-jl)]
+    ;; join-var is not bound to value at runtime and so is not included in the output 
+    [(join-point-expr join-var result-type join-expr body)
+     (append-jl
+       (collect-local-vars/expr join-expr)
+       (collect-local-vars/expr body))]
+    [(join-expr _join-var)
+     (empty-jl)]))
+
+(define (collect-local-vars/exprs [es : (List Expression)]) : (JoinList Var)
+  (concat-map-jl/list collect-local-vars/expr es))
+
+(define (collect-local-vars/variant-case [c : VariantCaseClause]) : (JoinList Var)
+  (match-define (variant-case-clause _info fields expr) c)
+  (append-jl (list->jl fields) (collect-local-vars/expr expr)))
+
+(define (collect-local-vars/int-case [c : IntCaseClause]) : (JoinList Var)
+  (match-define (int-case-clause _val expr) c)
+  (collect-local-vars/expr expr))
+
+(define (collect-local-vars/bytes-case [c : BytesCaseClause]) : (JoinList Var)
+  (match-define (bytes-case-clause _val expr) c)
+  (collect-local-vars/expr expr))
+
+(define (collect-local-vars/default-case [c : DefaultCaseClause]) : (JoinList Var)
+  (match-define (default-case-clause expr) c)
+  (collect-local-vars/expr expr))
+
+(define (collect-local-vars/maybe-default-case [c : (Maybe DefaultCaseClause)]) : (JoinList Var)
+  (case c
+    [(nothing) (empty-jl)]
+    [(just c) (collect-local-vars/default-case c)]))
+
+;;  (match-define (function-definition name _ arg-names free-vars next-var body) f)
+;;  (match-define acc (block-accumulator next-var (initial-block-number)
+;;                                       (make-indexed-set basic-block-number block-number-cmp)))
+;;  (match-define (tuple2 start-block-num acc) (fresh-block-number* acc))
+;;
+;;  (match-define (tuple2 freshened-args acc)
+;;    (map-state fresh-name2* arg-names acc))
+;;  (match-define (tuple2 freshened-free-vars acc)
+;;    (map-state fresh-name2* free-vars acc))
+;;  (match-define freshened-args+free-vars (append freshened-args freshened-free-vars))
+;;
+;;  (match-define acc (start-block start-block-num (map new-arg2 freshened-args+free-vars) acc))
+;;  (match-define env (environment (make-dict var-cmp) (make-dict var-cmp)))
+;;  (match-define env
+;;    (foldl
+;;      (lambda ([t : (Tuple2 Var Var)] [env : Environment])
+;;        (case t
+;;          [(tuple2 name var) (env-set env name var)]))
+;;      freshened-args+free-vars
+;;      env))
+;;
+;;  (match-define (tuple2 result acc) (convert-expr body env acc))
+;;  (match-define (block-accumulator next-var next-block blocks) (add-terminal acc (r:return result)))
+;;
+;;  (match-define mangled-name (mangle-top-level-name name))
+;;
+;;
+;;  (register-function-tlo
+;;    mangled-name
+;;    (r:function-definition
+;;      (closure-convention (length arg-names) start-block-num (length free-vars))
+;;      blocks next-var next-block)))
+
+
+(define (convert-expr [e : Expression] [env : Environment])
+  : (Either Bytes (JoinList s:Instruction))
+  (case e
+    [(int-literal v)
+     (right (single-jl (s:int-literal v)))]
+    [(boolean-literal v)
+     (right (single-jl (s:int-literal (if v 1 0))))]
+    [(local-var-expr v)
+     (case (env-ref env v)
+       [(left v) (left v)]
+       [(right (lifted-int idx))
+        (right (single-jl (s:read-local-inst idx)))])]
+    [(global-var-expr name)
+     (right (single-jl (s:read-global-inst name)))]
+    [(join-point-expr var return-ty fail body)
+     (case (convert-expr body 
+             (env-add-escape 
+               (env-increment-block-indexes 
+                 (env-increment-block-indexes env)) var))
+       [(left v) (left v)]
+       [(right body-insts)
+        (case (convert-expr fail (env-increment-block-indexes env))
+          [(left v) (left v)]
+          [(right fail-insts)
+           (right
+             (single-jl
+               (s:block-inst (just return-ty)
+                 (cons-jl
+                   (s:block-inst (nothing) (snoc-jl body-insts (s:break-inst 1)))
+                   fail-insts))))])])]
+    [(join-expr var)
+     (match-define drops (list->jl (build-list (get-stack-difference env var)
+                                               (lambda ([_ : Int]) (s:drop-inst)))))
+     (match-define block-index (get-block-index env var))
+     (right (snoc-jl drops (s:break-inst block-index)))]
+    [(if-expr c t f)
+     (case (convert-expr c env)
+       [(left v) (left v)]
+       [(right c)
+        (match-define inner-env (env-increment-block-indexes env))
+        (case (convert-expr t inner-env)
+          [(left v) (left v)]
+          [(right t)
+           (case (convert-expr f inner-env)
+             [(left v) (left v)]
+             [(right f)
+              (right (snoc-jl c (s:if-inst t f)))])])])]
+
+    ;; TODO need to handle tail calls
+    [(call-closure-expr tail op-var args)
+     (case (convert-exprs/args args (env-add-stack-arg env))
+       [(left v) (left v)]
+       [(right args-insts)
+        (case (env-ref env op-var)
+          [(left v) (left v)]
+          [(right (lifted-int closure-idx))
+           (right
+             (cons-jl
+               (s:read-local-inst closure-idx)
+               (append-jl
+                 args-insts 
+                 (varargs join-list
+                   (s:read-local-inst closure-idx)
+                   (s:closure-call-inst (+ 1 (length args)))))))])])]
+
+    ;; TODO need to handle tail calls
+    [(call-function-expr tail name args)
+     (case (convert-exprs/args args (env-add-stack-arg env))
+       [(left v) (left v)]
+       [(right args-insts)
+        (right 
+          (varargs append-jl*
+            (single-jl (s:int-literal 0)) ;; Still need to pass a trivial closure
+            args-insts
+            (single-jl (s:function-call-inst name (length args)))))])]
+
+
+
+    [(let-expr name expr body)
+     (case (convert-expr expr env)
+       [(left v) (left v)]
+       [(right expr-insts)
+        (case (convert-expr body env)
+          [(left v) (left v)]
+          [(right body-insts)
+           (case (env-ref env name)
+             [(left v) (left v)]
+             [(right (lifted-int idx))
+              (right
+                (varargs append-jl*
+                   expr-insts
+                   (single-jl (s:write-local-inst idx))
+                   body-insts))])])])]
+    [(prim-numeric-bin-op op l r)
+     (case (convert-expr l env)
+       [(left v) (left v)]
+       [(right l-insts)
+        (case (convert-expr r env)
+          [(left v) (left v)]
+          [(right r-insts)
+           (right (snoc-jl (append-jl l-insts r-insts)
+                           (s:bin-op-inst (numeric-bin-op op))))])])]
+    [(prim-comparison-bin-op op l r)
+     (case (convert-expr l env)
+       [(left v) (left v)]
+       [(right l-insts)
+        (case (convert-expr r env)
+          [(left v) (left v)]
+          [(right r-insts)
+           (right (snoc-jl (append-jl l-insts r-insts)
+                           (s:bin-op-inst (comparison-bin-op op))))])])]
+    [(prim-logical-bin-op op l r)
+     (case (convert-expr l env)
+       [(left v) (left v)]
+       [(right l-insts)
+        (case (convert-expr r env)
+          [(left v) (left v)]
+          [(right r-insts)
+           (right (snoc-jl (append-jl l-insts r-insts)
+                           (s:bin-op-inst (logical-bin-op op))))])])]
+    [(prim-logical-unary-op op expr)
+     (case (convert-expr expr env)
+       [(left v) (left v)]
+       [(right insts)
+        (right (snoc-jl insts (s:unary-op-inst op)))])]
+
+    [(bytes-length-expr _)
+     ;; TODO actually implement this
+     (right (single-jl (s:int-literal #xDEAD)))]
+    [(bytes-ref-expr _ _)
+     ;; TODO actually implement this
+     (right (single-jl (s:int-literal #xDEAD)))]
+    [(bytes-set!-expr _ _ _)
+     ;; TODO actually implement this
+     (right (single-jl (s:int-literal #xDEAD)))]
+    [(variant-case-expr _ _ _)
+     (left #"NYI variant-case")]
+    [(int-case-expr c (int-case-clause val t) (default-case-clause f))
+     (case (convert-expr c env)
+       [(left v) (left v)]
+       [(right c-insts)
+        (match-define inner-env (env-increment-block-indexes env))
+        (case (convert-expr t inner-env)
+          [(left v) (left v)]
+          [(right t-insts)
+           (case (convert-expr f inner-env)
+             [(left v) (left v)]
+             [(right f-insts)
+              (right
+                (append-jl
+                  c-insts
+                  (varargs join-list (s:int-literal val) 
+                                     (s:bin-op-inst (comparison-bin-op (equal-op)))
+                                     (s:if-inst t-insts f-insts))))])])])]
+    [(bytes-case-expr _ _ _)
+     (left #"NYI bytes-case")]
+    [(no-op-cast-op _ _ expr)
+     (convert-expr expr env)]
+    [(halt-expr)
+     (right (single-jl (s:halt-inst)))]
+    [(begin-expr exprs expr)
+     (case (convert-exprs/begin exprs env)
+       [(left v) (left v)]
+       [(right es-insts)
+        (case (convert-expr expr env)
+          [(left v) (left v)]
+          [(right e-insts)
+           (right (append-jl es-insts e-insts))])])]
+    [(create-closure-expr _ _)
+     (left #"NYI create-closure")]
+    [(make-variant-expr _ _)
+     (left #"NYI make-variant")]
+    [(variant-field-ref-expr _ _ _)
+     (left #"NYI variant-field-ref")]
+
+    ;[_ (left #"NYI")]
+    ))
+
+(define (convert-exprs/args [es : (List Expression)] [env : Environment])
+  : (Either Bytes (JoinList s:Instruction))
+  (case es
+    [(empty) (right (empty-jl))]
+    [(cons e es)
+     (case (convert-expr e env)
+       [(left v) (left v)]
+       [(right e-insts)
+        (case (convert-exprs/args es (env-add-stack-arg env))
+          [(left v) (left v)]
+          [(right es-insts)
+           (right (append-jl e-insts es-insts))])])]))
+
+(define (convert-exprs/begin [es : (List Expression)] [env : Environment])
+  : (Either Bytes (JoinList s:Instruction))
+  (case es
+    [(empty) (right (empty-jl))]
+    [(cons e es)
+     (case (convert-expr e env)
+       [(left v) (left v)]
+       [(right e-insts)
+        (case (convert-exprs/begin es env)
+          [(left v) (left v)]
+          [(right es-insts)
+           (right (append-jl (snoc-jl e-insts (s:drop-inst)) es-insts))])])]))
+
+
+
+
+;; #:module (yaspl structured-to-stack)
+;; #:import {
+;;   (block-number)
+;;   (bytes)
+;;   (yaspl var)
+;;   (data indexed-set)
+;;   (data lifted-primitives)
+;;   (dict)
+;;   (list)
+;;   (join-list)
+;;   (maybe)
+;;   (numbers)
+;;   (prim)
+;;   (structured-language)
+;;   {(stack-language)
+;;    {#:types
+;;      [Instruction s:Instruction]
+;;    }
+;;    {#:values
+;;      [int-literal s:int-literal]
+;;      [drop-inst s:drop-inst]
+;;    }
+;;   }
+;; }
+;; (export)
+;; (types
+;;   (define-type Environment
+;;     (environment
+;;       [stack-depth : Int]
+;;       [block-depths : (Dict Var LiftedInt)])))
+;; 
+;; 
+;; (define (convert-expr [e : Expression] [env : Environment]) 
+;;   : (JoinList s:Instruction) 
+;;   (case e
+;;     [(int-literal v) (single-jl (s:int-literal v))]
+;;     [(begin-expr exprs last-expr)
+;;      (
+;;        (concat-map-jl/list
+;;          (lambda ([e : Expression]) 
+;;            (snoc-jl
+;;              (convert-expr e env)
+;;              (s:drop-inst)))
+;;          exprs)
+;;        (convert-expr last-expr env))]
+;;     [(block-expr name body)
+;;      (match-define (environment stack-depth block-depths) env)
+;;      (match-define block-depths (dict-add block-depths name stack-depth))
+;;      (match-define env (environment stack-depth block-depths))
+;; 
+;;      (block name
+;;      ]
+;;     [_
+;;      (panic #"NYI")]))
+
+
+;; (define (convert-expr [e : Expression] [env : Environment] [acc : Accumulator]) : (Tuple2 Var Accumulator)
+;;   (case e
+;;     [(int-literal v)
+;;      (case (fresh-var acc #"int")
+;;        [(tuple2 var acc)
+;;         (tuple2 var (add-instruction acc (r:int-literal var v)))])]
+;;     [(boolean-literal v)
+;;      (case (fresh-var acc #"bool")
+;;        [(tuple2 var acc)
+;;         (tuple2 var (add-instruction acc (r:int-literal var (if v 1 0))))])]
+;;     [(local-var-expr v)
+;;      (case (env-ref env v)
+;;        [(just var) (tuple2 var acc)]
+;;        [(nothing)
+;;         (panic (bytes-append
+;;                  (varargs list #"Unbound local variable when converting to register: " (var->bytes v))))])]
+;;     [(global-var-expr top-level-name)
+;;      (match-define sym (mangle-top-level-name top-level-name))
+;;      (match-define (top-level-name _mod-name local) top-level-name)
+;;      (match-define (tuple2 var acc) (fresh-var acc local))
+;;      (tuple2 var (add-instruction acc (r:symbol-address-inst var sym)))]
+;;     [(begin-expr es e)
+;;      (convert-expr e env (convert-begin es env acc))]
+;;     [(let-expr name e body)
+;;      (match-define (tuple2 v acc) (convert-expr e env acc))
+;;      (convert-expr body (env-set env name v) acc)]
+;;     [(call-closure-expr tail-position op args)
+;;      (match-define (tuple2 closure-var acc) (convert-expr op env acc))
+;;      (match-define (tuple2 arg-vars acc) (convert-exprs args env acc))
+;;      (match-define (tuple2 result-var acc) (fresh-var acc #"res"))
+;;      (match-define (tuple2 block-num acc) (fresh-block-number acc))
+;;      (match-define acc
+;;        (add-terminal acc
+;;                      (let ([fun (closure-call closure-var)])
+;;                        (if tail-position
+;;                            (r:tail-call fun arg-vars)
+;;                            (r:block-call fun arg-vars block-num)))))
+;;      (tuple2 result-var (start-block block-num (varargs list result-var) acc))]
+;;     [(call-function-expr tail-position name args)
+;;      (match-define (tuple2 arg-vars acc) (convert-exprs args env acc))
+;;      (match-define (tuple2 result-var acc) (fresh-var acc #"res"))
+;;      (match-define (tuple2 block-num acc) (fresh-block-number acc))
+;;      (match-define acc
+;;        (add-terminal acc
+;;                      (let ([fun (direct-call (mangle-top-level-name name))])
+;;                        (if tail-position
+;;                            (r:tail-call fun arg-vars)
+;;                            (r:block-call fun arg-vars block-num)))))
+;;      (tuple2 result-var (start-block block-num (varargs list result-var) acc))]
+;;     [(prim-numeric-bin-op op left right)
+;;      (match-define (tuple2 left-var acc) (convert-expr left env acc))
+;;      (match-define (tuple2 right-var acc) (convert-expr right env acc))
+;;      (match-define (tuple2 out-var acc) (fresh-var acc #"math"))
+;;      (tuple2
+;;        out-var
+;;        (add-instruction
+;;          acc
+;;          (r:bin-op-inst out-var (numeric-bin-op op) left-var right-var)))]
+;;     [(prim-comparison-bin-op op l r)
+;;      (match-define (tuple2 left-var acc) (convert-expr l env acc))
+;;      (match-define (tuple2 right-var acc) (convert-expr r env acc))
+;;      (match-define (tuple2 out-var acc) (fresh-var acc #"cmp"))
+;;      (tuple2
+;;        out-var
+;;        (add-instruction
+;;          acc
+;;          (r:bin-op-inst out-var (comparison-bin-op op) left-var right-var)))]
+;;     [(prim-logical-bin-op op l r)
+;;      (match-define (tuple2 left-var acc) (convert-expr l env acc))
+;;      (match-define (tuple2 right-var acc) (convert-expr r env acc))
+;;      (match-define (tuple2 out-var acc) (fresh-var acc #"cmp"))
+;;      (tuple2
+;;        out-var
+;;        (add-instruction
+;;          acc
+;;          (r:bin-op-inst out-var (logical-bin-op op) left-var right-var)))]
+;;     [(prim-logical-unary-op (not-op) e)
+;;      (match-define (tuple2 in-var acc) (convert-expr e env acc))
+;;      (match-define (tuple2 out-var acc) (fresh-var acc #"negated"))
+;;      (tuple2
+;;        out-var
+;;        (add-instruction
+;;          acc
+;;          (r:unary-op-inst out-var (boolean-not) in-var)))]
+;;     [(bytes-length-expr bytes)
+;;      (match-define (tuple2 bytes-var acc) (convert-expr bytes env acc))
+;;      (match-define (tuple2 size-var acc) (fresh-var acc #"size"))
+;;      (match-define acc
+;;        (add-instruction acc (r:pointer-ref-inst size-var (eight-byte-mem-op) bytes-var
+;;                                                 (fixed-pointer-offset 8))))
+;;      (tuple2 size-var acc)]
+;;     [(bytes-ref-expr bytes index)
+;;      (match-define (tuple2 bytes-var acc) (convert-expr bytes env acc))
+;;      (match-define (tuple2 index-var acc) (convert-expr index env acc))
+;;      (match-define (tuple2 val-var acc) (fresh-var acc #"val"))
+;;      (match-define acc
+;;        (add-instruction acc
+;;          (r:pointer-ref-inst val-var (one-byte-mem-op) bytes-var
+;;                              (scaled-pointer-offset index-var (one-byte-scale) 16))))
+;;      (tuple2 val-var acc)]
+;;     [(bytes-set!-expr bytes index val)
+;;      (match-define (tuple2 bytes-var acc) (convert-expr bytes env acc))
+;;      (match-define (tuple2 index-var acc) (convert-expr index env acc))
+;;      (match-define (tuple2 val-var acc) (convert-expr val env acc))
+;;      (match-define (tuple2 void-var acc) (fresh-var acc #"void"))
+;;      (match-define acc
+;;        (add-instruction acc (r:pointer-set!-inst (one-byte-mem-op) bytes-var
+;;                                                  (scaled-pointer-offset index-var (one-byte-scale) 16)
+;;                                                  val-var)))
+;;      (match-define acc
+;;        (add-instruction acc (r:int-literal void-var 0)))
+;;      (tuple2 void-var acc)]
+;;     [(no-op-cast-op _src _dest expr)
+;;      (convert-expr expr env acc)]
+;;     [(if-expr cond then else)
+;;      (match-define (tuple2 branch-var acc)
+;;        (convert-expr cond env acc))
+;;      (match-define (tuple2 t-block-num acc) (fresh-block-number acc))
+;;      (match-define (tuple2 f-block-num acc) (fresh-block-number acc))
+;;      (match-define acc
+;;        (add-terminal acc (r:cond-jump (negated-var-condition branch-var)
+;;                                       (jump-target f-block-num (empty))
+;;                                       (jump-target t-block-num (empty)))))
+;; 
+;;      (match-define (tuple2 t-value acc)
+;;        (convert-expr then env (start-block t-block-num (empty) acc)))
+;;      (match-define (tuple2 t-block acc) (split-accumulator acc))
+;;      (match-define (tuple2 f-value acc)
+;;        (convert-expr else env (start-block f-block-num (empty) acc)))
+;;      (match-define (tuple2 f-block acc) (split-accumulator acc))
+;; 
+;;      (match-define (tuple2 c-block-num acc) (fresh-block-number* acc))
+;; 
+;;      (match-define acc
+;;        (add-terminal*
+;;          (add-terminal* acc t-block (r:jump (jump-target c-block-num (varargs list t-value))))
+;;          f-block (r:jump (jump-target c-block-num (varargs list f-value)))))
+;;      (match-define (tuple2 join-var acc) (fresh-var* acc #"join"))
+;; 
+;;      (tuple2
+;;        join-var
+;;        (start-block c-block-num (varargs list join-var) acc))]
+;;     [(create-closure-expr name exprs)
+;;      (match-define symbol (mangle-top-level-name name))
+;;      (match-define (tuple2 closure-var acc) (fresh-var acc #"clos"))
+;;      (match-define (tuple2 descriptor-var acc) (fresh-var acc #"desc"))
+;;      (match-define (tuple2 symbol-var acc) (fresh-var acc #"sym"))
+;;      (match-define (tuple2 value-vars acc) (convert-exprs exprs env acc))
+;;      (match-define acc
+;;        (add-instructions
+;;          acc
+;;          (varargs list
+;;            (r:int-literal descriptor-var 0)
+;;            (r:symbol-address-inst symbol-var symbol)
+;;            (r:closure-allocate-inst closure-var (cons descriptor-var (cons symbol-var value-vars))))))
+;;      (tuple2 closure-var acc)]
+;;     [(make-variant-expr (variant-construction-info tag descriptor-name indices) fields)
+;;      (match-define (tuple2 variant-var acc) (fresh-var acc #"variant"))
+;;      (match-define (tuple2 tag-var acc) (fresh-var acc #"tag"))
+;;      (match-define (tuple2 value-vars acc) (convert-exprs fields env acc))
+;;      (match-define permuted-vars
+;;        (build-list (length value-vars)
+;;          (lambda ([runtime-index : Int]) : Var
+;;            (case (find-index (lambda ([v : LiftedInt])
+;;                                (case v [(lifted-int v) (= v runtime-index)]))
+;;                              indices)
+;;              [(nothing)
+;;               (panic (bytes-append
+;;                        (varargs list
+;;                          #"Bad index: No runtime index: "
+;;                          (integer->decimal-bytes runtime-index))))]
+;;              [(just (lifted-int source-index))
+;;               (case (list-ref value-vars source-index)
+;;                 [(nothing) (panic #"Bad index: Source index bad")]
+;;                 [(just var) var])]))))
+;;      (match-define var-info (r:variant-info tag (mangle-top-level-name descriptor-name)))
+;;      (match-define acc
+;;        (add-instruction acc (r:variant-allocate-inst variant-var var-info tag-var permuted-vars)))
+;;      (tuple2 variant-var acc)]
+;;     [(variant-field-ref-expr expr source-field-index (variant-destruction-info _ _ indices))
+;;      (match-define (tuple2 variant-var acc) (convert-expr expr env acc))
+;;      (match-define (tuple2 field-var acc) (fresh-var acc #"field"))
+;;      (case (list-ref indices source-field-index)
+;;        [(nothing) (panic #"Source field index is bad")]
+;;        [(just (lifted-int index))
+;;         (match-define acc
+;;           (add-instruction acc
+;;             (r:variant-ref-inst field-var variant-var index)))
+;;         (tuple2 field-var acc)])]
+;;     [(int-case-expr expr (int-case-clause val body) (default-case-clause default-expr))
+;;      (match-define (tuple2 value-var acc) (convert-expr expr env acc))
+;;      (match-define (tuple2 continue-block acc) (fresh-block-number acc))
+;;      (match-define (tuple2 fail-block acc) (fresh-block-number acc))
+;; 
+;;      (match-define acc
+;;        (add-terminal acc (r:cond-jump (comparison-condition
+;;                                         (not-equal-op)
+;;                                         (compare-s64
+;;                                           (compare-mem-arg-val value-var)
+;;                                           (var-or-s32-s32 (s32 val))))
+;;                                       (jump-target fail-block (empty))
+;;                                       (jump-target continue-block (empty)))))
+;; 
+;;      (match-define (tuple2 join-block acc) (fresh-block-number* acc))
+;;      (match-define (tuple2 success-val acc)
+;;        (convert-expr body env (start-block continue-block (empty) acc)))
+;;      (match-define acc (add-terminal acc (r:jump (jump-target join-block (varargs list success-val)))))
+;;      (match-define (tuple2 fail-val acc)
+;;        (convert-expr default-expr env (start-block fail-block (empty) acc)))
+;;      (match-define acc (add-terminal acc (r:jump (jump-target join-block (varargs list fail-val)))))
+;;      (match-define (tuple2 join-var acc) (fresh-var* acc #"join"))
+;;      (tuple2
+;;        join-var
+;;        (start-block join-block (varargs list join-var) acc))]
+;;     [(bytes-case-expr expr (bytes-case-clause name body) (default-case-clause default-expr))
+;;      (match-define (tuple2 value-var acc) (convert-expr expr env acc))
+;;      (match-define (tuple2 continue-block acc) (fresh-block-number acc))
+;;      (match-define (tuple2 fail-block acc) (fresh-block-number acc))
+;; 
+;;      (match-define symbol (mangle-top-level-name name))
+;;      (match-define (tuple2 bytes-var acc) (fresh-var acc #"bytes"))
+;;      (match-define (tuple2 adj-size-var acc) (fresh-var acc #"adj"))
+;;      (match-define (tuple2 base-size-var acc) (fresh-var acc #"base-size"))
+;;      (match-define (tuple2 size-var acc) (fresh-var acc #"size"))
+;;      (match-define acc (add-instruction acc (r:symbol-address-inst bytes-var symbol)))
+;;      (match-define acc
+;;        (add-instruction acc (r:pointer-ref-inst base-size-var (eight-byte-mem-op) bytes-var
+;;                                                 (fixed-pointer-offset 8))))
+;;      (match-define acc (add-instruction acc (r:int-literal adj-size-var 16)))
+;;      (match-define acc (add-instruction acc (r:bin-op-inst size-var (numeric-bin-op (add-op))
+;;                                                            base-size-var adj-size-var)))
+;;      (match-define acc
+;;        (add-terminal acc (r:cond-jump (memory-compare-condition #t size-var bytes-var value-var)
+;;                                       (jump-target fail-block (empty))
+;;                                       (jump-target continue-block (empty)))))
+;; 
+;;      (match-define (tuple2 join-block acc) (fresh-block-number* acc))
+;;      (match-define (tuple2 success-val acc)
+;;        (convert-expr body env (start-block continue-block (empty) acc)))
+;;      (match-define acc (add-terminal acc (r:jump (jump-target join-block (varargs list success-val)))))
+;;      (match-define (tuple2 fail-val acc)
+;;        (convert-expr default-expr env (start-block fail-block (empty) acc)))
+;;      (match-define acc (add-terminal acc (r:jump (jump-target join-block (varargs list fail-val)))))
+;;      (match-define (tuple2 join-var acc) (fresh-var* acc #"join"))
+;;      (tuple2
+;;        join-var
+;;        (start-block join-block (varargs list join-var) acc))]
+;;     [(variant-case-expr expr clauses default-clause)
+;;      (match-define (tuple2 value-var acc) (convert-expr expr env acc))
+;;      (match-define (tuple2 join-block acc) (fresh-block-number acc))
+;;      (match-define acc (convert-variant-clauses value-var clauses default-clause join-block env acc))
+;;      (match-define (tuple2 join-var acc) (fresh-var* acc #"join"))
+;;      (tuple2
+;;        join-var
+;;        (start-block join-block (varargs list join-var) acc))]
+;; 
+;;     [(halt-expr)
+;;      (match-define acc (add-terminal acc (r:halt)))
+;;      (match-define (tuple2 dead-block-num acc) (fresh-block-number* acc))
+;;      (match-define (tuple2 result-var acc) (fresh-var* acc #"res"))
+;;      (tuple2
+;;        result-var
+;;        (start-block dead-block-num (varargs list result-var) acc))]
+;;     [(join-point-expr join-var expr body)
+;;      (match-define (tuple2 escape-block-num acc) (fresh-block-number acc))
+;;      (match-define (tuple2 converge-block-num acc) (fresh-block-number acc))
+;; 
+;;      (match-define env-with-join (env-add-join-var env join-var escape-block-num))
+;;      (match-define (tuple2 body-return-var acc) (convert-expr body env-with-join acc))
+;;      (match-define acc
+;;        (add-terminal acc (r:jump (jump-target converge-block-num (varargs list body-return-var)))))
+;;      (match-define acc (start-block escape-block-num (empty) acc))
+;;      (match-define (tuple2 escape-return-var acc) (convert-expr expr env acc))
+;;      (match-define acc
+;;        (add-terminal acc (r:jump (jump-target converge-block-num (varargs list escape-return-var)))))
+;;      (match-define (tuple2 result-var acc) (fresh-var* acc #"res"))
+;;      (tuple2
+;;        result-var
+;;        (start-block converge-block-num (varargs list result-var) acc))]
+;;     [(join-expr join-var)
+;;      (match-define join-block-num : BlockNumber
+;;         (case (env-ref-join-var env join-var)
+;;           [(just n) n]
+;;           [(nothing) (panic #"Unbound join var")]))
+;;      (match-define acc (add-terminal acc (r:jump (jump-target join-block-num (empty)))))
+;;      (match-define (tuple2 dead-block-num acc) (fresh-block-number* acc))
+;;      (match-define (tuple2 result-var acc) (fresh-var* acc #"res"))
+;;      (tuple2
+;;        result-var
+;;        (start-block dead-block-num (varargs list result-var) acc))]))
+
+;; (define (convert-variant-clauses
+;;           [value-var : Var]
+;;           [clauses : (List VariantCaseClause)]
+;;           [default-clause : (Maybe DefaultCaseClause)]
+;;           [join-block : BlockNumber]
+;;           [env : Environment]
+;;           [acc : Accumulator])
+;;   : BlockAccumulator
+;;   (case (tuple2 default-clause clauses)
+;;     [(tuple2 (just (default-case-clause default-expr)) (empty))
+;;      (match-define (tuple2 fail-val acc) (convert-expr default-expr env acc))
+;;      (add-terminal acc (r:jump (jump-target join-block (varargs list fail-val))))]
+;;     [(tuple2 (nothing) (empty))
+;;      (panic #"Variant clause without cases or default clause")]
+;;     [(tuple2 (nothing) (cons (variant-case-clause info fields body) (empty)))
+;;      (match-define (tuple2 continue-env acc) (extract-fields value-var info fields env acc))
+;;      (match-define (tuple2 success-val acc) (convert-expr body continue-env acc))
+;;      (add-terminal acc (r:jump (jump-target join-block (varargs list success-val))))]
+;;     [(tuple2 default-clause (cons (variant-case-clause info fields body) clauses))
+;;      (match-define (variant-destruction-info tag _ _) info)
+;;      (match-define (tuple2 continue-block acc) (fresh-block-number acc))
+;;      (match-define (tuple2 fail-block acc) (fresh-block-number acc))
+;;      (match-define acc
+;;        (add-terminal acc (r:cond-jump (negated-variant-tag-condition value-var tag)
+;;                                       (jump-target fail-block (empty))
+;;                                       (jump-target continue-block (empty)))))
+;;      (match-define acc (start-block continue-block (empty) acc))
+;;      (match-define (tuple2 continue-env acc) (extract-fields value-var info fields env acc))
+;;      (match-define (tuple2 success-val acc) (convert-expr body continue-env acc))
+;;      (match-define acc (add-terminal acc (r:jump (jump-target join-block (varargs list success-val)))))
+;;      (match-define acc (start-block fail-block (empty) acc))
+;;      (convert-variant-clauses value-var clauses default-clause join-block env acc)]))
+
+;; (define (extract-fields [val : Var] [info : VariantDestructionInfo]
+;;                         [field-vars : (List Var)] [env : Environment] [acc : Accumulator])
+;;   : (Tuple2 Environment Accumulator)
+;;   (extract-fields* val info 0 field-vars env acc))
+;; 
+;; (define (extract-fields* [val : Var] [info : VariantDestructionInfo] [index : Int]
+;;                          [field-vars : (List Var)] [env : Environment] [acc : Accumulator])
+;;   : (Tuple2 Environment Accumulator)
+;;   (case field-vars
+;;     [(empty)
+;;      (tuple2 env acc)]
+;;     [(cons field-var field-vars)
+;;      (match-define (variant-destruction-info _ _ indices) info)
+;;      (case (list-ref indices index)
+;;        [(nothing) (panic #"Source field index is bad")]
+;;        [(just (lifted-int runtime-index))
+;;         (match-define (tuple2 fresh-var acc) (fresh-var2 acc field-var))
+;;         (match-define acc (add-instruction acc (r:variant-ref-inst fresh-var val runtime-index)))
+;;         (extract-fields* val info (+ 1 index) field-vars (env-set env field-var fresh-var) acc)])]))
+
+;; (define (convert-begin [exprs : (List Expression)] [env : Environment] [acc : Accumulator])
+;;   : Accumulator
+;;   (case exprs
+;;     [(empty) acc]
+;;     [(cons expr exprs)
+;;      (match-define (tuple2 _ acc) (convert-expr expr env acc))
+;;      (convert-begin exprs env acc)]))
+;; 
+;; (define (convert-exprs [exprs : (List Expression)] [env : Environment] [acc : Accumulator])
+;;   : (Tuple2 (List Var) Accumulator)
+;;   (case exprs
+;;     [(empty)
+;;      (tuple2 (empty) acc)]
+;;     [(cons expr exprs)
+;;      (match-define (tuple2 v acc) (convert-expr expr env acc))
+;;      (match-define (tuple2 vars acc) (convert-exprs exprs env acc))
+;;      (tuple2 (cons v vars) acc)]))
+
+;; (define (fresh-var [acc : Accumulator] [base-name : Bytes]) : (Tuple2 Var Accumulator)
+;;   (case (fresh-name base-name acc)
+;;     [(tuple2 (tuple2 _ v) acc) (tuple2 v acc)]))
+;; 
+;; (define (fresh-var* [acc : BlockAccumulator] [base-name : Bytes]) : (Tuple2 Var BlockAccumulator)
+;;   (case (fresh-name* base-name acc)
+;;     [(tuple2 (tuple2 _ v) acc) (tuple2 v acc)]))
+;; 
+;; (define (fresh-var2 [acc : Accumulator] [base-name : Var]) : (Tuple2 Var Accumulator)
+;;   (case (fresh-name2 base-name acc)
+;;     [(tuple2 (tuple2 _ v) acc) (tuple2 v acc)]))
+
+(define [a b s] (map-state [f : (a s -> (Tuple2 b s))] [l : (List a)] [s : s]) : (Tuple2 (List b) s)
+  (case l
+    [(empty) (tuple2 (empty) s)]
+    [(cons e l)
+     (case (f e s)
+       [(tuple2 v s)
+        (case (map-state f l s)
+          [(tuple2 vs s)
+           (tuple2 (cons v vs) s)])])]))
+
+(define (convert-constant [constant : ConstantDefinition])
+  : (Either Bytes (Tuple2 TopLevelName s:TopLevelObject))
+  (case constant
+    [(bytes-constant name value)
+     (right (tuple2 name (s:bytes-tlo value)))]
+    [(variant-descriptor-constant name variant-name-name i64-field-count star-field-count)
+     (right (tuple2 name (s:variant-descriptor-tlo variant-name-name i64-field-count
+                                                   star-field-count)))]
+    [(trivial-variant-constant name desc-name tag)
+     (right (tuple2 name (s:trivial-variant-tlo desc-name tag)))]
+    [(closure-constant name fun-name)
+     (right (tuple2 name (s:trivial-closure-tlo fun-name)))]))
+
+
+(define (compile-constants [mod : Module]) : (List TopLevelObject)
+  (map compile-constant (module-constants mod)))
+
+(define (compile-constant [constant : ConstantDefinition])
+  : TopLevelObject
+  (case constant
+    [(bytes-constant name value)
+     (bytes-tlo (mangle-top-level-name name) value)]
+    [(variant-descriptor-constant name variant-name-name i64-field-count star-field-count)
+     (variant-descriptor-tlo
+       (mangle-top-level-name name)
+       (mangle-top-level-name variant-name-name)
+       i64-field-count
+       star-field-count)]
+    [(trivial-variant-constant name desc-name tag)
+     (trivial-variant-tlo
+       (mangle-top-level-name name)
+       (mangle-top-level-name desc-name)
+       tag)]
+    [(closure-constant name fun-name)
+     (trivial-closure-tlo
+       (mangle-top-level-name name)
+       (mangle-top-level-name fun-name))]))

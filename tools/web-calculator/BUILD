@@ -36,11 +36,39 @@ yaspl_library(
     ],
 )
 
+yaspl_library(
+    name = "client-code2",
+    srcs = ["client-code2.yaspl"],
+    deps = [
+        ":web-calculator-embed",
+        "//libraries:http-server",
+        "//libraries:intermediate-expression",
+        "//libraries:io",
+        "//libraries:ip",
+        "//libraries:tcp",
+        "//libraries/data:bytes",
+        "//libraries/data:dict",
+        "//libraries/data:either",
+        "//libraries/data:join-list",
+        "//libraries/data:lifted-primitives",
+        "//libraries/data:list",
+        "//libraries/data:maybe",
+        "//libraries/data:numbers",
+        "//libraries/data:tuples",
+        "//libraries/formats:html",
+        "//libraries/formats:web-assembly",
+        "//libraries/formats:xml",
+        "//libraries/protocols/http:http-response",
+        "//libraries/protocols/http:http-responses",
+    ],
+)
+
 yaspl_binary(
     name = "web-calculator",
     srcs = ["web-calculator-main.yaspl"],
     deps = [
         ":client-code",
+        ":client-code2",
         ":web-calculator-embed",
         "//libraries:http-server",
         "//libraries:io",

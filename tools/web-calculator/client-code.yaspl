@@ -23,11 +23,13 @@
      [function w:function]
      [function-export w:function-export]
      [i32 w:i32]
+     [extern-ref w:extern-ref]
      [export w:export]
      [const-i32-inst w:const-i32-inst]
      [add-i32-inst w:add-i32-inst]
      [global-set-inst w:global-set-inst]
      [global-get-inst w:global-get-inst]
+     [local-get-inst w:local-get-inst]
      [call-inst w:call-inst]
      [import w:import]
      [function-import w:function-import]
@@ -60,10 +62,11 @@
   (define-type Global
     (global [name : Bytes] [inital-value : Int]))
   (define-type Function
-    (function [name : Bytes] [body : Expression]))
+    (function [name : Bytes] [arg : Bytes] [body : Expression]))
   (define-type Expression
     (set-global!-expr [name : Bytes] [val : Expression])
     (get-global-expr [name : Bytes])
+    (get-local-expr [name : Bytes])
     (call-function [name : Bytes])
     (bin-op-expr [op : BinOp] [l : Expression] [r : Expression])
     (seq-expr [es : (List Expression)]))
@@ -74,16 +77,19 @@
 (define (client-source-code) : Module
   (module
     (varargs list
-      (host-function #"get-input-size"))
+      (host-function #"length"))
     (varargs list
       (global #"accumulator" 0))
     (varargs list
-      (function #"handle-event"
+      (function #"handle-event" #"event"
         (seq-expr
           (varargs list
             (set-global!-expr #"accumulator" 
               (bin-op-expr (plus-bin-op) 
-                (call-function #"get-input-size")
+                (seq-expr
+                  (varargs list
+                    (get-local-expr #"event")
+                    (call-function #"length")))
                 (get-global-expr #"accumulator")))
             (get-global-expr #"accumulator")))))))
 
@@ -126,7 +132,7 @@
   (match-define exports
     (map/indexed
       (lambda ([f : Function] [i : Int])
-        (match-define (function name _) f)
+        (match-define (function name arg _) f)
         (w:export name (w:function-export (+ i (length host-functions)))))
       functions))
 
@@ -137,7 +143,7 @@
      (right (w:module function-types imports wasm-functions wasm-globals exports))]))
 
 (define (host-function->type [f : HostFunction]) : w:Type
-  (w:function-type (empty) (varargs list (w:i32))))
+  (w:function-type (varargs list (w:extern-ref)) (varargs list (w:i32))))
 
 (define (host-function->import [f : HostFunction] [index : Int]) : w:Import
   (match-define (host-function name) f)
@@ -150,7 +156,7 @@
 
 
 (define (function->type [f : Function]) : w:Type
-  (w:function-type (empty) (varargs list (w:i32))))
+  (w:function-type (varargs list (w:extern-ref)) (varargs list (w:i32))))
 
 (define (convert-expression 
           [e : Expression] 
@@ -171,6 +177,9 @@
        [(nothing) (left #"Unbound global")]
        [(just (lifted-int idx))
         (right (single-jl (w:global-get-inst idx)))])]
+    [(get-local-expr name)
+     ;; TODO actually use the environment
+     (right (single-jl (w:local-get-inst 0)))]
     [(call-function name)
      (case (dict-ref function-env name)
        [(nothing) (left #"Unbound function")]
@@ -207,7 +216,7 @@
           [f : Function] [index : Int] 
           [global-env : (Dict Bytes LiftedInt)]
           [function-env : (Dict Bytes LiftedInt)]) : (Either Bytes w:Function)
-  (match-define (function name body) f)
+  (match-define (function name arg body) f)
   (case (convert-expression body global-env function-env)
     [(left v) (left v)]
     [(right insts) (right (w:function index (empty) (jl->list insts)))]))
