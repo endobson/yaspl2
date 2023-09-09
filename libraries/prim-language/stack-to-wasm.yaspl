@@ -60,6 +60,7 @@
      [i32-wrap-i64-inst w:i32-wrap-i64-inst]
      [i64-extend-s32-inst w:i64-extend-s32-inst]
      [i32-load-inst w:i32-load-inst]
+     [i64-load-inst w:i64-load-inst]
      [i64-eq-inst w:i64-eq-inst]
      [i64-ne-inst w:i64-ne-inst]
      [s64-lt-inst w:s64-lt-inst]
@@ -85,6 +86,7 @@
      [local-get-inst w:local-get-inst]
      [local-set-inst w:local-set-inst]
      [global-get-inst w:global-get-inst]
+     [global-set-inst w:global-set-inst]
      [block-value-type w:block-value-type]
      [call-inst w:call-inst]
      [call-indirect-inst w:call-indirect-inst]
@@ -100,6 +102,7 @@
   (define-type Environment
     (environment
       [globals : (Dict TopLevelName LiftedInt)]
+      [bump-pointer : Int] ;; Index of the global of the bump pointer
       [funcs : (Dict TopLevelName LiftedInt)]
       [sized-func-types : (Dict LiftedInt LiftedInt)])))
 
@@ -171,7 +174,9 @@
            funcs)))
 
 
-     (match-define env (environment global-indexes func-indexes sized-func-dict))
+     (match-define bump-pointer-index (length globals))
+
+     (match-define env (environment global-indexes bump-pointer-index func-indexes sized-func-dict))
 
 
 
@@ -181,10 +186,15 @@
 
 
      (match-define wasm-globals
-       (map 
-         (lambda ([(tuple2 _name (lifted-int offset)) : (Tuple2 TopLevelName LiftedInt)])
-           (w:global (w:global-type #f (w:i64)) (varargs list (w:const-i64-inst offset))))
-         globals))
+       (append
+         (map 
+           (lambda ([(tuple2 _name (lifted-int offset)) : (Tuple2 TopLevelName LiftedInt)])
+             (w:global (w:global-type #f (w:i64)) (varargs list (w:const-i64-inst offset))))
+           globals)
+         ;; TODO figure out how to make this past the data section
+         (varargs list
+           (w:global (w:global-type #t (w:i64)) (varargs list (w:const-i64-inst #x1000))))))
+
 
 
      (match-define wasm-exports
@@ -267,6 +277,30 @@
     [(function-call-inst name _num-args)
      (single-jl 
        (w:call-inst (env-function-ref env name)))]
+    [(closure-allocate-inst fun-name num-args)
+     (single-jl (w:unreachable-inst))]
+    ; (match-define bp (environment-bump-pointer env))
+    ; (match-define args
+    ;   (reverse
+    ;     (build-list num-args 
+    ;       (lambda ([i : Int])
+    ;         (varags join-list
+    ;           (w:global-get-inst bp)
+    ;           (w:i64-store-inst (* 8 (+ i 2)) 3))))))
+    ;       
+
+
+
+    ; (varargs join-list
+    ;   ;; Update the bump pointer but return the old value
+    ;   (w:global-get-inst bp)
+    ;   (w:global-get-inst bp)
+    ;   (w:const-i64-inst (* 8 (+ 2 num-args)))
+    ;   (w:global-set-inst bp)
+    ;   )]
+
+
+
     [(bin-op-inst (comparison-bin-op (less-than-op)))
      (varargs join-list (w:s64-lt-inst) (w:i64-extend-s32-inst))]
     [(bin-op-inst (comparison-bin-op (less-than-or-equal-op)))
