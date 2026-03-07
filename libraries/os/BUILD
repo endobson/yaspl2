@@ -1,6 +1,6 @@
 load("@minimal_racket//:racket.bzl", "racket_binary", "racket_library", "racket_test")
-load("//libraries/core-language:core-language.bzl", "core_library")
 load("//libraries:yaspl.bzl", "yaspl_binary", "yaspl_library", "yaspl_link")
+load("//libraries/core-language:core-language.bzl", "core_library")
 
 package(
     default_visibility = ["//visibility:public"],

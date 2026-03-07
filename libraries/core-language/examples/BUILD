@@ -1,5 +1,5 @@
-load("//libraries/core-language:core-language.bzl", "core_library")
 load("//libraries:yaspl.bzl", "yaspl_test")
+load("//libraries/core-language:core-language.bzl", "core_library")
 
 package(
     default_visibility = ["//visibility:public"],

@@ -1,11 +1,11 @@
-load("//tools:yaspl-module-index.bzl", "yaspl_module_index_rule")
-load("//tools:yaspl-missing-dependencies.bzl", "yaspl_missing_dependencies_rule")
-load("//tools:yaspl-remove-unused-dependencies.bzl", "yaspl_remove_unused_dependencies_rule")
-load("//tools:yaspl-lint.bzl", "yaspl_lint_rule")
 load("//tools:yaspl-clean-up-imports.bzl", "yaspl_clean_up_imports_rule")
-load("//tools:yaspl-validate-ir.bzl", "yaspl_validate_ir_rule")
 load("//tools:yaspl-exported-values.bzl", "yaspl_exported_values_rule")
+load("//tools:yaspl-lint.bzl", "yaspl_lint_rule")
+load("//tools:yaspl-missing-dependencies.bzl", "yaspl_missing_dependencies_rule")
 load("//tools:yaspl-module-dependency-graph.bzl", "yaspl_module_dependency_graph_rule")
+load("//tools:yaspl-module-index.bzl", "yaspl_module_index_rule")
+load("//tools:yaspl-remove-unused-dependencies.bzl", "yaspl_remove_unused_dependencies_rule")
+load("//tools:yaspl-validate-ir.bzl", "yaspl_validate_ir_rule")
 
 yaspl_module_index_rule(
     name = "module_index",

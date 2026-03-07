@@ -1,9 +1,9 @@
-load("//libraries:yaspl.bzl", "yaspl_binary", "yaspl_library")
 load(
     "@io_bazel_rules_docker//container:container.bzl",
     "container_image",
     "container_push",
 )
+load("//libraries:yaspl.bzl", "yaspl_binary", "yaspl_library")
 load("//rules:yaspl-embed-file.bzl", "yaspl_embed_file")
 
 package(
@@ -14,11 +14,6 @@ yaspl_library(
     name = "client-code",
     srcs = ["client-code.yaspl"],
     deps = [
-        ":web-calculator-embed",
-        "//libraries:http-server",
-        "//libraries:io",
-        "//libraries:ip",
-        "//libraries:tcp",
         "//libraries/data:bytes",
         "//libraries/data:dict",
         "//libraries/data:either",
@@ -26,13 +21,8 @@ yaspl_library(
         "//libraries/data:lifted-primitives",
         "//libraries/data:list",
         "//libraries/data:maybe",
-        "//libraries/data:numbers",
         "//libraries/data:tuples",
-        "//libraries/formats:html",
         "//libraries/formats:web-assembly",
-        "//libraries/formats:xml",
-        "//libraries/protocols/http:http-response",
-        "//libraries/protocols/http:http-responses",
     ],
 )
 

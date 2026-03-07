@@ -1,10 +1,10 @@
-load("//libraries:yaspl.bzl", "yaspl_binary")
-load("//tools:yaspl-source-files.bzl", "yaspl_source_files_rule")
 load(
     "@io_bazel_rules_docker//container:container.bzl",
     "container_image",
     "container_push",
 )
+load("//libraries:yaspl.bzl", "yaspl_binary")
+load("//tools:yaspl-source-files.bzl", "yaspl_source_files_rule")
 
 package(
     default_visibility = ["//visibility:public"],

@@ -1,5 +1,5 @@
-load(":wasm.bzl", "wasm_demo_page")
 load("//libraries:yaspl.bzl", "yaspl_binary")
+load(":wasm.bzl", "wasm_demo_page")
 
 package(
     default_visibility = ["//visibility:public"],
