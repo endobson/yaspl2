@@ -1,4 +1,4 @@
-load("@rules_oci//oci:defs.bzl", "oci_image", "oci_push")
+load("@rules_oci//oci:defs.bzl", "oci_image", "oci_load", "oci_push")
 load("@rules_pkg//pkg:pkg.bzl", "pkg_tar")
 load("//libraries:yaspl.bzl", "yaspl_binary")
 load("//tools:yaspl-source-files.bzl", "yaspl_source_files_rule")
@@ -50,6 +50,7 @@ pkg_tar(
         ":doc-server",
         ":source_files",
     ],
+    strip_prefix = ".",
 )
 
 oci_image(
@@ -69,6 +70,12 @@ oci_push(
     name = "doc-server-push",
     image = ":doc-server-image",
     repository = "gcr.io/crucial-bloom-404/doc-server",
+)
+
+oci_load(
+    name = "doc-server-load",
+    image = ":doc-server-image",
+    repo_tags = ":doc-server-repo-tags.txt",
 )
 
 test_suite(
