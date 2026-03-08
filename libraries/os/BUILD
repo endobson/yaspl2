@@ -223,8 +223,8 @@ genrule(
     ],
     cmd = "$(location :gen-msabi) $(YASPL_PLATFORM) " +
           "$(location :msabi-runtime.o) $(location :msabi-runtime.sig)",
-    exec_tools = [":gen-msabi"],
     toolchains = ["//libraries/yaspl:make_variables"],
+    tools = [":gen-msabi"],
 )
 
 yaspl_link(

@@ -1,8 +1,5 @@
-load(
-    "@io_bazel_rules_docker//container:container.bzl",
-    "container_image",
-    "container_push",
-)
+load("@rules_oci//oci:defs.bzl", "oci_image", "oci_push")
+load("@rules_pkg//pkg:pkg.bzl", "pkg_tar")
 load("//libraries:yaspl.bzl", "yaspl_binary", "yaspl_library")
 load("//rules:yaspl-embed-file.bzl", "yaspl_embed_file")
 
@@ -71,24 +68,31 @@ yaspl_binary(
     ],
 )
 
-container_image(
+pkg_tar(
+    name = "web-calculator-layer",
+    srcs = [
+        ":web-calculator",
+    ],
+)
+
+oci_image(
     name = "web-calculator-image",
+    architecture = "amd64",
     entrypoint = [
         "/web-calculator",
         "0.0.0.0",
         "8080",
     ],
-    files = [
-        ":web-calculator",
+    os = "linux",
+    tars = [
+        ":web-calculator-layer",
     ],
 )
 
-container_push(
+oci_push(
     name = "web-calculator-push",
-    format = "Docker",
     image = ":web-calculator-image",
-    registry = "gcr.io",
-    repository = "crucial-bloom-404/web-calculator",
+    repository = "gcr.io/crucial-bloom-404/web-calculator",
 )
 
 test_suite(

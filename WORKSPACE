@@ -40,20 +40,6 @@ register_toolchains(
     '@minimal_racket//:linux_osx_racket_toolchain',
 )
 
-http_archive(
-    name = "io_bazel_rules_docker",
-    sha256 = "59536e6ae64359b716ba9c46c39183403b01eabfbd57578e84398b4829ca499a",
-    strip_prefix = "rules_docker-0.22.0",
-    urls = ["https://github.com/bazelbuild/rules_docker/releases/download/v0.22.0/rules_docker-v0.22.0.tar.gz"],
-)
-
-load("@io_bazel_rules_docker//repositories:repositories.bzl",
-     container_repositories = "repositories")
-container_repositories()
-
-load("@io_bazel_rules_docker//repositories:deps.bzl", container_deps = "deps")
-container_deps()
-
 http_file(
   name = "ovmf_code",
   sha256 = "81ede7af3351a1710a4d4a35655fac10bedb11ae3484ae785820803a5bf69829",

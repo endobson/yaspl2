@@ -1,8 +1,5 @@
-load(
-    "@io_bazel_rules_docker//container:container.bzl",
-    "container_image",
-    "container_push",
-)
+load("@rules_oci//oci:defs.bzl", "oci_image", "oci_push")
+load("@rules_pkg//pkg:pkg.bzl", "pkg_tar")
 load("//libraries:yaspl.bzl", "yaspl_binary")
 load("//tools:yaspl-source-files.bzl", "yaspl_source_files_rule")
 
@@ -47,27 +44,31 @@ yaspl_source_files_rule(
     ],
 )
 
-container_image(
+pkg_tar(
+    name = "doc-server-layer",
+    srcs = [
+        ":doc-server",
+        ":source_files",
+    ],
+)
+
+oci_image(
     name = "doc-server-image",
-    data_path = ".",
+    architecture = "amd64",
     entrypoint = [
         "/doc-server",
         "0.0.0.0",
         "8080",
         "/source_files.list",
     ],
-    files = [
-        ":doc-server",
-        ":source_files",
-    ],
+    os = "linux",
+    tars = ["doc-server-layer"],
 )
 
-container_push(
+oci_push(
     name = "doc-server-push",
-    format = "Docker",
     image = ":doc-server-image",
-    registry = "gcr.io",
-    repository = "crucial-bloom-404/doc-server",
+    repository = "gcr.io/crucial-bloom-404/doc-server",
 )
 
 test_suite(

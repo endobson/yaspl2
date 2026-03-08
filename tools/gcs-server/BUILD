@@ -1,8 +1,5 @@
-load(
-    "@io_bazel_rules_docker//container:container.bzl",
-    "container_image",
-    "container_push",
-)
+load("@rules_oci//oci:defs.bzl", "oci_image", "oci_push")
+load("@rules_pkg//pkg:pkg.bzl", "pkg_tar")
 load("//libraries:yaspl.bzl", "yaspl_binary")
 
 package(
@@ -30,26 +27,32 @@ yaspl_binary(
     ],
 )
 
-container_image(
+pkg_tar(
+    name = "gcs-server-layer",
+    srcs = [
+        ":gcs-server",
+    ],
+)
+
+oci_image(
     name = "gcs-server-image",
-    data_path = ".",
+    architecture = "amd64",
     entrypoint = [
         "/gcs-server",
         "0.0.0.0",
         "8080",
         "instance",
     ],
-    files = [
-        ":gcs-server",
+    os = "linux",
+    tars = [
+        ":gcs-server-layer",
     ],
 )
 
-container_push(
+oci_push(
     name = "gcs-server-push",
-    format = "Docker",
     image = ":gcs-server-image",
-    registry = "gcr.io",
-    repository = "crucial-bloom-404/gcs-server",
+    repository = "gcr.io/crucial-bloom-404/gcs-server",
 )
 
 test_suite(
