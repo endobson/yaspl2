@@ -223,8 +223,8 @@ core_language_toolchain(
 toolchain(
     name = "osx_core_language_toolchain",
     target_compatible_with = [
-        "@platforms//os:osx",
-        "@platforms//cpu:x86_64",
+        "@@platforms//os:osx",
+        "@@platforms//cpu:x86_64",
     ],
     toolchain = ":osx_core_language_toolchain_impl",
     toolchain_type = ":core_language_toolchain",
@@ -238,8 +238,8 @@ core_language_toolchain(
 toolchain(
     name = "linux_core_language_toolchain",
     target_compatible_with = [
-        "@platforms//os:linux",
-        "@platforms//cpu:x86_64",
+        "@@platforms//os:linux",
+        "@@platforms//cpu:x86_64",
     ],
     toolchain = ":linux_core_language_toolchain_impl",
     toolchain_type = ":core_language_toolchain",
@@ -254,7 +254,7 @@ toolchain(
     name = "yasplos_core_language_toolchain",
     target_compatible_with = [
         "//constraints/os:yasplos",
-        "@platforms//cpu:x86_64",
+        "@@platforms//cpu:x86_64",
     ],
     toolchain = ":yasplos_core_language_toolchain_impl",
     toolchain_type = ":core_language_toolchain",

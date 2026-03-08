@@ -4,5 +4,5 @@ package(
 
 constraint_value(
     name = "yasplos",
-    constraint_setting = "@platforms//os",
+    constraint_setting = "@@platforms//os",
 )
